@@ -86,19 +86,16 @@ test.describe('Customize Page — Tabs, Drawers & Pin Flow', () => {
 
     // Click pin — should NOT trigger item selection (stopPropagation)
     // The detail panel should stay in empty state or not change to this item
-    const detailEmpty = page.locator('[data-testid="customize-detail-empty"]');
-    const wasEmpty = (await detailEmpty.count()) > 0;
+    const beforeRoute = page.url();
 
     await firstPin.click();
     await page.waitForTimeout(300);
 
-    if (wasEmpty) {
-      // After pin click with stopPropagation, detail panel should still be empty
-      // (unless pin click explicitly selects — but per spec it shouldn't)
-      const stillEmpty = await detailEmpty.count();
-      // Pin button click should not select the item
-      expect(stillEmpty).toBeGreaterThanOrEqual(0); // relaxed — main test is that click succeeds
-    }
+    await expect(page.locator('[data-testid="customize-detail-panel"]')).toHaveCount(0);
+    expect(page.url()).toBe(beforeRoute);
+    // Restore the original pin state so the test is isolated.
+    await firstPin.click();
+    await expect(page.locator('[data-testid="customize-items-list"]')).toBeVisible();
   });
 
   test('pin/unpin cycle works from Items tab', async ({ page }) => {
@@ -143,8 +140,8 @@ test.describe('Customize Page — Tabs, Drawers & Pin Flow', () => {
     const searchInput = page.locator('[data-testid="customize-search"]');
     await expect(searchInput).toBeVisible();
 
-    // Type search query
-    await searchInput.fill('workflow');
+    // Search in Portuguese, matching navigation labels and descriptions.
+    await searchInput.fill('automa');
     await page.waitForTimeout(500);
 
     // Should show filtered results
@@ -206,9 +203,9 @@ test.describe('Customize Page — Tabs, Drawers & Pin Flow', () => {
 
   // === PINNED ITEMS REFLECT IN SIDEBAR ===
 
-  test('pinning item on customize page shows it in sidebar', async ({ page }) => {
-    // Find and pin Tasks
-    const tasksPin = page.locator('[data-testid="customize-pin-tasks"]');
+  test('pinning an unpinned item shows it in sidebar', async ({ page }) => {
+    // Analytics is not pinned in a fresh default layout.
+    const tasksPin = page.locator('[data-testid="customize-pin-analytics"]');
     if ((await tasksPin.count()) === 0) {
       test.skip();
       return;
@@ -218,9 +215,9 @@ test.describe('Customize Page — Tabs, Drawers & Pin Flow', () => {
     await tasksPin.click();
     await page.waitForTimeout(1000);
 
-    // Check sidebar for Tasks link
+    // Check sidebar for the newly pinned Analytics link.
     const sidebar = page.locator('[data-testid="sidebar"]');
-    const tasksLink = sidebar.locator('a[href="/tasks"]');
+    const tasksLink = sidebar.locator('a[href="/analytics"]');
     await expect(tasksLink).toBeVisible({ timeout: 5000 });
 
     // Cleanup: unpin
