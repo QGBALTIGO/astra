@@ -135,6 +135,28 @@ CREATE TABLE IF NOT EXISTS reminders (
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- Channel reminders: persistent, recipient-scoped one-shot delivery queue.
+-- Kept separate from tasks: a due date alone must never claim to notify a user.
+CREATE TABLE IF NOT EXISTS channel_reminders (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'default',
+  title TEXT NOT NULL,
+  remind_at TIMESTAMPTZ NOT NULL,
+  channel_plugin_id TEXT NOT NULL,
+  platform_chat_id TEXT NOT NULL,
+  dedupe_key TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending', 'sending', 'delivered', 'failed', 'cancelled')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  leased_until TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
+  delivery_id TEXT,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Quick captures (inbox for quick thoughts/ideas)
 CREATE TABLE IF NOT EXISTS captures (
   id TEXT PRIMARY KEY,
@@ -170,6 +192,12 @@ CREATE INDEX IF NOT EXISTS idx_contacts_user ON contacts(user_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
 CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id);
+CREATE INDEX IF NOT EXISTS idx_channel_reminders_due
+  ON channel_reminders (next_attempt_at, remind_at)
+  WHERE status IN ('pending', 'sending');
+CREATE INDEX IF NOT EXISTS idx_channel_reminders_recipient
+  ON channel_reminders (user_id, channel_plugin_id, platform_chat_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_reminders_time ON reminders(remind_at);
 CREATE INDEX IF NOT EXISTS idx_captures_user ON captures(user_id);
 CREATE INDEX IF NOT EXISTS idx_captures_processed ON captures(processed);
