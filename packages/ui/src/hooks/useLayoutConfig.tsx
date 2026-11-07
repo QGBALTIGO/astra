@@ -462,6 +462,26 @@ function migrateConfig(raw: unknown): LayoutConfig {
 function readConfig(): LayoutConfig {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.LAYOUT_CONFIG);
+    // The Astra visual refresh must also apply to existing browsers that
+    // already saved the original OwnPilot sidebar. Preserve the user's
+    // header preferences while showing the simpler daily-use navigation
+    // exactly once. Later manual sidebar changes remain untouched.
+    const isAstraUi = typeof document !== 'undefined' && document.title.startsWith('Astra');
+    if (isAstraUi && localStorage.getItem('astra-layout-refresh-v1') !== '1') {
+      const previous: unknown = raw ? JSON.parse(raw) : undefined;
+      const base = isValidConfig(previous) ? previous : DEFAULT_LAYOUT_CONFIG;
+      const next: LayoutConfig = {
+        ...base,
+        version: LAYOUT_CONFIG_VERSION,
+        sidebar: {
+          width: base.sidebar?.width ?? 'default',
+          sections: DEFAULT_SIDEBAR_SECTIONS.map((section) => ({ ...section })),
+        },
+      };
+      persistConfig(next);
+      localStorage.setItem('astra-layout-refresh-v1', '1');
+      return next;
+    }
     if (raw) {
       const parsed = JSON.parse(raw);
       if (isValidConfig(parsed) && parsed.version === LAYOUT_CONFIG_VERSION) {
@@ -478,7 +498,10 @@ function readConfig(): LayoutConfig {
         const sectionIds = new Set(
           (parsed.sidebar?.sections ?? []).map((s: { id: string }) => s.id)
         );
-        if (!sectionIds.has('/agentic') || !sectionIds.has('agentic-executions')) {
+        if (
+          !isAstraUi &&
+          (!sectionIds.has('/agentic') || !sectionIds.has('agentic-executions'))
+        ) {
           const migrated = migrateConfig({ ...parsed, version: 10 });
           persistConfig(migrated);
           return migrated;

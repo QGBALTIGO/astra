@@ -603,7 +603,7 @@ function ExpenseFormModal({
     // by handleSubmit -> expensesApi.create when the user leaves it untouched.
     date: expense?.date ?? localDayString(),
     amount: expense?.amount?.toString() ?? '',
-    currency: expense?.currency ?? 'TRY',
+    currency: expense?.currency ?? 'BRL',
     category: expense?.category ?? 'other',
     description: expense?.description ?? '',
     notes: expense?.notes ?? '',
@@ -678,6 +678,7 @@ function ExpenseFormModal({
                   onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
                   className={`w-20 px-2 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary`}
                 >
+                  <option value="BRL">BRL (R$)</option>
                   <option value="TRY">TRY</option>
                   <option value="USD">USD</option>
                   <option value="EUR">EUR</option>
