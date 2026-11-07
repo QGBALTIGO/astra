@@ -92,11 +92,11 @@ export function WorkflowEditorToolbar({
 }: WorkflowEditorToolbarProps) {
   return (
     <div>
-      <header className="flex items-center gap-3 px-4 py-2.5 border-b border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary">
+      <header className="flex min-w-0 items-center gap-2 px-3 sm:px-4 py-2.5 border-b border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary">
         <button
           onClick={() => navigate('/workflows')}
           className="p-1.5 text-text-muted hover:text-text-primary dark:hover:text-dark-text-primary transition-colors"
-          title="Back to Workflows"
+          title="Voltar para automações"
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
@@ -109,10 +109,10 @@ export function WorkflowEditorToolbar({
             setHasUnsavedChanges(true);
           }}
           className="flex-1 text-sm font-semibold bg-transparent text-text-primary dark:text-dark-text-primary border-none focus:outline-none focus:ring-0 min-w-0"
-          placeholder="Workflow name..."
+          placeholder="Nome da automação..."
         />
 
-        {hasUnsavedChanges && <span className="text-xs text-warning">Unsaved</span>}
+        {hasUnsavedChanges && <span className="hidden sm:inline text-xs text-warning">Não salvo</span>}
 
         <button
           onClick={handleSave}
@@ -120,26 +120,32 @@ export function WorkflowEditorToolbar({
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border rounded-md transition-colors disabled:opacity-50"
         >
           <Save className="w-3.5 h-3.5" />
-          {isSaving ? 'Saving...' : 'Save'}
+          {isSaving ? 'Salvando...' : 'Salvar'}
         </button>
+      </header>
 
+      {/* Secondary actions remain accessible via horizontal scroll on phones. */}
+      <div
+        className="flex min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap border-b border-border bg-bg-secondary px-3 py-2 dark:border-dark-border dark:bg-dark-bg-secondary"
+        aria-label="Ferramentas do editor"
+      >
         <button
           onClick={handleArrange}
           disabled={nodes.length === 0 || isExecuting}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border rounded-md transition-colors disabled:opacity-50"
-          title="Auto-arrange nodes"
+          title="Organizar nós automaticamente"
         >
           <LayoutDashboard className="w-3.5 h-3.5" />
-          Arrange
+          Organizar
         </button>
 
         <button
           onClick={() => setShowSource(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border rounded-md transition-colors"
-          title="View workflow source"
+          title="Visualizar código da automação"
         >
           <Code className="w-3.5 h-3.5" />
-          Source
+          Código
         </button>
 
         <button
@@ -156,10 +162,10 @@ export function WorkflowEditorToolbar({
               ? 'bg-primary text-white'
               : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border'
           }`}
-          title={showVariables ? 'Hide Variables' : 'Edit workflow variables'}
+          title={showVariables ? 'Ocultar variáveis' : 'Editar variáveis da automação'}
         >
           <ListChecks className="w-3.5 h-3.5" />
-          Variables
+          Variáveis
           {Object.keys(variables).length > 0 && (
             <span className="ml-0.5 px-1.5 py-0 text-[10px] bg-white/20 rounded-full">
               {Object.keys(variables).length}
@@ -182,10 +188,10 @@ export function WorkflowEditorToolbar({
               ? 'bg-primary text-white'
               : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border'
           }`}
-          title={showInputParams ? 'Hide Input Parameters' : 'Define workflow input parameters'}
+          title={showInputParams ? 'Ocultar entradas' : 'Definir parâmetros de entrada'}
         >
           <Settings className="w-3.5 h-3.5" />
-          Inputs
+          Entradas
           {inputSchema.length > 0 && (
             <span className="ml-0.5 px-1.5 py-0 text-[10px] bg-white/20 rounded-full">
               {inputSchema.length}
@@ -196,10 +202,10 @@ export function WorkflowEditorToolbar({
         <button
           onClick={() => setShowTemplates(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border rounded-md transition-colors"
-          title="Import from template gallery"
+          title="Importar da galeria de modelos"
         >
           <Layout className="w-3.5 h-3.5" />
-          Templates
+          Modelos
         </button>
 
         <button
@@ -216,10 +222,10 @@ export function WorkflowEditorToolbar({
               ? 'bg-primary text-white'
               : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border'
           }`}
-          title={showVersions ? 'Hide Versions' : 'Version history'}
+          title={showVersions ? 'Ocultar versões' : 'Histórico de versões'}
         >
           <History className="w-3.5 h-3.5" />
-          Versions
+          Versões
         </button>
 
         <button
@@ -237,11 +243,11 @@ export function WorkflowEditorToolbar({
               : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border'
           }`}
           title={
-            showCopilot ? 'Hide Copilot' : 'AI Copilot — build workflows with natural language'
+            showCopilot ? 'Ocultar copiloto' : 'Copiloto de IA — crie automações por linguagem natural'
           }
         >
           <Sparkles className="w-3.5 h-3.5" />
-          Copilot
+          Copiloto
         </button>
 
         {isExecuting ? (
@@ -250,7 +256,7 @@ export function WorkflowEditorToolbar({
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 rounded-md transition-colors ${isDryRun ? 'bg-warning' : 'bg-error'}`}
           >
             <StopCircle className="w-3.5 h-3.5" />
-            {isDryRun ? 'Cancel Test' : 'Cancel'}
+            {isDryRun ? 'Cancelar teste' : 'Cancelar'}
           </button>
         ) : (
           <>
@@ -258,10 +264,10 @@ export function WorkflowEditorToolbar({
               onClick={() => handleExecute(true)}
               disabled={nodes.length === 0}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-warning/15 text-warning hover:bg-warning/25 border border-warning/30 rounded-md transition-colors disabled:opacity-50"
-              title="Dry-run: resolve templates without executing side-effect nodes (LLM, HTTP, Delay, Tool)"
+              title="Simulação: valida a automação sem executar ferramentas e ações externas"
             >
               <FlaskConical className="w-3.5 h-3.5" />
-              Test Run
+              Testar
             </button>
             <button
               onClick={() => handleExecute(false)}
@@ -269,11 +275,11 @@ export function WorkflowEditorToolbar({
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-white hover:bg-primary-dark rounded-md transition-colors disabled:opacity-50"
             >
               <Play className="w-3.5 h-3.5" />
-              Execute
+              Executar
             </button>
           </>
         )}
-      </header>
+      </div>
 
       {isExecuting && executionProgress && (
         <div className="flex items-center gap-3 px-4 py-2 bg-warning/10 border-b border-warning/20">
@@ -281,12 +287,12 @@ export function WorkflowEditorToolbar({
             <div className="flex items-center justify-between text-xs mb-1">
               <span className="font-medium text-warning">
                 {executionProgress.running
-                  ? `Running: ${executionProgress.running}`
-                  : 'Processing...'}
+                  ? `Executando: ${executionProgress.running}`
+                  : 'Processando...'}
               </span>
               <span className="text-text-muted">
-                {executionProgress.completed}/{executionProgress.total} nodes
-                {executionProgress.retries > 0 ? ` (${executionProgress.retries} retries)` : ''}
+                {executionProgress.completed}/{executionProgress.total} nós
+                {executionProgress.retries > 0 ? ` (${executionProgress.retries} tentativas)` : ''}
               </span>
             </div>
             <div className="w-full h-1.5 bg-warning/20 rounded-full overflow-hidden">
