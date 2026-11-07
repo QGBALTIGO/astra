@@ -583,7 +583,7 @@ export function ToolPalette({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tools..."
+            placeholder="Buscar ferramentas..."
             className="w-full pl-8 pr-7 py-1.5 text-xs bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-md text-text-primary dark:text-dark-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary"
           />
           {search && (
@@ -601,7 +601,7 @@ export function ToolPalette({
       {onAddNode && (
         <div className="px-3 py-2.5 border-b border-border dark:border-dark-border">
           <p className="text-[10px] font-semibold text-text-muted dark:text-dark-text-muted uppercase tracking-wider mb-2">
-            Nodes
+            Nós
           </p>
           <div className="grid grid-cols-2 gap-1.5">
             {NODE_TYPES.map((nt) => {
@@ -637,7 +637,7 @@ export function ToolPalette({
           </div>
         ) : filteredSections.length === 0 ? (
           <p className="text-xs text-text-muted dark:text-dark-text-muted text-center py-8">
-            {search ? 'No tools match your search' : 'No tools available'}
+            {search ? 'Nenhuma ferramenta encontrada' : 'Nenhuma ferramenta disponível'}
           </p>
         ) : (
           <div className="py-1">
@@ -743,7 +743,7 @@ export function ToolPalette({
       {/* Footer */}
       <div className="p-3 border-t border-border dark:border-dark-border">
         <p className="text-[10px] text-text-muted dark:text-dark-text-muted leading-relaxed">
-          Drag tools onto the canvas or click <Plus className="w-2.5 h-2.5 inline" /> to add.
+          Arraste ferramentas para o canvas ou clique em <Plus className="w-2.5 h-2.5 inline" /> para adicionar.
           Connect nodes by drawing edges between handles.
         </p>
       </div>
