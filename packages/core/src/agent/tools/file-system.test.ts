@@ -251,7 +251,11 @@ describe('Path traversal prevention', () => {
   });
 
   it('blocks symlink escape (realpath resolves outside workspace)', async () => {
-    fsMock.realpath.mockResolvedValue('/etc/passwd');
+    // Only the symlink target escapes. The allowlist roots must retain their
+    // real canonical paths, as they do in a real filesystem.
+    fsMock.realpath.mockImplementation(async (p: string) =>
+      p.endsWith('symlink-to-etc') ? '/etc/passwd' : p
+    );
 
     const result = await readFileExecutor({ path: 'symlink-to-etc' }, ctx());
     expect(result.isError).toBe(true);

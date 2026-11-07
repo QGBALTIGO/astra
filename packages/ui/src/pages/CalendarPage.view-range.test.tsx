@@ -158,7 +158,7 @@ describe('CalendarPage view ranges (America/New_York)', () => {
     // mid-month date would not exercise this helper at all.
     await mount('2026-10-01T13:00:00Z');
     await click('Month');
-    await click('Next');
+    await click('Próximo');
     // Buggy: navigateDate('2026-10-01',...,+1) -> '2026-10-31' (UTC midnight of
     // Oct 1 is Sep 30 evening local, so getMonth() is still September), leaving
     // the view stuck in October.
@@ -168,7 +168,7 @@ describe('CalendarPage view ranges (America/New_York)', () => {
   it('Previous from October 1 goes to September 2026, not August', async () => {
     await mount('2026-10-01T13:00:00Z');
     await click('Month');
-    await click('Previous');
+    await click('Anterior');
     expect(lastRange()).toEqual({ startAfter: '2026-09-01', startBefore: '2026-09-30' });
   });
 
