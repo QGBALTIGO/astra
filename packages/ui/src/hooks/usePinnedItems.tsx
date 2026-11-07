@@ -55,7 +55,14 @@ export function usePinnedItems() {
       // Remove items no longer in list
       current
         .filter((p) => !next.includes(p))
-        .forEach((p) => removeSidebarSection(resolveToSectionId(p)));
+        .forEach((p) => {
+          const candidate = resolveToSectionId(p);
+          // Older saved layouts and the current defaults use literal route IDs
+          // (e.g. '/tasks'), while recent layouts can use a data section ID
+          // ('tasks'). Remove the actual persisted ID, not a guessed mapping.
+          const matchingSection = sections.find((s) => s.id === p || s.id === candidate);
+          if (matchingSection) removeSidebarSection(matchingSection.id);
+        });
       // Add new items — resolve to data section ID if possible
       next
         .filter((p) => !current.includes(p))
