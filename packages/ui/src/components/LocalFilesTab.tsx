@@ -1,231 +1,196 @@
 /**
- * LocalFilesTab — Nautilus-style file bookmark browser for the Customize page.
+ * Actual workspace and IoT inventory for Astra customization.
  *
- * Structure:
- *   Edge Devices header (clickable → detail panel, + button)
- *   Machine profiles (expandable drawers with bookmarks)
- *   IoT devices (leaf items with ON/OFF badges)
- *
- * All data is static (from local-files-data.ts). API integration planned for later phases.
+ * This panel intentionally does not invent local machines, filesystem paths
+ * or IoT hardware. It renders only the current account's API records and
+ * links to the existing management screens.
  */
-import { useCallback } from 'react';
-import { ChevronRight, Plus, Wifi } from './icons';
-import { useLocalFiles } from '../hooks/useLocalFiles';
-import {
-  EDGE_DEVICES,
-  isSeparator,
-  type MachineDevice,
-  type IoTDevice,
-  type BookmarkEntry,
-} from '../constants/local-files-data';
+import { useEffect, useState } from 'react';
+import { HardDrive, Plus, RefreshCw, Wifi } from './icons';
+import { fileWorkspacesApi } from '../api';
+import { edgeApi, type EdgeDevice } from '../api/endpoints/edge';
+
+interface WorkspaceEntry {
+  id: string;
+  name: string;
+}
+
+export type LocalFilesSelection =
+  | { type: 'edge-overview'; count: number }
+  | { type: 'device'; device: EdgeDevice }
+  | { type: 'workspaces-overview'; count: number }
+  | { type: 'workspace'; workspace: WorkspaceEntry };
 
 interface LocalFilesTabProps {
-  onSelectItem: (key: string) => void;
+  onSelectItem: (selection: LocalFilesSelection) => void;
+  onNavigate: (path: string) => void;
 }
 
-export function LocalFilesTab({ onSelectItem }: LocalFilesTabProps) {
-  const { isDeviceOpen, toggleDevice, isDirOpen, toggleDir } = useLocalFiles();
+const STATUS_LABELS: Record<string, string> = {
+  online: 'Conectado',
+  offline: 'Desconectado',
+  error: 'Erro',
+};
 
-  const handleEdgeHeaderClick = useCallback(() => {
-    onSelectItem('__edge_overview__');
-  }, [onSelectItem]);
+export function LocalFilesTab({ onSelectItem, onNavigate }: LocalFilesTabProps) {
+  const [devices, setDevices] = useState<EdgeDevice[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
+  const [errorDevices, setErrorDevices] = useState(false);
+  const [errorWorkspaces, setErrorWorkspaces] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setIsLoading(true);
+    void Promise.allSettled([edgeApi.list({ limit: 50 }), fileWorkspacesApi.list()])
+      .then(([edgeResult, workspaceResult]) => {
+        if (!active) return;
+        setErrorDevices(edgeResult.status === 'rejected');
+        setErrorWorkspaces(workspaceResult.status === 'rejected');
+        if (edgeResult.status === 'fulfilled') setDevices(edgeResult.value.devices ?? []);
+        if (workspaceResult.status === 'fulfilled') {
+          setWorkspaces(workspaceResult.value.workspaces ?? []);
+        }
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [revision]);
 
   return (
-    <div className="flex-1 overflow-y-auto py-1" data-testid="local-files-tree">
-      {/* Edge Devices header */}
-      <button
-        className="w-full flex items-center gap-1.5 px-2.5 py-2 cursor-pointer hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
-        onClick={handleEdgeHeaderClick}
-        data-testid="local-files-edge-header"
-      >
-        <Wifi className="w-3.5 h-3.5 text-text-muted dark:text-dark-text-muted opacity-60" />
-        <span className="flex-1 text-left text-xs font-semibold text-text-muted dark:text-dark-text-muted uppercase tracking-wider">
-          Edge Devices
-        </span>
+    <div className="min-w-0 flex-1 overflow-y-auto px-3 py-3 space-y-5" data-testid="local-files-tree">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-text-muted dark:text-dark-text-muted">
+          Dados reais desta conta, sem dispositivos demonstrativos.
+        </p>
         <button
-          className="w-5 h-5 rounded border border-border dark:border-dark-border flex items-center justify-center text-text-muted dark:text-dark-text-muted hover:text-primary hover:border-primary transition-colors"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelectItem('__edge_add__');
-          }}
-          title="Add new device"
-          data-testid="local-files-add-device"
+          type="button"
+          title="Atualizar listas"
+          aria-label="Atualizar listas"
+          onClick={() => setRevision((value) => value + 1)}
+          className="shrink-0 rounded-md p-1.5 text-text-muted hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
         >
-          <Plus className="w-3 h-3" />
+          <RefreshCw className="h-4 w-4" />
         </button>
-      </button>
+      </div>
 
-      {/* Device list */}
-      {EDGE_DEVICES.map((entry) => {
-        if (isSeparator(entry)) {
-          return (
-            <div
-              key={entry.id}
-              className="border-t border-border dark:border-dark-border mx-4 my-0.5"
-            />
-          );
-        }
-
-        if (entry.type === 'machine') {
-          return (
-            <MachineDeviceItem
-              key={entry.id}
-              device={entry}
-              isOpen={isDeviceOpen(entry.id, entry.active)}
-              onToggle={() => toggleDevice(entry.id, entry.active)}
-              isDirOpen={isDirOpen}
-              onToggleDir={toggleDir}
-              onSelectItem={onSelectItem}
-            />
-          );
-        }
-
-        if (entry.type === 'iot') {
-          return <IoTDeviceItem key={entry.id} device={entry} onSelectItem={onSelectItem} />;
-        }
-
-        return null;
-      })}
-    </div>
-  );
-}
-
-// ---- Machine Device ----
-
-interface MachineDeviceItemProps {
-  device: MachineDevice;
-  isOpen: boolean;
-  onToggle: () => void;
-  isDirOpen: (key: string) => boolean;
-  onToggleDir: (key: string) => void;
-  onSelectItem: (key: string) => void;
-}
-
-function MachineDeviceItem({
-  device,
-  isOpen,
-  onToggle,
-  isDirOpen,
-  onToggleDir,
-  onSelectItem,
-}: MachineDeviceItemProps) {
-  return (
-    <div data-testid={`local-files-device-${device.id}`}>
-      {/* Device row */}
-      <button
-        className="w-full flex items-center gap-1.5 pl-4 pr-2.5 py-1.5 text-base cursor-pointer hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
-        onClick={onToggle}
-      >
-        <ChevronRight
-          className={`w-3 h-3 text-text-muted dark:text-dark-text-muted transition-transform duration-150 shrink-0 ${
-            isOpen ? 'rotate-90' : ''
-          }`}
-        />
-        <span className="shrink-0">{device.icon}</span>
-        <span className="flex-1 text-left text-text-primary dark:text-dark-text-primary truncate">
-          {device.label}
-          <span className="text-text-muted dark:text-dark-text-muted text-xs font-normal ml-1">
-            ({device.sublabel})
-          </span>
-        </span>
-        <span
-          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-            device.status === 'online' ? 'bg-success' : 'bg-text-muted dark:bg-dark-text-muted'
-          }`}
-          title={device.status}
-        />
-      </button>
-
-      {/* Bookmarks (expanded) */}
-      {isOpen && (
-        <div>
-          {device.bookmarks.map((bm) => {
-            if (isSeparator(bm)) {
-              return (
-                <div
-                  key={bm.id}
-                  className="border-t border-border dark:border-dark-border mx-8 my-0.5"
-                />
-              );
-            }
-            return (
-              <BookmarkItem
-                key={bm.id}
-                bookmark={bm}
-                deviceId={device.id}
-                isDirOpen={isDirOpen}
-                onToggleDir={onToggleDir}
-                onSelectItem={onSelectItem}
-              />
-            );
-          })}
+      <section aria-label="Dispositivos conectados">
+        <div className="flex items-center gap-1 rounded-md hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary">
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left"
+            onClick={() => onSelectItem({ type: 'edge-overview', count: devices.length })}
+            data-testid="local-files-edge-header"
+          >
+            <Wifi className="h-4 w-4 shrink-0 text-primary" />
+            <span className="truncate text-sm font-semibold text-text-primary dark:text-dark-text-primary">
+              Dispositivos conectados
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate('/edge-devices')}
+            title="Gerenciar dispositivos"
+            aria-label="Gerenciar dispositivos"
+            data-testid="local-files-add-device"
+            className="shrink-0 rounded-md p-2 text-primary hover:bg-primary/10"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
         </div>
-      )}
+
+        {isLoading ? (
+          <p className="px-2 py-3 text-xs text-text-muted">Carregando dispositivos...</p>
+        ) : errorDevices ? (
+          <p role="alert" className="px-2 py-3 text-xs text-error">
+            Não foi possível consultar os dispositivos.
+          </p>
+        ) : devices.length === 0 ? (
+          <p className="px-2 py-3 text-xs text-text-muted" data-testid="local-files-empty-devices">
+            Nenhum dispositivo cadastrado.
+          </p>
+        ) : (
+          <div className="space-y-1" data-testid="local-files-devices">
+            {devices.map((device) => (
+              <button
+                type="button"
+                key={device.id}
+                data-testid={`local-files-iot-${device.id}`}
+                onClick={() => onSelectItem({ type: 'device', device })}
+                className="flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-3 py-2 text-left hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
+              >
+                <span className="min-w-0 truncate text-sm text-text-primary dark:text-dark-text-primary">
+                  {device.name}
+                </span>
+                <span className="shrink-0 text-xs text-text-muted">
+                  {STATUS_LABELS[device.status] ?? device.status}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section aria-label="Ambientes de trabalho">
+        <div className="flex items-center gap-1 rounded-md hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary">
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left"
+            onClick={() =>
+              onSelectItem({ type: 'workspaces-overview', count: workspaces.length })
+            }
+            data-testid="local-files-workspaces-header"
+          >
+            <HardDrive className="h-4 w-4 shrink-0 text-primary" />
+            <span className="truncate text-sm font-semibold text-text-primary dark:text-dark-text-primary">
+              Ambientes de trabalho
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate('/workspaces')}
+            title="Gerenciar ambientes"
+            aria-label="Gerenciar ambientes"
+            className="shrink-0 rounded-md p-2 text-primary hover:bg-primary/10"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+
+        {isLoading ? (
+          <p className="px-2 py-3 text-xs text-text-muted">Carregando ambientes...</p>
+        ) : errorWorkspaces ? (
+          <p role="alert" className="px-2 py-3 text-xs text-error">
+            Não foi possível consultar os ambientes.
+          </p>
+        ) : workspaces.length === 0 ? (
+          <p className="px-2 py-3 text-xs text-text-muted" data-testid="local-files-empty-workspaces">
+            Nenhum ambiente cadastrado.
+          </p>
+        ) : (
+          <div className="space-y-1" data-testid="local-files-workspaces">
+            {workspaces.map((workspace) => (
+              <button
+                type="button"
+                key={workspace.id}
+                data-testid={`local-files-workspace-${workspace.id}`}
+                onClick={() => onSelectItem({ type: 'workspace', workspace })}
+                className="flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-text-primary hover:bg-bg-tertiary dark:text-dark-text-primary dark:hover:bg-dark-bg-tertiary"
+              >
+                <HardDrive className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                <span className="truncate">{workspace.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+      <p className="text-xs text-text-muted dark:text-dark-text-muted">
+        Os arquivos locais de outros computadores só aparecem após integração autorizada.
+      </p>
     </div>
-  );
-}
-
-// ---- Bookmark Item ----
-
-interface BookmarkItemProps {
-  bookmark: BookmarkEntry & { type?: never };
-  deviceId: string;
-  isDirOpen: (key: string) => boolean;
-  onToggleDir: (key: string) => void;
-  onSelectItem: (key: string) => void;
-}
-
-function BookmarkItem({ bookmark, deviceId, onSelectItem }: BookmarkItemProps) {
-  if ('type' in bookmark && bookmark.type === 'separator') return null;
-  const bm = bookmark as Exclude<BookmarkEntry, { type: 'separator' }>;
-
-  const handleClick = () => {
-    onSelectItem(`__bookmark__:${deviceId}:${bm.id}:${bm.label}:${bm.path}`);
-  };
-
-  return (
-    <button
-      className="w-full flex items-center gap-2 pl-8 pr-2.5 py-1 text-base cursor-pointer hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
-      onClick={handleClick}
-      data-testid={`local-files-bookmark-${bm.id}`}
-    >
-      <span className="text-sm shrink-0">{bm.icon}</span>
-      <span className="flex-1 text-left text-text-primary dark:text-dark-text-primary truncate">
-        {bm.label}
-      </span>
-    </button>
-  );
-}
-
-// ---- IoT Device ----
-
-interface IoTDeviceItemProps {
-  device: IoTDevice;
-  onSelectItem: (key: string) => void;
-}
-
-function IoTDeviceItem({ device, onSelectItem }: IoTDeviceItemProps) {
-  const handleClick = () => {
-    onSelectItem(`__iot__:${device.id}:${device.label}:${device.status}:${device.description}`);
-  };
-
-  return (
-    <button
-      className="w-full flex items-center gap-2 pl-5 pr-2.5 py-1.5 text-base cursor-pointer hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
-      onClick={handleClick}
-      data-testid={`local-files-iot-${device.id}`}
-    >
-      <span className="text-sm shrink-0">{device.icon}</span>
-      <span className="flex-1 text-left text-text-primary dark:text-dark-text-primary truncate">
-        {device.label}
-      </span>
-      <span
-        className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 ${
-          device.status === 'online' ? 'bg-success/10 text-success' : 'bg-error/10 text-error'
-        }`}
-      >
-        {device.status === 'online' ? 'ON' : 'OFF'}
-      </span>
-    </button>
   );
 }
