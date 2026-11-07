@@ -136,6 +136,7 @@ test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
               Boolean(first.querySelector('.animate-spin'));
             return !isPageLoader && (main.textContent?.trim().length ?? 0) >= 8;
           },
+          undefined,
           { timeout: 8500 }
         );
         await page.waitForTimeout(250);
