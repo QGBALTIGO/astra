@@ -286,7 +286,7 @@ describe('Agent', () => {
   });
 
   describe('provider tool declaration budget', () => {
-    it('keeps the complete tool registry discoverable without exceeding 128 API declarations', () => {
+    it('preserves tool discovery without exceeding 128 API declarations', () => {
       const registry = new ToolRegistry();
       const discoveryNames = ['search_tools', 'get_tool_help', 'use_tool', 'batch_use_tool'];
       for (const name of discoveryNames) {
