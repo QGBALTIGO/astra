@@ -357,7 +357,7 @@ export function AIModelsTab() {
       return;
     try {
       await apiClient.delete(`/local-providers/${providerId}`);
-      setSuccess(`Deleted ${name}`);
+      setSuccess(`Provedor ${name} excluído`);
       setTimeout(() => setSuccess(null), 2000);
       await loadData();
     } catch {
@@ -566,10 +566,10 @@ export function AIModelsTab() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex-1">
           <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            AI Models
+            Modelos de IA
           </h3>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            Showing {filteredModels.length} models &bull; {modelCounts.configured} configured &bull;{' '}
+            Exibindo {filteredModels.length} modelos &bull; {modelCounts.configured} configurados &bull;{' '}
             {modelCounts.total} total
           </p>
         </div>
@@ -608,7 +608,7 @@ export function AIModelsTab() {
             onChange={(e) => setSelectedCapability(e.target.value as ModelCapability | 'all')}
             className="px-3 py-2 text-sm bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
           >
-            <option value="all">All Capabilities</option>
+            <option value="all">Todas as capacidades</option>
             {capabilities.map((cap) => (
               <option key={cap.id} value={cap.id}>
                 {cap.name}
@@ -714,7 +714,7 @@ export function AIModelsTab() {
               Provedores disponíveis
             </h4>
             <p className="text-xs text-text-muted dark:text-dark-text-muted">
-              {availableProviders.filter((p) => p.isConfigured).length} configured &bull;{' '}
+              {availableProviders.filter((p) => p.isConfigured).length} configurados &bull;{' '}
               {availableProviders.length} total
             </p>
           </div>
@@ -758,7 +758,7 @@ export function AIModelsTab() {
                       </span>
                     ) : (
                       <span className="flex-shrink-0 px-2 py-0.5 text-xs rounded bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-muted">
-                        No key
+                        Sem chave
                       </span>
                     )}
                   </div>
@@ -774,7 +774,7 @@ export function AIModelsTab() {
                         className="text-primary hover:underline flex items-center gap-1 ml-auto"
                       >
                         <ExternalLink className="w-3 h-3" />
-                        Docs
+                        Documentação
                       </a>
                     )}
                   </div>
@@ -790,10 +790,10 @@ export function AIModelsTab() {
         <div className="text-center py-12">
           <p className="text-text-muted dark:text-dark-text-muted">
             {models.length === 0
-              ? 'No models available. Add API keys in the API Keys tab.'
+              ? 'Nenhum modelo disponível. Cadastre uma chave em Configurações > Chaves de API.'
               : showConfiguredOnly
-                ? 'No configured models. Add API keys in the API Keys tab or turn off the "Configured" filter to see all models.'
-                : 'No models match your filters.'}
+                ? 'Nenhum modelo configurado. Cadastre uma chave de API ou desative o filtro de configurados.'
+                : 'Nenhum modelo corresponde aos filtros.'}
           </p>
         </div>
       ) : (
