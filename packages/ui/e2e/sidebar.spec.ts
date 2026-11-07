@@ -42,9 +42,9 @@ test.describe('Navegação lateral do Astra', () => {
     await page.locator('[data-testid="sidebar-customize-link"] button').click();
     const pin = page.locator('[data-testid="customize-pin-workspaces"]');
     await pin.click();
-    await expect(page.locator('[data-testid="sidebar-nav"] a[href="/workspaces"]')).toBeVisible();
+    await expect(page.locator('[data-testid="sidebar-workspaces"]')).toBeVisible();
     await pin.click();
-    await expect(page.locator('[data-testid="sidebar-nav"] a[href="/workspaces"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="sidebar-workspaces"]')).toHaveCount(0);
   });
 
   test('automações podem ser adicionadas e removidas sem duplicar atalhos', async ({ page }) => {
