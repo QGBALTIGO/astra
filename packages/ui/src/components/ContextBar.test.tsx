@@ -35,8 +35,8 @@ describe('ContextBar', () => {
     );
 
     expect(container.textContent).toContain('18');
-    expect(container.textContent).toContain('Near limit');
-    expect(container.textContent).toContain('10.0K left');
+    expect(container.textContent).toContain('Próximo do limite');
+    expect(container.textContent).toContain('10.0K restantes');
     expect(container.textContent).toContain('90%');
   });
 
@@ -56,7 +56,7 @@ describe('ContextBar', () => {
     );
 
     expect(container.textContent).toContain('25%');
-    expect(container.textContent).toContain('96.0K left');
+    expect(container.textContent).toContain('96.0K restantes');
   });
 
   it('shows cached tokens indicator when present', () => {
@@ -75,7 +75,7 @@ describe('ContextBar', () => {
       />
     );
 
-    expect(container.textContent).toContain('8.0K cached');
+    expect(container.textContent).toContain('8.0K em cache');
   });
 
   it('shows cached token percentage when estimatedTokens > 0', () => {
@@ -112,7 +112,7 @@ describe('ContextBar', () => {
       />
     );
 
-    expect(container.textContent).toContain('Getting full');
+    expect(container.textContent).toContain('Uso elevado');
   });
 
   it('shows "Healthy" status at <65%', () => {
@@ -130,7 +130,7 @@ describe('ContextBar', () => {
       />
     );
 
-    expect(container.textContent).toContain('Healthy');
+    expect(container.textContent).toContain('Normal');
   });
 
   it('shows red fill bar at >=80%', () => {
@@ -211,7 +211,7 @@ describe('ContextBar', () => {
       />
     );
 
-    expect(container.textContent).toContain('Compacting');
+    expect(container.textContent).toContain('Resumindo');
   });
 
   it('renders with null sessionInfo gracefully', () => {
@@ -243,7 +243,7 @@ describe('ContextBar', () => {
     );
 
     const progressBtn = container.querySelector('button');
-    expect(progressBtn?.getAttribute('title')).toContain('25.0K used');
+    expect(progressBtn?.getAttribute('title')).toContain('25.0K usados');
   });
 
   it('uses defaultMaxTokens when maxContextTokens is not available', () => {
