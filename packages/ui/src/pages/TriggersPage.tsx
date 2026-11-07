@@ -347,7 +347,7 @@ export function TriggersPage() {
         toast.success(data.message);
       }
     } catch {
-      toast.error('Failed to toggle engine');
+      toast.error('Não foi possível alterar o mecanismo de lembretes');
     } finally {
       setEngineLoading(false);
     }
@@ -509,7 +509,7 @@ export function TriggersPage() {
               },
               {
                 title: 'Define actions',
-                detail: 'Choose what happens — start a chat, run a tool, execute a workflow.',
+                detail: 'Escolha a ação: iniciar conversa, usar ferramenta ou executar automação.',
               },
               {
                 title: 'Monitor executions',
@@ -519,14 +519,14 @@ export function TriggersPage() {
             quickActions={[
               {
                 icon: Zap,
-                label: 'View Triggers',
+                label: 'Ver lembretes',
                 description: 'See all configured triggers',
                 onClick: () => setActiveTab('triggers'),
               },
               {
                 icon: Activity,
                 label: 'Execution History',
-                description: 'View trigger activity log',
+                description: 'Consulte o histórico de execução dos lembretes',
                 onClick: () => setActiveTab('activity'),
               },
             ]}
@@ -568,7 +568,7 @@ export function TriggersPage() {
               description={error}
               variant="card"
               action={{
-                label: 'Try Again',
+                label: 'Tentar novamente',
                 onClick: fetchTriggers,
                 icon: RefreshCw,
               }}
@@ -766,7 +766,7 @@ function ActivityLog({
           onChange={(e) => onTriggerFilter(e.target.value || undefined)}
           className="px-2 py-1 text-xs rounded-lg bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-secondary dark:text-dark-text-secondary border border-border dark:border-dark-border"
         >
-          <option value="">All Triggers</option>
+          <option value="">Todos os lembretes</option>
           {triggers.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
@@ -810,14 +810,14 @@ function ActivityLog({
       </div>
 
       {loading && history.length === 0 ? (
-        <LoadingSpinner message="Loading activity..." />
+        <LoadingSpinner message="Carregando atividades..." />
       ) : history.length === 0 ? (
         <EmptyState
           icon={Activity}
           title="Nenhuma atividade recente"
           description={
             hasFilters
-              ? 'No entries match current filters.'
+              ? 'Nenhuma atividade corresponde aos filtros.'
               : 'Trigger execution history will appear here.'
           }
         />
@@ -834,7 +834,7 @@ function ActivityLog({
 
           {history.map((entry) => {
             const name =
-              entry.triggerName ?? (entry.triggerId ? entry.triggerId.slice(0, 8) : 'Deleted');
+              entry.triggerName ?? (entry.triggerId ? entry.triggerId.slice(0, 8) : 'Excluído');
             const isExpanded = expandedId === entry.id;
 
             return (
@@ -1038,8 +1038,8 @@ function TriggerItem({
         <button
           onClick={onViewHistory}
           className="p-1 text-text-muted dark:text-dark-text-muted hover:text-primary transition-colors"
-          title="View history"
-          aria-label="View trigger history"
+          title="Ver histórico"
+          aria-label="Ver histórico do lembrete"
         >
           <History className="w-4 h-4" />
         </button>

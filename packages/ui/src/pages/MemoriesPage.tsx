@@ -202,7 +202,7 @@ export function MemoriesPage() {
                 icon: Edit2,
                 color: 'text-blue-500 bg-blue-500/10',
                 title: 'Manual Memories',
-                description: 'Add your own memories manually for things the AI should know.',
+                description: 'Registre informações importantes para o Astra lembrar.',
               },
               {
                 icon: Heart,
@@ -274,7 +274,7 @@ export function MemoriesPage() {
                 onChange={(e) => setTypeFilter(e.target.value as Memory['type'] | 'all')}
                 className="px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
-                <option value="all">All Types</option>
+                <option value="all">Todos os tipos</option>
                 <option value="fact">Fatos</option>
                 <option value="preference">Preferências</option>
                 <option value="conversation">Conversas</option>
@@ -286,7 +286,7 @@ export function MemoriesPage() {
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 animate-fade-in-up">
             {isLoading ? (
-              <LoadingSpinner message="Loading memories..." />
+              <LoadingSpinner message="Carregando memórias..." />
             ) : error ? (
               <EmptyState
                 icon={AlertTriangle}
@@ -294,7 +294,7 @@ export function MemoriesPage() {
                 description={error}
                 variant="card"
                 action={{
-                  label: 'Try Again',
+                  label: 'Tentar novamente',
                   onClick: fetchMemories,
                   icon: RefreshCw,
                 }}
@@ -302,10 +302,10 @@ export function MemoriesPage() {
             ) : memories.length === 0 ? (
               <EmptyState
                 icon={Brain}
-                title={searchQuery ? 'No memories found' : 'No memories yet'}
+                title={searchQuery ? 'Nenhuma memória encontrada' : 'Nenhuma memória registrada'}
                 description={
                   searchQuery
-                    ? `No memories matching "${searchQuery}". Try a different search term.`
+                    ? `Nenhuma memória corresponde a "${searchQuery}". Experimente outra busca.`
                     : 'The AI will automatically remember important information from conversations. You can also add memories manually.'
                 }
                 variant="card"
@@ -484,7 +484,7 @@ function MemoryModal({ memory, onClose, onSave }: MemoryModalProps) {
                   onChange={(e) => setType(e.target.value as Memory['type'])}
                   className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
-                  <option value="fact">Fact</option>
+                  <option value="fact">Fato</option>
                   <option value="preference">Preferência</option>
                   <option value="event">Evento</option>
                   <option value="conversation">Conversa</option>

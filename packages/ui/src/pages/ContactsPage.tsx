@@ -242,11 +242,11 @@ export function ContactsPage() {
           steps={[
             {
               title: 'Cadastre seu primeiro contato',
-              detail: 'Click "Add Contact" to create a new entry.',
+              detail: 'Use Adicionar contato para cadastrar alguém.',
             },
             {
               title: 'Fill in details',
-              detail: 'Add name, email, phone, company, and notes.',
+              detail: 'Registre nome, e-mail, telefone e observações.',
             },
             {
               title: 'Ask AI about a contact',
@@ -302,7 +302,7 @@ export function ContactsPage() {
                 description={error}
                 variant="card"
                 action={{
-                  label: 'Try Again',
+                  label: 'Tentar novamente',
                   onClick: fetchContacts,
                   icon: RefreshCw,
                 }}
@@ -310,11 +310,11 @@ export function ContactsPage() {
             ) : contacts.length === 0 ? (
               <EmptyState
                 icon={Users}
-                title={searchQuery ? 'No contacts found' : 'No contacts yet'}
+                title={searchQuery ? 'Nenhum contato encontrado' : 'Nenhum contato cadastrado'}
                 description={
                   searchQuery
-                    ? `No contacts matching "${searchQuery}". Try a different search term.`
-                    : 'Add your first contact to build your personal address book.'
+                    ? `Nenhum contato corresponde a "${searchQuery}". Experimente outra busca.`
+                    : 'Adicione seu primeiro contato à sua agenda pessoal.'
                 }
                 variant="card"
                 iconBgColor="bg-blue-500/10 dark:bg-blue-500/20"
@@ -450,7 +450,7 @@ function ContactItem({ contact, onEdit, onDelete, onToggleFavorite }: ContactIte
               ? 'text-warning'
               : 'text-text-muted dark:text-dark-text-muted hover:text-warning'
           }`}
-          aria-label={contact.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+          aria-label={contact.isFavorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
         >
           <Star className={`w-4 h-4 ${contact.isFavorite ? 'fill-warning' : ''}`} />
         </button>

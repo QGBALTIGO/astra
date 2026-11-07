@@ -229,7 +229,7 @@ export function GoalsPage() {
             ]}
             steps={[
               {
-                title: 'Create a goal',
+                title: 'Criar um objetivo',
                 detail: 'Define what you want to achieve with a clear title and description.',
               },
               {
@@ -272,7 +272,7 @@ export function GoalsPage() {
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 animate-fade-in-up">
             {isLoading ? (
-              <LoadingSpinner message="Loading goals..." />
+              <LoadingSpinner message="Carregando objetivos..." />
             ) : error ? (
               <EmptyState
                 icon={AlertTriangle}
@@ -280,7 +280,7 @@ export function GoalsPage() {
                 description={error}
                 variant="card"
                 action={{
-                  label: 'Try Again',
+                  label: 'Tentar novamente',
                   onClick: fetchGoals,
                   icon: RefreshCw,
                 }}
@@ -288,10 +288,10 @@ export function GoalsPage() {
             ) : goals.length === 0 ? (
               <EmptyState
                 icon={Target}
-                title={statusFilter === 'all' ? 'No goals yet' : `No ${statusFilter} goals`}
+                title={statusFilter === 'all' ? 'Nenhum objetivo ainda' : `Nenhum objetivo com status ${statusFilter}`}
                 description={
                   statusFilter === 'all'
-                    ? 'Create goals to track what you want to achieve. The AI can help you break them down into actionable steps.'
+                    ? 'Crie objetivos e acompanhe seu progresso. O Astra pode ajudar a dividir cada meta em etapas práticas.'
                     : `You don't have any ${statusFilter} goals.`
                 }
                 variant="card"

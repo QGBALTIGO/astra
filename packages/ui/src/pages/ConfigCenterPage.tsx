@@ -125,7 +125,7 @@ export function ConfigCenterPage() {
       const data = await configServicesApi.list();
       setServices(data.services);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load services');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar os serviços');
     }
   }, []);
 
@@ -358,7 +358,7 @@ export function ConfigCenterPage() {
     } catch (err) {
       setSaveMessage({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Failed to save entry',
+        text: err instanceof Error ? err.message : 'Não foi possível salvar',
       });
     } finally {
       setIsSaving(false);
@@ -384,7 +384,7 @@ export function ConfigCenterPage() {
 
     const activeEntry = editingService.entries.find((e) => e.id === activeEntryId);
     const confirmed = await confirm({
-      message: `Delete entry "${activeEntry?.label ?? 'this entry'}"? This action cannot be undone.`,
+      message: `Excluir "${activeEntry?.label ?? 'este item'}"? Esta ação não pode ser desfeita.`,
       variant: 'danger',
     });
     if (!confirmed) return;
@@ -419,7 +419,7 @@ export function ConfigCenterPage() {
     } catch (err) {
       setSaveMessage({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Failed to delete entry',
+        text: err instanceof Error ? err.message : 'Não foi possível excluir o item',
       });
     } finally {
       setIsSaving(false);
@@ -468,7 +468,7 @@ export function ConfigCenterPage() {
     } catch (err) {
       setSaveMessage({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Failed to set default',
+        text: err instanceof Error ? err.message : 'Não foi possível definir como padrão',
       });
     } finally {
       setIsSaving(false);
@@ -540,7 +540,7 @@ export function ConfigCenterPage() {
               icon: Server,
               color: 'text-primary bg-primary/10',
               title: 'Provider Setup',
-              description: 'Connect to AI providers and external services.',
+              description: 'Conecte provedores de IA e serviços externos.',
             },
             {
               icon: Key,
@@ -557,14 +557,14 @@ export function ConfigCenterPage() {
             {
               icon: CheckCircle2,
               color: 'text-amber-500 bg-amber-500/10',
-              title: 'Connection Test',
+              title: 'Teste de conexão',
               description: 'Verify service connectivity and credentials.',
             },
           ]}
           steps={[
             {
-              title: 'Choose a provider',
-              detail: 'Select from available AI and service providers.',
+              title: 'Escolher provedor',
+              detail: 'Selecione um serviço ou provedor de IA disponível.',
             },
             {
               title: 'Enter API credentials',
@@ -575,7 +575,7 @@ export function ConfigCenterPage() {
               detail: 'Verify the service is properly connected.',
             },
             {
-              title: 'Start using the service',
+              title: 'Começar a usar o serviço',
               detail: 'Your AI can now use the configured service.',
             },
           ]}
@@ -600,7 +600,7 @@ export function ConfigCenterPage() {
 
           {/* Loading state */}
           {isLoading ? (
-            <LoadingSpinner message="Loading services..." />
+            <LoadingSpinner message="Carregando serviços..." />
           ) : (
             <>
               {/* Unconfigured Required Services Warning */}
@@ -661,7 +661,7 @@ export function ConfigCenterPage() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted dark:text-dark-text-muted" />
                   <input
                     type="text"
-                    placeholder="Search services..."
+                    placeholder="Buscar serviços..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-text-muted"
@@ -681,7 +681,7 @@ export function ConfigCenterPage() {
                   onChange={(e) => setSelectedCategory(e.target.value)}
                   className="px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 min-w-[160px]"
                 >
-                  <option value="all">All Categories</option>
+                  <option value="all">Todas as categorias</option>
                   {categories.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
@@ -696,12 +696,12 @@ export function ConfigCenterPage() {
                   <Server className="w-16 h-16 text-text-muted dark:text-dark-text-muted mb-4" />
                   <h3 className="text-xl font-medium text-text-primary dark:text-dark-text-primary mb-2">
                     {searchQuery || selectedCategory !== 'all'
-                      ? 'No services match your filters'
-                      : 'No services found'}
+                      ? 'Nenhum serviço corresponde aos filtros'
+                      : 'Nenhum serviço encontrado'}
                   </h3>
                   <p className="text-text-muted dark:text-dark-text-muted text-sm">
                     {searchQuery || selectedCategory !== 'all'
-                      ? 'Try adjusting your search or category filter.'
+                      ? 'Ajuste sua busca ou o filtro de categoria.'
                       : 'Configuration services will appear here once available.'}
                   </p>
                 </div>
@@ -849,7 +849,7 @@ function ServiceCard({ service, onConfigure }: ServiceCardProps) {
 
       {/* Description */}
       <p className="text-sm text-text-muted dark:text-dark-text-muted line-clamp-2 mb-3 flex-1">
-        {service.description ?? 'No description available'}
+        {service.description ?? 'Descrição indisponível'}
       </p>
 
       {/* Required by badges */}

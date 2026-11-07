@@ -219,7 +219,7 @@ export function NotesPage() {
           ]}
           steps={[
             { title: 'Crie uma anotação', detail: 'Clique em nova anotação para começar.' },
-            { title: 'Escreva ou cole o conteúdo', detail: 'Add a title and body text.' },
+            { title: 'Escreva ou cole o conteúdo', detail: 'Adicione um título e o conteúdo da anotação.' },
             {
               title: 'Fixe as anotações importantes',
               detail: 'Pin notes you need quick access to.',
@@ -259,7 +259,7 @@ export function NotesPage() {
                 description={error}
                 variant="card"
                 action={{
-                  label: 'Try Again',
+                  label: 'Tentar novamente',
                   onClick: fetchNotes,
                   icon: RefreshCw,
                 }}
@@ -267,11 +267,11 @@ export function NotesPage() {
             ) : notes.length === 0 ? (
               <EmptyState
                 icon={FileText}
-                title={searchQuery ? 'No notes found' : 'No notes yet'}
+                title={searchQuery ? 'Nenhuma anotação encontrada' : 'Nenhuma anotação ainda'}
                 description={
                   searchQuery
-                    ? `No notes matching "${searchQuery}". Try a different search term.`
-                    : 'Create your first note to capture ideas, snippets, or reminders.'
+                    ? `Nenhuma anotação corresponde a "${searchQuery}". Experimente outra busca.`
+                    : 'Crie sua primeira anotação para guardar ideias, informações e lembretes.'
                 }
                 variant="card"
                 iconBgColor="bg-emerald-500/10 dark:bg-emerald-500/20"
