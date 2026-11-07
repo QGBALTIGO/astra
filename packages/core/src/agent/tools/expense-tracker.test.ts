@@ -229,14 +229,14 @@ describe('addExpenseExecutor', () => {
     expect(data.message).toContain('Lunch');
   });
 
-  it('uses default currency TRY when not provided', async () => {
+  it('uses default currency BRL when not provided', async () => {
     const result = await addExpenseExecutor(
       { amount: 100, category: 'shopping', description: 'Clothes' },
       dummyContext
     );
     const data = parseContent(result.content);
     const expense = data.expense as ExpenseEntry;
-    expect(expense.currency).toBe('TRY');
+    expect(expense.currency).toBe('BRL');
   });
 
   it('uses provided currency', async () => {
@@ -382,7 +382,7 @@ describe('batchAddExpensesExecutor', () => {
     expect(data.totalAmount).toBe(60);
   });
 
-  it('uses default currency TRY when not provided', async () => {
+  it('uses default currency BRL when not provided', async () => {
     const result = await batchAddExpensesExecutor(
       {
         expenses: [{ amount: 10, category: 'food', description: 'Coffee' }],
@@ -391,7 +391,7 @@ describe('batchAddExpensesExecutor', () => {
     );
     const data = parseContent(result.content);
     const expenses = data.expenses as ExpenseEntry[];
-    expect(expenses[0]!.currency).toBe('TRY');
+    expect(expenses[0]!.currency).toBe('BRL');
   });
 
   it('uses provided currency for each expense', async () => {
