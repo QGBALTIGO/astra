@@ -48,14 +48,14 @@ const PLATFORMS: PlatformInfo[] = [
     id: 'telegram',
     pluginId: 'channel.telegram',
     name: 'Telegram',
-    tokenLabel: 'Bot Token',
+    tokenLabel: 'Token do bot',
     tokenPlaceholder: '123456789:ABCdefGHI...',
-    tokenHint: 'Get a token from @BotFather on Telegram',
+    tokenHint: 'Obtenha o token pelo @BotFather no Telegram',
     docsUrl: 'https://core.telegram.org/bots#botfather',
-    restrictLabel: 'Allowed User IDs (comma-separated, optional)',
+    restrictLabel: 'Usuários autorizados (IDs separados por vírgula, opcional)',
     restrictField: 'allowed_users',
     Icon: Telegram,
-    validateToken: (v) => (v.includes(':') ? null : 'Token should contain ":"'),
+    validateToken: (v) => (v.includes(':') ? null : 'O token precisa conter ":"'),
   },
   {
     id: 'whatsapp',
@@ -63,11 +63,11 @@ const PLATFORMS: PlatformInfo[] = [
     name: 'WhatsApp',
     tokenLabel: '',
     tokenPlaceholder: '',
-    tokenHint: 'Scan QR code with your WhatsApp app',
+    tokenHint: 'Leia um QR Code no seu WhatsApp',
     docsUrl: 'https://github.com/WhiskeySockets/Baileys',
-    restrictLabel: 'Your Phone Number (optional)',
+    restrictLabel: 'Seu número de WhatsApp (opcional)',
     restrictField: 'my_phone',
-    restrictPlaceholder: '905551234567',
+    restrictPlaceholder: '5567999999999',
     Icon: WhatsApp,
     validateToken: () => null,
     qrBased: true,
@@ -157,7 +157,7 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
       // Move to QR step — will receive QR via WebSocket or polling
       setStep('qr');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Setup failed';
+      const msg = err instanceof Error ? err.message : 'Não foi possível configurar';
       setResult({ success: false, message: msg });
       setStep('result');
       toast.error(`Setup failed: ${msg}`);
@@ -203,7 +203,7 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
       setStep('result');
       toast.success(`${platform.name} bot connected`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Connection failed';
+      const msg = err instanceof Error ? err.message : 'Não foi possível conectar';
       setResult({ success: false, message: msg });
       setStep('result');
       toast.error(`Setup failed: ${msg}`);
@@ -337,22 +337,22 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-3 sm:p-5"
       onClick={onBackdropClick}
     >
-      <div className="w-full max-w-md bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-xl shadow-xl overflow-hidden">
+      <div className="w-full max-w-md max-h-[92dvh] bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-2xl shadow-2xl overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border dark:border-dark-border">
           <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            {step === 'platform' && 'Add Channel'}
+            {step === 'platform' && 'Conectar um canal'}
             {step === 'token' && platform?.name}
-            {step === 'connecting' && 'Connecting...'}
-            {step === 'qr' && `Scan QR — ${platform?.name}`}
-            {step === 'result' && (result?.success ? 'Connected' : 'Setup Failed')}
+            {step === 'connecting' && 'Conectando...'}
+            {step === 'qr' && `Escaneie o QR Code — ${platform?.name}`}
+            {step === 'result' && (result?.success ? 'Conectado' : 'Erro de configuração')}
           </h3>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label="Fechar"
             className="p-1 rounded hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
           >
             <X className="w-5 h-5 text-text-muted" />
@@ -365,13 +365,13 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
           {step === 'platform' && (
             <div className="space-y-3">
               <p className="text-sm text-text-secondary dark:text-dark-text-secondary mb-4">
-                Select a platform to connect:
+                Selecione o canal que deseja conectar:
               </p>
               {PLATFORMS.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => selectPlatform(p)}
-                  className="w-full flex items-center gap-4 p-4 rounded-lg border border-border dark:border-dark-border hover:border-primary hover:bg-primary/5 transition-colors text-left"
+                  className="w-full flex items-center gap-4 p-4 rounded-xl border border-border dark:border-dark-border hover:border-primary hover:bg-primary/5 transition-colors text-left"
                 >
                   <p.Icon className="w-8 h-8 text-text-primary dark:text-dark-text-primary" />
                   <div>
@@ -419,7 +419,7 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                     rel="noopener noreferrer"
                     className="text-xs text-primary hover:underline mt-1 inline-block"
                   >
-                    How to get a token?
+                    Como obter um token?
                   </a>
                 </div>
               )}
@@ -429,10 +429,10 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                 <div className="text-center py-2">
                   <platform.Icon className="w-10 h-10 mx-auto text-text-primary dark:text-dark-text-primary mb-2" />
                   <p className="text-sm text-text-secondary dark:text-dark-text-secondary">
-                    You will scan a QR code with your WhatsApp app to connect.
+                    Abra o WhatsApp no celular e leia o QR Code para conectar ao Astra.
                   </p>
                   <p className="text-xs text-text-muted dark:text-dark-text-muted mt-1">
-                    No Meta Business account needed — uses your personal WhatsApp.
+                    Conexão por aparelho vinculado. Use um número de teste nesta fase.
                   </p>
                 </div>
               )}
@@ -452,7 +452,7 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                     autoFocus={platform.qrBased}
                   />
                   <p className="text-xs text-text-muted dark:text-dark-text-muted mt-1">
-                    International format without + or spaces. Auto-detected if left empty.
+                    Código do país e DDD, sem + ou espaços. Deixe em branco para detectar automaticamente.
                   </p>
                 </div>
               )}
@@ -464,7 +464,7 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                     onClick={() => setShowAdvanced(!showAdvanced)}
                     className="text-sm text-text-muted dark:text-dark-text-muted hover:text-text-primary dark:hover:text-dark-text-primary transition-colors"
                   >
-                    {showAdvanced ? 'Hide' : 'Show'} advanced options
+                    {showAdvanced ? 'Ocultar' : 'Mostrar'} opções avançadas
                   </button>
 
                   {showAdvanced && (
@@ -476,7 +476,7 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                         type="text"
                         value={restrictIds}
                         onChange={(e) => setRestrictIds(e.target.value)}
-                        placeholder={platform.restrictPlaceholder ?? 'e.g. 123456789, 987654321'}
+                        placeholder={platform.restrictPlaceholder ?? 'Ex.: 123456789, 987654321'}
                         className="w-full px-3 py-2 rounded-lg border border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
                       />
                     </div>
@@ -485,19 +485,19 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
               )}
 
               {/* Buttons */}
-              <div className="flex justify-between pt-2">
+              <div className="flex flex-wrap justify-between gap-3 pt-2">
                 <button
                   onClick={handleBack}
                   className="px-4 py-2 text-sm text-text-secondary dark:text-dark-text-secondary hover:text-text-primary transition-colors"
                 >
-                  Back
+                  Voltar
                 </button>
                 <button
                   onClick={handleSubmit}
                   disabled={!platform.qrBased && !token.trim()}
                   className="px-6 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {platform.qrBased ? 'Start Setup' : 'Connect'}
+                  {platform.qrBased ? 'Gerar QR Code' : 'Conectar'}
                 </button>
               </div>
             </div>
@@ -508,7 +508,7 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
             <div className="flex flex-col items-center justify-center py-8">
               <LoadingSpinner />
               <p className="mt-4 text-text-secondary dark:text-dark-text-secondary">
-                Connecting to {platform?.name}...
+                Conectando ao {platform?.name}...
               </p>
             </div>
           )}
@@ -530,7 +530,7 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                       onClick={handleBack}
                       className="px-4 py-2 text-sm text-text-secondary dark:text-dark-text-secondary hover:text-text-primary transition-colors"
                     >
-                      Back
+                      Voltar
                     </button>
                     <button
                       onClick={() => {
@@ -547,14 +547,14 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                 /* Normal QR state */
                 <>
                   <p className="text-sm text-text-secondary dark:text-dark-text-secondary mb-4 text-center">
-                    Open WhatsApp on your phone, go to{' '}
-                    <strong>Settings &gt; Linked Devices &gt; Link a Device</strong>, then scan this
-                    code:
+                    No celular, abra o WhatsApp e acesse{' '}
+                    <strong>Configurações &gt; Aparelhos conectados &gt; Conectar um aparelho</strong>.
+                    Depois, leia o código abaixo:
                   </p>
 
                   {qrDataUrl ? (
-                    <div className="bg-white p-3 rounded-xl shadow-md">
-                      <img src={qrDataUrl} alt="WhatsApp QR Code" className="w-[280px] h-[280px]" />
+                    <div className="bg-white p-3 rounded-xl shadow-md max-w-full">
+                      <img src={qrDataUrl} alt="QR Code para conectar o WhatsApp" className="w-[min(70vw,280px)] h-auto aspect-square" />
                     </div>
                   ) : (
                     <div className="w-[280px] h-[280px] bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-xl flex items-center justify-center">
@@ -564,15 +564,15 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
 
                   <p className="text-xs text-text-muted dark:text-dark-text-muted mt-4">
                     {qrDataUrl
-                      ? 'QR code expires in ~20s — will refresh automatically'
-                      : 'Generating QR code...'}
+                      ? 'O QR Code expira em cerca de 20 segundos e será atualizado automaticamente.'
+                      : 'Gerando QR Code...'}
                   </p>
 
                   <button
                     onClick={handleBack}
                     className="mt-4 px-4 py-2 text-sm text-text-secondary dark:text-dark-text-secondary hover:text-text-primary transition-colors"
                   >
-                    Cancel
+                    Cancelar
                   </button>
                 </>
               )}
@@ -609,7 +609,7 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                     }}
                     className="mt-6 px-6 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors"
                   >
-                    Done
+                    Concluir
                   </button>
                 </>
               ) : (
@@ -618,7 +618,7 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                     <AlertTriangle className="w-6 h-6 text-error" />
                   </div>
                   <p className="text-lg font-medium text-text-primary dark:text-dark-text-primary">
-                    Connection Failed
+                    Falha na conexão
                   </p>
                   <p className="text-sm text-text-muted dark:text-dark-text-muted mt-1 text-center max-w-xs">
                     {result.message}
@@ -628,13 +628,13 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                       onClick={handleRetry}
                       className="px-6 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors"
                     >
-                      Try Again
+                      Tentar novamente
                     </button>
                     <button
                       onClick={onClose}
                       className="px-6 py-2 text-sm text-text-secondary dark:text-dark-text-secondary hover:text-text-primary transition-colors"
                     >
-                      Cancel
+                      Cancelar
                     </button>
                   </div>
                 </>
