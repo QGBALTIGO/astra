@@ -233,13 +233,13 @@ export function AIModelsTab() {
     try {
       const data = await modelConfigsApi.syncApply();
       setSuccess(
-        `Synced ${data.stats?.providers ?? 0} providers with ${data.stats?.totalModels ?? 0} models`
+        `Sincronizados ${data.stats?.providers ?? 0} provedores e ${data.stats?.totalModels ?? 0} modelos`
       );
       setTimeout(() => setSuccess(null), 3000);
       // Reload data after sync
       await loadData();
     } catch {
-      setError('Sync failed');
+      setError('Não foi possível sincronizar os modelos');
     } finally {
       setIsSyncing(false);
     }
@@ -263,7 +263,7 @@ export function AIModelsTab() {
     try {
       const data = await modelConfigsApi.syncReset();
       setSuccess(
-        `Reset complete! Deleted ${data.stats?.deleted ?? 0}, synced ${data.stats?.synced ?? 0} providers`
+        `Restauração concluída: ${data.stats?.deleted ?? 0} registros removidos e ${data.stats?.synced ?? 0} provedores sincronizados`
       );
       setTimeout(() => setSuccess(null), 5000);
       await loadData();
@@ -289,7 +289,7 @@ export function AIModelsTab() {
       const models = data.models ?? [];
       const providerName = data.providerName ?? providerId;
       setSuccess(
-        `Discovered ${models.length} models from ${providerName}${newCount > 0 ? ` (${newCount} new)` : ''}`
+        `Encontrados ${models.length} modelos de ${providerName}${newCount > 0 ? ` (${newCount} novos)` : ''}`
       );
       await loadData();
     } catch {
@@ -314,7 +314,7 @@ export function AIModelsTab() {
         apiKey: customApiKey || undefined,
         discoveryEndpoint: template.discoveryEndpoint,
       });
-      setSuccess(`Added ${template.name} provider. Discovering models...`);
+      setSuccess(`Provedor ${template.name} adicionado. Buscando modelos...`);
       setShowAddLocalDialog(false);
       await loadData();
       // Auto-discover models after adding provider
@@ -336,7 +336,7 @@ export function AIModelsTab() {
       );
       const total = (data.totalModels as number) || 0;
       const newCount = (data.newModels as number) || 0;
-      setSuccess(`Discovered ${total} models${newCount > 0 ? ` (${newCount} new)` : ''}`);
+      setSuccess(`Encontrados ${total} modelos${newCount > 0 ? ` (${newCount} novos)` : ''}`);
       setTimeout(() => setSuccess(null), 3000);
       await loadData();
     } catch {
@@ -350,7 +350,7 @@ export function AIModelsTab() {
   const handleDeleteLocalProvider = async (providerId: string, name: string) => {
     if (
       !(await confirm({
-        message: `Delete local provider "${name}" and all its models?`,
+        message: `Excluir o provedor local "${name}" e todos os seus modelos?`,
         variant: 'danger',
       }))
     )
