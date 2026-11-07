@@ -52,10 +52,10 @@ export function PinnedNavLink({
       end={item.to === '/'}
       onClick={handleClick}
       className={({ isActive }) =>
-        `flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base ${
+        `astra-nav-link flex items-center gap-2 px-3 py-2.5 rounded-xl transition-colors text-sm ${
           isActive && !isCustomizeOpen && !hasActiveConversation
-            ? 'bg-primary/10 text-primary border-l-[3px] border-primary'
-            : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5'
+            ? 'astra-nav-link--active'
+            : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
         }`
       }
     >
