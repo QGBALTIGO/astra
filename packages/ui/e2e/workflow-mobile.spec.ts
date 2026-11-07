@@ -67,7 +67,15 @@ test.describe('Editor de automações — celular', () => {
     expect(workflowId).toBeTruthy();
     await expect(page.getByPlaceholder('Buscar ferramentas...')).toBeVisible();
     await page.getByTestId('workflow-mobile-tab-canvas').click();
-    await expect(page.locator('.react-flow')).toBeVisible();
+    const canvasPanel = page.getByTestId('workflow-mobile-canvas');
+    await expect(canvasPanel).toBeVisible();
+    // React Flow must have a measurable area. A hidden, zero-height canvas
+    // previously passed DOM-existence tests but was unusable on a phone.
+    const flow = canvasPanel.locator('.react-flow');
+    await expect(flow).toBeVisible();
+    const dimensions = await flow.boundingBox();
+    expect(dimensions?.width ?? 0).toBeGreaterThan(100);
+    expect(dimensions?.height ?? 0).toBeGreaterThan(100);
     await expect(page.getByTestId('workflow-mobile-tab-canvas')).toHaveAttribute(
       'aria-selected',
       'true'

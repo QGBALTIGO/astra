@@ -88,7 +88,7 @@ function WorkflowEditorInner() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       {/* Top Bar */}
       <WorkflowEditorToolbar
         workflowName={editor.workflowName}

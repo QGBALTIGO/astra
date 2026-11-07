@@ -163,9 +163,9 @@ export function MobileWorkflowView({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {/* Tab content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className={`min-h-0 min-w-0 flex-1 ${activeTab === 'canvas' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         {activeTab === 'nodes' && (
           <ToolPalette
             className="w-full border-r-0"
@@ -175,7 +175,11 @@ export function MobileWorkflowView({
           />
         )}
 
-        {activeTab === 'canvas' && <div className="w-full h-full min-h-[300px]">{canvas}</div>}
+        {activeTab === 'canvas' && (
+          <div data-testid="workflow-mobile-canvas" className="relative h-full min-h-0 w-full">
+            {canvas}
+          </div>
+        )}
 
         {activeTab === 'config' &&
           (hasSelection ? (
