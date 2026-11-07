@@ -254,7 +254,7 @@ const labels: Record<string, string> = {
   'Your assistant is ready': 'Seu assistente está pronto',
   'Welcome to OwnPilot': 'Bem-vindo ao Astra',
   'For you': 'Para você',
-  'Examples': 'Sugestões',
+  Examples: 'Sugestões',
   'Configure API Keys': 'Configurar IA',
   'View details': 'Ver detalhes',
   'Add new': 'Adicionar',

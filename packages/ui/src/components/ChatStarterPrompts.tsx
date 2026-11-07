@@ -337,7 +337,8 @@ function StarterGrid({
 
       {starterTab === 'personal' && personalStarters.length === 0 && (
         <div className="mb-3 rounded-lg border border-border dark:border-dark-border bg-bg-secondary/60 dark:bg-dark-bg-secondary/60 px-4 py-3 text-sm text-text-muted dark:text-dark-text-muted">
-          Ao adicionar tarefas, compromissos e anotações, o Astra mostrará sugestões personalizadas para o seu dia.
+          Ao adicionar tarefas, compromissos e anotações, o Astra mostrará sugestões personalizadas
+          para o seu dia.
         </div>
       )}
 
