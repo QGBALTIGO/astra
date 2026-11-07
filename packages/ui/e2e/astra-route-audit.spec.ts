@@ -120,7 +120,25 @@ test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
         const response = await page.goto(route, { waitUntil: 'domcontentloaded', timeout: 16000 });
         found.status = response?.status() || 0;
         await page.locator('#main-content').waitFor({ state: 'visible', timeout: 6500 });
-        await page.waitForTimeout(220);
+        // Do not count lazy-route skeletons as successful pages. The first
+        // audit incorrectly photographed only a spinner and marked 177 visits
+        // as clean. Each route now has to render meaningful content.
+        await page.waitForFunction(
+          () => {
+            const main = document.querySelector('#main-content');
+            if (!main) return false;
+            const first = main.firstElementChild;
+            const isPageLoader =
+              first instanceof HTMLElement &&
+              first.classList.contains('items-center') &&
+              first.classList.contains('justify-center') &&
+              first.classList.contains('py-12') &&
+              Boolean(first.querySelector('.animate-spin'));
+            return !isPageLoader && (main.textContent?.trim().length ?? 0) >= 8;
+          },
+          { timeout: 8500 }
+        );
+        await page.waitForTimeout(250);
         found.landed = new URL(page.url()).pathname;
         const metrics = await page.evaluate((pattern) => {
           const main = document.querySelector('#main-content');
