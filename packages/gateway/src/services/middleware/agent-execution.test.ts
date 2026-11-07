@@ -299,6 +299,25 @@ describe('createAgentExecutionMiddleware', () => {
       expect(result.response.metadata.error).toBe(rawError);
     });
 
+    it('identifies a Groq rate limit and never exposes provider details to channels', async () => {
+      const agent = createAgent();
+      const details =
+        'OpenAI API error: 429 - Rate limit reached. Used 5673 Requested 3470. org_secret';
+      agent.chat.mockResolvedValue({ ok: false, error: { message: details } });
+      const ctx = createContext({ store: { agent } });
+      const result = await middleware(
+        createMessage({ metadata: { source: 'channel', platform: 'telegram' } }),
+        ctx,
+        vi.fn()
+      );
+
+      expect(result.response.content).toContain('Groq');
+      expect(result.response.content).toContain('limite');
+      expect(result.response.content).not.toContain('org_secret');
+      expect(result.response.content).not.toContain('429');
+      expect(result.response.metadata.error).toBe(details);
+    });
+
     it('should set error in context', async () => {
       const errObj = { message: 'Server error', stack: 'stack...' };
       const agent = createAgent();

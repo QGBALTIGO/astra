@@ -11,7 +11,6 @@ import { randomUUID } from 'node:crypto';
 import { pricingByExactKey } from '@ownpilot/core/costs';
 import type { ChannelIncomingMessage, ChannelPluginAPI } from '@ownpilot/core/channels';
 import type { IMessageBus, NormalizedMessage } from '@ownpilot/core/services';
-import type { ToolCall } from '@ownpilot/core/tools';
 import type { StreamCallbacks } from '@ownpilot/core/services';
 import type { ChannelSessionsRepository } from '../db/repositories/channels/sessions.js';
 import { truncate } from '../utils/common.js';
@@ -84,7 +83,16 @@ export async function processViaBus(
     routing.fallbackProvider && routing.fallbackModel
       ? { provider: routing.fallbackProvider, model: routing.fallbackModel }
       : undefined;
-  const agent = await getOrCreateChatAgent(effectiveProvider, effectiveModel, fallback);
+  // Distinct agent per channel session: never mix Telegram, WhatsApp or users.
+  const agent = await getOrCreateChatAgent(
+    effectiveProvider,
+    effectiveModel,
+    fallback,
+    null,
+    `channel:${message.channelPluginId}:${session.sessionId}`,
+    undefined,
+    true
+  );
 
   // Load session conversation for context continuity
   let activeConversationId = session.conversationId;
@@ -155,9 +163,9 @@ export async function processViaBus(
   // Build stream callbacks for progress updates
   const streamCallbacks: StreamCallbacks | undefined = progress
     ? {
-        onToolStart: (tc: ToolCall) => progress.update(`🔧 ${tc.name}...`),
-        onToolEnd: (tc: ToolCall, _result: unknown) => progress.update(`✅ ${tc.name} done`),
-        onProgress: (msg: string) => progress.update(`⚙️ ${msg}`),
+        // Never surface internal function names, traces or false "done"
+        // confirmations in an editable Telegram progress message.
+        onToolStart: () => progress.update('🔎 Consultando informações…'),
       }
     : undefined;
 
@@ -168,7 +176,9 @@ export async function processViaBus(
   const directToolCount = agent
     .getAllToolDefinitions()
     .filter((tool) => tool.name !== 'use_tool' && tool.name !== 'batch_use_tool').length;
-  const useDirectTools = directToolCount <= 128;
+  // Groq's 8K TPM budget requires the compact four-meta-tool path even
+  // when a smaller registry technically fits the 128-tool schema cap.
+  const useDirectTools = effectiveProvider !== 'groq' && directToolCount <= 128;
 
   // Process through the pipeline with context.
   try {
@@ -204,7 +214,7 @@ export async function processViaBus(
       const contextWindow = pricing?.contextWindow ?? 128_000;
       const fillPercent = Math.round((inputTokens / contextWindow) * 100);
       if (fillPercent >= 80) {
-        responseText += `\n\n⚠️ Context is ${fillPercent}% full. Send /clear to start a fresh conversation.`;
+        responseText += `\n\n⚠️ A conversa está usando ${fillPercent}% do contexto. Envie /clear para iniciar uma nova.`;
       }
     }
 
@@ -237,7 +247,11 @@ export async function processDirectAgent(message: ChannelIncomingMessage): Promi
   const agent = await getOrCreateChatAgent(
     routing.provider ?? 'openai',
     routing.model ?? 'gpt-4o',
-    fallback
+    fallback,
+    null,
+    `channel:${message.channelPluginId}:${message.platformChatId}`,
+    undefined,
+    true
   );
   const result = await agent.chat(message.text);
 

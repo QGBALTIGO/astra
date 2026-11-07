@@ -12,6 +12,7 @@ import type { ChannelNormalizer, NormalizedIncoming } from './types.js';
 import { stripInternalTags } from './base.js';
 import { splitMessage, PLATFORM_MESSAGE_LIMITS } from '../utils/message-utils.js';
 import { flattenChatWidgetsToText } from '../../utils/chat-widgets.js';
+import { formatChannelTables } from './channel-table-format.js';
 
 const WHATSAPP_MAX_LENGTH = PLATFORM_MESSAGE_LIMITS.whatsapp ?? 4096;
 
@@ -67,7 +68,7 @@ export const whatsappNormalizer: ChannelNormalizer = {
 
     // Flatten <widget> tags to plain-text markdown — WhatsApp can't render
     // the web UI's visual widgets, and raw XML in messages is broken UX.
-    cleaned = flattenChatWidgetsToText(cleaned);
+    cleaned = formatChannelTables(flattenChatWidgetsToText(cleaned));
 
     // Convert standard Markdown to WhatsApp formatting
     cleaned = markdownToWhatsApp(cleaned);

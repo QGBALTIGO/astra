@@ -1747,6 +1747,57 @@ describe('ChannelServiceImpl', () => {
         );
       });
 
+      it('uses separate Groq agents and meta-tools for channel messages', async () => {
+        mockResolveForProcess.mockResolvedValueOnce({
+          provider: 'groq',
+          model: 'openai/gpt-oss-120b',
+          fallbackProvider: null,
+          fallbackModel: null,
+          source: 'global',
+        });
+        await service.processIncomingMessage(message);
+
+        expect(mockGetOrCreateChatAgent).toHaveBeenCalledWith(
+          'groq',
+          'openai/gpt-oss-120b',
+          undefined,
+          null,
+          expect.stringContaining('channel:'),
+          undefined,
+          true
+        );
+        expect(mockBus.process).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            context: expect.objectContaining({ directToolMode: false }),
+          })
+        );
+      });
+
+      it('shows neutral progress rather than function names and false successes', async () => {
+        const progressManager = {
+          start: vi.fn().mockResolvedValue('msg-progress'),
+          update: vi.fn(),
+          finish: vi.fn().mockResolvedValue('msg-done'),
+          cancel: vi.fn().mockResolvedValue(undefined),
+          getMessageId: vi.fn().mockReturnValue(1),
+        };
+        (channelPlugin.api as Record<string, unknown>).createProgressManager = vi.fn(
+          () => progressManager
+        );
+        mockBus.process.mockImplementation(async (_input: unknown, options: any) => {
+          options.stream.onToolStart({ name: 'search_tools' });
+          return { response: { content: 'R$ 50,00 em despesas hoje.' } };
+        });
+        await service.processIncomingMessage(message);
+
+        expect(progressManager.start).toHaveBeenCalled();
+        expect(progressManager.update).toHaveBeenCalledWith('🔎 Consultando informações…');
+        expect(progressManager.finish).toHaveBeenCalledWith('R$ 50,00 em despesas hoje.');
+        expect(JSON.stringify(progressManager.update.mock.calls)).not.toContain('search_tools');
+        expect(JSON.stringify(progressManager.update.mock.calls)).not.toContain('done');
+      });
+
       it('should route through MessageBus when available', async () => {
         await service.processIncomingMessage(message);
 
@@ -1957,7 +2008,7 @@ describe('ChannelServiceImpl', () => {
 
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
           expect.objectContaining({
-            text: expect.stringContaining('⚠️ Context is'),
+            text: expect.stringContaining('⚠️ A conversa está usando'),
           })
         );
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(

@@ -12,6 +12,7 @@ import type { ChannelNormalizer, NormalizedIncoming } from './types.js';
 import { stripInternalTags, transcribeAudioAttachment } from './base.js';
 import { splitMessage, PLATFORM_MESSAGE_LIMITS } from '../utils/message-utils.js';
 import { flattenChatWidgetsToText } from '../../utils/chat-widgets.js';
+import { formatChannelTables } from './channel-table-format.js';
 
 const TELEGRAM_MAX_LENGTH = PLATFORM_MESSAGE_LIMITS.telegram ?? 4096;
 
@@ -96,7 +97,7 @@ export const telegramNormalizer: ChannelNormalizer = {
 
     // Flatten <widget> tags to plain-text markdown — Telegram can't render
     // the web UI's visual widgets, and raw XML in messages is broken UX.
-    cleaned = flattenChatWidgetsToText(cleaned);
+    cleaned = formatChannelTables(flattenChatWidgetsToText(cleaned));
 
     // Decode any HTML entities that might have been escaped
     // (e.g., &lt;b&gt; → <b>)

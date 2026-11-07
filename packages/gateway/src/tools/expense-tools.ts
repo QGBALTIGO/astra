@@ -41,7 +41,7 @@ export async function executeExpenseTool(
         const expense = await repo.create({
           date: (args.date as string) ?? localDayString(new Date()),
           amount: args.amount as number,
-          currency: (args.currency as string) ?? 'TRY',
+          currency: (args.currency as string) ?? 'BRL',
           category: (args.category as string) ?? 'other',
           description: args.description as string,
           paymentMethod: args.paymentMethod as string | undefined,
@@ -67,7 +67,7 @@ export async function executeExpenseTool(
           const expense = await repo.create({
             date: (item.date as string) ?? localDayString(new Date()),
             amount: item.amount as number,
-            currency: (item.currency as string) ?? 'TRY',
+            currency: (item.currency as string) ?? 'BRL',
             category: (item.category as string) ?? 'other',
             description: item.description as string,
             paymentMethod: item.paymentMethod as string | undefined,
@@ -139,6 +139,21 @@ export async function executeExpenseTool(
         }
 
         const summary = await repo.getSummary(dateFrom, dateTo);
+        const currencies = Object.keys(summary.byCurrency ?? {});
+        if (currencies.length > 1) {
+          // Summing BRL, USD, TRY etc. without FX conversion is misleading.
+          // Return accurate per-currency totals, not the invalid combined amount.
+          return {
+            success: true,
+            result: {
+              period,
+              count: summary.count,
+              byCurrency: summary.byCurrency,
+              warning:
+                'Despesas em moedas diferentes. Apresente os totais por moeda separadamente; não faça a soma sem conversão.',
+            },
+          };
+        }
         return { success: true, result: { period, ...summary } };
       }
 

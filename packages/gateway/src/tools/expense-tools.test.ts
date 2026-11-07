@@ -39,7 +39,12 @@ describe('executeExpenseTool', () => {
 
     expect(result.success).toBe(true);
     expect(mockRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: 42.5, description: 'Coffee', category: 'food' })
+      expect.objectContaining({
+        amount: 42.5,
+        description: 'Coffee',
+        category: 'food',
+        currency: 'BRL',
+      })
     );
   });
 
@@ -89,6 +94,22 @@ describe('executeExpenseTool', () => {
 
     expect(result.success).toBe(true);
     expect((result.result as { totalAmount: number }).totalAmount).toBe(150);
+  });
+
+  it('does not invent a single monetary total when expenses mix currencies', async () => {
+    mockRepo.getSummary.mockResolvedValue({
+      totalAmount: 150,
+      count: 2,
+      byCategory: { food: { amount: 150, count: 2 } },
+      byCurrency: { BRL: 50, USD: 100 },
+    });
+
+    const result = await executeExpenseTool('expense_summary', { period: 'today' }, 'user-1');
+    expect(result.success).toBe(true);
+    const summary = result.result as Record<string, unknown>;
+    expect(summary).not.toHaveProperty('totalAmount');
+    expect(summary.byCurrency).toEqual({ BRL: 50, USD: 100 });
+    expect(summary.warning).toContain('moedas diferentes');
   });
 
   it('update_expense updates and returns', async () => {
