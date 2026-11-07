@@ -86,10 +86,14 @@ export function EdgeDevicesPage() {
     error,
     refetch,
     setData: setListData,
-  } = usePageData(() => {
-    const filter = FILTER_TABS.find((t) => t.key === filterTab)?.filter ?? {};
-    return edgeApi.list({ ...filter, search: searchQuery || undefined, limit: 50 });
-  }, [filterTab, searchQuery], { errorMessage: 'Não foi possível carregar os dispositivos.' });
+  } = usePageData(
+    () => {
+      const filter = FILTER_TABS.find((t) => t.key === filterTab)?.filter ?? {};
+      return edgeApi.list({ ...filter, search: searchQuery || undefined, limit: 50 });
+    },
+    [filterTab, searchQuery],
+    { errorMessage: 'Não foi possível carregar os dispositivos.' }
+  );
   const devices = listData?.devices ?? [];
   const total = listData?.total ?? 0;
 
@@ -168,7 +172,8 @@ export function EdgeDevicesPage() {
       <div className="flex items-center gap-2 px-6 py-2.5 bg-amber-50 dark:bg-amber-500/10 border-b border-amber-200 dark:border-amber-500/30 text-xs text-amber-700 dark:text-amber-400">
         <span className="text-sm">🚧</span>
         <span>
-          <span className="font-semibold">Recurso experimental</span> — a integração com dispositivos IoT ainda está em desenvolvimento e não deve ser utilizada em operações críticas.
+          <span className="font-semibold">Recurso experimental</span> — a integração com dispositivos
+          IoT ainda está em desenvolvimento e não deve ser utilizada em operações críticas.
         </span>
       </div>
 
@@ -264,8 +269,7 @@ export function EdgeDevicesPage() {
                 icon: Zap,
                 color: 'text-emerald-500 bg-emerald-500/10',
                 title: 'Controle remoto',
-                description:
-                  'Envie comandos, altere configurações e execute ações remotamente.',
+                description: 'Envie comandos, altere configurações e execute ações remotamente.',
               },
               {
                 icon: Brain,
