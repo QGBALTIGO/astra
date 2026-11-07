@@ -241,8 +241,14 @@ export function TasksPage() {
             },
           ]}
           steps={[
-            { title: 'Crie uma tarefa', detail: 'Clique em adicionar e informe o título da tarefa.' },
-            { title: 'Defina prioridade e prazo', detail: 'Escolha a prioridade e informe o prazo.' },
+            {
+              title: 'Crie uma tarefa',
+              detail: 'Clique em adicionar e informe o título da tarefa.',
+            },
+            {
+              title: 'Defina prioridade e prazo',
+              detail: 'Escolha a prioridade e informe o prazo.',
+            },
             {
               title: 'Acompanhe o progresso',
               detail: 'Filter by status to see pending or completed tasks.',
@@ -293,7 +299,9 @@ export function TasksPage() {
             ) : tasks.length === 0 ? (
               <EmptyState
                 icon={CheckCircle2}
-                title={filter === 'all' ? 'Nenhuma tarefa cadastrada' : 'Nenhuma tarefa neste filtro'}
+                title={
+                  filter === 'all' ? 'Nenhuma tarefa cadastrada' : 'Nenhuma tarefa neste filtro'
+                }
                 description={
                   filter === 'all'
                     ? 'Adicione sua primeira tarefa para organizar sua rotina.'
@@ -378,7 +386,11 @@ function TaskItem({ task, onComplete, onEdit, onDelete }: TaskItemProps) {
         className="mt-0.5 flex-shrink-0"
         disabled={isDone}
         aria-label={
-          isCompleted ? 'Tarefa concluída' : isCancelled ? 'Task cancelled' : 'Mark task as complete'
+          isCompleted
+            ? 'Tarefa concluída'
+            : isCancelled
+              ? 'Task cancelled'
+              : 'Mark task as complete'
         }
       >
         {isCompleted ? (

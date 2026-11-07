@@ -324,7 +324,10 @@ export function HabitsPage() {
                 title: 'Crie um hábito',
                 detail: 'Click "Create Habit" and set name, frequency, and target.',
               },
-              { title: 'Registrar diariamente', detail: 'Check off habits as you complete them each day.' },
+              {
+                title: 'Registrar diariamente',
+                detail: 'Check off habits as you complete them each day.',
+              },
               {
                 title: 'Build streaks',
                 detail: 'Watch your streak grow as you maintain consistency.',
@@ -439,7 +442,9 @@ export function HabitsPage() {
               ) : habits.length === 0 ? (
                 <EmptyState
                   icon={Target}
-                  title={filter === 'archived' ? 'Nenhum hábito arquivado' : 'Nenhum hábito cadastrado'}
+                  title={
+                    filter === 'archived' ? 'Nenhum hábito arquivado' : 'Nenhum hábito cadastrado'
+                  }
                   description={
                     filter === 'archived'
                       ? 'Archive habits you no longer track to keep your list clean.'

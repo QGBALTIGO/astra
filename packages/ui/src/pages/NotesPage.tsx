@@ -278,7 +278,11 @@ export function NotesPage() {
                 iconColor="text-emerald-500"
                 action={
                   !searchQuery
-                    ? { label: 'Criar anotação', onClick: () => setShowCreateModal(true), icon: Plus }
+                    ? {
+                        label: 'Criar anotação',
+                        onClick: () => setShowCreateModal(true),
+                        icon: Plus,
+                      }
                     : { label: 'Limpar busca', onClick: () => setSearchQuery('') }
                 }
               />

@@ -270,7 +270,10 @@ export function ExpensesPage() {
             },
           ]}
           steps={[
-            { title: 'Registre uma despesa', detail: 'Clique em adicionar despesa e informe os dados.' },
+            {
+              title: 'Registre uma despesa',
+              detail: 'Clique em adicionar despesa e informe os dados.',
+            },
             {
               title: 'Categorize o gasto',
               detail: 'Escolha uma categoria, como alimentação, transporte ou compras.',
@@ -628,7 +631,9 @@ function ExpenseFormModal({
       }
       onSaved();
     } catch {
-      toast.error(isEditing ? 'Não foi possível atualizar a despesa' : 'Não foi possível adicionar a despesa');
+      toast.error(
+        isEditing ? 'Não foi possível atualizar a despesa' : 'Não foi possível adicionar a despesa'
+      );
     } finally {
       setIsSaving(false);
     }

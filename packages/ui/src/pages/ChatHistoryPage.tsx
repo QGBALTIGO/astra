@@ -713,7 +713,9 @@ export function ChatHistoryPage() {
                       onClick={selectedIds.size === conversations.length ? deselectAll : selectAll}
                       className="text-xs text-primary hover:underline"
                     >
-                      {selectedIds.size === conversations.length ? 'Desmarcar todas' : 'Selecionar todas'}
+                      {selectedIds.size === conversations.length
+                        ? 'Desmarcar todas'
+                        : 'Selecionar todas'}
                     </button>
                     <button
                       onClick={exitSelectMode}

@@ -321,7 +321,11 @@ export function ContactsPage() {
                 iconColor="text-blue-500"
                 action={
                   !searchQuery
-                    ? { label: 'Adicionar contato', onClick: () => setShowCreateModal(true), icon: Plus }
+                    ? {
+                        label: 'Adicionar contato',
+                        onClick: () => setShowCreateModal(true),
+                        icon: Plus,
+                      }
                     : { label: 'Limpar busca', onClick: () => setSearchQuery('') }
                 }
               />

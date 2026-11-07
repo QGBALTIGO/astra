@@ -2,26 +2,73 @@ import { test, chromium } from '@playwright/test';
 import fs from 'node:fs';
 
 const routes = [
-  '/', '/dashboard', '/analytics', '/tasks', '/notes', '/calendar',
-  '/contacts', '/expenses', '/habits', '/pomodoro', '/bookmarks', '/memories',
-  '/goals', '/triggers', '/plans', '/channels', '/history', '/agents',
-  '/workflows', '/approvals', '/autonomy', '/artifacts', '/custom-data',
-  '/data-browser', '/tools', '/custom-tools', '/plugins', '/skills',
-  '/workspaces', '/costs', '/logs', '/profile', '/about', '/wizards', '/claws',
-  '/agentic', '/mission-control', '/agent-observability', '/autonomous',
-  '/edge-devices', '/canvas', '/coding-agents', '/settings',
-  '/settings/config-center', '/settings/api-keys', '/settings/providers',
-  '/settings/ai-models', '/settings/model-routing', '/settings/mcp-servers',
-  '/settings/connected-apps', '/settings/tool-groups', '/settings/workflow-tools',
-  '/settings/security', '/settings/security-scanner', '/settings/system',
-  '/settings/layout', '/settings/cli-tools', '/settings/coding-agents', '/tunnel',
+  '/',
+  '/dashboard',
+  '/analytics',
+  '/tasks',
+  '/notes',
+  '/calendar',
+  '/contacts',
+  '/expenses',
+  '/habits',
+  '/pomodoro',
+  '/bookmarks',
+  '/memories',
+  '/goals',
+  '/triggers',
+  '/plans',
+  '/channels',
+  '/history',
+  '/agents',
+  '/workflows',
+  '/approvals',
+  '/autonomy',
+  '/artifacts',
+  '/custom-data',
+  '/data-browser',
+  '/tools',
+  '/custom-tools',
+  '/plugins',
+  '/skills',
+  '/workspaces',
+  '/costs',
+  '/logs',
+  '/profile',
+  '/about',
+  '/wizards',
+  '/claws',
+  '/agentic',
+  '/mission-control',
+  '/agent-observability',
+  '/autonomous',
+  '/edge-devices',
+  '/canvas',
+  '/coding-agents',
+  '/settings',
+  '/settings/config-center',
+  '/settings/api-keys',
+  '/settings/providers',
+  '/settings/ai-models',
+  '/settings/model-routing',
+  '/settings/mcp-servers',
+  '/settings/connected-apps',
+  '/settings/tool-groups',
+  '/settings/workflow-tools',
+  '/settings/security',
+  '/settings/security-scanner',
+  '/settings/system',
+  '/settings/layout',
+  '/settings/cli-tools',
+  '/settings/coding-agents',
+  '/tunnel',
 ];
 const widths = [
   { device: 'celular', width: 360, height: 800 },
   { device: 'tablet', width: 768, height: 1024 },
   { device: 'desktop', width: 1440, height: 900 },
 ];
-const english = /^(Welcome|Getting Started|New Chat|Settings|Tools|Search|Save|Cancel|Add|Delete|Loading|Refresh|For you|Examples|No results|Try again|Coming soon|Sign In|Dashboard|Overview|Next|Previous|Configure API Keys|Select a.*|Choose a.*|Create [A-Z].*|No [A-Z].*|Your [A-Z].*)$/i;
+const english =
+  /^(Welcome|Getting Started|New Chat|Settings|Tools|Search|Save|Cancel|Add|Delete|Loading|Refresh|For you|Examples|No results|Try again|Coming soon|Sign In|Dashboard|Overview|Next|Previous|Configure API Keys|Select a.*|Choose a.*|Create [A-Z].*|No [A-Z].*|Your [A-Z].*)$/i;
 
 test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
   test.setTimeout(25 * 60 * 1000);
@@ -38,9 +85,12 @@ test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
   const all: Array<Record<string, unknown>> = [];
   for (const vp of widths) {
     const context = await browser.newContext({
-      baseURL: 'http://127.0.0.1:18080', storageState: storage,
-      viewport: { width: vp.width, height: vp.height }, locale: 'pt-BR',
-      reducedMotion: 'reduce', serviceWorkers: 'block',
+      baseURL: 'http://127.0.0.1:18080',
+      storageState: storage,
+      viewport: { width: vp.width, height: vp.height },
+      locale: 'pt-BR',
+      reducedMotion: 'reduce',
+      serviceWorkers: 'block',
     });
     const page = await context.newPage();
     let js: string[] = [];
@@ -52,10 +102,19 @@ test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
     });
     let screenshots = 0;
     for (const route of routes) {
-      js = []; http = [];
+      js = [];
+      http = [];
       const found: Record<string, unknown> = {
-        route, device: vp.device, landed: '', status: 0, overflow: 0,
-        mainOverflow: 0, english: [], errors: [], http: [], failure: ''
+        route,
+        device: vp.device,
+        landed: '',
+        status: 0,
+        overflow: 0,
+        mainOverflow: 0,
+        english: [],
+        errors: [],
+        http: [],
+        failure: '',
       };
       try {
         const response = await page.goto(route, { waitUntil: 'domcontentloaded', timeout: 16000 });
@@ -67,14 +126,25 @@ test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
           const main = document.querySelector('#main-content');
           const re = new RegExp(pattern, 'i');
           const isVisible = (e: Element) => {
-            const r = e.getBoundingClientRect(), s = getComputedStyle(e);
-            return r.width > 0 && r.height > 0 && r.bottom > 0 &&
-              r.top < innerHeight && s.visibility !== 'hidden';
+            const r = e.getBoundingClientRect(),
+              s = getComputedStyle(e);
+            return (
+              r.width > 0 &&
+              r.height > 0 &&
+              r.bottom > 0 &&
+              r.top < innerHeight &&
+              s.visibility !== 'hidden'
+            );
           };
-          const labels = Array.from(document.querySelectorAll(
-            '#root h1,#root h2,#root h3,#root button,#root label,#root [role=tab],#root nav a'
-          )).filter(isVisible).map(e => (e.textContent || '').trim().replace(/\s+/g,' '))
-            .filter(v => re.test(v)).slice(0, 8);
+          const labels = Array.from(
+            document.querySelectorAll(
+              '#root h1,#root h2,#root h3,#root button,#root label,#root [role=tab],#root nav a'
+            )
+          )
+            .filter(isVisible)
+            .map((e) => (e.textContent || '').trim().replace(/\s+/g, ' '))
+            .filter((v) => re.test(v))
+            .slice(0, 8);
           return {
             overflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
             mainOverflow: main ? Math.max(0, main.scrollWidth - main.clientWidth) : 0,
@@ -85,37 +155,75 @@ test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
         found.mainOverflow = metrics.mainOverflow;
         found.english = metrics.english;
         if (found.landed === '/login') found.failure = 'Redirecionado ao login';
-      } catch (e) { found.failure = String(e).slice(0, 200); found.landed = new URL(page.url()).pathname; }
+      } catch (e) {
+        found.failure = String(e).slice(0, 200);
+        found.landed = new URL(page.url()).pathname;
+      }
       found.errors = [...new Set(js)].slice(0, 5);
       found.http = [...new Set(http)].slice(0, 5);
-      const issue = Boolean(found.failure) || Number(found.overflow) > 7 ||
-        Number(found.mainOverflow) > 20 || js.length > 0 || http.length > 0 ||
+      const issue =
+        Boolean(found.failure) ||
+        Number(found.overflow) > 7 ||
+        Number(found.mainOverflow) > 20 ||
+        js.length > 0 ||
+        http.length > 0 ||
         (found.english as string[]).length > 0;
-      if ((issue || ['/', '/dashboard', '/calendar', '/tasks', '/expenses'].includes(route)) && screenshots < 20) {
+      if (
+        (issue || ['/', '/dashboard', '/calendar', '/tasks', '/expenses'].includes(route)) &&
+        screenshots < 20
+      ) {
         try {
-          const file = 'qa/reports/screenshots/' + vp.device + '-' +
-            (route === '/' ? 'chat' : route.replace(/[^a-z0-9]/gi, '-')) + '.png';
+          const file =
+            'qa/reports/screenshots/' +
+            vp.device +
+            '-' +
+            (route === '/' ? 'chat' : route.replace(/[^a-z0-9]/gi, '-')) +
+            '.png';
           await page.screenshot({ path: file, timeout: 7000, fullPage: false });
-          found.screenshot = file; screenshots++;
-        } catch { /* preserve original failure */ }
+          found.screenshot = file;
+          screenshots++;
+        } catch {
+          /* preserve original failure */
+        }
       }
       all.push(found);
-      console.log(vp.device + ' ' + route + ' => ' + found.landed + ' overflow=' +
-        found.overflow + '/' + found.mainOverflow + ' err=' + js.length + '/' +
-        http.length + ' ingles=' + (found.english as string[]).length);
+      console.log(
+        vp.device +
+          ' ' +
+          route +
+          ' => ' +
+          found.landed +
+          ' overflow=' +
+          found.overflow +
+          '/' +
+          found.mainOverflow +
+          ' err=' +
+          js.length +
+          '/' +
+          http.length +
+          ' ingles=' +
+          (found.english as string[]).length
+      );
     }
     await context.close();
   }
   await browser.close();
-  const problems = all.filter(x => Boolean(x.failure) || Number(x.overflow) > 7 ||
-    Number(x.mainOverflow) > 20 || (x.errors as string[]).length > 0 ||
-    (x.http as string[]).length > 0);
-  const foreign = all.filter(x => (x.english as string[]).length > 0);
+  const problems = all.filter(
+    (x) =>
+      Boolean(x.failure) ||
+      Number(x.overflow) > 7 ||
+      Number(x.mainOverflow) > 20 ||
+      (x.errors as string[]).length > 0 ||
+      (x.http as string[]).length > 0
+  );
+  const foreign = all.filter((x) => (x.english as string[]).length > 0);
   const summary = {
-    routes: routes.length, visits: all.length, errorsOrOverflow: problems.length,
+    routes: routes.length,
+    visits: all.length,
+    errorsOrOverflow: problems.length,
     withEnglish: foreign.length,
   };
-  const problematic = all.filter(x => problems.includes(x) || foreign.includes(x));
+  const problematic = all.filter((x) => problems.includes(x) || foreign.includes(x));
   const lines = [
     '# Astra — auditoria responsiva e funcional por rota',
     '',
@@ -131,11 +239,18 @@ test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
   ];
   for (const x of problematic) {
     const desc = [
-      x.failure, (x.errors as string[])[0], (x.http as string[])[0],
+      x.failure,
+      (x.errors as string[])[0],
+      (x.http as string[])[0],
       Number(x.overflow) > 7 ? 'overflow página: ' + x.overflow + 'px' : '',
       Number(x.mainOverflow) > 20 ? 'overflow área: ' + x.mainOverflow + 'px' : '',
-      (x.english as string[]).length ? 'inglês: ' + (x.english as string[]).join(', ') : ''
-    ].filter(Boolean).join('; ').replace(/\|/g, '/').replace(/\n/g, ' ').slice(0, 180);
+      (x.english as string[]).length ? 'inglês: ' + (x.english as string[]).join(', ') : '',
+    ]
+      .filter(Boolean)
+      .join('; ')
+      .replace(/\|/g, '/')
+      .replace(/\n/g, ' ')
+      .slice(0, 180);
     lines.push('| ' + x.route + ' | ' + x.device + ' | ' + desc + ' |');
   }
   fs.writeFileSync('qa/reports/latest.json', JSON.stringify({ summary, findings: all }, null, 2));

@@ -237,7 +237,10 @@ export function CalendarPage() {
           steps={[
             { title: 'Crie um compromisso', detail: 'Clique em adicionar para começar.' },
             { title: 'Set date & time', detail: 'Pick a date, time, and duration.' },
-            { title: 'Ative lembretes', detail: 'Defina lembretes para não esquecer compromissos.' },
+            {
+              title: 'Ative lembretes',
+              detail: 'Defina lembretes para não esquecer compromissos.',
+            },
             {
               title: 'Peça para a IA agendar',
               detail: 'Tell your assistant to create or reschedule events.',

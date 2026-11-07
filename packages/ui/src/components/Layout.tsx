@@ -256,7 +256,6 @@ export function Layout() {
                   <Outlet />
                 </main>
               </div>
-
             </div>
 
             {/* Mantém somente o barramento em tempo real; painéis flutuantes
@@ -264,7 +263,7 @@ export function Layout() {
                 completas continuam acessíveis pela navegação. */}
             <RealtimeBridge onBadgeUpdate={handleBadgeUpdate} />
 
-                        {/* Global Search Overlay */}
+            {/* Global Search Overlay */}
             {isSearchOpen && (
               <Suspense fallback={null}>
                 <GlobalSearchOverlay onClose={() => setIsSearchOpen(false)} />

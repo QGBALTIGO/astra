@@ -27,7 +27,9 @@ describe('PostgreSQL schema bundle', () => {
   it('includes expenses and usage indexes for financial routes', () => {
     expect(INDEXES_SQL).toContain('idx_expenses_user_date');
     expect(INDEXES_SQL).toContain('idx_usage_records_timestamp');
-    expect(MIGRATIONS_SQL).toContain("ALTER TABLE expenses ALTER COLUMN currency SET DEFAULT 'BRL'");
+    expect(MIGRATIONS_SQL).toContain(
+      "ALTER TABLE expenses ALTER COLUMN currency SET DEFAULT 'BRL'"
+    );
   });
 
   it('includes ui_sessions indexes in the bundled index SQL', () => {

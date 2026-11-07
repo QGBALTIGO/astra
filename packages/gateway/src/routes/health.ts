@@ -17,7 +17,15 @@ import { getDatabaseConfig } from '../db/adapters/types.js';
 import { apiResponse, apiError, ERROR_CODES, getErrorMessage } from './helpers.js';
 
 const startTime = Date.now();
-const CRITICAL_TABLES = ['settings', 'conversations', 'messages', 'user_extensions', 'ui_sessions', 'expenses', 'usage_records'];
+const CRITICAL_TABLES = [
+  'settings',
+  'conversations',
+  'messages',
+  'user_extensions',
+  'ui_sessions',
+  'expenses',
+  'usage_records',
+];
 
 export const healthRoutes = new Hono();
 
