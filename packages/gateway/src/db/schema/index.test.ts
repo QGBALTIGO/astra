@@ -13,6 +13,9 @@ const CRITICAL_TABLES = [
   'ui_sessions',
   'expenses',
   'usage_records',
+  'edge_devices',
+  'edge_commands',
+  'edge_telemetry',
 ];
 
 describe('PostgreSQL schema bundle', () => {
@@ -27,6 +30,9 @@ describe('PostgreSQL schema bundle', () => {
   it('includes expenses and usage indexes for financial routes', () => {
     expect(INDEXES_SQL).toContain('idx_expenses_user_date');
     expect(INDEXES_SQL).toContain('idx_usage_records_timestamp');
+    expect(INDEXES_SQL).toContain('idx_edge_devices_user');
+    expect(INDEXES_SQL).toContain('idx_edge_commands_device');
+    expect(INDEXES_SQL).toContain('idx_edge_telemetry_device_sensor');
     expect(MIGRATIONS_SQL).toContain(
       "ALTER TABLE expenses ALTER COLUMN currency SET DEFAULT 'BRL'"
     );
