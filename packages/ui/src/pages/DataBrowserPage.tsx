@@ -31,8 +31,8 @@ import { safeHref } from '../utils/safe-url';
 type TabId = 'home' | 'browser';
 
 const TAB_LABELS: Record<TabId, string> = {
-  home: 'Home',
-  browser: 'Browser',
+  home: 'Início',
+  browser: 'Dados',
 };
 
 // Data types
@@ -244,8 +244,8 @@ export function DataBrowserPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
-        <div className="flex items-center gap-4">
+      <header className="flex flex-col gap-3 border-b border-border px-4 py-4 dark:border-dark-border lg:flex-row lg:items-center lg:justify-between lg:px-6">
+        <div className="flex min-w-0 flex-wrap items-center gap-3 sm:gap-4">
           {/* Data Type Selector */}
           <div className="relative">
             <button
@@ -289,21 +289,21 @@ export function DataBrowserPage() {
 
           <div>
             <p className="text-sm text-text-muted dark:text-dark-text-muted">
-              {records.length} record{records.length !== 1 ? 's' : ''}
+              {records.length} registro{records.length !== 1 ? 's' : ''}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted dark:text-dark-text-muted" />
             <input
               type="text"
-              placeholder="Search..."
+              placeholder="Buscar..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-2 w-64 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
+              className="min-w-0 w-full rounded-lg border border-border bg-bg-tertiary py-2 pl-10 pr-4 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary sm:w-64"
             />
           </div>
 
@@ -312,13 +312,13 @@ export function DataBrowserPage() {
             className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Add {config.name.replace(/s$/, '')}
+            Adicionar registro
           </button>
         </div>
       </header>
 
       {/* Tab Bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 max-w-full overflow-x-auto border-b border-border px-3 dark:border-dark-border sm:px-6">
         {(['home', 'browser'] as TabId[]).map((tab) => (
           <button
             key={tab}
@@ -342,16 +342,16 @@ export function DataBrowserPage() {
             { icon: Search, color: 'text-emerald-500 bg-emerald-500/10' },
             { icon: Database, color: 'text-violet-500 bg-violet-500/10' },
           ]}
-          title="Browse All Your Data"
+          title="Consulte seus dados"
           subtitle="Explore all stored data across categories — personal, work, and memories — with powerful search and filtering."
           cta={{
-            label: 'Browse Data',
+            label: 'Consultar dados',
             icon: Table,
             onClick: () => setTab('browser'),
           }}
           skipHomeChecked={skipHome}
           onSkipHomeChange={onSkipHomeChange}
-          skipHomeLabel="Skip this screen and go directly to Browser"
+          skipHomeLabel="Abrir diretamente os dados"
           features={[
             {
               icon: Layers,

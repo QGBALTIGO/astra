@@ -57,9 +57,12 @@ export function useSkipHome({
   const SKIP_HOME_KEY = `ownpilot:${pageName}:skipHome`;
   const [skipHome, setSkipHome] = useState(() => {
     try {
-      return localStorage.getItem(SKIP_HOME_KEY) === 'true';
+      const preference = localStorage.getItem(SKIP_HOME_KEY);
+      // Astra is a working assistant, not a marketing tour: show the real
+      // feature immediately unless the user explicitly asks for its intro.
+      return preference === null ? true : preference === 'true';
     } catch {
-      return false;
+      return true;
     }
   });
   const didSkipHomeRef = useRef(false);

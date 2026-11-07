@@ -46,12 +46,12 @@ import { AIChatCreator } from './components/AIChatCreator';
 import { HelpPanel } from './components/HelpPanel';
 
 const TABS: { key: HubTab; label: string; icon: typeof Bot }[] = [
-  { key: 'home', label: 'Home', icon: Home },
-  { key: 'agents', label: 'Agents', icon: Bot },
-  { key: 'crews', label: 'Crews', icon: Users },
-  { key: 'plans', label: 'Plans', icon: ListChecks },
-  { key: 'messages', label: 'Messages', icon: MessageSquare },
-  { key: 'activity', label: 'Activity', icon: Heart },
+  { key: 'home', label: 'Início', icon: Home },
+  { key: 'agents', label: 'Agentes', icon: Bot },
+  { key: 'crews', label: 'Equipes', icon: Users },
+  { key: 'plans', label: 'Planos', icon: ListChecks },
+  { key: 'messages', label: 'Mensagens', icon: MessageSquare },
+  { key: 'activity', label: 'Atividade', icon: Heart },
 ];
 
 export function AutonomousHubPage() {
@@ -219,20 +219,19 @@ export function AutonomousHubPage() {
             onClick={refresh}
             className="ml-auto text-xs text-danger hover:text-danger/80 transition-colors underline"
           >
-            Retry
+            Tentar novamente
           </button>
         </div>
       )}
 
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-col gap-3 border-b border-border px-4 py-4 dark:border-dark-border lg:flex-row lg:items-center lg:justify-between lg:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Autonomous Agents
+            Agentes autônomos
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            Your agents work on your behalf — monitoring, researching, and completing tasks around
-            the clock.
+            Agentes que ajudam a acompanhar informações e executar tarefas automatizadas.
           </p>
           <div className="mt-1">
             <GlobalStatusBar
@@ -242,11 +241,11 @@ export function AutonomousHubPage() {
             />
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setShowHelp(true)}
             className="flex items-center gap-2 px-3 py-2 text-text-muted hover:text-text-primary dark:hover:text-dark-text-primary rounded-lg transition-colors"
-            title="Help & Documentation"
+            title="Ajuda e documentação"
           >
             <Info className="w-5 h-5" />
           </button>
@@ -255,20 +254,20 @@ export function AutonomousHubPage() {
             className="flex items-center gap-2 px-4 py-2 border border-primary text-primary hover:bg-primary/10 rounded-lg transition-colors"
           >
             <Sparkles className="w-4 h-4" />
-            AI Create
+            Criar com IA
           </button>
           <button
             onClick={() => setShowWizard(true)}
             className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
-            New Agent
+            Novo agente
           </button>
         </div>
       </header>
 
       {/* Tab bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 max-w-full gap-1 overflow-x-auto border-b border-border px-3 dark:border-dark-border sm:px-6">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -276,7 +275,7 @@ export function AutonomousHubPage() {
             <button
               key={tab.key}
               onClick={() => handleTabChange(tab.key)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:px-4 ${
                 isActive
                   ? 'border-primary text-primary'
                   : 'border-transparent text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:border-border dark:hover:border-dark-border'
@@ -308,12 +307,12 @@ export function AutonomousHubPage() {
               { icon: Brain, color: 'text-violet-500 bg-violet-500/10' },
               { icon: Users, color: 'text-emerald-500 bg-emerald-500/10' },
             ]}
-            title="Command Your Autonomous Agents"
+            title="Organize seus agentes autônomos"
             subtitle="Create AI agents that work independently — with their own goals, tools, budgets, and crew coordination."
-            cta={{ label: 'View Agents', icon: Bot, onClick: () => handleTabChange('agents') }}
+            cta={{ label: 'Ver agentes', icon: Bot, onClick: () => handleTabChange('agents') }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to Agents"
+            skipHomeLabel="Abrir diretamente os agentes"
             features={[
               {
                 icon: Bot,

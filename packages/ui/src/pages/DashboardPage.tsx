@@ -522,13 +522,13 @@ export function DashboardPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 dark:border-dark-border sm:px-6 sm:py-4">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Dashboard
+            Visão geral
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            Your personal assistant overview
+            Acompanhe sua rotina, compromissos e resultados.
           </p>
         </div>
         {lastUpdated && (
@@ -551,8 +551,8 @@ export function DashboardPage() {
       </header>
 
       {/* Tabs */}
-      <div className="px-6 pt-4 border-b border-border dark:border-dark-border">
-        <div className="flex gap-1">
+      <div className="max-w-full overflow-x-auto border-b border-border px-3 pt-3 dark:border-dark-border sm:px-6 sm:pt-4">
+        <div className="flex w-max min-w-full gap-1">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -560,7 +560,7 @@ export function DashboardPage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-t-lg px-3 py-2 text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-bg-secondary dark:bg-dark-bg-secondary text-text-primary dark:text-dark-text-primary border-t border-l border-r border-border dark:border-dark-border'
                     : 'text-text-muted dark:text-dark-text-muted hover:text-text-primary dark:hover:text-dark-text-primary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
@@ -575,7 +575,7 @@ export function DashboardPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">{renderTabContent()}</div>
+      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:space-y-6 sm:p-6">{renderTabContent()}</div>
 
       {/* Quick Add Modal */}
       {quickAddType && (

@@ -143,53 +143,53 @@ export function CustomToolsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-col gap-3 border-b border-border px-4 py-4 dark:border-dark-border lg:flex-row lg:items-center lg:justify-between lg:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary flex items-center gap-2">
-            Custom Tools
+            Ferramentas personalizadas
             {pendingCount > 0 && (
               <span className="px-2 py-0.5 text-xs bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 rounded-full">
-                {pendingCount} pending
+                {pendingCount} pendentes
               </span>
             )}
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
             {stats
-              ? `${stats.total} tools (${stats.createdByLLM} by AI, ${stats.createdByUser} by user)`
+              ? `${stats.total} ferramentas (${stats.createdByLLM} pela IA, ${stats.createdByUser} criadas por você)`
               : 'Loading...'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <input
             type="text"
-            placeholder="Search tools..."
+            placeholder="Buscar ferramentas..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="px-3 py-1.5 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-sm text-text-primary dark:text-dark-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 w-48"
+            className="min-w-0 flex-1 rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary sm:w-48 sm:flex-none"
           />
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as typeof filter)}
             className="px-3 py-1.5 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-sm text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
           >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="disabled">Disabled</option>
-            <option value="pending_approval">Pending Approval</option>
-            <option value="rejected">Rejected</option>
+            <option value="all">Todos os estados</option>
+            <option value="active">Ativas</option>
+            <option value="disabled">Desativadas</option>
+            <option value="pending_approval">Aguardando aprovação</option>
+            <option value="rejected">Recusadas</option>
           </select>
           <button
             onClick={() => setIsCreateModalOpen(true)}
             className="flex items-center gap-2 px-4 py-1.5 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Create Tool
+            Criar ferramenta
           </button>
         </div>
       </header>
 
       {/* Tab bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 max-w-full overflow-x-auto border-b border-border px-3 dark:border-dark-border sm:px-6">
         {(['home', 'tools'] as PageTabId[]).map((tab) => (
           <button
             key={tab}
@@ -215,9 +215,9 @@ export function CustomToolsPage() {
               { icon: Code, color: 'text-emerald-500 bg-emerald-500/10' },
               { icon: Sparkles, color: 'text-violet-500 bg-violet-500/10' },
             ]}
-            title="Create Custom AI Tools"
+            title="Crie suas ferramentas de IA"
             subtitle="Build tools that your AI can call — from simple API wrappers to complex data processors. Define inputs, outputs, and execution logic."
-            cta={{ label: 'View Tools', icon: Wrench, onClick: () => setPageTab('tools') }}
+            cta={{ label: 'Ver ferramentas', icon: Wrench, onClick: () => setPageTab('tools') }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
             skipHomeLabel="Skip this screen and go directly to Tools"

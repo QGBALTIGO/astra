@@ -119,10 +119,10 @@ export function PageHomeTab({
   children,
   skipHomeChecked,
   onSkipHomeChange,
-  skipHomeLabel = 'Skip this screen next time',
+  skipHomeLabel = 'Ir direto para esta função na próxima visita',
 }: PageHomeTabProps) {
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-10 overflow-y-auto h-full">
+    <div className="mx-auto h-full w-full max-w-4xl space-y-8 overflow-y-auto px-4 py-5 sm:space-y-10 sm:px-6 sm:py-7">
       {/* Hero */}
       <div className="text-center space-y-3">
         <div className="flex justify-center gap-3 mb-4">
@@ -174,7 +174,7 @@ export function PageHomeTab({
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
             <Zap className="w-4 h-4 text-primary" />
-            Key Features
+            Recursos
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {features.map((f) => (
@@ -209,7 +209,7 @@ export function PageHomeTab({
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-primary" />
-            Getting Started
+            Primeiros passos
           </h2>
           <div className="space-y-3">
             {steps.map((step, i) => (
@@ -236,7 +236,7 @@ export function PageHomeTab({
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
             <Zap className="w-4 h-4 text-primary" />
-            Quick Actions
+            Ações rápidas
           </h2>
           <div
             className={`grid grid-cols-1 gap-3 ${quickActions.length >= 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}

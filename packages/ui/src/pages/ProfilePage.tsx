@@ -266,7 +266,7 @@ export function ProfilePage() {
   if (isLoading) {
     return (
       <div className="flex flex-col h-full items-center justify-center">
-        <LoadingSpinner message="Loading your profile..." />
+        <LoadingSpinner message="Carregando seu perfil..." />
       </div>
     );
   }
@@ -274,17 +274,17 @@ export function ProfilePage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border bg-bg-primary dark:bg-dark-bg-primary">
+      <header className="flex flex-col gap-3 border-b border-border bg-bg-primary px-4 py-4 dark:border-dark-border dark:bg-dark-bg-primary sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
             <UserCircle className="w-6 h-6 text-primary" />
           </div>
           <div>
             <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-              {profile?.identity?.name || 'Your Profile'}
+              {profile?.identity?.name || 'Meu perfil'}
             </h2>
             <p className="text-sm text-text-muted dark:text-dark-text-muted">
-              {completeness}% complete · {memories.length} memories
+              {completeness}% completo · {memories.length} memórias
             </p>
           </div>
         </div>
@@ -295,11 +295,11 @@ export function ProfilePage() {
             className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border dark:border-dark-border rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
           >
             <Download className="w-4 h-4" />
-            Export
+            Exportar
           </button>
           <label className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border dark:border-dark-border rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors cursor-pointer">
             <Upload className="w-4 h-4" />
-            Import
+            Importar
             <input type="file" accept=".json" onChange={importProfile} className="hidden" />
           </label>
         </div>
@@ -311,25 +311,25 @@ export function ProfilePage() {
           <AlertCircle className="w-4 h-4 text-error shrink-0" />
           <span className="text-sm text-error flex-1">{error}</span>
           <button onClick={() => setError(null)} className="text-sm text-error hover:underline">
-            Dismiss
+            Fechar
           </button>
         </div>
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-border dark:border-dark-border px-6 bg-bg-primary dark:bg-dark-bg-primary">
+      <div className="flex min-w-0 max-w-full gap-1 overflow-x-auto border-b border-border bg-bg-primary px-3 dark:border-dark-border dark:bg-dark-bg-primary sm:px-6">
         {[
-          { id: 'home' as TabId, label: 'Home', icon: Home },
-          { id: 'overview' as TabId, label: 'Overview', icon: UserCircle },
-          { id: 'identity' as TabId, label: 'Identity', icon: User },
-          { id: 'behavior' as TabId, label: 'AI Behavior', icon: Brain },
-          { id: 'memories' as TabId, label: 'Memories', icon: History },
-          { id: 'advanced' as TabId, label: 'Advanced', icon: Settings2 },
+          { id: 'home' as TabId, label: 'Início', icon: Home },
+          { id: 'overview' as TabId, label: 'Visão geral', icon: UserCircle },
+          { id: 'identity' as TabId, label: 'Identidade', icon: User },
+          { id: 'behavior' as TabId, label: 'Comportamento', icon: Brain },
+          { id: 'memories' as TabId, label: 'Memórias', icon: History },
+          { id: 'advanced' as TabId, label: 'Avançado', icon: Settings2 },
         ].map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors sm:px-4 ${
               activeTab === id
                 ? 'border-primary text-primary'
                 : 'border-transparent text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:border-border dark:hover:border-dark-border'
@@ -342,7 +342,7 @@ export function ProfilePage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {/* ==================== HOME TAB ==================== */}
         {activeTab === 'home' && (
           <PageHomeTab
@@ -351,16 +351,16 @@ export function ProfilePage() {
               { icon: Sparkles, color: 'text-violet-500 bg-violet-500/10' },
               { icon: Brain, color: 'text-emerald-500 bg-emerald-500/10' },
             ]}
-            title="Personalize Your AI Experience"
-            subtitle="Configure your profile to help your AI understand you better. Set your preferences, manage memories, and customize AI behavior."
+            title="Personalize a experiência com o Astra"
+            subtitle="Configure suas preferências, memórias e a forma como o Astra deve conversar com você."
             cta={{
-              label: 'View Overview',
+              label: 'Abrir perfil',
               icon: UserCircle,
               onClick: () => setActiveTab('overview'),
             }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to Overview"
+            skipHomeLabel="Abrir diretamente o meu perfil"
             features={[
               {
                 icon: User,
