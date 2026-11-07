@@ -2,7 +2,9 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Customize Detail Panel', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/customize');
+    // Customize is a persistent panel opened from the sidebar, not a /customize route.
+    await page.goto('/');
+    await page.locator('[data-testid="sidebar-customize-link"] button').click();
     await page.waitForSelector('[data-testid="customize-tab-items"]', { timeout: 10000 });
   });
 
