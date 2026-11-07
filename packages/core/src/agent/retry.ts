@@ -148,8 +148,8 @@ function providerRetryDelay(error: unknown, normalDelayMs: number): number {
   const message = getErrorMessage(error);
   if (extractHttpStatus(message.toLowerCase()) !== 429) return normalDelayMs;
 
-  const instruction = message.match(/(?:please\\s+)?try\\s+again\\s+in\\s+(\\d+(?:\\.\\d+)?)\\s*s\\b/i);
-  const retryAfter = message.match(/retry[- ]after\\s*:?\\s*(\\d+(?:\\.\\d+)?)\\s*(?:seconds?|s)?/i);
+  const instruction = message.match(/(?:please\s+)?try\s+again\s+in\s+(\d+(?:\.\d+)?)\s*s\b/i);
+  const retryAfter = message.match(/retry[- ]after\s*:?\s*(\d+(?:\.\d+)?)\s*(?:seconds?|s)?/i);
   const rawSeconds = instruction?.[1] ?? retryAfter?.[1];
   if (!rawSeconds) return normalDelayMs;
 
