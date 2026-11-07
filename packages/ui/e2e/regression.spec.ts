@@ -16,19 +16,17 @@ test.describe('Regression Tests — Cross-Feature Verification', () => {
     expect(asideCount).toBeGreaterThanOrEqual(1);
   });
 
-  test('StatsPanel is NOT shown on /customize (detail panel shown instead)', async ({ page }) => {
+  test('Personalizar abre a lista real sem painel vazio obrigatório', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
     await page.locator('[data-testid="sidebar-customize-link"] button').click();
     await page.waitForSelector('[data-testid="customize-tab-items"]', { timeout: 10000 });
 
-    // On customize page, right panel should be CustomizeDetailPanel, not StatsPanel
-    const detailEmpty = page.locator('[data-testid="customize-detail-empty"]');
-    const detailPanel = page.locator('[data-testid="customize-detail-panel"]');
-
-    // Either empty state or panel should be visible (one of the two)
-    const hasDetail = (await detailEmpty.count()) > 0 || (await detailPanel.count()) > 0;
-    expect(hasDetail).toBe(true);
+    await expect(page.locator('[data-testid="customize-items-list"]')).toBeVisible();
+    await expect(page.locator('[data-testid="customize-detail-panel"]')).toHaveCount(0);
+    const info = page.locator('[data-testid="customize-info-dashboard"]');
+    await info.click();
+    await expect(page.locator('[data-testid="customize-detail-panel"]')).toContainText('Visão geral');
   });
 
   // === MAIN CHAT ACCESS ===
