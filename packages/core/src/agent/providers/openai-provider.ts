@@ -163,6 +163,10 @@ export class OpenAIProvider extends BaseProvider {
     logRequest(debugInfo);
 
     const startTime = Date.now();
+    const retryConfig = {
+      ...DEFAULT_RETRY_CONFIG,
+      maxRetries: this.config.maxRetries ?? DEFAULT_RETRY_CONFIG.maxRetries,
+    };
 
     // Use retry wrapper for the actual API call
     const result = await withRetry(async () => {
@@ -240,7 +244,7 @@ export class OpenAIProvider extends BaseProvider {
         logError('openai', internalError, 'Request exception');
         return err(internalError);
       }
-    }, DEFAULT_RETRY_CONFIG);
+    }, retryConfig);
 
     // Cast result to expected type (withRetry only returns our specific error types)
     return result as Result<CompletionResponse, InternalError | TimeoutError | ValidationError>;
@@ -294,6 +298,10 @@ export class OpenAIProvider extends BaseProvider {
       // Retry the initial fetch for transient errors (429, 5xx, network).
       // Once streaming begins (first chunk yielded), no more retries.
       // Uses withRetry (same as complete()) — mocked in tests to skip delays.
+      const retryConfig = {
+        ...DEFAULT_RETRY_CONFIG,
+        maxRetries: this.config.maxRetries ?? DEFAULT_RETRY_CONFIG.maxRetries,
+      };
       const fetchResult = await withRetry(async () => {
         const resp = await fetch(`${this.config.baseUrl}/chat/completions`, streamFetchOpts);
         this.clearRequestTimeout();
@@ -308,7 +316,7 @@ export class OpenAIProvider extends BaseProvider {
         }
 
         return ok(resp as unknown);
-      }, DEFAULT_RETRY_CONFIG);
+      }, retryConfig);
 
       if (!fetchResult.ok) {
         const fetchError =
