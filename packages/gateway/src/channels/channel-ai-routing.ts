@@ -22,6 +22,18 @@ function demoModeReply(text: string): string {
   return `[Demo Mode] I received your message: "${truncate(text, 100)}"\n\nTo get real AI responses, configure an API key in OwnPilot settings.`;
 }
 
+/**
+ * Fixed, zero-token response for a bare greeting. More complex or contextual
+ * messages still go through the AI, so we do not guess user intentions.
+ */
+export function deterministicChannelReply(text: string): string | null {
+  const normalized = text.trim().toLocaleLowerCase('pt-BR');
+  if (/^(?:oi|olá|ola|bom dia|boa tarde|boa noite)[\s!?.,]*$/u.test(normalized)) {
+    return 'Oi! Como posso ajudar você hoje?';
+  }
+  return null;
+}
+
 interface ApprovalChannelApi extends ChannelPluginAPI {
   requestApproval(
     chatId: string,
@@ -54,6 +66,9 @@ export async function processViaBus(
   },
   progress?: { update(text: string): void }
 ): Promise<string> {
+  const freeReply = deterministicChannelReply(message.text);
+  if (freeReply && !message.attachments?.length) return freeReply;
+
   const { getOrCreateChatAgent, isDemoMode } = await import('../services/agent/service.js');
   const { resolveForChannel, inferProviderForModel } =
     await import('../services/llm/model-routing.js');
@@ -238,6 +253,9 @@ export async function processViaBus(
  * Legacy fallback: process directly via agent.chat() without the bus.
  */
 export async function processDirectAgent(message: ChannelIncomingMessage): Promise<string> {
+  const freeReply = deterministicChannelReply(message.text);
+  if (freeReply && !message.attachments?.length) return freeReply;
+
   const { getOrCreateChatAgent, isDemoMode } = await import('../services/agent/service.js');
   const { resolveForChannel } = await import('../services/llm/model-routing.js');
 
