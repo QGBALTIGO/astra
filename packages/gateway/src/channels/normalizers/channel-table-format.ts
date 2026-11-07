@@ -4,14 +4,14 @@
  */
 function parseCells(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
-  return trimmed
-    .split(/(?<!\\)\|/)
-    .map((cell) => cell.replace(/\\\|/g, '|').trim());
+  return trimmed.split(/(?<!\\)\|/).map((cell) => cell.replace(/\\\|/g, '|').trim());
 }
 
 function isDivider(line: string, columns: number): boolean {
   const cells = parseCells(line);
-  return cells.length === columns && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s/g, '')));
+  return (
+    cells.length === columns && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s/g, '')))
+  );
 }
 
 /** Does not modify code blocks or ordinary text containing a pipe. */
@@ -44,7 +44,8 @@ export function formatChannelTables(markdown: string): string {
           for (const cells of rows) {
             output.push('• **' + (cells[0] || headers[0] || 'Item') + '**');
             for (let col = 1; col < cells.length; col++) {
-              if (cells[col]) output.push('  ' + (headers[col] || 'Campo ' + (col + 1)) + ': ' + cells[col]);
+              if (cells[col])
+                output.push('  ' + (headers[col] || 'Campo ' + (col + 1)) + ': ' + cells[col]);
             }
           }
           i = j - 1;

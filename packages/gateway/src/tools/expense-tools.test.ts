@@ -39,7 +39,12 @@ describe('executeExpenseTool', () => {
 
     expect(result.success).toBe(true);
     expect(mockRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: 42.5, description: 'Coffee', category: 'food', currency: 'BRL' })
+      expect.objectContaining({
+        amount: 42.5,
+        description: 'Coffee',
+        category: 'food',
+        currency: 'BRL',
+      })
     );
   });
 

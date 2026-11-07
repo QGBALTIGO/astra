@@ -69,8 +69,13 @@ describe('Astra: 1.000 simulações seguras de respostas de canais', () => {
     if (kind === 2) {
       const detail =
         'OpenAI API error: 429 - Rate limit reached for model on tokens per minute (TPM). ' +
-        'Used ' + (4000 + id) + ', Requested ' + (2300 + id) + '. ' +
-        'Organization org_private_' + id;
+        'Used ' +
+        (4000 + id) +
+        ', Requested ' +
+        (2300 + id) +
+        '. ' +
+        'Organization org_private_' +
+        id;
       const response = userFacingAgentError(sampleMessage('channel'), detail);
       expect(response).toContain('Groq');
       expect(response).toContain('limite');

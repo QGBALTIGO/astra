@@ -149,7 +149,8 @@ export async function executeExpenseTool(
               period,
               count: summary.count,
               byCurrency: summary.byCurrency,
-              warning: 'Despesas em moedas diferentes. Apresente os totais por moeda separadamente; não faça a soma sem conversão.',
+              warning:
+                'Despesas em moedas diferentes. Apresente os totais por moeda separadamente; não faça a soma sem conversão.',
             },
           };
         }

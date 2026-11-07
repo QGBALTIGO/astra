@@ -445,7 +445,12 @@ describe('TelegramProgressManager', () => {
       await pm.start();
       bot.api.editMessageText.mockClear();
       await pm.finish('');
-      expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, 'Não foi possível gerar uma resposta.', {});
+      expect(bot.api.editMessageText).toHaveBeenCalledWith(
+        '12345',
+        100,
+        'Não foi possível gerar uma resposta.',
+        {}
+      );
     });
 
     it('trims whitespace from final text', async () => {
@@ -461,7 +466,12 @@ describe('TelegramProgressManager', () => {
       await pm.start();
       bot.api.editMessageText.mockClear();
       await pm.finish('   ');
-      expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, 'Não foi possível gerar uma resposta.', {});
+      expect(bot.api.editMessageText).toHaveBeenCalledWith(
+        '12345',
+        100,
+        'Não foi possível gerar uma resposta.',
+        {}
+      );
     });
 
     it('falls back to sendFresh when no messageId', async () => {
