@@ -6,8 +6,8 @@
 
 /* Custom CSS variables for theming */
 @theme {
-  --color-primary: #2e7bf6;
-  --color-primary-dark: #195bce;
+  --color-primary: #0061fd;
+  --color-primary-dark: #004cc7;
   --color-secondary: #64748b;
   --color-success: #22c55e;
   --color-warning: #f59e0b;
@@ -22,7 +22,7 @@
   --color-text-muted: #76859c;
 
   --color-border: #e0e7f0;
-  --color-border-focus: #2e7bf6;
+  --color-border-focus: #0061fd;
 
   /* Dark mode colors */
   --color-dark-bg-primary: #0b1423;
@@ -86,8 +86,8 @@ html.dark body {
   --color-dark-text-secondary: #bdcbe0;
   --color-dark-text-muted: #95a8c1;
   --color-dark-border: #293d54;
-  --color-primary: #2e7bf6;
-  --color-primary-dark: #195bce;
+  --color-primary: #0061fd;
+  --color-primary-dark: #004cc7;
   --astra-shadow-card: 0 5px 24px rgba(0, 0, 0, 0.19);
   color-scheme: dark;
 }
@@ -305,8 +305,8 @@ html.claude body {
 
 /* Astra visual system — one set of Orion-aligned blue and surface tokens. */
 :root {
-  --color-primary: #2e7bf6;
-  --color-primary-dark: #195bce;
+  --color-primary: #0061fd;
+  --color-primary-dark: #004cc7;
   --color-bg-primary: #f5f7fb;
   --color-bg-secondary: #ffffff;
   --color-bg-tertiary: #edf2f8;
@@ -314,7 +314,7 @@ html.claude body {
   --color-text-secondary: #53647e;
   --color-text-muted: #76859c;
   --color-border: #e0e7f0;
-  --color-border-focus: #2e7bf6;
+  --color-border-focus: #0061fd;
   --astra-card-radius: 16px;
   --astra-shadow-card: 0 5px 22px rgba(21, 43, 83, 0.045);
   --astra-shadow-panel: 0 18px 46px rgba(16, 40, 79, 0.1);
@@ -498,7 +498,7 @@ body {
   place-items: center;
   border-radius: 11px;
   background: var(--color-primary);
-  box-shadow: 0 5px 14px rgba(46, 123, 246, 0.16);
+  box-shadow: 0 5px 14px rgba(0, 97, 253, 0.16);
   font-size: 20px;
   font-weight: 800;
   letter-spacing: -0.085em;
@@ -522,7 +522,7 @@ body {
 }
 .astra-sidebar nav a:hover,
 .astra-sidebar nav button:hover {
-  background: rgba(46, 123, 246, 0.09);
+  background: rgba(0, 97, 253, 0.09);
 }
 .astra-main main {
   isolation: isolate;
@@ -663,8 +663,8 @@ body {
   font-weight: 550;
 }
 .astra-nav-link--active {
-  border-color: rgba(46, 123, 246, 0.16);
-  background: rgba(46, 123, 246, 0.11);
+  border-color: rgba(0, 97, 253, 0.16);
+  background: rgba(0, 97, 253, 0.11);
   color: var(--color-primary);
   font-weight: 700;
 }
@@ -682,8 +682,8 @@ body {
 }
 .dark .astra-nav-link--active {
   border-color: rgba(72, 142, 255, 0.27);
-  background: rgba(46, 123, 246, 0.18);
-  color: #85b5ff;
+  background: rgba(0, 97, 253, 0.18);
+  color: #85afff;
 }
 .dark .astra-sidebar-nav :is(a, button):hover {
   background: rgba(67, 135, 244, 0.13);
@@ -700,7 +700,7 @@ body {
     transform 160ms ease;
 }
 .astra-main .astra-stat-card:hover {
-  border-color: rgba(46, 123, 246, 0.45);
+  border-color: rgba(0, 97, 253, 0.45);
 }
 .astra-dashboard-content {
   width: 100%;
