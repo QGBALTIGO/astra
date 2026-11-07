@@ -25,7 +25,7 @@
   --color-border-focus: #0061fd;
 
   /* Dark mode colors */
-  --color-dark-bg-primary: #0b1423;
+  --color-dark-bg-primary: #0b0f1a;
   --color-dark-bg-secondary: #121f31;
   --color-dark-bg-tertiary: #1e3047;
 
@@ -79,7 +79,7 @@ html.dark body {
 /* Legacy alternate theme: keep compatibility with saved preferences while
    using Astra's unified blue/dark palette instead of a competing orange theme. */
 .claude {
-  --color-dark-bg-primary: #0b1423;
+  --color-dark-bg-primary: #0b0f1a;
   --color-dark-bg-secondary: #121f31;
   --color-dark-bg-tertiary: #1e3047;
   --color-dark-text-primary: #eef4fc;
@@ -321,7 +321,7 @@ html.claude body {
   color-scheme: light;
 }
 html.dark {
-  --color-dark-bg-primary: #0b1423;
+  --color-dark-bg-primary: #0b0f1a;
   --color-dark-bg-secondary: #121f31;
   --color-dark-bg-tertiary: #1e3047;
   --color-dark-text-primary: #eef4fc;
