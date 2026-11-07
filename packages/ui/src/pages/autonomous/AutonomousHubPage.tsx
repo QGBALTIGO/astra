@@ -444,13 +444,13 @@ export function AutonomousHubPage() {
                   <Bot className="w-12 h-12 text-text-muted dark:text-dark-text-muted mx-auto mb-3" />
                   <h3 className="text-lg font-medium text-text-primary dark:text-dark-text-primary">
                     {agents.length === 0
-                      ? 'Create your first agent'
-                      : 'No agents match your filters'}
+                      ? 'Crie seu primeiro agente'
+                      : 'Nenhum agente corresponde aos filtros'}
                   </h3>
                   <p className="text-sm text-text-muted dark:text-dark-text-muted mt-1 max-w-md mx-auto">
                     {agents.length === 0
-                      ? 'Agents run autonomously on a schedule — scanning news, summarizing data, tracking goals, and more. Choose how to get started:'
-                      : 'Try adjusting the status or type filters above.'}
+                      ? 'Agentes podem acompanhar tarefas agendadas, pesquisar e organizar informações. Escolha como começar:'
+                      : 'Ajuste os filtros de status ou tipo acima.'}
                   </p>
                 </div>
                 {agents.length === 0 && (
@@ -496,10 +496,10 @@ export function AutonomousHubPage() {
                       <Plus className="w-5 h-5 text-primary" />
                       <div className="text-left">
                         <div className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-                          Create Manually
+                          Criar manualmente
                         </div>
                         <div className="text-xs text-text-muted dark:text-dark-text-muted">
-                          Full control over every setting
+                          Controle completo das configurações
                         </div>
                       </div>
                     </button>

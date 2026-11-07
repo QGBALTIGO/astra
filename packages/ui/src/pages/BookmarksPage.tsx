@@ -328,13 +328,13 @@ export function BookmarksPage() {
             ) : bookmarks.length === 0 ? (
               <EmptyState
                 icon={Bookmark}
-                title={searchQuery ? 'No bookmarks found' : 'No bookmarks yet'}
+                title={searchQuery ? 'Nenhum favorito encontrado' : 'Nenhum favorito ainda'}
                 description={
                   searchQuery
-                    ? `No bookmarks matching "${searchQuery}". Try a different search term.`
+                    ? `Nenhum favorito corresponde a "${searchQuery}". Tente outro termo de pesquisa.`
                     : selectedFolder
-                      ? `No bookmarks in folder "${selectedFolder}".`
-                      : 'Save your favorite links to access them later. Your AI can also reference these bookmarks.'
+                      ? `Nenhum favorito na pasta "${selectedFolder}".`
+                      : 'Salve links favoritos para acessá-los depois. O Astra também poderá consultá-los quando necessário.'
                 }
                 variant="card"
                 iconBgColor="bg-amber-500/10 dark:bg-amber-500/20"

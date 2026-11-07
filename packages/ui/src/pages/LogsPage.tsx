@@ -463,8 +463,8 @@ export function LogsPage() {
               ) : logs.length === 0 ? (
                 <EmptyState
                   icon={FileText}
-                  title="No logs found"
-                  description="Try adjusting your filters or check back later."
+                  title="Nenhum registro encontrado"
+                  description="Ajuste os filtros ou consulte novamente mais tarde."
                   variant="card"
                   iconBgColor="bg-indigo-500/10 dark:bg-indigo-500/20"
                   iconColor="text-indigo-500"

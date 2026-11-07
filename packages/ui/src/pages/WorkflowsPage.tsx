@@ -273,7 +273,7 @@ export function WorkflowsPage() {
             ]}
             title="Build Multi-Step Workflows"
             subtitle="Workflows chain multiple actions into automated pipelines — from simple sequences to complex branching logic."
-            cta={{ label: 'Create Workflow', icon: Plus, onClick: handleCreate }}
+            cta={{ label: 'Criar fluxo', icon: Plus, onClick: handleCreate }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
             skipHomeLabel="Skip this screen and go directly to Workflows"
@@ -369,12 +369,12 @@ export function WorkflowsPage() {
           ) : workflows.length === 0 ? (
             <EmptyState
               icon={GitBranch}
-              title="No workflows yet"
-              description="Create visual tool pipelines — drag tools onto a canvas, wire them together, and execute with real-time visualization."
+              title="Nenhum fluxo de trabalho"
+              description="Crie fluxos visuais conectando ferramentas e acompanhe a execução em tempo real."
               variant="card"
               iconBgColor="bg-violet-500/10 dark:bg-violet-500/20"
               iconColor="text-violet-500"
-              action={{ label: 'Create Workflow', onClick: handleCreate, icon: Plus }}
+              action={{ label: 'Criar fluxo', onClick: handleCreate, icon: Plus }}
             />
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -442,8 +442,8 @@ export function WorkspacesPage() {
               ) : workspaces.length === 0 ? (
                 <EmptyState
                   icon={Folder}
-                  title="No workspaces yet"
-                  description="Workspaces are created automatically during chat sessions with file operations."
+                  title="Nenhum espaço de trabalho ainda"
+                  description="Os espaços de trabalho são criados automaticamente durante operações com arquivos."
                   variant="minimal"
                   size="sm"
                 />
@@ -666,10 +666,10 @@ export function WorkspacesPage() {
                 <div className="flex flex-col items-center justify-center h-full">
                   <Folder className="w-16 h-16 text-text-muted dark:text-dark-text-muted mb-4" />
                   <h3 className="text-xl font-medium text-text-primary dark:text-dark-text-primary mb-2">
-                    Select a Workspace
+                    Selecione um espaço de trabalho
                   </h3>
                   <p className="text-text-muted dark:text-dark-text-muted">
-                    Choose a workspace from the list to view its files
+                    Escolha um espaço na lista para visualizar os arquivos
                   </p>
                 </div>
               )}

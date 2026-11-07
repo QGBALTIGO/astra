@@ -461,9 +461,9 @@ export function ClawsPage() {
           ) : claws.length === 0 ? (
             <EmptyState
               icon={Zap}
-              title="No claws yet"
-              description="Create your first Claw agent to start autonomous task execution."
-              action={{ label: 'Create Claw', onClick: () => setShowCreate(true) }}
+              title="Nenhum agente Claw criado"
+              description="Crie um agente Claw para executar tarefas autônomas com as permissões adequadas."
+              action={{ label: 'Criar agente Claw', onClick: () => setShowCreate(true) }}
             />
           ) : (
             <div className="space-y-4">
@@ -757,10 +757,10 @@ export function ClawsPage() {
                     disabled={page === 0}
                     className="px-3 py-1.5 text-sm rounded border border-border dark:border-dark-border disabled:opacity-40 hover:bg-bg-tertiary"
                   >
-                    Previous
+                    Anterior
                   </button>
                   <span className="text-xs text-text-muted dark:text-dark-text-muted">
-                    Page {page + 1} of {Math.ceil(totalClaws / pageSize)}
+                    Página {page + 1} de {Math.ceil(totalClaws / pageSize)}
                   </span>
                   <button
                     onClick={() => setPage((p) => p + 1)}

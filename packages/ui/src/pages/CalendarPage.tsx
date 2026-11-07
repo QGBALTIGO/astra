@@ -257,7 +257,7 @@ export function CalendarPage() {
               onClick={() => setSelectedDate(navigateDate(selectedDate, viewMode, -1))}
               className="px-3 py-1 text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded transition-colors"
             >
-              Previous
+              Anterior
             </button>
             <div className="flex items-center gap-3">
               <h3 className="text-lg font-medium text-text-primary dark:text-dark-text-primary">

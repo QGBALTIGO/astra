@@ -456,11 +456,11 @@ export function SecurityDashboardPage() {
             <div className="flex flex-col items-center justify-center h-64 text-center">
               <ShieldCheck className="w-12 h-12 text-text-muted dark:text-dark-text-muted mb-4" />
               <h2 className="text-lg font-medium text-text-primary dark:text-dark-text-primary mb-2">
-                No scan results yet
+                Nenhuma análise de segurança ainda
               </h2>
               <p className="text-sm text-text-muted dark:text-dark-text-muted mb-4 max-w-md">
-                Run a security scan to analyze your extensions, custom tools, triggers, workflows,
-                and CLI tool policies for potential vulnerabilities.
+                Execute uma análise para identificar possíveis vulnerabilidades em extensões, ferramentas, gatilhos e fluxos,
+                incluindo suas políticas de execução.
               </p>
               <button
                 onClick={runScan}

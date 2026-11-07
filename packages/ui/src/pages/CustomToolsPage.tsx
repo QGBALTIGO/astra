@@ -318,15 +318,15 @@ export function CustomToolsPage() {
           ) : filteredTools.length === 0 ? (
             <EmptyState
               icon={Code}
-              title={searchQuery ? 'No tools match your search' : 'No custom tools yet'}
+              title={searchQuery ? 'Nenhuma ferramenta corresponde à busca' : 'Nenhuma ferramenta personalizada ainda'}
               description={
                 searchQuery
-                  ? 'Try a different search term.'
-                  : 'Create your first custom tool or let the AI create one for you.'
+                  ? 'Tente outro termo de pesquisa.'
+                  : 'Crie sua primeira ferramenta personalizada ou solicite ajuda à IA.'
               }
               action={
                 !searchQuery
-                  ? { label: 'Create Tool', onClick: () => setIsCreateModalOpen(true), icon: Plus }
+                  ? { label: 'Criar ferramenta', onClick: () => setIsCreateModalOpen(true), icon: Plus }
                   : undefined
               }
             />
@@ -355,7 +355,7 @@ export function CustomToolsPage() {
         />
       )}
 
-      {/* Create Tool Modal */}
+      {/* Criar ferramenta Modal */}
       {isCreateModalOpen && (
         <CreateToolModal
           onClose={() => setIsCreateModalOpen(false)}
@@ -952,7 +952,7 @@ function CreateToolModal({ onClose, onCreated }: CreateToolModalProps) {
             disabled={isSubmitting || !name || !description || !code}
             className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isSubmitting ? 'Creating...' : 'Create Tool'}
+            {isSubmitting ? 'Creating...' : 'Criar ferramenta'}
           </button>
         </div>
       </div>
