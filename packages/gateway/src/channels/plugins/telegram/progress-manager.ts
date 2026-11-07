@@ -39,7 +39,7 @@ export class TelegramProgressManager {
    * Send the initial progress message ("Thinking...").
    * Returns the platform message ID.
    */
-  async start(initialText = '\ud83e\udd14 Thinking...'): Promise<string> {
+  async start(initialText = '⏳ Processando sua solicitação…'): Promise<string> {
     try {
       const sent = await this.bot.api.sendMessage(this.chatId, initialText);
       this.messageId = sent.message_id;
@@ -98,7 +98,7 @@ export class TelegramProgressManager {
     this.pendingText = null;
 
     // Guard against empty text (Telegram rejects empty messages)
-    const text = finalText.trim() || '(empty response)';
+    const text = finalText.trim() || 'Não foi possível gerar uma resposta.';
 
     if (!this.messageId) {
       // Progress message was never sent — fall back to regular send
@@ -159,7 +159,7 @@ export class TelegramProgressManager {
     }
     if (this.messageId) {
       try {
-        const cancelText = '\u26a0\ufe0f Processing cancelled.';
+        const cancelText = '⚠️ Processamento cancelado.';
         if (this.currentText !== cancelText) {
           await this.bot.api.editMessageText(this.chatId, this.messageId, cancelText);
           this.currentText = cancelText;
