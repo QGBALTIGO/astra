@@ -69,7 +69,7 @@ export {
  */
 settingsRoutes.get('/', async (c) => {
   const apiKeySettings = await settingsRepo.getByPrefix(API_KEY_PREFIX);
-  const configuredProviders = apiKeySettings.map((s) => s.key.replace(API_KEY_PREFIX, ''));
+  const configuredProviders = [...(await getConfiguredProviderIds())];
 
   const localProviders = await localProvidersRepo.listProviders();
   const enabledLocalProviders = localProviders
@@ -77,12 +77,14 @@ settingsRoutes.get('/', async (c) => {
     .map((lp) => ({ id: lp.id, name: lp.name, type: 'local' as const }));
   const localProviderIds = enabledLocalProviders.map((lp) => lp.id);
 
-  const allConfiguredProviders = [...configuredProviders, ...localProviderIds];
+  const allConfiguredProviders =
+    process.env.ASTRA_ONLY_GROQ === 'true' ? configuredProviders : [...configuredProviders, ...localProviderIds];
 
-  const defaultProvider = await settingsRepo.get<string>(DEFAULT_PROVIDER_KEY);
-  const defaultModel = await settingsRepo.get<string>(DEFAULT_MODEL_KEY);
+  const defaultProvider = await getDefaultProvider();
+  const defaultModel = await getDefaultModel(defaultProvider ?? undefined);
 
-  const availableProviders = getAvailableProviders();
+  const availableProviders =
+    process.env.ASTRA_ONLY_GROQ === 'true' ? ['groq'] : getAvailableProviders();
 
   return apiResponse(c, {
     configuredProviders: allConfiguredProviders,
@@ -123,6 +125,9 @@ settingsRoutes.post('/default-provider', async (c) => {
   try {
     const body = validateBody(setDefaultProviderSchema, await c.req.json());
 
+    if (process.env.ASTRA_ONLY_GROQ === 'true' && body.provider !== 'groq') {
+      return apiError(c, { code: ERROR_CODES.VALIDATION_ERROR, message: 'Astra permite somente Groq neste ambiente.' }, 400);
+    }
     await settingsRepo.set(DEFAULT_PROVIDER_KEY, body.provider);
 
     return apiResponse(c, {
@@ -161,6 +166,9 @@ settingsRoutes.post('/api-keys', async (c) => {
   try {
     const body = validateBody(setApiKeySchema, await c.req.json());
 
+    if (process.env.ASTRA_ONLY_GROQ === 'true' && body.provider !== 'groq') {
+      return apiError(c, { code: ERROR_CODES.VALIDATION_ERROR, message: 'Astra permite somente Groq neste ambiente.' }, 400);
+    }
     const key = `${API_KEY_PREFIX}${body.provider}`;
     await settingsRepo.set(key, body.apiKey);
 

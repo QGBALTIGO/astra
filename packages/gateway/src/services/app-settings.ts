@@ -50,12 +50,16 @@ export const TOOL_GROUPS_KEY = 'tool_groups';
 
 /** Check if a provider has an API key configured (database only). */
 export async function hasApiKey(provider: string): Promise<boolean> {
+  if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return false;
+  if (provider === 'groq' && process.env.GROQ_API_KEY) return true;
   const key = `${API_KEY_PREFIX}${provider}`;
   return await settingsRepo.has(key);
 }
 
 /** Get API key for a provider (database only). */
 export async function getApiKey(provider: string): Promise<string | undefined> {
+  if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return undefined;
+  if (provider === 'groq' && process.env.GROQ_API_KEY) return process.env.GROQ_API_KEY;
   const key = `${API_KEY_PREFIX}${provider}`;
   return (await settingsRepo.get<string>(key)) ?? undefined;
 }
@@ -66,7 +70,12 @@ export async function getApiKey(provider: string): Promise<string | undefined> {
  */
 export async function getConfiguredProviderIds(): Promise<Set<string>> {
   const apiKeySettings = await settingsRepo.getByPrefix(API_KEY_PREFIX);
-  return new Set(apiKeySettings.map((s) => s.key.replace(API_KEY_PREFIX, '')));
+  if (process.env.ASTRA_ONLY_GROQ === 'true') {
+    return new Set(process.env.GROQ_API_KEY ? ['groq'] : []);
+  }
+  const configured = new Set(apiKeySettings.map((s) => s.key.replace(API_KEY_PREFIX, '')));
+  if (process.env.GROQ_API_KEY) configured.add('groq');
+  return configured;
 }
 
 /**
@@ -90,7 +99,9 @@ export async function loadApiKeysToEnvironment(): Promise<void> {
  * Get the source of an API key.
  * Returns 'database' if key exists, null otherwise.
  */
-export async function getApiKeySource(provider: string): Promise<'database' | null> {
+export async function getApiKeySource(provider: string): Promise<'database' | 'environment' | null> {
+  if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return null;
+  if (provider === 'groq' && process.env.GROQ_API_KEY) return 'environment';
   const key = `${API_KEY_PREFIX}${provider}`;
   return (await settingsRepo.has(key)) ? 'database' : null;
 }
@@ -107,6 +118,10 @@ export async function getApiKeySource(provider: string): Promise<'database' | nu
  * - `{ method: 'api_key', value }` (only if a caller wrote it explicitly)
  */
 export async function getResolvedAuth(provider: string): Promise<ResolvedAuth | undefined> {
+  if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return undefined;
+  if (provider === 'groq' && process.env.GROQ_API_KEY) {
+    return { method: 'api_key', value: process.env.GROQ_API_KEY };
+  }
   const blob = await settingsRepo.get<string>(`${AUTH_PREFIX}${provider}`);
   if (blob) {
     try {
@@ -214,6 +229,9 @@ export async function deleteProviderOAuthOverride(provider: string): Promise<voi
  * Returns null if no provider is configured.
  */
 export async function getDefaultProvider(): Promise<string | null> {
+  if (process.env.ASTRA_ONLY_GROQ === 'true') {
+    return process.env.GROQ_API_KEY ? 'groq' : null;
+  }
   const savedProvider = await settingsRepo.get<string>(DEFAULT_PROVIDER_KEY);
   if (savedProvider) {
     const localProv = await localProvidersRepo.getProvider(savedProvider);
@@ -248,6 +266,9 @@ export async function setDefaultProvider(provider: string): Promise<void> {
  * Returns null if no model can be determined.
  */
 export async function getDefaultModel(provider?: string): Promise<string | null> {
+  if (process.env.ASTRA_ONLY_GROQ === 'true') {
+    return process.env.GROQ_API_KEY ? process.env.ASTRA_GROQ_MODEL || 'openai/gpt-oss-120b' : null;
+  }
   const savedModel = await settingsRepo.get<string>(DEFAULT_MODEL_KEY);
   if (savedModel) return savedModel;
 
@@ -283,6 +304,7 @@ export async function resolveDefaultProviderAndModel(
 
 /** Check if demo mode (no providers configured). */
 export async function isDemoModeFromSettings(): Promise<boolean> {
+  if (process.env.ASTRA_ONLY_GROQ === 'true') return !process.env.GROQ_API_KEY;
   const apiKeySettings = await settingsRepo.getByPrefix(API_KEY_PREFIX);
   if (apiKeySettings.length > 0) return false;
 

@@ -213,7 +213,7 @@ const PROVIDER_CATEGORIES: Record<string, string[]> = {
  * Get all available provider IDs (from core PROVIDER_IDS)
  */
 function getProviderIds(): string[] {
-  return getAvailableProviders();
+  return process.env.ASTRA_ONLY_GROQ === 'true' ? ['groq'] : getAvailableProviders();
 }
 
 /**
