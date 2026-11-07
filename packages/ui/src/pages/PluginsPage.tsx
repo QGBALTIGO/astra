@@ -163,13 +163,13 @@ export function PluginsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
             Plugins
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            Extend your AI assistant with plugins
+            Amplie as funcionalidades do Astra com plugins
           </p>
         </div>
         <button
@@ -185,7 +185,7 @@ export function PluginsPage() {
       </header>
 
       {/* Tab Bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 gap-1 overflow-x-auto border-b border-border px-4 dark:border-dark-border sm:px-6">
         {(['home', 'installed', 'system'] as TabId[]).map((tab) => (
           <button
             key={tab}
@@ -293,7 +293,7 @@ export function PluginsPage() {
           {/* Stats Bar */}
           {stats && (
             <div className="px-6 py-3 border-b border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary">
-              <div className="flex items-center gap-6 text-sm">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="text-text-muted dark:text-dark-text-muted">Total:</span>
                   <span className="font-medium text-text-primary dark:text-dark-text-primary">

@@ -26,9 +26,9 @@ const THEME_OPTIONS: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
-  { value: 'system', label: 'System', icon: Monitor },
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', label: 'Sistema', icon: Monitor },
+  { value: 'light', label: 'Claro', icon: Sun },
+  { value: 'dark', label: 'Escuro', icon: Moon },
   { value: 'claude', label: 'Claude', icon: Palette },
 ];
 
@@ -46,14 +46,14 @@ export function LayoutConfigPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-6">
+    <div className="mx-auto max-w-2xl min-w-0 space-y-6 p-4 sm:p-6">
       {/* Page header */}
       <div>
         <h1 className="text-xl font-semibold text-text-primary dark:text-dark-text-primary">
-          Layout Configuration
+          Configuração do layout
         </h1>
         <p className="mt-1 text-sm text-text-secondary dark:text-dark-text-secondary">
-          Click a zone to configure it. Changes apply instantly.
+          Selecione uma área para ajustar o layout. As alterações são aplicadas na hora.
         </p>
       </div>
 
@@ -67,7 +67,7 @@ export function LayoutConfigPage() {
       <section className="space-y-4 pt-2">
         <div className="flex items-center justify-between border-b border-border dark:border-dark-border pb-2">
           <h2 className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-            Custom Groups
+            Grupos personalizados
           </h2>
           <button
             onClick={() => {
@@ -188,13 +188,13 @@ export function LayoutConfigPage() {
       {/* Global settings */}
       <section className="space-y-4 pt-2">
         <h2 className="text-sm font-medium text-text-primary dark:text-dark-text-primary border-b border-border dark:border-dark-border pb-2">
-          Global Settings
+          Configurações gerais
         </h2>
 
         {/* Theme selector */}
         <div className="space-y-2">
-          <p className="text-xs text-text-muted dark:text-dark-text-muted">Theme</p>
-          <div className="flex gap-1">
+          <p className="text-xs text-text-muted dark:text-dark-text-muted">Tema</p>
+          <div className="flex flex-wrap gap-1">
             {THEME_OPTIONS.map(({ value, label, icon: ThemeIcon }) => (
               <button
                 key={value}
@@ -218,13 +218,13 @@ export function LayoutConfigPage() {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-text-muted dark:text-dark-text-muted hover:text-error hover:bg-error/10 transition-colors"
         >
           <RotateCcw className="w-3 h-3" />
-          Reset Layout to Defaults
+          Restaurar layout padrão
         </button>
       </section>
 
       {/* Info note */}
       <div className="text-xs text-text-muted dark:text-dark-text-muted bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg px-4 py-3">
-        Layout settings are saved to this device. Header zones are only visible on desktop.
+        As preferências de layout ficam salvas neste dispositivo. Algumas áreas do cabeçalho aparecem apenas no computador.
       </div>
     </div>
   );

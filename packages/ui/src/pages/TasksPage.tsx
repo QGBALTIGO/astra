@@ -27,6 +27,8 @@ import type { Task } from '../types';
 import { localDayString } from '../utils/formatters';
 import { PageHomeTab } from '../components/PageHomeTab';
 
+const TASK_FILTER_LABELS = { all: 'Todas', pending: 'Pendentes', completed: 'Concluídas', cancelled: 'Canceladas' } as const;
+
 const priorityColors = {
   low: 'text-text-muted dark:text-dark-text-muted',
   normal: 'text-primary',
@@ -157,13 +159,13 @@ export function TasksPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Tasks
+            Tarefas
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            {pendingCount} pending, {completedCount} completed
+            {pendingCount} pendentes, {completedCount} concluídas
           </p>
         </div>
         <button
@@ -171,7 +173,7 @@ export function TasksPage() {
           className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
         >
           <Plus className="w-4 h-4" />
-          Add Task
+          Adicionar tarefa
         </button>
       </header>
 
@@ -251,11 +253,11 @@ export function TasksPage() {
             },
             {
               title: 'Acompanhe o progresso',
-              detail: 'Filter by status to see pending or completed tasks.',
+              detail: 'Filtre as tarefas por situação para acompanhar o que falta concluir.',
             },
             {
               title: 'Lembretes inteligentes',
-              detail: 'Your assistant tracks due dates and nudges you.',
+              detail: 'Consulte seus prazos e organize lembretes para não esquecer tarefas.',
             },
           ]}
         />
@@ -264,18 +266,18 @@ export function TasksPage() {
       {activeTab === 'tasks' && (
         <>
           {/* Filters */}
-          <div className="flex gap-2 px-6 py-3 border-b border-border dark:border-dark-border">
+          <div className="flex min-w-0 gap-2 overflow-x-auto border-b border-border px-4 py-3 dark:border-dark-border sm:px-6">
             {(['all', 'pending', 'completed', 'cancelled'] as const).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                className={`shrink-0 rounded-full px-3 py-1 text-sm transition-colors ${
                   filter === f
                     ? 'bg-primary text-white'
                     : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-secondary dark:text-dark-text-secondary hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary'
                 }`}
               >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
+                {TASK_FILTER_LABELS[f]}
               </button>
             ))}
           </div>

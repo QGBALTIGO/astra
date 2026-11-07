@@ -44,6 +44,8 @@ import { TriggerModal } from '../components/TriggerModal';
 import { TriggerHistoryModal } from '../components/TriggerHistoryModal';
 import { useAnimatedList } from '../hooks/useAnimatedList';
 
+const TRIGGER_FILTER_LABELS = { all: 'Todos', schedule: 'Agendados', event: 'Eventos', condition: 'Condições', webhook: 'Webhooks' } as const;
+
 const typeColors = {
   schedule: 'bg-blue-500/10 text-blue-500',
   event: 'bg-purple-500/10 text-purple-500',
@@ -369,14 +371,14 @@ export function TriggersPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
-        <div className="flex items-center gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           <div>
             <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-              Triggers
+              Lembretes e automações
             </h2>
             <p className="text-sm text-text-muted dark:text-dark-text-muted">
-              {enabledCount} enabled, {scheduleCount} scheduled
+              {enabledCount} ativos, {scheduleCount} programados
             </p>
           </div>
 
@@ -407,7 +409,7 @@ export function TriggersPage() {
           className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
         >
           <Plus className="w-4 h-4" />
-          New Trigger
+          Criar lembrete
         </button>
       </header>
 
@@ -438,7 +440,7 @@ export function TriggersPage() {
       )}
 
       {/* Tab bar: Home | Triggers | Activity */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 gap-1 overflow-x-auto border-b border-border px-4 dark:border-dark-border sm:px-6">
         {(['home', 'triggers', 'activity'] as TabId[]).map((tab) => (
           <button
             key={tab}
@@ -536,18 +538,18 @@ export function TriggersPage() {
 
       {/* Filters (only for triggers tab) */}
       {activeTab === 'triggers' && (
-        <div className="flex gap-2 px-6 py-3 border-b border-border dark:border-dark-border">
+        <div className="flex min-w-0 gap-2 overflow-x-auto border-b border-border px-4 py-3 dark:border-dark-border sm:px-6">
           {(['all', 'schedule', 'event', 'condition', 'webhook'] as const).map((type) => (
             <button
               key={type}
               onClick={() => setTypeFilter(type)}
-              className={`px-3 py-1 text-sm rounded-full transition-colors ${
+              className={`shrink-0 rounded-full px-3 py-1 text-sm transition-colors ${
                 typeFilter === type
                   ? 'bg-primary text-white'
                   : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-secondary dark:text-dark-text-secondary hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary'
               }`}
             >
-              {type.charAt(0).toUpperCase() + type.slice(1)}
+              {TRIGGER_FILTER_LABELS[type]}
             </button>
           ))}
         </div>
