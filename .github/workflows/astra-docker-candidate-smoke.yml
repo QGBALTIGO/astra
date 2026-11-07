@@ -30,5 +30,8 @@ jobs:
         run: |
           docker image inspect astra-review:1001639e --format '{{.Id}} {{.Architecture}} {{.Config.User}}'
           docker run --rm --entrypoint node astra-review:1001639e --version
+      - name: Verify native terminal dependency is actually loadable
+        run: |
+          docker run --rm -w /app/packages/gateway --entrypoint node astra-review:1001639e -e "const pty=require('node-pty'); if(typeof pty.spawn!=='function') throw Error('node-pty unavailable'); console.log('node-pty native module ready')"
       - name: Confirm no registry publishing was performed
         run: echo "The image was only built on this runner; no push or deployment was requested."
