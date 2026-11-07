@@ -1,5 +1,9 @@
 name: Astra interface audit (isolated)
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/astra-ui-route-audit.yml'
   workflow_dispatch:
 permissions:
   contents: read
