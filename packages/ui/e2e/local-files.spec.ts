@@ -76,10 +76,14 @@ test.describe('Personalizar — ambientes e dispositivos reais', () => {
     try {
       const created = await page.request.post('/api/v1/edge', {
         data: { name, type: 'custom' },
+        // Browser fetch sends Origin on unsafe requests; APIRequestContext does not.
+        // Match the real browser without weakening the gateway's CSRF protection.
+        headers: { Origin: 'http://localhost:8199' },
       });
-      expect(created.ok(), 'API deve permitir cadastrar dispositivo no ambiente de teste').toBe(
-        true
-      );
+      expect(
+        created.ok(),
+        `API deve cadastrar dispositivo no ambiente isolado (HTTP ${created.status()})`
+      ).toBe(true);
       const body = (await created.json()) as {
         success?: boolean;
         data?: { id?: string };
@@ -96,7 +100,9 @@ test.describe('Personalizar — ambientes e dispositivos reais', () => {
       await expect(detail).toContainText('Desconectado');
     } finally {
       if (deviceId) {
-        const removed = await page.request.delete(`/api/v1/edge/${deviceId}`);
+        const removed = await page.request.delete(`/api/v1/edge/${deviceId}`, {
+          headers: { Origin: 'http://localhost:8199' },
+        });
         expect(removed.ok(), 'dispositivo de teste deve ser excluído').toBe(true);
       }
     }
