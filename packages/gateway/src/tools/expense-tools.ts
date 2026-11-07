@@ -139,6 +139,20 @@ export async function executeExpenseTool(
         }
 
         const summary = await repo.getSummary(dateFrom, dateTo);
+        const currencies = Object.keys(summary.byCurrency ?? {});
+        if (currencies.length > 1) {
+          // Summing BRL, USD, TRY etc. without FX conversion is misleading.
+          // Return accurate per-currency totals, not the invalid combined amount.
+          return {
+            success: true,
+            result: {
+              period,
+              count: summary.count,
+              byCurrency: summary.byCurrency,
+              warning: 'Despesas em moedas diferentes. Apresente os totais por moeda separadamente; não faça a soma sem conversão.',
+            },
+          };
+        }
         return { success: true, result: { period, ...summary } };
       }
 
