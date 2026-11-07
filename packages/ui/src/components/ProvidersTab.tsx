@@ -310,7 +310,7 @@ export function ProvidersTab() {
         <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
           Provedores de IA
         </h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-text-muted dark:text-dark-text-muted">
           Revise as conexões, o tipo de API e os modelos de forma organizada.
         </p>
       </div>
@@ -373,8 +373,8 @@ export function ProvidersTab() {
       {/* Configured providers */}
       {configuredProviders.length > 0 && (
         <section>
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-            Configurados Providers ({configuredProviders.length})
+          <h4 className="mb-3 text-sm font-semibold text-text-secondary dark:text-dark-text-secondary">
+            Provedores configurados ({configuredProviders.length})
           </h4>
           <div className="grid gap-3 md:grid-cols-2">
             {configuredProviders.map(renderProviderCard)}
@@ -385,7 +385,7 @@ export function ProvidersTab() {
       {/* Unconfigured providers */}
       {unconfiguredProviders.length > 0 && filterConfigured !== 'configured' && (
         <section>
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          <h4 className="mb-3 text-sm font-semibold text-text-secondary dark:text-dark-text-secondary">
             Outros provedores ({unconfiguredProviders.length})
           </h4>
           <div className="grid gap-3 md:grid-cols-2">
@@ -395,7 +395,7 @@ export function ProvidersTab() {
       )}
 
       {filteredProviders.length === 0 && (
-        <div className="text-center py-12 text-gray-500">Nenhum provedor corresponde à busca.</div>
+        <div className="py-12 text-center text-text-muted dark:text-dark-text-muted">Nenhum provedor corresponde à busca.</div>
       )}
 
       {/* Edit Modal */}
