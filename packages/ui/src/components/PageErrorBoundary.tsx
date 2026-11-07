@@ -30,7 +30,11 @@ export class PageErrorBoundary extends Component<Props, State> {
 
   handleRetry = () => {
     const message = this.state.error?.message ?? '';
-    if (/dynamically imported module|Unable to preload CSS|ChunkLoadError|Loading chunk/i.test(message)) {
+    if (
+      /dynamically imported module|Unable to preload CSS|ChunkLoadError|Loading chunk/i.test(
+        message
+      )
+    ) {
       window.location.reload();
       return;
     }

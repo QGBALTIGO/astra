@@ -57,7 +57,8 @@ export class ErrorBoundary extends Component<Props, State> {
             </h1>
 
             <p className="text-text-muted dark:text-dark-text-muted mb-6">
-              O Astra encontrou um problema ao carregar esta página. Tente atualizar ou voltar ao início.
+              O Astra encontrou um problema ao carregar esta página. Tente atualizar ou voltar ao
+              início.
             </p>
 
             {this.state.error && (

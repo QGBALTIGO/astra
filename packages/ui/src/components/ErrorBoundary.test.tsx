@@ -136,7 +136,9 @@ describe('ErrorBoundary', () => {
 
     // Find the Atualizar página button
     const buttons = container.querySelectorAll('button');
-    const reloadButton = Array.from(buttons).find((b) => b.textContent?.includes('Atualizar página'));
+    const reloadButton = Array.from(buttons).find((b) =>
+      b.textContent?.includes('Atualizar página')
+    );
     expect(reloadButton).not.toBeNull();
 
     act(() => {
