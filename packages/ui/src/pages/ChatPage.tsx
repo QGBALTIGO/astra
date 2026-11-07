@@ -548,7 +548,7 @@ export function ChatPage() {
                     {agentDisplayName}
                   </>
                 ) : (
-                  'Chat'
+                  'Conversa'
                 )}
               </h2>
               <p className="text-sm text-text-muted dark:text-dark-text-muted">
@@ -557,9 +557,9 @@ export function ChatPage() {
                 ) : currentAgent ? (
                   `Using ${currentProviderName} / ${model}`
                 ) : !isLoadingModels && configuredProviders.length > 0 && !isProviderConfigured ? (
-                  <span className="text-warning">Provider not configured</span>
+                  <span className="text-warning">Provedor de IA não configurado</span>
                 ) : (
-                  'Talk to your AI assistant'
+                  'Converse com seu assistente pessoal'
                 )}
               </p>
             </div>
@@ -788,7 +788,7 @@ export function ChatPage() {
                   }`}
                 />
               </span>
-              <span>Timeline</span>
+              <span>Linha do tempo</span>
             </button>
 
             {/* New Chat button */}

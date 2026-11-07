@@ -53,10 +53,10 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'agents', label: 'Agents', icon: Brain },
-  { id: 'automation', label: 'Automation', icon: Zap },
-  { id: 'extensions', label: 'Extensions', icon: Puzzle },
+  { id: 'overview', label: 'Visão geral', icon: LayoutDashboard },
+  { id: 'agents', label: 'Agentes', icon: Brain },
+  { id: 'automation', label: 'Automações', icon: Zap },
+  { id: 'extensions', label: 'Extensões', icon: Puzzle },
 ];
 
 export function DashboardPage() {
@@ -86,7 +86,7 @@ export function DashboardPage() {
       setSummary(data);
       setLastUpdated(new Date());
     } catch {
-      setError('Failed to load dashboard data');
+      setError('Não foi possível carregar a visão geral');
     } finally {
       setIsLoading(false);
     }
@@ -157,7 +157,7 @@ export function DashboardPage() {
   const stats = summary
     ? [
         {
-          label: 'Pending Tasks',
+          label: 'Tarefas pendentes',
           value: summary.tasks.pending,
           sub: summary.tasks.overdue > 0 ? `${summary.tasks.overdue} overdue` : undefined,
           icon: CheckCircle2,
@@ -167,9 +167,9 @@ export function DashboardPage() {
           link: '/tasks',
         },
         {
-          label: 'Notes',
+          label: 'Anotações',
           value: summary.notes.total,
-          sub: summary.notes.pinned > 0 ? `${summary.notes.pinned} pinned` : undefined,
+          sub: summary.notes.pinned > 0 ? `${summary.notes.pinned} fixadas` : undefined,
           icon: FileText,
           color: 'text-warning',
           bgColor: 'bg-warning/10',
@@ -177,13 +177,13 @@ export function DashboardPage() {
           link: '/notes',
         },
         {
-          label: 'Events',
+          label: 'Compromissos',
           value: summary.calendar.total,
           sub:
             summary.calendar.upcoming > 0
-              ? `${summary.calendar.upcoming} upcoming`
+              ? `${summary.calendar.upcoming} próximos`
               : summary.calendar.today > 0
-                ? `${summary.calendar.today} today`
+                ? `${summary.calendar.today} hoje`
                 : undefined,
           icon: Calendar,
           color: 'text-success',
@@ -192,10 +192,10 @@ export function DashboardPage() {
           link: '/calendar',
         },
         {
-          label: 'Contacts',
+          label: 'Contatos',
           value: summary.contacts.total,
           sub:
-            summary.contacts.favorites > 0 ? `${summary.contacts.favorites} favorites` : undefined,
+            summary.contacts.favorites > 0 ? `${summary.contacts.favorites} favoritos` : undefined,
           icon: Users,
           color: 'text-purple-500',
           bgColor: 'bg-purple-500/10',
@@ -203,11 +203,11 @@ export function DashboardPage() {
           link: '/contacts',
         },
         {
-          label: 'Bookmarks',
+          label: 'Favoritos',
           value: summary.bookmarks.total,
           sub:
             summary.bookmarks.favorites > 0
-              ? `${summary.bookmarks.favorites} favorites`
+              ? `${summary.bookmarks.favorites} favoritos`
               : undefined,
           icon: Bookmark,
           color: 'text-blue-500',
@@ -218,11 +218,11 @@ export function DashboardPage() {
         ...(habits
           ? [
               {
-                label: 'Habits',
+                label: 'Hábitos',
                 value: habits.total,
                 sub:
                   habits.totalToday > 0
-                    ? `${habits.completedToday}/${habits.totalToday} today`
+                    ? `${habits.completedToday}/${habits.totalToday} hoje`
                     : habits.bestStreak > 0
                       ? `${habits.bestStreak}d streak`
                       : undefined,
@@ -237,11 +237,11 @@ export function DashboardPage() {
         ...(expenses
           ? [
               {
-                label: 'Expenses',
+                label: 'Despesas',
                 value: expenses.total,
                 sub:
                   expenses.thisMonth > 0
-                    ? `${expenses.thisMonth.toFixed(0)} this month`
+                    ? `${expenses.thisMonth.toFixed(0)} neste mês`
                     : undefined,
                 icon: Receipt,
                 color: 'text-orange-500',
@@ -271,14 +271,13 @@ export function DashboardPage() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-text-primary dark:text-dark-text-primary">
-              Mission Control{' '}
+              Central de operações{' '}
               <span className="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-primary/20 text-primary font-bold">
-                NEW
+                NOVO
               </span>
             </p>
             <p className="text-xs text-text-muted dark:text-dark-text-muted">
-              Single-pane operator view of every autonomous Claw — live state, escalation queue,
-              plan activity feed, inline controls.
+              Acompanhe atividades, notificações e tarefas executadas pelos agentes em um só lugar.
             </p>
           </div>
           <span className="text-primary text-sm group-hover:translate-x-0.5 transition-transform shrink-0">
@@ -334,14 +333,14 @@ export function DashboardPage() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-success" />
-              Task Progress
+              Progresso das tarefas
             </h3>
             <div className="flex items-center gap-3">
               <span className="text-sm font-semibold text-text-primary dark:text-dark-text-primary">
                 {completionPct}%
               </span>
               <Link to="/tasks" className="text-xs text-primary hover:underline">
-                View all
+                Ver tudo
               </Link>
             </div>
           </div>
@@ -352,10 +351,10 @@ export function DashboardPage() {
             />
           </div>
           <div className="flex justify-between mt-2 text-xs text-text-muted dark:text-dark-text-muted">
-            <span>{tasksCompleted} completed</span>
-            <span>{summary.tasks.pending} pending</span>
+            <span>{tasksCompleted} concluídas</span>
+            <span>{summary.tasks.pending} pendentes</span>
             {summary.tasks.overdue > 0 && (
-              <span className="text-error">{summary.tasks.overdue} overdue</span>
+              <span className="text-error">{summary.tasks.overdue} atrasadas</span>
             )}
           </div>
         </div>
@@ -366,7 +365,7 @@ export function DashboardPage() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-              Pinned Artifacts
+              Arquivos fixados
             </h3>
             <Link to="/artifacts" className="text-xs text-primary hover:underline">
               View all
@@ -406,7 +405,7 @@ export function DashboardPage() {
         <div className="space-y-6">
           <div className="card-elevated p-5 bg-bg-secondary dark:bg-dark-bg-secondary border border-border dark:border-dark-border rounded-xl">
             <h3 className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-4">
-              Quick Add
+              Adicionar rapidamente
             </h3>
             <div className="grid grid-cols-3 gap-2">
               {QUICK_ADD_ITEMS.map(({ type, icon: Icon, label, color }) => (
@@ -432,10 +431,10 @@ export function DashboardPage() {
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary flex items-center gap-2">
                   <Clock className="w-4 h-4 text-primary" />
-                  Upcoming Events
+                  Próximos compromissos
                 </h3>
                 <Link to="/calendar" className="text-xs text-primary hover:underline">
-                  View all
+                  Ver tudo
                 </Link>
               </div>
               <p className="text-sm text-text-muted dark:text-dark-text-muted">

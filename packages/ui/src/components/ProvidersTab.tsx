@@ -69,7 +69,7 @@ export function ProvidersTab() {
       const { providers: list } = await providersApi.list();
       setProviders(list as ProviderInfo[]);
     } catch {
-      setError('Failed to load providers');
+      setError('Não foi possível carregar os provedores');
     } finally {
       setIsLoading(false);
     }
@@ -86,7 +86,7 @@ export function ProvidersTab() {
       setProviders((prev) =>
         prev.map((p) => (p.id === providerId ? { ...p, isEnabled: enabled, hasOverride: true } : p))
       );
-      toast.success(enabled ? 'Provider enabled' : 'Provider disabled');
+      toast.success(enabled ? 'Provedor ativado' : 'Provedor desativado');
     } catch {
       toast.error('Failed to toggle provider');
     }
@@ -109,7 +109,7 @@ export function ProvidersTab() {
       });
       setEditingProvider(providerId);
     } catch {
-      toast.error('Failed to load provider config');
+      toast.error('Não foi possível carregar a configuração');
     }
   };
 
@@ -131,9 +131,9 @@ export function ProvidersTab() {
       // Refresh providers
       await fetchProviders();
       setEditingProvider(null);
-      toast.success('Provider config saved');
+      toast.success('Configuração salva');
     } catch {
-      toast.error('Failed to save provider config');
+      toast.error('Não foi possível salvar a configuração');
     } finally {
       setSaving(false);
     }
@@ -145,7 +145,7 @@ export function ProvidersTab() {
       await providersApi.resetConfig(providerId);
       await fetchProviders();
       setEditingProvider(null);
-      toast.success('Provider reset to default');
+      toast.success('Configuração restaurada');
     } catch {
       toast.error('Failed to reset provider config');
     }
@@ -259,7 +259,7 @@ export function ProvidersTab() {
             <button
               onClick={() => handleEdit(provider.id)}
               className="p-1.5 text-gray-500 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
-              title="Edit provider settings"
+              title="Editar configurações do provedor"
             >
               <Edit2 className="w-4 h-4" />
             </button>
@@ -271,7 +271,7 @@ export function ProvidersTab() {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-1.5 text-gray-500 hover:text-primary hover:bg-primary/10 rounded transition-colors"
-                title="View documentation"
+                title="Ver documentação"
               >
                 <ExternalLink className="w-4 h-4" />
               </a>
@@ -286,7 +286,7 @@ export function ProvidersTab() {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3">
         <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-        <p className="text-sm text-text-muted dark:text-dark-text-muted">Loading providers...</p>
+        <p className="text-sm text-text-muted dark:text-dark-text-muted">Carregando provedores...</p>
       </div>
     );
   }
@@ -295,10 +295,10 @@ export function ProvidersTab() {
     return (
       <EmptyState
         icon={AlertTriangle}
-        title="Failed to load providers"
+        title="Não foi possível carregar os provedores"
         description={error}
         variant="card"
-        action={{ label: 'Try Again', onClick: fetchProviders, icon: RefreshCw }}
+        action={{ label: 'Tentar novamente', onClick: fetchProviders, icon: RefreshCw }}
       />
     );
   }
@@ -307,7 +307,7 @@ export function ProvidersTab() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">AI Providers</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Provedores de IA</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           Configure provider settings like endpoint URLs and types. These settings survive
           models.dev sync.
@@ -322,7 +322,7 @@ export function ProvidersTab() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search providers..."
+            placeholder="Buscar provedores..."
             className="w-full pl-10 pr-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
           />
         </div>
@@ -347,7 +347,7 @@ export function ProvidersTab() {
       <div className="grid grid-cols-3 gap-4">
         <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
           <p className="text-2xl font-bold text-gray-900 dark:text-white">{providers.length}</p>
-          <p className="text-sm text-gray-500">Total Providers</p>
+          <p className="text-sm text-gray-500">Total de provedores</p>
         </div>
         <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
           <p className="text-2xl font-bold text-green-600 dark:text-green-400">

@@ -113,7 +113,7 @@ export function ChatStarterPrompts({
         const goal = [...goalsRes.value.goals].sort((a, b) => b.priority - a.priority)[0]!;
         prompts.push({
           icon: '🎯',
-          label: 'Advance a goal',
+          label: 'Avançar em um objetivo',
           detail: `${goal.title}${goal.progress ? ` (${goal.progress}% done)` : ''}`,
           source: 'personal',
           prompt: `Help me make progress on this goal: "${goal.title}". Review what I know about it, identify the next milestone, and give me a focused action plan for the next 7 days.`,
@@ -124,7 +124,7 @@ export function ChatStarterPrompts({
         const eventNames = getTextList(calendarRes.value.map((event) => event.title));
         prompts.push({
           icon: '📅',
-          label: 'Prep my week',
+          label: 'Organizar minha semana',
           detail: eventNames || 'Upcoming calendar events',
           source: 'personal',
           prompt: `Review my upcoming calendar for the next 7 days, especially: ${eventNames}. Help me prepare, spot conflicts, and turn meetings/events into a practical checklist.`,
@@ -135,7 +135,7 @@ export function ChatStarterPrompts({
         const incomplete = habitsRes.value.habits.filter((habit) => !habit.completedToday);
         prompts.push({
           icon: '🌱',
-          label: 'Check habits',
+          label: 'Ver meus hábitos',
           detail:
             incomplete.length > 0
               ? `${incomplete.length} still open today`
@@ -155,7 +155,7 @@ export function ChatStarterPrompts({
         const noteTitles = getTextList(notesRes.value.map((note) => note.title));
         prompts.push({
           icon: '🗂️',
-          label: 'Connect my notes',
+          label: 'Organizar anotações',
           detail: noteTitles || 'Recent notes',
           source: 'personal',
           prompt: `Look at my recent notes, including: ${noteTitles}. Find patterns, summarize the useful parts, and suggest follow-up actions or tags.`,
@@ -165,7 +165,7 @@ export function ChatStarterPrompts({
       if (memoriesRes.status === 'fulfilled' && memoriesRes.value.memories.length > 0) {
         prompts.push({
           icon: '🧠',
-          label: 'Use my memory',
+          label: 'Usar minha memória',
           detail: `${memoriesRes.value.memories.length} recent memories`,
           source: 'personal',
           prompt:
@@ -243,7 +243,7 @@ function SetupWizardPlaceholder() {
     <div className="p-4 bg-warning/10 border border-warning/20 rounded-lg mb-4">
       <div className="flex items-center justify-center gap-2 text-warning mb-2">
         <AlertCircle className="w-5 h-5" />
-        <span className="font-medium">Setup Required</span>
+        <span className="font-medium">Configuração necessária</span>
       </div>
       <p className="text-sm text-text-muted dark:text-dark-text-muted">
         Configure at least one AI provider to start chatting.
@@ -258,7 +258,7 @@ function NoProvidersMessage() {
       <div className="p-4 bg-warning/10 border border-warning/20 rounded-lg mb-4">
         <div className="flex items-center justify-center gap-2 text-warning mb-2">
           <AlertCircle className="w-5 h-5" />
-          <span className="font-medium">No API Keys</span>
+          <span className="font-medium">Nenhuma chave de IA configurada</span>
         </div>
         <p className="text-sm text-text-muted dark:text-dark-text-muted">
           Configure at least one AI provider to start chatting.

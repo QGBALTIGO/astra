@@ -203,7 +203,7 @@ export function TasksPage() {
           title="Manage Your Tasks"
           subtitle="Track to-dos, prioritize work, and let your AI help you stay productive with smart task management."
           cta={{
-            label: 'Add Task',
+            label: 'Adicionar tarefa',
             icon: Plus,
             onClick: () => {
               setTab('tasks');
@@ -217,38 +217,38 @@ export function TasksPage() {
             {
               icon: Target,
               color: 'text-primary bg-primary/10',
-              title: 'Priority Levels',
+              title: 'Prioridades',
               description:
-                'Assign low, normal, high, or urgent priority to stay focused on what matters.',
+                'Defina a prioridade da tarefa para se concentrar no que realmente importa.',
             },
             {
               icon: Calendar,
               color: 'text-emerald-500 bg-emerald-500/10',
-              title: 'Due Dates',
-              description: 'Set deadlines and due times so nothing falls through the cracks.',
+              title: 'Prazos',
+              description: 'Defina datas e horários para não perder nenhum compromisso.',
             },
             {
               icon: Sparkles,
               color: 'text-violet-500 bg-violet-500/10',
-              title: 'AI Suggestions',
-              description: 'Your AI can create, update, and prioritize tasks during conversations.',
+              title: 'Sugestões da IA',
+              description: 'O Astra pode criar, atualizar e priorizar tarefas durante a conversa.',
             },
             {
               icon: Plus,
               color: 'text-amber-500 bg-amber-500/10',
-              title: 'Quick Capture',
-              description: 'Add tasks in seconds with a title, priority, and optional details.',
+              title: 'Cadastro rápido',
+              description: 'Adicione tarefas rapidamente com nome, prioridade e detalhes.',
             },
           ]}
           steps={[
             { title: 'Create a task', detail: 'Click "Add Task" and enter a title.' },
             { title: 'Set priority & due date', detail: 'Choose urgency and add a deadline.' },
             {
-              title: 'Track progress',
+              title: 'Acompanhe o progresso',
               detail: 'Filter by status to see pending or completed tasks.',
             },
             {
-              title: 'AI reminds you of deadlines',
+              title: 'Lembretes inteligentes',
               detail: 'Your assistant tracks due dates and nudges you.',
             },
           ]}
@@ -285,7 +285,7 @@ export function TasksPage() {
                 description={error}
                 variant="card"
                 action={{
-                  label: 'Try Again',
+                  label: 'Tentar novamente',
                   onClick: fetchTasks,
                   icon: RefreshCw,
                 }}
@@ -547,8 +547,8 @@ function TaskModal({ task, onClose, onSave }: TaskModalProps) {
                 >
                   <option value="low">Low</option>
                   <option value="normal">Normal</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
+                  <option value="high">Alta</option>
+                  <option value="urgent">Urgente</option>
                 </select>
               </div>
 

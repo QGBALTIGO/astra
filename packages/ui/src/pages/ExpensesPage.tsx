@@ -233,7 +233,7 @@ export function ExpensesPage() {
           title="Track Your Expenses"
           subtitle="Log expenses, categorize spending, and get AI-powered insights on your financial habits."
           cta={{
-            label: 'Add Expense',
+            label: 'Registrar despesa',
             icon: Plus,
             onClick: () => {
               setTab('expenses');
@@ -247,40 +247,40 @@ export function ExpensesPage() {
             {
               icon: Plus,
               color: 'text-primary bg-primary/10',
-              title: 'Quick Entry',
-              description: 'Log expenses in seconds with amount, category, and description.',
+              title: 'Registro rápido',
+              description: 'Registre valor, categoria e descrição de cada despesa.',
             },
             {
               icon: Layers,
               color: 'text-emerald-500 bg-emerald-500/10',
-              title: 'Categories',
-              description: 'Organize spending by food, transport, utilities, and more.',
+              title: 'Categorias',
+              description: 'Organize despesas por alimentação, transporte, contas e mais.',
             },
             {
               icon: BarChart,
               color: 'text-violet-500 bg-violet-500/10',
-              title: 'Charts & Trends',
-              description: 'Visualize monthly spending with interactive bar charts.',
+              title: 'Gráficos e tendências',
+              description: 'Acompanhe seus gastos mensais com gráficos interativos.',
             },
             {
               icon: Sparkles,
               color: 'text-amber-500 bg-amber-500/10',
-              title: 'AI Insights',
-              description: 'Ask your AI for spending summaries and saving tips.',
+              title: 'Análises da IA',
+              description: 'Peça resumos financeiros e dicas de economia ao Astra.',
             },
           ]}
           steps={[
             { title: 'Add an expense', detail: 'Click "Add Expense" and fill in the details.' },
             {
-              title: 'Categorize it',
+              title: 'Categorize o gasto',
               detail: 'Choose a category like food, transport, or shopping.',
             },
             {
-              title: 'View spending trends',
+              title: 'Veja a evolução dos gastos',
               detail: 'Check the monthly chart and category breakdown.',
             },
             {
-              title: 'Ask AI for insights',
+              title: 'Peça uma análise à IA',
               detail: 'Ask your assistant to analyze your spending habits.',
             },
           ]}
@@ -325,7 +325,7 @@ export function ExpensesPage() {
               <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl p-4 border border-border dark:border-dark-border">
                 <div className="flex items-center gap-2 text-text-muted dark:text-dark-text-muted mb-1">
                   <DollarSign className="w-4 h-4" />
-                  <span className="text-sm">Total by Currency</span>
+                  <span className="text-sm">Total por moeda</span>
                 </div>
                 <div className="space-y-1">
                   {Object.entries(summaryData.summary.totalByCurrency).map(([currency, amount]) => (
@@ -333,7 +333,7 @@ export function ExpensesPage() {
                       key={currency}
                       className="text-lg font-bold text-text-primary dark:text-dark-text-primary"
                     >
-                      {(amount as number).toLocaleString('en-US')} {currency}
+                      {(amount as number).toLocaleString('pt-BR')} {currency}
                     </div>
                   ))}
                   {Object.keys(summaryData.summary.totalByCurrency).length === 0 && (
@@ -346,16 +346,16 @@ export function ExpensesPage() {
               <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl p-4 border border-border dark:border-dark-border">
                 <div className="flex items-center gap-2 text-text-muted dark:text-dark-text-muted mb-1">
                   <TrendingUp className="w-4 h-4" />
-                  <span className="text-sm">Daily Average</span>
+                  <span className="text-sm">Média diária</span>
                 </div>
                 <div className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">
-                  {summaryData.summary.dailyAverage.toLocaleString('en-US')}
+                  {summaryData.summary.dailyAverage.toLocaleString('pt-BR')}
                 </div>
               </div>
               <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl p-4 border border-border dark:border-dark-border">
                 <div className="flex items-center gap-2 text-text-muted dark:text-dark-text-muted mb-1">
                   <Calendar className="w-4 h-4" />
-                  <span className="text-sm">Transactions</span>
+                  <span className="text-sm">Transações</span>
                 </div>
                 <div className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">
                   {summaryData.summary.totalExpenses}
@@ -364,7 +364,7 @@ export function ExpensesPage() {
               <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl p-4 border border-border dark:border-dark-border">
                 <div className="flex items-center gap-2 text-text-muted dark:text-dark-text-muted mb-1">
                   <Filter className="w-4 h-4" />
-                  <span className="text-sm">Top Category</span>
+                  <span className="text-sm">Principal categoria</span>
                 </div>
                 <div className="text-lg font-bold text-text-primary dark:text-dark-text-primary">
                   {summaryData.summary.topCategories[0]
@@ -405,7 +405,7 @@ export function ExpensesPage() {
                         height: `${(month.total / maxMonthTotal) * 100}%`,
                         minHeight: month.total > 0 ? '4px' : '0',
                       }}
-                      title={`${month.total.toLocaleString('en-US')}`}
+                      title={`${month.total.toLocaleString('pt-BR')}`}
                     />
                     <span className="text-xs text-text-muted dark:text-dark-text-muted">
                       {month.month.slice(0, 3)}
@@ -421,7 +421,7 @@ export function ExpensesPage() {
                 ))}
               </div>
               <div className="mt-4 text-center text-sm text-text-muted dark:text-dark-text-muted">
-                Year Total: {monthlyData.yearTotal.toLocaleString('en-US')}
+                Year Total: {monthlyData.yearTotal.toLocaleString('pt-BR')}
               </div>
             </div>
           )}
@@ -440,7 +440,7 @@ export function ExpensesPage() {
                       {CATEGORY_LABELS[cat.category] || cat.category}
                     </span>
                     <span className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-                      {cat.amount.toLocaleString('en-US')}
+                      {cat.amount.toLocaleString('pt-BR')}
                     </span>
                     <span className="text-xs text-text-muted dark:text-dark-text-muted w-12 text-right">
                       {cat.percentage}%
@@ -485,7 +485,7 @@ export function ExpensesPage() {
                   variant="minimal"
                   size="sm"
                   action={{
-                    label: 'Try Again',
+                    label: 'Tentar novamente',
                     onClick: fetchData,
                     icon: RefreshCw,
                   }}
@@ -504,7 +504,7 @@ export function ExpensesPage() {
                   iconBgColor="bg-emerald-500/10 dark:bg-emerald-500/20"
                   iconColor="text-emerald-500"
                   action={{
-                    label: 'Add Expense',
+                    label: 'Registrar despesa',
                     onClick: () => setShowAddForm(true),
                     icon: Plus,
                   }}
@@ -532,12 +532,12 @@ export function ExpensesPage() {
                         {/* expense.date is a local calendar day; new Date(day)
                             parses UTC midnight = the previous local evening
                             west of UTC, rendering the day before. (round 53) */}
-                        {parseLocalDay(expense.date).toLocaleDateString('en-US')} •{' '}
+                        {parseLocalDay(expense.date).toLocaleDateString('pt-BR')} •{' '}
                         {CATEGORY_LABELS[expense.category] || expense.category}
                       </div>
                     </div>
                     <div className="text-sm font-semibold text-text-primary dark:text-dark-text-primary">
-                      {expense.amount.toLocaleString('en-US')} {expense.currency}
+                      {expense.amount.toLocaleString('pt-BR')} {expense.currency}
                     </div>
                     <button
                       onClick={() => setEditingExpense(expense)}

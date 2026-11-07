@@ -120,7 +120,7 @@ function buildContextBlock(attachments: ResourceAttachment[]): string {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
-  { onSend, onStop, isLoading, placeholder = 'Type a message...' },
+  { onSend, onStop, isLoading, placeholder = 'Escreva sua mensagem...' },
   ref
 ) {
   const [value, setValue] = useState('');
@@ -356,7 +356,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             onClick={handleImageSelect}
             disabled={isLoading || imagePreviews.length >= MAX_IMAGE_ATTACHMENTS}
             className="p-2.5 text-text-muted dark:text-dark-text-muted hover:text-primary dark:hover:text-primary hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            aria-label="Attach image"
+            aria-label="Anexar imagem"
             title={`Attach image (max ${MAX_IMAGE_ATTACHMENTS})`}
           >
             <Image className="w-5 h-5" />
@@ -399,8 +399,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           type="button"
           onClick={handleStop}
           className="px-4 py-3 bg-error hover:bg-error/90 text-white rounded-xl transition-colors flex items-center justify-center"
-          aria-label="Stop generation"
-          title="Stop generation"
+          aria-label="Parar resposta"
+          title="Parar resposta"
         >
           <StopCircle className="w-5 h-5" />
         </button>
@@ -409,7 +409,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           type="submit"
           disabled={!value.trim() && imagePreviews.length === 0}
           className="px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
-          aria-label="Send message"
+          aria-label="Enviar mensagem"
         >
           <Send className="w-5 h-5" />
         </button>

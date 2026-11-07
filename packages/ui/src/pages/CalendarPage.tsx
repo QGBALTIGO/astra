@@ -198,7 +198,7 @@ export function CalendarPage() {
           title="Your Smart Calendar"
           subtitle="Manage events, set reminders, and let your AI schedule meetings — all in one intelligent calendar."
           cta={{
-            label: 'Create Event',
+            label: 'Criar compromisso',
             icon: Plus,
             onClick: () => {
               setTab('calendar');
@@ -212,26 +212,26 @@ export function CalendarPage() {
             {
               icon: Calendar,
               color: 'text-primary bg-primary/10',
-              title: 'Event Management',
-              description: 'Create, edit, and organize events with day/week/month views.',
+              title: 'Agenda de compromissos',
+              description: 'Crie e organize compromissos por dia, semana ou mês.',
             },
             {
               icon: Bell,
               color: 'text-emerald-500 bg-emerald-500/10',
-              title: 'Smart Reminders',
-              description: 'Set reminders so you never miss an important event.',
+              title: 'Lembretes inteligentes',
+              description: 'Receba lembretes para não perder compromissos importantes.',
             },
             {
               icon: Sparkles,
               color: 'text-violet-500 bg-violet-500/10',
-              title: 'AI Scheduling',
-              description: 'Ask your AI to schedule meetings and find free slots.',
+              title: 'Agendamento com IA',
+              description: 'Peça ao Astra para agendar compromissos e encontrar horários livres.',
             },
             {
               icon: Globe,
               color: 'text-amber-500 bg-amber-500/10',
-              title: 'Timezone Support',
-              description: 'Handle events across different timezones seamlessly.',
+              title: 'Fusos horários',
+              description: 'Organize compromissos mesmo quando houver fusos diferentes.',
             },
           ]}
           steps={[
@@ -239,7 +239,7 @@ export function CalendarPage() {
             { title: 'Set date & time', detail: 'Pick a date, time, and duration.' },
             { title: 'Add reminders', detail: 'Set reminders to stay on track.' },
             {
-              title: 'Ask AI to schedule for you',
+              title: 'Peça para a IA agendar',
               detail: 'Tell your assistant to create or reschedule events.',
             },
           ]}
@@ -286,7 +286,7 @@ export function CalendarPage() {
                 description={error}
                 variant="card"
                 action={{
-                  label: 'Try Again',
+                  label: 'Tentar novamente',
                   onClick: fetchEvents,
                   icon: RefreshCw,
                 }}
@@ -300,7 +300,7 @@ export function CalendarPage() {
                 iconBgColor="bg-violet-500/10 dark:bg-violet-500/20"
                 iconColor="text-violet-500"
                 action={{
-                  label: 'Create Event',
+                  label: 'Criar compromisso',
                   onClick: () => setShowCreateModal(true),
                   icon: Plus,
                 }}
@@ -691,7 +691,7 @@ function formatDateRange(date: string, mode: 'day' | 'week' | 'month'): string {
   const options: Intl.DateTimeFormatOptions = { month: 'long', year: 'numeric' };
 
   if (mode === 'day') {
-    return d.toLocaleDateString('en-US', {
+    return d.toLocaleDateString('pt-BR', {
       weekday: 'long',
       month: 'long',
       day: 'numeric',
@@ -701,9 +701,9 @@ function formatDateRange(date: string, mode: 'day' | 'week' | 'month'): string {
   if (mode === 'week') {
     const start = parseLocalDay(getViewStartDate(date, 'week'));
     const end = parseLocalDay(getViewEndDate(date, 'week'));
-    return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    return `${start.toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('pt-BR', { month: 'short', day: 'numeric', year: 'numeric' })}`;
   }
-  return d.toLocaleDateString('en-US', options);
+  return d.toLocaleDateString('pt-BR', options);
 }
 
 function formatDateHeader(date: string): string {
@@ -720,7 +720,7 @@ function formatDateHeader(date: string): string {
   if (d.toDateString() === today.toDateString()) return 'Today';
   if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
 
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  return d.toLocaleDateString('pt-BR', { weekday: 'long', month: 'long', day: 'numeric' });
 }
 
 function groupEventsByDate(events: CalendarEvent[]): [string, CalendarEvent[]][] {

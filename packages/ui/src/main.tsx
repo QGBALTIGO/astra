@@ -26,6 +26,9 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { DialogProvider } from './components/ConfirmDialog';
 import { ToastProvider } from './components/ToastProvider';
 import './index.css';
+import { installPtBrUi } from './i18n/ptBR';
+
+installPtBrUi();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
