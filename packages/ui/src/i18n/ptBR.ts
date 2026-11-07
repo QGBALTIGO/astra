@@ -252,6 +252,13 @@ const labels: Record<string, string> = {
   'Search providers...': 'Buscar provedores...',
   'Ask anything...': 'Pergunte o que quiser...',
   'Your assistant is ready': 'Seu assistente está pronto',
+  'Welcome to OwnPilot': 'Bem-vindo ao Astra',
+  'For you': 'Para você',
+  'Examples': 'Sugestões',
+  'Configure API Keys': 'Configurar IA',
+  'View details': 'Ver detalhes',
+  'Add new': 'Adicionar',
+  'No items yet': 'Nenhum item ainda',
 };
 
 const uiTags =

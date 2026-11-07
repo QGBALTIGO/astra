@@ -144,6 +144,7 @@ export function Layout() {
                   </button>
                 )}
                 <div className="flex items-center gap-2">
+                  <span className="astra-brand-mark" aria-hidden="true">A</span>
                   <h1 className="astra-brand font-bold text-text-primary dark:text-dark-text-primary whitespace-nowrap text-lg tracking-tight">
                     Astra
                   </h1>

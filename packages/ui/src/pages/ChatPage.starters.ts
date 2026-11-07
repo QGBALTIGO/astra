@@ -24,52 +24,52 @@ interface StarterMenuCache {
 
 export const EXAMPLE_STARTERS: StarterPrompt[] = [
   {
-    icon: '🧭',
-    label: 'Orient me',
-    detail: 'Capabilities, tools, limits',
+    icon: '📅',
+    label: 'Organizar minha agenda',
+    detail: 'Compromissos e próximos horários',
     source: 'example',
     prompt:
-      'Give me a concise orientation to what you can do in OwnPilot. Include available tools, privacy boundaries, current model limits, and the best ways to work with you.',
+      'Converse comigo em português brasileiro. Ajude-me a organizar minha agenda dos próximos sete dias, identificar conflitos e planejar os compromissos importantes.',
   },
   {
     icon: '✅',
-    label: 'Plan today',
-    detail: 'Turn tasks into a schedule',
+    label: 'Planejar meu dia',
+    detail: 'Tarefas e prioridades',
     source: 'example',
     prompt:
-      'Help me plan today. First inspect my tasks, goals, calendar, and notes if available, then propose a realistic schedule with the top 3 priorities and one thing to defer.',
+      'Responda em português brasileiro. Confira minhas tarefas e compromissos disponíveis, destaque as três prioridades de hoje e proponha um plano realista.',
+  },
+  {
+    icon: '💳',
+    label: 'Entender minhas finanças',
+    detail: 'Receitas, despesas e orçamento',
+    source: 'example',
+    prompt:
+      'Responda em português brasileiro. Ajude-me a entender meus lançamentos financeiros existentes, identificar onde estou gastando mais e planejar meu orçamento. Não invente valores que não estejam registrados.',
+  },
+  {
+    icon: '🔔',
+    label: 'Criar um lembrete',
+    detail: 'Não esquecer o que importa',
+    source: 'example',
+    prompt:
+      'Responda em português brasileiro. Quero criar um lembrete. Pergunte o assunto, a data, o horário e se deve se repetir, e então registre com a ferramenta adequada.',
   },
   {
     icon: '📝',
-    label: 'Capture a note',
-    detail: 'Structure an idea',
+    label: 'Guardar uma anotação',
+    detail: 'Ideias e informações importantes',
     source: 'example',
     prompt:
-      'Help me capture a note. Ask for the raw idea, then turn it into a clear title, summary, tags, and follow-up actions I can save.',
+      'Responda em português brasileiro. Ajude-me a registrar uma anotação organizada, com título, detalhes e possíveis próximos passos. Pergunte o que desejo guardar.',
   },
   {
-    icon: '🔎',
-    label: 'Find context',
-    detail: 'Search my saved data',
+    icon: '🧠',
+    label: 'Consultar minhas informações',
+    detail: 'Memória, notas e histórico',
     source: 'example',
     prompt:
-      'Search across my notes, memories, tasks, bookmarks, and recent conversations for context related to a topic. Ask me for the topic first, then summarize what you find.',
-  },
-  {
-    icon: '💻',
-    label: 'Run code',
-    detail: 'Use code execution',
-    source: 'example',
-    prompt:
-      'Show me a useful code execution workflow. Write and run a small script that analyzes a simple dataset, explains the result, and suggests how I could adapt it.',
-  },
-  {
-    icon: '📊',
-    label: 'Track something',
-    detail: 'Create a data system',
-    source: 'example',
-    prompt:
-      'Help me design a lightweight tracker for something I care about, such as expenses, workouts, books, habits, or projects. Ask what I want to track, then define fields and example entries.',
+      'Responda em português brasileiro. Ajude-me a localizar informações úteis nas minhas anotações, memórias e tarefas. Pergunte primeiro o que estou procurando.',
   },
 ];
 

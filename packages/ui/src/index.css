@@ -499,3 +499,117 @@ body {
     scroll-behavior: auto;
   }
 }
+
+
+/* Astra 2026 — interface de assistente, não painel técnico genérico. */
+:root {
+  --color-bg-primary: #f6f8fc;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #eef3fb;
+  --color-text-primary: #14223b;
+  --color-text-secondary: #50617b;
+  --color-text-muted: #7786a0;
+  --color-border: #e3eaf5;
+  --color-primary: #235dd5;
+  --color-primary-dark: #1b4eb7;
+  --shadow-card: 0 3px 18px rgba(24, 48, 94, 0.035);
+}
+html.dark {
+  --color-dark-bg-primary: #0b1321;
+  --color-dark-bg-secondary: #121e31;
+  --color-dark-bg-tertiary: #1a2940;
+  --color-dark-border: #2a3b54;
+}
+.astra-shell { min-height: 100dvh; }
+.astra-header { min-height: 62px; }
+.astra-brand-mark {
+  display: grid;
+  width: 33px;
+  height: 33px;
+  place-items: center;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #2f73e6, #1e4ca8);
+  box-shadow: 0 5px 14px rgba(27, 87, 186, 0.17);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.085em;
+  color: #fff;
+}
+.astra-brand { color: #245bc7; font-weight: 800; }
+.astra-sidebar { width: 238px; }
+.astra-sidebar nav { padding: 18px 12px; }
+.astra-sidebar nav a,
+.astra-sidebar nav button {
+  min-height: 40px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.astra-sidebar nav a:hover,
+.astra-sidebar nav button:hover { background: rgba(41, 106, 216, 0.075); }
+.astra-main main { isolation: isolate; }
+.astra-main .card-elevated {
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-bg-secondary);
+  box-shadow: var(--shadow-card);
+}
+.astra-main :where(button, a, input, select, textarea) { transition-duration: 160ms; }
+.astra-main :where(button, a):focus-visible { outline-offset: 2px; }
+.astra-chat-welcome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse 58% 28% at 50% 5%, rgba(46, 112, 225, 0.08), transparent 100%);
+}
+.astra-welcome-inner { padding-block: clamp(10px, 3vh, 44px); }
+.astra-welcome-title {
+  font-size: clamp(25px, 3.2vw, 37px);
+  line-height: 1.14;
+  letter-spacing: -0.055em;
+  font-weight: 750;
+  margin-bottom: 14px;
+}
+.astra-starter-grid { width: 100%; margin-top: 26px; }
+.astra-starter-grid > .grid { gap: 12px; }
+.astra-starter-card {
+  min-height: 92px;
+  background: var(--color-bg-secondary);
+  box-shadow: 0 4px 18px rgba(26, 60, 107, 0.035);
+}
+.astra-starter-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 9px 26px rgba(28, 72, 145, 0.09);
+}
+.astra-starter-card > span:first-child {
+  display: grid;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 11px;
+  background: #edf4ff;
+}
+.dark .astra-starter-card { background: var(--color-dark-bg-secondary); }
+.dark .astra-starter-card > span:first-child { background: #203555; }
+.dark .astra-chat-welcome {
+  background: radial-gradient(ellipse 58% 28% at 50% 5%, rgba(46, 112, 225, 0.12), transparent 100%);
+}
+@media (max-width: 767px) {
+  .astra-header { min-height: 56px; }
+  .astra-sidebar { width: min(290px, calc(100vw - 28px)); }
+  .astra-chat-welcome { align-items: flex-start; padding-top: 26px; }
+  .astra-welcome-inner { padding-block: 12px 22px; }
+  .astra-welcome-title { font-size: 27px; }
+  .astra-starter-grid { margin-top: 18px; }
+  .astra-starter-card { min-height: 75px; padding: 12px 13px; }
+  .astra-main :where(input, select, textarea) { font-size: 16px; }
+}
+@media (max-width: 380px) {
+  .astra-header { padding-inline: 10px; }
+  .astra-brand-caption { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .astra-starter-card:hover { transform: none; }
+}

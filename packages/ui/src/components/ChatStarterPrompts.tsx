@@ -102,8 +102,8 @@ export function ChatStarterPrompts({
         );
         prompts.push({
           icon: '✅',
-          label: `${tasksRes.value.length} open task${tasksRes.value.length === 1 ? '' : 's'}`,
-          detail: taskNames || 'Prioritize what is active',
+          label: `${tasksRes.value.length} tarefa${tasksRes.value.length === 1 ? '' : 's'} pendente${tasksRes.value.length === 1 ? '' : 's'}`,
+          detail: taskNames || 'Organize o que precisa de atenção',
           source: 'personal',
           prompt: `Look at my current open tasks, especially these: ${taskNames || 'the highest priority ones'}. Help me prioritize them, pick the next concrete action, and identify anything I should defer.`,
         });
@@ -114,7 +114,7 @@ export function ChatStarterPrompts({
         prompts.push({
           icon: '🎯',
           label: 'Avançar em um objetivo',
-          detail: `${goal.title}${goal.progress ? ` (${goal.progress}% done)` : ''}`,
+          detail: `${goal.title}${goal.progress ? ` (${goal.progress}% concluído)` : ''}`,
           source: 'personal',
           prompt: `Help me make progress on this goal: "${goal.title}". Review what I know about it, identify the next milestone, and give me a focused action plan for the next 7 days.`,
         });
@@ -125,7 +125,7 @@ export function ChatStarterPrompts({
         prompts.push({
           icon: '📅',
           label: 'Organizar minha semana',
-          detail: eventNames || 'Upcoming calendar events',
+          detail: eventNames || 'Próximos compromissos',
           source: 'personal',
           prompt: `Review my upcoming calendar for the next 7 days, especially: ${eventNames}. Help me prepare, spot conflicts, and turn meetings/events into a practical checklist.`,
         });
@@ -138,8 +138,8 @@ export function ChatStarterPrompts({
           label: 'Ver meus hábitos',
           detail:
             incomplete.length > 0
-              ? `${incomplete.length} still open today`
-              : 'All habits done today',
+              ? `${incomplete.length} pendentes hoje`
+              : 'Todos os hábitos concluídos hoje',
           source: 'personal',
           prompt:
             incomplete.length > 0
@@ -147,7 +147,7 @@ export function ChatStarterPrompts({
                   incomplete.map((habit) => habit.name),
                   5
                 )}. Help me fit them into the rest of the day without overloading myself.`
-              : 'Review my habit progress for today and suggest how to keep the streak going tomorrow.',
+              : 'Responda em português brasileiro. Revise meus hábitos de hoje e sugira como manter a consistência amanhã.',
         });
       }
 
@@ -156,7 +156,7 @@ export function ChatStarterPrompts({
         prompts.push({
           icon: '🗂️',
           label: 'Organizar anotações',
-          detail: noteTitles || 'Recent notes',
+          detail: noteTitles || 'Anotações recentes',
           source: 'personal',
           prompt: `Look at my recent notes, including: ${noteTitles}. Find patterns, summarize the useful parts, and suggest follow-up actions or tags.`,
         });
@@ -166,7 +166,7 @@ export function ChatStarterPrompts({
         prompts.push({
           icon: '🧠',
           label: 'Usar minha memória',
-          detail: `${memoriesRes.value.memories.length} recent memories`,
+          detail: `${memoriesRes.value.memories.length} memórias recentes`,
           source: 'personal',
           prompt:
             'Use my saved memories and preferences to recommend how I should work with you today. Be specific: tone, planning style, likely priorities, and what you should remember to avoid.',
@@ -207,11 +207,11 @@ export function ChatStarterPrompts({
   if (!show) return null;
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 py-4">
+    <div className="astra-chat-welcome flex-1 overflow-y-auto px-4 py-6 sm:px-6">
       <div className="h-full flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <h3 className="text-xl font-medium text-text-primary dark:text-dark-text-primary mb-2">
-            Welcome to OwnPilot
+        <div className="astra-welcome-inner text-center w-full max-w-2xl">
+          <h3 className="astra-welcome-title text-2xl font-semibold text-text-primary dark:text-dark-text-primary mb-3">
+            O que vamos organizar hoje?
           </h3>
 
           {showSetupWizard ? (
@@ -246,7 +246,7 @@ function SetupWizardPlaceholder() {
         <span className="font-medium">Configuração necessária</span>
       </div>
       <p className="text-sm text-text-muted dark:text-dark-text-muted">
-        Configure at least one AI provider to start chatting.
+        Configure o Groq para começar a conversar com o Astra.
       </p>
     </div>
   );
@@ -269,7 +269,7 @@ function NoProvidersMessage() {
         className="inline-flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors mb-4"
       >
         <Settings className="w-4 h-4" />
-        Configure API Keys
+        Configurar inteligência artificial
       </a>
     </>
   );
@@ -285,10 +285,10 @@ function DefaultWelcome({
   return (
     <>
       <p className="text-text-muted dark:text-dark-text-muted mb-2">
-        Start a conversation by typing a message below.
+        Converse naturalmente sobre suas tarefas, agenda, lembretes e finanças.
       </p>
       <p className="text-sm text-text-muted dark:text-dark-text-muted mb-4">
-        Currently using: <span className="font-medium text-primary">{currentProviderName}</span> /{' '}
+        IA conectada: <span className="font-medium text-primary">{currentProviderName}</span> /{' '}
         <span className="font-mono">{model}</span>
       </p>
     </>
@@ -313,12 +313,12 @@ function StarterGrid({
   onTabChange,
 }: StarterGridProps) {
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="astra-starter-grid max-w-2xl mx-auto">
       {/* Tab bar */}
       <div className="inline-flex items-center gap-1 p-1 mb-3 rounded-lg bg-bg-secondary dark:bg-dark-bg-secondary border border-border dark:border-dark-border">
         {[
-          { id: 'personal' as const, label: 'For you', count: personalStarters.length },
-          { id: 'examples' as const, label: 'Examples', count: EXAMPLE_STARTERS.length },
+          { id: 'personal' as const, label: 'Para você', count: personalStarters.length },
+          { id: 'examples' as const, label: 'Sugestões', count: EXAMPLE_STARTERS.length },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -337,9 +337,7 @@ function StarterGrid({
 
       {starterTab === 'personal' && personalStarters.length === 0 && (
         <div className="mb-3 rounded-lg border border-border dark:border-dark-border bg-bg-secondary/60 dark:bg-dark-bg-secondary/60 px-4 py-3 text-sm text-text-muted dark:text-dark-text-muted">
-          Add tasks, goals, notes, calendar events, memories, or habits and this area will turn into
-          personalized starter questions. The menu is cached for at least 1 hour, so New Chat keeps
-          the same suggestions.
+          Ao adicionar tarefas, compromissos e anotações, o Astra mostrará sugestões personalizadas para o seu dia.
         </div>
       )}
 
@@ -354,7 +352,7 @@ function StarterGrid({
             <button
               key={`${item.source}-${item.label}`}
               onClick={() => onSend(item.prompt)}
-              className="flex items-start gap-3 px-3 py-3 text-left rounded-xl border border-border dark:border-dark-border hover:border-primary/40 dark:hover:border-primary/40 hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary transition-all group"
+              className="astra-starter-card flex items-start gap-3 px-4 py-4 text-left rounded-2xl border border-border dark:border-dark-border hover:border-primary/40 dark:hover:border-primary/40 hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary transition-all group"
             >
               <span className="text-base shrink-0 mt-0.5">{item.icon}</span>
               <span className="min-w-0">
@@ -372,20 +370,20 @@ function StarterGrid({
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs text-text-muted dark:text-dark-text-muted">
         <span>
           {starterTab === 'personal' && starterMenuCachedAt
-            ? `Personalized menu cached at ${new Date(starterMenuCachedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-            : 'Personalized suggestions refresh hourly when data is available'}
+            ? `Sugestões atualizadas às ${new Date(starterMenuCachedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+            : 'As sugestões se adaptam à sua rotina'}
         </span>
         <span className="hidden sm:inline">•</span>
         <button
           type="button"
           onClick={() =>
             onDraftQuestions(
-              'Ask me 5 sharp questions based on my tasks, notes, calendar, goals, memories, and habits. Use my real data where available, and explain why each question matters.'
+              'Crie cinco perguntas úteis em português brasileiro com base nas minhas tarefas, anotações, agenda, objetivos, memórias e hábitos. Use apenas informações reais já registradas e explique por que cada pergunta é relevante.'
             )
           }
           className="text-primary hover:underline"
         >
-          Draft custom questions
+          Criar perguntas personalizadas
         </button>
       </div>
     </div>
