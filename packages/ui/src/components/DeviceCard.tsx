@@ -22,11 +22,17 @@ const STATUS_COLORS: Record<string, string> = {
   error: 'bg-red-500',
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  online: 'Conectado',
+  offline: 'Desconectado',
+  error: 'Erro',
+};
+
 const TYPE_LABELS: Record<string, string> = {
   'raspberry-pi': 'RPi',
   esp32: 'ESP32',
   arduino: 'Arduino',
-  custom: 'Custom',
+  custom: 'Personalizado',
 };
 
 // =============================================================================
@@ -51,9 +57,9 @@ export function DeviceCard({ device, onDelete, onUpdate: _onUpdate, onClick }: D
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const confirmed = await confirm({
-      title: `Remove "${device.name}"?`,
+      title: `Remover "${device.name}"?`,
       message:
-        'This will delete the device and all its telemetry history. This action cannot be undone.',
+        'O dispositivo e o histórico de telemetria serão excluídos permanentemente.',
       variant: 'danger',
     });
     if (!confirmed) return;
@@ -76,12 +82,12 @@ export function DeviceCard({ device, onDelete, onUpdate: _onUpdate, onClick }: D
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-bg-tertiary dark:bg-dark-bg-tertiary flex items-center justify-center">
             <Cpu className="w-4 h-4 text-text-muted" />
           </div>
           <div>
-            <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary leading-tight">
+            <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary leading-tight break-words">
               {device.name}
             </h3>
             <div className="flex items-center gap-1.5 mt-0.5">
@@ -89,7 +95,7 @@ export function DeviceCard({ device, onDelete, onUpdate: _onUpdate, onClick }: D
                 className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[device.status] ?? 'bg-gray-400'}`}
               />
               <span className="text-[10px] text-text-muted dark:text-dark-text-muted capitalize">
-                {device.status}
+                {STATUS_LABELS[device.status] ?? device.status}
               </span>
               <span className="text-[10px] text-text-muted dark:text-dark-text-muted">
                 {TYPE_LABELS[device.type] ?? device.type}
@@ -102,7 +108,7 @@ export function DeviceCard({ device, onDelete, onUpdate: _onUpdate, onClick }: D
           onClick={handleDelete}
           disabled={isDeleting}
           className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-          title="Remove device"
+          title="Excluir dispositivo"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -112,7 +118,7 @@ export function DeviceCard({ device, onDelete, onUpdate: _onUpdate, onClick }: D
       {device.sensors.length > 0 && (
         <div className="mb-3">
           <p className="text-[10px] font-medium text-text-muted dark:text-dark-text-muted uppercase tracking-wide mb-1.5">
-            Sensors ({device.sensors.length})
+            Sensores ({device.sensors.length})
           </p>
           <div className="space-y-1">
             {device.sensors.slice(0, 4).map((sensor) => (
@@ -128,7 +134,7 @@ export function DeviceCard({ device, onDelete, onUpdate: _onUpdate, onClick }: D
               </div>
             ))}
             {device.sensors.length > 4 && (
-              <p className="text-[10px] text-text-muted">+{device.sensors.length - 4} more</p>
+              <p className="text-[10px] text-text-muted">+{device.sensors.length - 4} outros</p>
             )}
           </div>
         </div>
@@ -138,7 +144,7 @@ export function DeviceCard({ device, onDelete, onUpdate: _onUpdate, onClick }: D
       {device.actuators.length > 0 && (
         <div className="mb-3">
           <p className="text-[10px] font-medium text-text-muted dark:text-dark-text-muted uppercase tracking-wide mb-1.5">
-            Actuators ({device.actuators.length})
+            Atuadores ({device.actuators.length})
           </p>
           <div className="flex flex-wrap gap-1.5">
             {device.actuators.map((actuator) => (
@@ -157,7 +163,7 @@ export function DeviceCard({ device, onDelete, onUpdate: _onUpdate, onClick }: D
       <div className="flex items-center justify-between pt-2 border-t border-border dark:border-dark-border">
         <div className="flex items-center gap-1 text-[10px] text-text-muted dark:text-dark-text-muted">
           <Activity className="w-3 h-3" />
-          <span>Last seen: {timeAgo(device.lastSeen ?? '')}</span>
+          <span>Última atividade: {device.lastSeen ? timeAgo(device.lastSeen) : 'Nunca'}</span>
         </div>
         {device.firmwareVersion && (
           <span className="text-[10px] text-text-muted dark:text-dark-text-muted">
