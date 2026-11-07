@@ -11,7 +11,10 @@ function tell(text, error) {
 }
 (async () => {
   try {
-    const res = await fetch('/api/v1/auth/status', { credentials: 'same-origin', cache: 'no-store' });
+    const res = await fetch('/api/v1/auth/status', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
     const json = await res.json();
     if (json?.data?.passwordConfigured) {
       form.hidden = true;

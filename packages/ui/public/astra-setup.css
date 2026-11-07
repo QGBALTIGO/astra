@@ -1,1 +1,155 @@
-:root{color-scheme:dark;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#070c18;color:#eaf0fc}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 30% 10%,#173361 0%,transparent 42%),#070c18}.panel{width:100%;max-width:440px;background:#101a2e;border:1px solid #2b3b59;border-radius:20px;padding:32px;box-shadow:0 20px 70px #0007}.mark{width:44px;height:44px;display:grid;place-items:center;border-radius:14px;background:#2768c6;font-size:25px;font-weight:750;color:#fff}.eyebrow{color:#94baf2;font-weight:700;letter-spacing:.12em;font-size:11px;margin:26px 0 6px}h1{font-size:27px;letter-spacing:-.04em;margin:0 0 10px}.intro{color:#afbfda;line-height:1.6;margin:0 0 20px;font-size:14px}.hint{background:#15233b;border:1px solid #304363;border-radius:12px;padding:14px;font-size:13px;line-height:1.65;color:#d0dbeb;margin-bottom:20px}.hint code{background:#253858;padding:2px 4px;border-radius:4px}label{font-size:13px;display:block;margin:14px 0 7px;color:#e4ebf7;font-weight:600}input{width:100%;background:#0a1324;border:1px solid #344967;color:#f4f8ff;border-radius:10px;padding:13px;font-size:14px;outline:none}input:focus{border-color:#73a5f2;box-shadow:0 0 0 3px #347de244}button{margin-top:24px;width:100%;padding:13px 16px;border:0;border-radius:10px;background:#347de2;color:white;font-size:14px;font-weight:700;cursor:pointer}button:hover{background:#4a90ed}button:disabled{opacity:.6;cursor:wait}#message{font-size:13px;min-height:22px;margin:12px 0 0}.error{color:#ff8c91}.ok{color:#a5dbad}#login-link{display:block;text-align:center;margin-top:18px;color:#94baf2;font-size:13px;text-decoration:none}#login-link:hover{text-decoration:underline}.footer{font-size:11px;color:#8595ad;line-height:1.5;border-top:1px solid #273652;margin:23px 0 0;padding-top:18px}form[hidden]{display:none}@media(max-width:500px){.panel{padding:23px;border-radius:15px}}
+:root {
+  color-scheme: dark;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  background: #070c18;
+  color: #eaf0fc;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at 30% 10%, #173361 0%, transparent 42%), #070c18;
+}
+.panel {
+  width: 100%;
+  max-width: 440px;
+  background: #101a2e;
+  border: 1px solid #2b3b59;
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 20px 70px #0007;
+}
+.mark {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #2768c6;
+  font-size: 25px;
+  font-weight: 750;
+  color: #fff;
+}
+.eyebrow {
+  color: #94baf2;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+  margin: 26px 0 6px;
+}
+h1 {
+  font-size: 27px;
+  letter-spacing: -0.04em;
+  margin: 0 0 10px;
+}
+.intro {
+  color: #afbfda;
+  line-height: 1.6;
+  margin: 0 0 20px;
+  font-size: 14px;
+}
+.hint {
+  background: #15233b;
+  border: 1px solid #304363;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #d0dbeb;
+  margin-bottom: 20px;
+}
+.hint code {
+  background: #253858;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+label {
+  font-size: 13px;
+  display: block;
+  margin: 14px 0 7px;
+  color: #e4ebf7;
+  font-weight: 600;
+}
+input {
+  width: 100%;
+  background: #0a1324;
+  border: 1px solid #344967;
+  color: #f4f8ff;
+  border-radius: 10px;
+  padding: 13px;
+  font-size: 14px;
+  outline: none;
+}
+input:focus {
+  border-color: #73a5f2;
+  box-shadow: 0 0 0 3px #347de244;
+}
+button {
+  margin-top: 24px;
+  width: 100%;
+  padding: 13px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: #347de2;
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+button:hover {
+  background: #4a90ed;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+#message {
+  font-size: 13px;
+  min-height: 22px;
+  margin: 12px 0 0;
+}
+.error {
+  color: #ff8c91;
+}
+.ok {
+  color: #a5dbad;
+}
+#login-link {
+  display: block;
+  text-align: center;
+  margin-top: 18px;
+  color: #94baf2;
+  font-size: 13px;
+  text-decoration: none;
+}
+#login-link:hover {
+  text-decoration: underline;
+}
+.footer {
+  font-size: 11px;
+  color: #8595ad;
+  line-height: 1.5;
+  border-top: 1px solid #273652;
+  margin: 23px 0 0;
+  padding-top: 18px;
+}
+form[hidden] {
+  display: none;
+}
+@media (max-width: 500px) {
+  .panel {
+    padding: 23px;
+    border-radius: 15px;
+  }
+}
