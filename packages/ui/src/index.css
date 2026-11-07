@@ -328,3 +328,86 @@ html.claude body {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* Astra — visual system: restrained blue, balanced spacing and responsive layouts. */
+:root {
+  --color-primary: #2563eb;
+  --color-primary-dark: #1d4ed8;
+  --color-bg-primary: #f5f7fb;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #edf2fa;
+  --color-text-primary: #17233d;
+  --color-text-secondary: #52627c;
+  --color-text-muted: #73829a;
+  --color-border: #dfe6f2;
+  --color-border-focus: #2563eb;
+}
+html.dark {
+  --color-dark-bg-primary: #0b1220;
+  --color-dark-bg-secondary: #111b2d;
+  --color-dark-bg-tertiary: #1d2a40;
+  --color-dark-text-primary: #f2f6ff;
+  --color-dark-text-secondary: #bbc8dd;
+  --color-dark-text-muted: #95a5be;
+  --color-dark-border: #293951;
+}
+html { min-width: 320px; font-size: 14px; }
+body { min-width: 320px; }
+.astra-shell { background: var(--color-bg-primary); }
+.astra-header { min-height: 56px; border-bottom-color: var(--color-border); box-shadow: 0 1px 0 rgba(22,39,75,.035); }
+.astra-brand { letter-spacing: -.055em; font-size: 21px; color: var(--color-primary); }
+.astra-brand-caption { border-left: 1px solid var(--color-border); padding-left: 10px; }
+.astra-sidebar { background: var(--color-bg-secondary); scrollbar-width: thin; }
+.astra-sidebar nav { padding: 12px 9px; }
+.astra-sidebar nav a, .astra-sidebar nav button { min-height: 36px; border-radius: 10px; }
+.astra-sidebar nav a:hover, .astra-sidebar nav button:hover { transform: none; }
+.astra-main main { background: var(--color-bg-primary); scroll-behavior: smooth; }
+.astra-main main > div[class*="p-6"] { padding: clamp(16px, 2.2vw, 30px); }
+.astra-main .card-elevated {
+  border-radius: 16px;
+  box-shadow: 0 2px 16px rgba(28, 49, 90, .045);
+}
+.astra-main .card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 9px 25px rgba(30, 65, 122, .09);
+}
+.astra-main :where(input:not([type="checkbox"]):not([type="radio"]),select,textarea) {
+  max-width: 100%;
+  border-radius: 10px;
+}
+.astra-main :where(button, a) { -webkit-tap-highlight-color: transparent; }
+.astra-login-screen {
+  background: radial-gradient(circle at 15% 15%, rgba(49,105,208,.14), transparent 45%),
+    linear-gradient(140deg, #f3f7fc, #edf3fc);
+}
+.astra-login-card {
+  background: #fff;
+  border: 1px solid #dce5f4;
+  border-radius: 22px;
+  box-shadow: 0 25px 80px rgba(31,59,103,.11);
+}
+.astra-login-symbol { display:grid;place-items:center;width:48px;height:48px;
+  border-radius:14px;background:#2563eb;color:#fff;font-size:27px;font-weight:800;
+  letter-spacing:-.075em;box-shadow:0 10px 25px rgba(37,99,235,.21); }
+.astra-login-eyebrow {color:#2d6add;letter-spacing:.13em;font-size:11px;font-weight:800;margin-bottom:9px}
+.dark .astra-shell, .dark .astra-main main { background: var(--color-dark-bg-primary); }
+.dark .astra-sidebar,.dark .astra-header { background: var(--color-dark-bg-secondary);border-color:var(--color-dark-border); }
+.dark .astra-brand-caption { border-color:var(--color-dark-border); }
+.dark .astra-main .card-elevated { box-shadow:0 4px 24px rgba(0,0,0,.18); }
+.dark .astra-login-screen { background:radial-gradient(circle at 15% 15%, #17315c, transparent 55%), #091222; }
+.dark .astra-login-card {background:#111d31;border-color:#2b3b54;box-shadow:0 25px 80px rgba(0,0,0,.38);}
+@media (max-width: 767px) {
+  .astra-header { padding-inline: 14px; }
+  .astra-sidebar { width:min(286px, calc(100vw - 34px)); box-shadow:12px 0 40px rgba(0,0,0,.17); }
+  .astra-main main > div[class*="p-6"] { padding: 16px; }
+  .astra-main .card-elevated { border-radius:14px; }
+  .astra-main :where(button,input,select,textarea) { font-size: 16px; }
+  .astra-login-card { border-radius:18px; padding:26px 22px; }
+}
+@media (min-width: 768px) and (max-width: 1024px) {
+  .astra-main main > div[class*="p-6"] { padding:20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .astra-main main { scroll-behavior: auto; }
+}

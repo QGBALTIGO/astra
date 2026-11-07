@@ -116,73 +116,56 @@ export const SECTION_DEFAULT_STYLES: Record<string, SidebarSectionStyle> = {
   tools: 'accordion',
 };
 
-/** Default sidebar sections — nav items + built-in sections */
+/** Default sidebar sections — prioritize what people use daily. Advanced tools remain accessible via customization. */
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionConfig[] = [
-  // Nav items (individual page links — was "pinned" section)
   { id: '/', order: 0 },
   { id: '/dashboard', order: 1 },
-  // Mission Control — single-pane operator view of the entire autonomous
-  // fleet (claw cards + inline controls + escalation queue + activity feed).
-  // Pinned right after Dashboard so it's the headline operator surface.
-  { id: '/mission-control', order: 2 },
-  // Core UI controls
-  { id: 'search', order: 3 },
-  { id: 'scheduled', order: 4 },
-  { id: 'customize', order: 5 },
-  // Headline autonomous-agent runtime — pinned by default so the Claw
-  // operator surface (plan, queue intent, reset failures, live events) is
-  // one click away without an enable-via-customize step. Was previously
-  // only reachable through the "AI & Automation" nav group, which itself
-  // had to be enabled, making the entire claw stack invisible by default.
-  { id: '/claws', order: 6 },
-  // Agentic Center — unified autonomous task execution across all agent types
-  { id: '/agentic', order: 7 },
-  // Data (shown by default, user can remove)
-  { id: 'workspaces', order: 8, style: 'accordion' },
-  { id: 'workflows', order: 9, style: 'accordion' },
-  // Live claw list (top 5) right alongside workspaces/workflows so the
-  // running runtimes are visible at a glance.
-  { id: 'claws', order: 10, style: 'accordion' },
-  // Recent agentic executions
-  { id: 'agentic-executions', order: 11, style: 'accordion' },
-  { id: 'recents', order: 12, style: 'accordion' },
+  { id: 'scheduled', order: 2 },
+  { id: '/tasks', order: 3 },
+  { id: '/expenses', order: 4 },
+  { id: '/channels', order: 5 },
+  { id: '/memories', order: 6 },
+  { id: '/triggers', order: 7 },
+  { id: 'search', order: 8 },
+  { id: 'recents', order: 9, style: 'flat' },
+  { id: 'customize', order: 10 },
 ];
 
 /** Human-readable labels for built-in sidebar sections */
 export const SIDEBAR_SECTION_LABELS: Record<string, string> = {
   // Core
-  search: 'Search',
-  scheduled: 'Calendar',
-  customize: 'Customize',
+  search: 'Buscar',
+  scheduled: 'Agenda',
+  customize: 'Personalizar',
   // Data
-  workspaces: 'Workspaces',
-  workflows: 'Workflows',
-  recents: 'Recent Chats',
+  workspaces: 'Ambientes',
+  workflows: 'Automações',
+  recents: 'Conversas recentes',
   // AI & Automation
   agents: 'Agents',
   claws: 'Claws',
-  'agentic-executions': 'Agentic Tasks',
-  triggers: 'Triggers',
-  artifacts: 'Artifacts',
+  'agentic-executions': 'Tarefas automatizadas',
+  triggers: 'Lembretes',
+  artifacts: 'Arquivos gerados',
   // Tools & Extensions
-  tools: 'Tools',
-  'custom-tools': 'Custom Tools',
-  extensions: 'Skills & Extensions',
+  tools: 'Ferramentas',
+  'custom-tools': 'Ferramentas personalizadas',
+  extensions: 'Habilidades e extensões',
   // Personal Data
-  tasks: 'Tasks',
-  notes: 'Notes',
-  goals: 'Goals',
-  plans: 'Plans',
-  memories: 'Memories',
-  bookmarks: 'Bookmarks',
-  contacts: 'Contacts',
-  habits: 'Habits',
+  tasks: 'Tarefas',
+  notes: 'Anotações',
+  goals: 'Objetivos',
+  plans: 'Planos',
+  memories: 'Memória',
+  bookmarks: 'Favoritos',
+  contacts: 'Contatos',
+  habits: 'Hábitos',
   // System
-  channels: 'Channels',
-  'edge-devices': 'Edge Devices',
-  'mcp-servers': 'MCP Servers',
-  'ai-models': 'AI Models',
-  'coding-agents': 'Coding Agents',
+  channels: 'WhatsApp e canais',
+  'edge-devices': 'Dispositivos',
+  'mcp-servers': 'Servidores MCP',
+  'ai-models': 'Modelos de IA',
+  'coding-agents': 'Agentes de código',
 };
 
 /** Sidebar width presets — narrow is still text-visible, not icon-only */
@@ -190,9 +173,9 @@ export const SIDEBAR_WIDTH_VALUES: Record<
   SidebarWidth,
   { class: string; label: string; px: number }
 > = {
-  narrow: { class: 'w-48', label: 'Compact', px: 192 },
-  default: { class: 'w-60', label: 'Default', px: 240 },
-  wide: { class: 'w-72', label: 'Wide', px: 288 },
+  narrow: { class: 'w-48', label: 'Compacta', px: 192 },
+  default: { class: 'w-60', label: 'Padrão', px: 240 },
+  wide: { class: 'w-72', label: 'Ampla', px: 288 },
 };
 
 export interface LayoutConfigSidebar {

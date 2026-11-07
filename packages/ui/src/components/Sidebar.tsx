@@ -133,9 +133,9 @@ export function Sidebar({
   const handleDeleteConv = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const ok = await dialog.confirm({
-      title: 'Delete Conversation',
-      message: 'Delete this conversation? This cannot be undone.',
-      confirmText: 'Delete',
+      title: 'Excluir conversa',
+      message: 'Excluir esta conversa? Esta ação não pode ser desfeita.',
+      confirmText: 'Excluir',
       variant: 'danger',
     });
     if (!ok) return;
@@ -143,7 +143,7 @@ export function Sidebar({
       await recents.handleDelete(id);
       if (activeConversationId === id) navigate('/');
     } catch {
-      toast.error('Failed to delete conversation');
+      toast.error('Não foi possível excluir a conversa');
     }
   };
 
@@ -156,7 +156,7 @@ export function Sidebar({
     try {
       await recents.commitEdit(id);
     } catch {
-      toast.error('Failed to rename conversation');
+      toast.error('Não foi possível renomear a conversa');
     }
   };
 
@@ -165,10 +165,10 @@ export function Sidebar({
       data-testid="sidebar"
       className={
         isMobile
-          ? `fixed inset-y-0 left-0 z-40 w-64 bg-bg-secondary dark:bg-dark-bg-secondary flex flex-col transform transition-transform duration-200 ease-out ${
+          ? `astra-sidebar fixed inset-y-0 left-0 z-40 w-64 bg-bg-secondary dark:bg-dark-bg-secondary flex flex-col transform transition-transform duration-200 ease-out ${
               isOpen ? 'translate-x-0' : '-translate-x-full'
             }`
-          : `${desktopWidthClass} border-r border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary flex flex-col`
+          : `${desktopWidthClass} astra-sidebar border-r border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary flex flex-col`
       }
     >
       {/* Mobile close button */}
@@ -177,7 +177,7 @@ export function Sidebar({
           <button
             onClick={onClose}
             className="p-1 rounded-md text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
-            aria-label="Close menu"
+            aria-label="Fechar menu"
           >
             <X className="w-5 h-5" />
           </button>
@@ -249,7 +249,7 @@ export function Sidebar({
                   className="w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5 text-left"
                 >
                   <Search className="w-4 h-4 shrink-0" />
-                  <span className="truncate flex-1">Search</span>
+                  <span className="truncate flex-1">Buscar</span>
                 </button>
               );
 
@@ -270,7 +270,7 @@ export function Sidebar({
                   }
                 >
                   <Calendar className="w-4 h-4 shrink-0" />
-                  <span className="truncate flex-1">Calendar</span>
+                  <span className="truncate flex-1">Agenda</span>
                 </NavLink>
               );
 
@@ -286,7 +286,7 @@ export function Sidebar({
                     }`}
                   >
                     <ChevronRight className="w-4 h-4 shrink-0" />
-                    <span className="truncate flex-1">Customize</span>
+                    <span className="truncate flex-1">Personalizar</span>
                   </button>
                 </div>
               );
@@ -305,7 +305,7 @@ export function Sidebar({
                       className="w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5 text-left"
                     >
                       <MessageSquare className="w-4 h-4 shrink-0" />
-                      <span className="truncate flex-1">Recent</span>
+                      <span className="truncate flex-1">Recentes</span>
                     </button>
                   </div>
                 );

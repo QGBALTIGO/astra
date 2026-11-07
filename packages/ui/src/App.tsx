@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router';
 import { Layout } from './components/Layout';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
@@ -211,7 +211,13 @@ function page(children: ReactNode) {
 function AuthGuard({ children }: { children: ReactNode }) {
   const { isAuthenticated, passwordConfigured, isLoading } = useAuth();
 
-  if (isLoading) {
+  useEffect(() => {
+    if (!isLoading && !passwordConfigured) {
+      window.location.replace('/astra-setup.html');
+    }
+  }, [isLoading, passwordConfigured]);
+
+  if (isLoading || !passwordConfigured) {
     return <PageLoader />;
   }
 

@@ -30,10 +30,10 @@ const CONNECTION_STYLES: Record<
   ConnectionStatus,
   { color: string; pulse: boolean; label: string }
 > = {
-  connected: { color: 'bg-success', pulse: false, label: 'Connected' },
-  connecting: { color: 'bg-warning', pulse: true, label: 'Connecting...' },
-  disconnected: { color: 'bg-error', pulse: false, label: 'Disconnected' },
-  error: { color: 'bg-error', pulse: false, label: 'Connection Error' },
+  connected: { color: 'bg-success', pulse: false, label: 'Conectado' },
+  connecting: { color: 'bg-warning', pulse: true, label: 'Conectando...' },
+  disconnected: { color: 'bg-error', pulse: false, label: 'Desconectado' },
+  error: { color: 'bg-error', pulse: false, label: 'Erro de conexão' },
 };
 
 export function Layout() {
@@ -126,26 +126,33 @@ export function Layout() {
             href="#main-content"
             className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:bg-bg-secondary dark:focus:bg-dark-bg-secondary focus:text-text-primary dark:focus:text-dark-text-primary focus:rounded-md focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-primary focus:text-sm focus:font-medium"
           >
-            Skip to content
+            Ir para o conteúdo
           </a>
 
-          <div className="flex flex-col h-screen bg-bg-primary dark:bg-dark-bg-primary">
+          <div className="astra-shell flex flex-col h-screen bg-bg-primary dark:bg-dark-bg-primary">
             {/* Global Header Bar — 5 zones: Brand | Left | Center | Right | Settings */}
-            <header className="relative h-12 flex items-center px-4 border-b border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary shrink-0 z-50">
+            <header className="astra-header relative h-14 flex items-center px-4 md:px-6 border-b border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary shrink-0 z-50">
               {/* Zone 1: Brand (fixed) */}
               <div className="flex items-center gap-2 shrink-0">
                 {isMobile && (
                   <button
                     onClick={() => setIsMobileSidebarOpen(true)}
                     className="p-1 -ml-1 rounded-md text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
-                    aria-label="Open menu"
+                    aria-label="Abrir menu"
                   >
                     <Menu className="w-5 h-5" />
                   </button>
                 )}
-                <h1 className="font-semibold text-text-primary dark:text-dark-text-primary whitespace-nowrap text-sm">
-                  OwnPilot
-                </h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="astra-brand font-bold text-text-primary dark:text-dark-text-primary whitespace-nowrap text-lg tracking-tight">
+                    Astra
+                  </h1>
+                  {!isMobile && (
+                    <span className="astra-brand-caption hidden lg:inline text-xs text-text-muted dark:text-dark-text-muted">
+                      Assistente pessoal
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Zones 2-4: Configurable header zones (desktop only) */}
@@ -178,8 +185,8 @@ export function Layout() {
                         ? 'bg-primary/15 text-primary'
                         : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
                     }`}
-                    title="Settings"
-                    aria-label="Settings menu"
+                    title="Configurações"
+                    aria-label="Menu de configurações"
                   >
                     <Settings className="w-4 h-4" />
                   </button>
@@ -243,7 +250,7 @@ export function Layout() {
               )}
 
               {/* Main Content */}
-              <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              <div className="astra-main flex-1 flex flex-col min-w-0 overflow-hidden">
                 <SecurityBanner />
                 <main
                   id="main-content"
