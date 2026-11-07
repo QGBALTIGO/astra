@@ -389,9 +389,9 @@ describe('Dashboard Service', () => {
       const briefing = generateFallbackBriefing(data);
 
       expect(briefing.id).toContain('briefing_fallback_');
-      expect(briefing.summary).toContain('2 tasks due');
-      expect(briefing.summary).toContain('2 events');
-      expect(briefing.summary).toContain('5 habits');
+      expect(briefing.summary).toContain('2 tarefas');
+      expect(briefing.summary).toContain('2 compromissos');
+      expect(briefing.summary).toContain('5 hábitos');
       expect(briefing.modelUsed).toBe('fallback');
       expect(briefing.cached).toBe(false);
     });
@@ -408,7 +408,7 @@ describe('Dashboard Service', () => {
 
       const briefing = generateFallbackBriefing(data);
 
-      expect(briefing.priorities).toContainEqual(expect.stringContaining('3 overdue'));
+      expect(briefing.priorities).toContainEqual(expect.stringContaining('3 tarefas em atraso'));
     });
 
     it('includes habits at risk in priorities', () => {
@@ -423,7 +423,7 @@ describe('Dashboard Service', () => {
 
       const briefing = generateFallbackBriefing(data);
 
-      expect(briefing.priorities).toContainEqual(expect.stringContaining('1 habit streak'));
+      expect(briefing.priorities).toContainEqual(expect.stringContaining('1 hábito em risco'));
     });
 
     it('includes calendar events in priorities', () => {
@@ -437,7 +437,7 @@ describe('Dashboard Service', () => {
 
       const briefing = generateFallbackBriefing(data);
 
-      expect(briefing.priorities).toContainEqual(expect.stringContaining('1 scheduled event'));
+      expect(briefing.priorities).toContainEqual(expect.stringContaining('1 compromisso agendado'));
     });
   });
 
@@ -1712,7 +1712,7 @@ describe('Dashboard Service', () => {
 
       const briefing = parseAIResponse(content, 'test');
 
-      expect(briefing.summary).toBe('No summary available.');
+      expect(briefing.summary).toBe('Nenhum resumo disponível.');
     });
 
     it('handles non-array priorities gracefully', () => {
@@ -1786,7 +1786,7 @@ describe('Dashboard Service', () => {
 
       const briefing = generateFallbackBriefing(data);
 
-      expect(briefing.priorities).toContainEqual(expect.stringContaining('5 task(s) due today'));
+      expect(briefing.priorities).toContainEqual(expect.stringContaining('5 tarefas previstas para hoje'));
     });
   });
 });
