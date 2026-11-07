@@ -1,0 +1,59 @@
+name: Astra dependency repair and Docker validation
+on:
+  push:
+    branches: [test/fix-ownpilot-core-build]
+    paths:
+      - ".github/workflows/astra-repair.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  remediate-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: test/fix-ownpilot-core-build
+          persist-credentials: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Install existing lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Apply security updates (high and critical)
+        shell: bash
+        run: |
+          set +e
+          pnpm audit --fix --prod --audit-level high
+          echo "audit_fix_exit=$?" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - name: Refresh lockfile
+        run: pnpm install --no-frozen-lockfile
+      - name: Commit remediated package manifests and lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add package.json pnpm-lock.yaml pnpm-workspace.yaml packages/*/package.json || true
+          if git diff --staged --quiet; then
+            echo "No dependency changes"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "fix(security): update vulnerable production dependencies"
+            git push origin HEAD:test/fix-ownpilot-core-build
+          fi
+      - name: Audit remediated production dependencies
+        continue-on-error: true
+        run: pnpm run audit:prod
+      - name: Build TypeScript and UI
+        run: pnpm build
+      - name: Docker build
+        run: docker build --progress=plain --tag astra-ownpilot:stage1 .
