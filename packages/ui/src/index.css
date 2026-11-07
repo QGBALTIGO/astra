@@ -6,34 +6,34 @@
 
 /* Custom CSS variables for theming */
 @theme {
-  --color-primary: #3b82f6;
-  --color-primary-dark: #2563eb;
+  --color-primary: #2e7bf6;
+  --color-primary-dark: #195bce;
   --color-secondary: #64748b;
   --color-success: #22c55e;
   --color-warning: #f59e0b;
   --color-error: #ef4444;
 
-  --color-bg-primary: #ffffff;
-  --color-bg-secondary: #f8fafc;
-  --color-bg-tertiary: #f1f5f9;
+  --color-bg-primary: #f5f7fb;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #edf2f8;
 
-  --color-text-primary: #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-muted: #94a3b8;
+  --color-text-primary: #142138;
+  --color-text-secondary: #53647e;
+  --color-text-muted: #76859c;
 
-  --color-border: #e2e8f0;
-  --color-border-focus: #3b82f6;
+  --color-border: #e0e7f0;
+  --color-border-focus: #2e7bf6;
 
   /* Dark mode colors */
-  --color-dark-bg-primary: #0f172a;
-  --color-dark-bg-secondary: #1e293b;
-  --color-dark-bg-tertiary: #334155;
+  --color-dark-bg-primary: #0b1423;
+  --color-dark-bg-secondary: #121f31;
+  --color-dark-bg-tertiary: #1e3047;
 
-  --color-dark-text-primary: #f8fafc;
-  --color-dark-text-secondary: #cbd5e1;
-  --color-dark-text-muted: #64748b;
+  --color-dark-text-primary: #eef4fc;
+  --color-dark-text-secondary: #bdcbe0;
+  --color-dark-text-muted: #95a8c1;
 
-  --color-dark-border: #334155;
+  --color-dark-border: #293d54;
 
   /* Shadows */
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
@@ -329,31 +329,39 @@ html.claude body {
   }
 }
 
-/* Astra — visual system: restrained blue, balanced spacing and responsive layouts. */
+/* Astra visual system — one set of Orion-aligned blue and surface tokens. */
 :root {
-  --color-primary: #2563eb;
-  --color-primary-dark: #1d4ed8;
+  --color-primary: #2e7bf6;
+  --color-primary-dark: #195bce;
   --color-bg-primary: #f5f7fb;
   --color-bg-secondary: #ffffff;
-  --color-bg-tertiary: #edf2fa;
-  --color-text-primary: #17233d;
-  --color-text-secondary: #52627c;
-  --color-text-muted: #73829a;
-  --color-border: #dfe6f2;
-  --color-border-focus: #2563eb;
+  --color-bg-tertiary: #edf2f8;
+  --color-text-primary: #142138;
+  --color-text-secondary: #53647e;
+  --color-text-muted: #76859c;
+  --color-border: #e0e7f0;
+  --color-border-focus: #2e7bf6;
+  --astra-card-radius: 16px;
+  --astra-shadow-card: 0 5px 22px rgba(21, 43, 83, 0.045);
+  --astra-shadow-panel: 0 18px 46px rgba(16, 40, 79, 0.1);
+  color-scheme: light;
 }
 html.dark {
-  --color-dark-bg-primary: #0b1220;
-  --color-dark-bg-secondary: #111b2d;
-  --color-dark-bg-tertiary: #1d2a40;
-  --color-dark-text-primary: #f2f6ff;
-  --color-dark-text-secondary: #bbc8dd;
-  --color-dark-text-muted: #95a5be;
-  --color-dark-border: #293951;
+  --color-dark-bg-primary: #0b1423;
+  --color-dark-bg-secondary: #121f31;
+  --color-dark-bg-tertiary: #1e3047;
+  --color-dark-text-primary: #eef4fc;
+  --color-dark-text-secondary: #bdcbe0;
+  --color-dark-text-muted: #95a8c1;
+  --color-dark-border: #293d54;
+  --astra-shadow-card: 0 5px 24px rgba(0, 0, 0, 0.19);
+  --astra-shadow-panel: 0 20px 48px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
 }
+
 html {
   min-width: 320px;
-  font-size: 14px;
+  font-size: 16px;
 }
 body {
   min-width: 320px;
@@ -457,7 +465,9 @@ body {
   border-color: var(--color-dark-border);
 }
 .dark .astra-main .card-elevated {
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
+  background: var(--color-dark-bg-secondary);
+  border-color: var(--color-dark-border);
+  box-shadow: var(--astra-shadow-card);
 }
 .dark .astra-login-screen {
   background: radial-gradient(circle at 15% 15%, #17315c, transparent 55%), #091222;
@@ -500,25 +510,6 @@ body {
   }
 }
 
-/* Astra 2026 — interface de assistente, não painel técnico genérico. */
-:root {
-  --color-bg-primary: #f6f8fc;
-  --color-bg-secondary: #ffffff;
-  --color-bg-tertiary: #eef3fb;
-  --color-text-primary: #14223b;
-  --color-text-secondary: #50617b;
-  --color-text-muted: #7786a0;
-  --color-border: #e3eaf5;
-  --color-primary: #235dd5;
-  --color-primary-dark: #1b4eb7;
-  --shadow-card: 0 3px 18px rgba(24, 48, 94, 0.035);
-}
-html.dark {
-  --color-dark-bg-primary: #0b1321;
-  --color-dark-bg-secondary: #121e31;
-  --color-dark-bg-tertiary: #1a2940;
-  --color-dark-border: #2a3b54;
-}
 .astra-shell {
   min-height: 100dvh;
 }
@@ -531,34 +522,32 @@ html.dark {
   height: 33px;
   place-items: center;
   border-radius: 11px;
-  background: linear-gradient(145deg, #2f73e6, #1e4ca8);
-  box-shadow: 0 5px 14px rgba(27, 87, 186, 0.17);
+  background: var(--color-primary);
+  box-shadow: 0 5px 14px rgba(46, 123, 246, 0.16);
   font-size: 20px;
   font-weight: 800;
   letter-spacing: -0.085em;
   color: #fff;
 }
 .astra-brand {
-  color: #245bc7;
+  color: var(--color-primary);
   font-weight: 800;
 }
-.astra-sidebar {
-  width: 238px;
-}
+/* Sidebar width follows the user's selected Tailwind layout preset. */
 .astra-sidebar nav {
   padding: 18px 12px;
 }
 .astra-sidebar nav a,
 .astra-sidebar nav button {
-  min-height: 40px;
+  min-height: 42px;
   padding: 9px 12px;
   border-radius: 11px;
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 14px;
+  line-height: 1.4;
 }
 .astra-sidebar nav a:hover,
 .astra-sidebar nav button:hover {
-  background: rgba(41, 106, 216, 0.075);
+  background: rgba(46, 123, 246, 0.09);
 }
 .astra-main main {
   isolation: isolate;
@@ -567,7 +556,7 @@ html.dark {
   border: 1px solid var(--color-border);
   border-radius: 18px;
   background: var(--color-bg-secondary);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--astra-shadow-card);
 }
 .astra-main :where(button, a, input, select, textarea) {
   transition-duration: 160ms;
@@ -672,6 +661,87 @@ html.dark {
 @media (prefers-reduced-motion: reduce) {
   .astra-starter-card:hover {
     transform: none;
+  }
+}
+
+/* Shared Orion-inspired navigation, cards, and focus treatment. */
+.astra-sidebar-nav {
+  padding: 16px 12px 22px;
+  scrollbar-gutter: stable;
+}
+.astra-sidebar-group-label {
+  margin: 20px 10px 7px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+.astra-sidebar-nav > div:first-child .astra-sidebar-group-label {
+  margin-top: 5px;
+}
+.astra-nav-link {
+  position: relative;
+  width: 100%;
+  border: 1px solid transparent;
+  font-weight: 550;
+}
+.astra-nav-link--active {
+  border-color: rgba(46, 123, 246, 0.16);
+  background: rgba(46, 123, 246, 0.11);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.astra-sidebar-nav :is(a, button):focus-visible,
+.astra-main :where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.astra-sidebar-nav :is(a, button):active,
+.astra-main :where(button):active:not(:disabled) {
+  transform: scale(0.99);
+}
+.dark .astra-sidebar-group-label {
+  color: var(--color-dark-text-muted);
+}
+.dark .astra-nav-link--active {
+  border-color: rgba(72, 142, 255, 0.27);
+  background: rgba(46, 123, 246, 0.18);
+  color: #85b5ff;
+}
+.dark .astra-sidebar-nav :is(a, button):hover {
+  background: rgba(67, 135, 244, 0.13);
+}
+.astra-main .card-elevated {
+  border-radius: var(--astra-card-radius);
+}
+.astra-main .astra-stat-card {
+  display: block;
+  min-height: 104px;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.astra-main .astra-stat-card:hover {
+  border-color: rgba(46, 123, 246, 0.45);
+}
+.astra-main main {
+  line-height: 1.5;
+}
+@media (max-width: 767px) {
+  .astra-sidebar-nav {
+    padding: 14px 10px 20px;
+  }
+  .astra-sidebar-group-label {
+    margin-top: 17px;
+  }
+  .astra-main .astra-stat-card {
+    min-height: 94px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .astra-nav-link,
+  .astra-main .astra-stat-card {
+    transition: none;
   }
 }
 
