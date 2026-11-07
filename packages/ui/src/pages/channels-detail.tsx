@@ -130,7 +130,7 @@ export function ChannelDetail({
               {channel.status === 'connected'
                 ? 'Conectado'
                 : channel.status === 'connecting'
-                  ? 'Connecting...'
+                  ? 'Conectando...'
                   : channel.status === 'error'
                     ? 'Error'
                     : 'Desconectado'}
@@ -144,7 +144,7 @@ export function ChannelDetail({
           )}
         </div>
         <span
-          className={`px-2 py-1 text-[10px] font-bold uppercase rounded ${getStatusBg(channel.status)} ${getStatusColor(channel.status)}`}
+          className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${getStatusBg(channel.status)} ${getStatusColor(channel.status)}`}
         >
           {channel.type}
         </span>
@@ -261,7 +261,7 @@ export function ChannelDetail({
                             {user.pendingPairingCode ? (
                               <span
                                 className="flex items-center gap-1 px-1.5 py-0.5 bg-warning/10 text-warning rounded text-[10px] font-medium mr-1"
-                                title={`Pairing code: ${user.pendingPairingCode}`}
+                                title={`Código de vinculação: ${user.pendingPairingCode}`}
                               >
                                 <Key className="w-2.5 h-2.5" />
                                 {user.pendingPairingCode}
@@ -403,7 +403,7 @@ export function ChannelDetail({
               </div>
             ) : (
               <p className="text-[10px] text-text-muted dark:text-dark-text-muted">
-                Sending to self-chat · {autoChat}
+                Enviando para sua conversa · {autoChat}
               </p>
             )}
             <div className="space-y-1">
@@ -432,7 +432,7 @@ export function ChannelDetail({
                 ) : (
                   <Send className="w-3 h-3" />
                 )}
-                {isSending ? 'Sending...' : 'Send'}
+                {isSending ? 'Enviando...' : 'Enviar'}
               </button>
               <button
                 onClick={() => setShowTestForm(false)}
@@ -567,7 +567,7 @@ export function PairingBanner() {
   const handleRevoke = async (ch: PairingChannel) => {
     const confirmed = await dialog.confirm({
       title: 'Revogar acesso de proprietário',
-      message: `Remove the owner from "${ch.name}"? A new pairing key will be generated and you'll need to /connect again to reclaim ownership.`,
+      message: `Revogar o acesso do proprietário ao canal "${ch.name}"? Será gerado um novo código e será necessário executar /connect novamente.`,
       confirmText: 'Revogar',
       cancelText: 'Cancel',
       variant: 'danger',
@@ -600,12 +600,12 @@ export function PairingBanner() {
             <div className="flex items-center gap-2">
               <Key className="w-4 h-4 text-warning" />
               <span className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-                {unclaimedChannels.length} channel{unclaimedChannels.length !== 1 ? 's' : ''} need
+                {unclaimedChannels.length} {unclaimedChannels.length === 1 ? 'canal precisa' : 'canais precisam'} de
                 setup
               </span>
             </div>
             <span className="text-xs text-text-muted dark:text-dark-text-muted">
-              {showUnclaimed ? 'Hide' : 'Show'} setup instructions
+              {showUnclaimed ? 'Ocultar' : 'Mostrar'} instruções de configuração
             </span>
           </button>
 
@@ -658,7 +658,7 @@ export function PairingBanner() {
         >
           <ShieldCheck className="w-4 h-4 text-success shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-success">{ch.name} — owner claimed</p>
+            <p className="text-xs font-medium text-success">{ch.name} — proprietário vinculado</p>
             <p className="text-[11px] text-text-muted dark:text-dark-text-muted">
               {ch.platform} · ID {ch.ownerUserId}
             </p>
