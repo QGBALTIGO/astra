@@ -391,7 +391,7 @@ describe('ChatInput', () => {
       });
 
       const textarea = document.querySelector('textarea');
-      expect(textarea?.getAttribute('placeholder')).toBe('Ask about the attached context...');
+      expect(textarea?.getAttribute('placeholder')).toBe('Pergunte sobre o contexto anexado...');
     });
   });
 
