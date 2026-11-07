@@ -13,20 +13,20 @@ export function WorkspaceSelector({
   selectedWorkspaceId,
   onWorkspaceChange,
 }: WorkspaceSelectorProps) {
-  const [workspaces, setWorkspaces] = useState<WorkspaceSelectorInfo[]>([]);
+  const [workspaces, setAmbientes] = useState<WorkspaceSelectorInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [newWorkspaceDesc, setNewWorkspaceDesc] = useState('');
   const [isCreating, setIsCreating] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirm, setExcluirConfirm] = useState<string | null>(null);
 
-  const fetchWorkspaces = async () => {
+  const fetchAmbientes = async () => {
     try {
       const data = await workspacesApi.list();
       const list = data.workspaces;
-      setWorkspaces(list ?? []);
+      setAmbientes(list ?? []);
       // Auto-select first workspace if none selected
       if (!selectedWorkspaceId && Array.isArray(list) && list.length > 0) {
         onWorkspaceChange(list[0]!.id);
@@ -39,7 +39,7 @@ export function WorkspaceSelector({
   };
 
   useEffect(() => {
-    fetchWorkspaces();
+    fetchAmbientes();
   }, []);
 
   const handleCreateWorkspace = async () => {
@@ -47,7 +47,7 @@ export function WorkspaceSelector({
     setIsCreating(true);
     try {
       const created = await workspacesApi.create(newWorkspaceName.trim());
-      setWorkspaces([created, ...workspaces]);
+      setAmbientes([created, ...workspaces]);
       onWorkspaceChange(created.id);
       setShowCreateModal(false);
       setNewWorkspaceName('');
@@ -59,18 +59,18 @@ export function WorkspaceSelector({
     }
   };
 
-  const handleDeleteWorkspace = async (id: string) => {
+  const handleExcluirWorkspace = async (id: string) => {
     try {
       await apiClient.delete(`/workspaces/${id}`);
       const remaining = workspaces.filter((w) => w.id !== id);
-      setWorkspaces(remaining);
+      setAmbientes(remaining);
       if (selectedWorkspaceId === id) {
         onWorkspaceChange(remaining.length > 0 ? remaining[0]!.id : null);
       }
     } catch {
       // API client handles error reporting
     }
-    setDeleteConfirm(null);
+    setExcluirConfirm(null);
   };
 
   const handleDownloadWorkspace = async (id: string) => {
@@ -96,12 +96,12 @@ export function WorkspaceSelector({
   const selectedWorkspace = workspaces.find((w) => w.id === selectedWorkspaceId);
 
   return (
-    <div className="relative">
+    <div className="relative w-full min-w-0 lg:w-auto">
       {/* Workspace Button */}
       <button
         onClick={() => setShowMenu(!showMenu)}
         disabled={isLoading}
-        className="flex items-center gap-2 px-3 py-1.5 text-sm bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary transition-colors disabled:opacity-50"
+        className="flex h-10 w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-xl border border-border bg-bg-tertiary px-2.5 text-xs transition-colors hover:bg-bg-secondary disabled:opacity-50 dark:border-dark-border dark:bg-dark-bg-tertiary dark:hover:bg-dark-bg-secondary sm:text-sm lg:w-auto lg:max-w-[220px]"
       >
         {isLoading ? (
           <span className="text-text-muted dark:text-dark-text-muted animate-pulse">
@@ -109,12 +109,12 @@ export function WorkspaceSelector({
           </span>
         ) : (
           <>
-            <HardDrive className="w-4 h-4 text-text-muted dark:text-dark-text-muted" />
-            <span className="font-medium text-text-primary dark:text-dark-text-primary max-w-[120px] truncate">
-              {selectedWorkspace?.name ?? 'Sem espaço selecionado'}
+            <HardDrive className="h-4 w-4 shrink-0 text-text-muted dark:text-dark-text-muted" />
+            <span className="min-w-0 flex-1 truncate text-left font-medium text-text-primary dark:text-dark-text-primary">
+              {selectedWorkspace?.name ?? 'Sem ambiente'}
             </span>
             {selectedWorkspace?.storageUsage && (
-              <span className="text-text-muted dark:text-dark-text-muted text-xs">
+              <span className="hidden text-xs text-text-muted dark:text-dark-text-muted xl:inline">
                 ({formatBytes(selectedWorkspace.storageUsage.usedBytes)})
               </span>
             )}
@@ -133,21 +133,21 @@ export function WorkspaceSelector({
       {/* Dropdown Menu */}
       {showMenu && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-          <div className="fixed inset-x-3 top-16 z-50 max-h-96 overflow-y-auto rounded-lg border border-border bg-bg-primary shadow-lg dark:border-dark-border dark:bg-dark-bg-primary sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1 sm:w-80">
+          <div className="fixed inset-0 z-[70]" onClick={() => setShowMenu(false)} />
+          <div className="fixed inset-x-3 top-40 z-[80] max-h-[min(58dvh,440px)] overflow-y-auto rounded-xl border border-border bg-bg-primary shadow-2xl dark:border-dark-border dark:bg-dark-bg-primary sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-2 sm:w-80 sm:max-w-[90vw]">
             {/* Header */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-border dark:border-dark-border">
               <span className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-                Workspaces
+                Ambientes
               </span>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => {
                     setIsLoading(true);
-                    fetchWorkspaces();
+                    fetchAmbientes();
                   }}
                   className="p-1 text-text-muted hover:text-text-primary dark:text-dark-text-muted dark:hover:text-dark-text-primary rounded"
-                  title="Refresh"
+                  title="Atualizar"
                 >
                   <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                 </button>
@@ -157,7 +157,7 @@ export function WorkspaceSelector({
                     setShowCreateModal(true);
                   }}
                   className="p-1 text-text-muted hover:text-primary dark:text-dark-text-muted rounded"
-                  title="Create Workspace"
+                  title="Criar ambiente"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -168,7 +168,7 @@ export function WorkspaceSelector({
             {workspaces.length === 0 ? (
               <div className="p-4 text-center">
                 <p className="text-sm text-text-muted dark:text-dark-text-muted mb-2">
-                  No workspaces yet
+                  Nenhum ambiente cadastrado
                 </p>
                 <button
                   onClick={() => {
@@ -177,7 +177,7 @@ export function WorkspaceSelector({
                   }}
                   className="text-sm text-primary hover:underline flex items-center justify-center gap-1"
                 >
-                  <Plus className="w-4 h-4" /> Create your first workspace
+                  <Plus className="w-4 h-4" /> Criar primeiro ambiente
                 </button>
               </div>
             ) : (
@@ -213,7 +213,7 @@ export function WorkspaceSelector({
                           )}
                           {ws.storageUsage && (
                             <div className="text-xs text-text-muted dark:text-dark-text-muted mt-0.5">
-                              {ws.storageUsage.fileCount} files &middot;{' '}
+                              {ws.storageUsage.fileCount} arquivos &middot;{' '}
                               {formatBytes(ws.storageUsage.usedBytes)}
                             </div>
                           )}
@@ -226,45 +226,45 @@ export function WorkspaceSelector({
                             handleDownloadWorkspace(ws.id);
                           }}
                           className="p-1 text-text-muted hover:text-primary dark:text-dark-text-muted rounded"
-                          title="Download as ZIP"
+                          title="Baixar ZIP"
                         >
                           <Download className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setDeleteConfirm(ws.id);
+                            setExcluirConfirm(ws.id);
                           }}
                           className="p-1 text-text-muted hover:text-error dark:text-dark-text-muted rounded"
-                          title="Delete Workspace"
+                          title="Excluir ambiente"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
 
-                    {/* Delete Confirmation */}
+                    {/* Excluir Confirmation */}
                     {deleteConfirm === ws.id && (
                       <div className="mt-2 p-2 bg-error/10 border border-error/20 rounded text-xs">
-                        <p className="text-error mb-2">Delete "{ws.name}"?</p>
+                        <p className="text-error mb-2">Excluir "{ws.name}"?</p>
                         <div className="flex gap-2">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDeleteWorkspace(ws.id);
+                              handleExcluirWorkspace(ws.id);
                             }}
                             className="px-2 py-1 bg-error text-white rounded hover:bg-error/80"
                           >
-                            Delete
+                            Excluir
                           </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setDeleteConfirm(null);
+                              setExcluirConfirm(null);
                             }}
                             className="px-2 py-1 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary"
                           >
-                            Cancel
+                            Cancelar
                           </button>
                         </div>
                       </div>
@@ -277,7 +277,7 @@ export function WorkspaceSelector({
         </>
       )}
 
-      {/* Create Workspace Modal */}
+      {/* Criar ambiente Modal */}
       {showCreateModal && (
         <>
           <div
@@ -286,31 +286,31 @@ export function WorkspaceSelector({
           />
           <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-sm bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg shadow-xl z-50 p-4">
             <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-4">
-              Create New Workspace
+              Novo ambiente
             </h3>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
-                  Name *
+                  Nome *
                 </label>
                 <input
                   type="text"
                   value={newWorkspaceName}
                   onChange={(e) => setNewWorkspaceName(e.target.value)}
-                  placeholder="My Workspace"
+                  placeholder="Meu ambiente"
                   className="w-full px-3 py-2 border border-border dark:border-dark-border rounded-lg bg-bg-secondary dark:bg-dark-bg-secondary text-text-primary dark:text-dark-text-primary placeholder:text-text-muted dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50"
                   autoFocus
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
-                  Description
+                  Descrição
                 </label>
                 <input
                   type="text"
                   value={newWorkspaceDesc}
                   onChange={(e) => setNewWorkspaceDesc(e.target.value)}
-                  placeholder="Optional description"
+                  placeholder="Descrição opcional"
                   className="w-full px-3 py-2 border border-border dark:border-dark-border rounded-lg bg-bg-secondary dark:bg-dark-bg-secondary text-text-primary dark:text-dark-text-primary placeholder:text-text-muted dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
@@ -320,14 +320,14 @@ export function WorkspaceSelector({
                 onClick={() => setShowCreateModal(false)}
                 className="px-4 py-2 text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded-lg transition-colors"
               >
-                Cancel
+                Cancelar
               </button>
               <button
                 onClick={handleCreateWorkspace}
                 disabled={!newWorkspaceName.trim() || isCreating}
                 className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isCreating ? 'Creating...' : 'Create'}
+                {isCreating ? 'Criando...' : 'Create'}
               </button>
             </div>
           </div>
