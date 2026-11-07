@@ -26,8 +26,7 @@ import { useToast } from '../components/ToastProvider';
 
 type TabId = 'items' | 'local-files';
 type SelectedDetail =
-  | { kind: 'navigation'; item: NavItem }
-  | { kind: 'local'; value: LocalFilesSelection };
+  { kind: 'navigation'; item: NavItem } | { kind: 'local'; value: LocalFilesSelection };
 
 const DISPLAY_SECTIONS: NavGroup[] = [
   { id: 'main', label: 'Principal', icon: LayoutDashboard, items: mainItems },
@@ -149,7 +148,11 @@ function DetailContent({
         </p>
       ) : (
         <p className="text-sm text-text-secondary dark:text-dark-text-secondary">
-          {detail.count} {detail.type === 'edge-overview' ? 'dispositivo(s) cadastrado(s)' : 'ambiente(s) cadastrado(s)'} na sua conta.
+          {detail.count}{' '}
+          {detail.type === 'edge-overview'
+            ? 'dispositivo(s) cadastrado(s)'
+            : 'ambiente(s) cadastrado(s)'}{' '}
+          na sua conta.
         </p>
       )}
       <button
@@ -184,9 +187,7 @@ export function CustomizePage() {
       items: section.items.filter(
         (item) =>
           item.label.toLocaleLowerCase('pt-BR').includes(normalizedQuery) ||
-          (NAV_DESCRIPTIONS[item.to] ?? '')
-            .toLocaleLowerCase('pt-BR')
-            .includes(normalizedQuery)
+          (NAV_DESCRIPTIONS[item.to] ?? '').toLocaleLowerCase('pt-BR').includes(normalizedQuery)
       ),
     })).filter((section) => section.items.length > 0);
   }, [normalizedQuery]);
@@ -228,9 +229,7 @@ export function CustomizePage() {
           <div className="min-h-0 flex-1 overflow-y-auto">
             <DetailContent
               selection={selected}
-              isPinned={
-                selected.kind === 'navigation' && pinnedItems.includes(selected.item.to)
-              }
+              isPinned={selected.kind === 'navigation' && pinnedItems.includes(selected.item.to)}
               onTogglePin={togglePin}
               onNavigate={navigateTo}
             />
@@ -275,7 +274,10 @@ export function CustomizePage() {
                   />
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto py-1" data-testid="customize-items-list">
+              <div
+                className="min-h-0 flex-1 overflow-y-auto py-1"
+                data-testid="customize-items-list"
+              >
                 {filteredSections.length === 0 ? (
                   <p className="px-3 py-6 text-center text-sm text-text-muted">
                     Nenhuma função corresponde a “{query}”.
@@ -316,7 +318,9 @@ export function CustomizePage() {
                                   className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-2 text-left"
                                 >
                                   <Icon className="h-4 w-4 shrink-0 text-text-secondary dark:text-dark-text-secondary" />
-                                  <span className={`min-w-0 flex-1 truncate text-sm ${active ? 'font-semibold text-primary' : 'text-text-primary dark:text-dark-text-primary'}`}>
+                                  <span
+                                    className={`min-w-0 flex-1 truncate text-sm ${active ? 'font-semibold text-primary' : 'text-text-primary dark:text-dark-text-primary'}`}
+                                  >
                                     {item.label}
                                   </span>
                                 </button>
@@ -324,7 +328,9 @@ export function CustomizePage() {
                                   type="button"
                                   onClick={() => togglePin(item.to)}
                                   data-testid={`customize-pin-${id}`}
-                                  aria-label={pinned ? `Desafixar ${item.label}` : `Fixar ${item.label}`}
+                                  aria-label={
+                                    pinned ? `Desafixar ${item.label}` : `Fixar ${item.label}`
+                                  }
                                   title={pinned ? 'Desafixar' : 'Fixar'}
                                   className="shrink-0 rounded-md p-1.5 text-text-muted hover:bg-bg-tertiary hover:text-primary dark:text-dark-text-muted dark:hover:bg-dark-bg-tertiary"
                                 >

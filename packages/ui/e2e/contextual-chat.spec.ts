@@ -39,7 +39,9 @@ test.describe('Astra — chat principal', () => {
     await expect(page.getByRole('button', { name: 'Anexar imagem' })).toBeVisible();
   });
 
-  test('a navegação direta para a agenda e retorno ao chat continua funcional', async ({ page }) => {
+  test('a navegação direta para a agenda e retorno ao chat continua funcional', async ({
+    page,
+  }) => {
     const calendar = await page.goto('/calendar');
     expect(calendar?.status()).toBe(200);
     await expect(page.locator('#main-content')).toBeVisible();

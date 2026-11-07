@@ -12,8 +12,12 @@ test.describe('Personalizar — ambientes e dispositivos reais', () => {
     await expect(page.locator('[data-testid="local-files-edge-header"]')).toBeVisible();
     await expect(page.locator('[data-testid="local-files-workspaces-header"]')).toBeVisible();
     await expect(page.locator('[data-testid^="local-files-device-"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="local-files-tree"]')).not.toContainText('user@linux-host');
-    await expect(page.locator('[data-testid="local-files-tree"]')).not.toContainText('user@windows-host');
+    await expect(page.locator('[data-testid="local-files-tree"]')).not.toContainText(
+      'user@linux-host'
+    );
+    await expect(page.locator('[data-testid="local-files-tree"]')).not.toContainText(
+      'user@windows-host'
+    );
   });
 
   test('mostra dados reais ou estado vazio dos dispositivos', async ({ page }) => {

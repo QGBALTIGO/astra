@@ -62,7 +62,10 @@ export function LocalFilesTab({ onSelectItem, onNavigate }: LocalFilesTabProps) 
   }, [revision]);
 
   return (
-    <div className="min-w-0 flex-1 overflow-y-auto px-3 py-3 space-y-5" data-testid="local-files-tree">
+    <div
+      className="min-w-0 flex-1 overflow-y-auto px-3 py-3 space-y-5"
+      data-testid="local-files-tree"
+    >
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-text-muted dark:text-dark-text-muted">
           Dados reais desta conta, sem dispositivos demonstrativos.
@@ -140,9 +143,7 @@ export function LocalFilesTab({ onSelectItem, onNavigate }: LocalFilesTabProps) 
           <button
             type="button"
             className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left"
-            onClick={() =>
-              onSelectItem({ type: 'workspaces-overview', count: workspaces.length })
-            }
+            onClick={() => onSelectItem({ type: 'workspaces-overview', count: workspaces.length })}
             data-testid="local-files-workspaces-header"
           >
             <HardDrive className="h-4 w-4 shrink-0 text-primary" />
@@ -168,7 +169,10 @@ export function LocalFilesTab({ onSelectItem, onNavigate }: LocalFilesTabProps) 
             Não foi possível consultar os ambientes.
           </p>
         ) : workspaces.length === 0 ? (
-          <p className="px-2 py-3 text-xs text-text-muted" data-testid="local-files-empty-workspaces">
+          <p
+            className="px-2 py-3 text-xs text-text-muted"
+            data-testid="local-files-empty-workspaces"
+          >
             Nenhum ambiente cadastrado.
           </p>
         ) : (
