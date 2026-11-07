@@ -16,7 +16,10 @@ const createReminderDef: ToolDefinition = {
   parameters: {
     type: 'object',
     properties: {
-      title: { type: 'string', description: 'Mensagem curta do lembrete, por exemplo: Jogar o lixo fora' },
+      title: {
+        type: 'string',
+        description: 'Mensagem curta do lembrete, por exemplo: Jogar o lixo fora',
+      },
       delay_minutes: {
         type: 'number',
         description: 'Minutos a partir de agora (ex.: 1). Use para pedidos relativos.',
@@ -65,7 +68,10 @@ export async function executeChannelReminderTool(
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   const ctx = getExecContext();
   if (!ctx?.channelPluginId || !ctx.platformChatId || !ctx.channelMessageId) {
-    return { success: false, error: 'Esta função exige uma conversa autenticada no WhatsApp ou Telegram.' };
+    return {
+      success: false,
+      error: 'Esta função exige uma conversa autenticada no WhatsApp ou Telegram.',
+    };
   }
 
   if (toolName === 'list_channel_reminders') {
@@ -128,19 +134,28 @@ export async function executeChannelReminderTool(
       typeof value !== 'string' ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
     ) {
-      return { success: false, error: 'Informe horário com fuso, por exemplo: 2026-11-08T09:00:00-04:00.' };
+      return {
+        success: false,
+        error: 'Informe horário com fuso, por exemplo: 2026-11-08T09:00:00-04:00.',
+      };
     }
     remindAt = new Date(value);
   }
 
   const maxDate = Date.now() + 366 * 24 * 60 * 60_000;
-  if (!Number.isFinite(remindAt.getTime()) || remindAt.getTime() <= Date.now() || remindAt.getTime() > maxDate) {
+  if (
+    !Number.isFinite(remindAt.getTime()) ||
+    remindAt.getTime() <= Date.now() ||
+    remindAt.getTime() > maxDate
+  ) {
     return { success: false, error: 'A data deve estar no futuro, dentro dos próximos 366 dias.' };
   }
 
   // A retried model call for the same incoming message must not create duplicates.
   const dedupeKey = createHash('sha256')
-    .update([userId, ctx.channelPluginId, ctx.platformChatId, ctx.channelMessageId, title].join('|'))
+    .update(
+      [userId, ctx.channelPluginId, ctx.platformChatId, ctx.channelMessageId, title].join('|')
+    )
     .digest('hex');
 
   try {
@@ -159,12 +174,16 @@ export async function executeChannelReminderTool(
         title: saved.title,
         agendadoPara: saved.remindAt.toISOString(),
         status: saved.status,
-        message: saved.status === 'pending'
-          ? 'Lembrete agendado para envio nesta conversa.'
-          : 'Este lembrete já foi registrado anteriormente.',
+        message:
+          saved.status === 'pending'
+            ? 'Lembrete agendado para envio nesta conversa.'
+            : 'Este lembrete já foi registrado anteriormente.',
       },
     };
   } catch {
-    return { success: false, error: 'Não foi possível salvar o lembrete para entrega. Tente novamente.' };
+    return {
+      success: false,
+      error: 'Não foi possível salvar o lembrete para entrega. Tente novamente.',
+    };
   }
 }

@@ -31,11 +31,14 @@ import {
 } from './channel-reminder-worker.js';
 
 const makeReminder = (id: string, attempts = 1) => ({
-  id, userId: 'default', title: 'Jogar o lixo fora',
+  id,
+  userId: 'default',
+  title: 'Jogar o lixo fora',
   remindAt: new Date('2026-11-07T21:01:00Z'),
   channelPluginId: 'channel.telegram',
   platformChatId: 'test-chat-not-user-or-plugin',
-  status: 'sending', attempts,
+  status: 'sending',
+  attempts,
 });
 
 describe('ChannelReminderWorker', () => {

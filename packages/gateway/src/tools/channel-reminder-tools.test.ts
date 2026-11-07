@@ -122,7 +122,10 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
     );
     expect(fixtures.listForChat).toHaveBeenCalledWith('default', 'channel.telegram', 'chat-123');
     expect(fixtures.cancel).toHaveBeenCalledWith(
-      'reminder-123', 'default', 'channel.telegram', 'chat-123'
+      'reminder-123',
+      'default',
+      'channel.telegram',
+      'chat-123'
     );
   });
 });

@@ -14,9 +14,7 @@ describe('Astra respostas gratuitas e instantâneas', () => {
   it.each(['oi', 'Oi', 'OLÁ!', 'ola...', 'Bom dia!', 'Boa tarde', 'Boa noite?'])(
     'responde saudação %s sem usar o modelo',
     (message) => {
-      expect(deterministicChannelReply(message)).toBe(
-        'Oi! Como posso ajudar você hoje?'
-      );
+      expect(deterministicChannelReply(message)).toBe('Oi! Como posso ajudar você hoje?');
     }
   );
 

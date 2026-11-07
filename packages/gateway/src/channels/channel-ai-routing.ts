@@ -34,7 +34,6 @@ export function deterministicChannelReply(text: string): string | null {
   return null;
 }
 
-
 /**
  * Zero-token path for fully specified relative reminders.
  * Ambiguous requests still go to the assistant instead of creating a wrong task.
@@ -43,9 +42,11 @@ export async function tryScheduleRelativeChannelReminder(
   message: Pick<ChannelIncomingMessage, 'text' | 'id' | 'channelPluginId' | 'platformChatId'>,
   userId: string
 ): Promise<string | null> {
-  const match = message.text.trim().match(
-    /^(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar)\s+(?:em|daqui\s+a)\s+(\d{1,5})\s*(minutos?|min|horas?|h)\s+(?:para|pra|de|que)\s+(.+)$/iu
-  );
+  const match = message.text
+    .trim()
+    .match(
+      /^(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar)\s+(?:em|daqui\s+a)\s+(\d{1,5})\s*(minutos?|min|horas?|h)\s+(?:para|pra|de|que)\s+(.+)$/iu
+    );
   if (!match) return null;
 
   const title = match[3]!.trim().replace(/[.!?]+$/, '');
@@ -80,7 +81,9 @@ export async function tryScheduleRelativeChannelReminder(
         delayMinutes >= 60 && delayMinutes % 60 === 0
           ? String(delayMinutes / 60) + (delayMinutes === 60 ? ' hora' : ' horas')
           : String(delayMinutes) + (delayMinutes === 1 ? ' minuto' : ' minutos');
-      return '⏰ Vou lembrar você de "' + title + '" daqui a ' + timeLabel + ' aqui nesta conversa.';
+      return (
+        '⏰ Vou lembrar você de "' + title + '" daqui a ' + timeLabel + ' aqui nesta conversa.'
+      );
     }
   );
 }
@@ -260,18 +263,19 @@ export async function processViaBus(
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
       },
-      () => bus.process(normalized, {
-      stream: streamCallbacks,
-      context: {
-        agent,
-        userId: channelUser.ownpilotUserId,
-        agentId: 'default',
-        provider: effectiveProvider,
-        model: effectiveModel,
-        conversationId: activeConversationId,
-        directToolMode: useDirectTools,
-      },
-    })
+      () =>
+        bus.process(normalized, {
+          stream: streamCallbacks,
+          context: {
+            agent,
+            userId: channelUser.ownpilotUserId,
+            agentId: 'default',
+            provider: effectiveProvider,
+            model: effectiveModel,
+            conversationId: activeConversationId,
+            directToolMode: useDirectTools,
+          },
+        })
     );
 
     // Normalize outgoing response via channel normalizer
@@ -336,7 +340,11 @@ export async function processDirectAgent(message: ChannelIncomingMessage): Promi
     true
   );
   const result = await runInExecContext(
-    { channelPluginId: message.channelPluginId, platformChatId: message.platformChatId, channelMessageId: message.id },
+    {
+      channelPluginId: message.channelPluginId,
+      platformChatId: message.platformChatId,
+      channelMessageId: message.id,
+    },
     () => agent.chat(message.text)
   );
 

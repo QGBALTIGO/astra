@@ -1609,9 +1609,9 @@ describe('agent-tools helpers', () => {
           result: { delivered: true, markerText: '<!--WIDGET#1#table#{}<!--WIDGET#1#END-->' },
         });
         const { reg } = captureGatewayExecutors(true);
-        const interactive = vi.mocked(reg.register).mock.calls.find(
-          ([def]) => (def as { name: string }).name === 'deliver_interactive'
-        );
+        const interactive = vi
+          .mocked(reg.register)
+          .mock.calls.find(([def]) => (def as { name: string }).name === 'deliver_interactive');
         expect(interactive).toBeDefined();
         const fn = interactive![1] as (args: unknown, ctx: unknown) => Promise<unknown>;
         const result = (await fn({}, { conversationId: 'conv-1' })) as { content: string };
