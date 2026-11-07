@@ -219,7 +219,7 @@ export function ProvidersTab() {
               )}
             </div>
 
-            <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+            <div className="space-y-1 text-xs text-text-muted dark:text-dark-text-muted">
               <p className="flex items-center gap-1">
                 <Server className="w-3 h-3" />
                 <span className="font-mono">{provider.type}</span>
@@ -229,7 +229,7 @@ export function ProvidersTab() {
                   {provider.baseUrl}
                 </p>
               )}
-              <p className="flex items-center gap-2">
+              <p className="flex flex-wrap items-center gap-2">
                 <span>{provider.modelCount} modelos</span>
                 {provider.features.vision && <span className="text-purple-500">👁 Visão</span>}
                 {provider.features.toolUse && <span className="text-blue-500">🔧 Ferramentas</span>}
@@ -237,7 +237,7 @@ export function ProvidersTab() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Enable/Disable toggle */}
             <button
               onClick={() => handleToggle(provider.id, !provider.isEnabled)}
@@ -258,7 +258,7 @@ export function ProvidersTab() {
             {/* Edit button */}
             <button
               onClick={() => handleEdit(provider.id)}
-              className="p-1.5 text-gray-500 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+              className="rounded-lg p-2 text-text-muted transition-colors hover:bg-primary/10 hover:text-primary dark:text-dark-text-muted"
               title="Editar configurações do provedor"
             >
               <Edit2 className="w-4 h-4" />
@@ -309,7 +309,7 @@ export function ProvidersTab() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Provedores de IA</h3>
+        <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">Provedores de IA</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           Revise as conexões, o tipo de API e os modelos de forma organizada.
         </p>
@@ -335,7 +335,7 @@ export function ProvidersTab() {
               className={`px-3 py-2 text-sm rounded-lg capitalize transition-colors ${
                 filterConfigured === filter
                   ? 'bg-primary text-white'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  : 'bg-bg-tertiary text-text-secondary dark:bg-dark-bg-tertiary dark:text-dark-text-secondary hover:bg-primary/10'
               }`}
             >
               {{ all: 'Todos', configured: 'Configurados', unconfigured: 'Não configurados' }[filter]}
@@ -347,20 +347,20 @@ export function ProvidersTab() {
       {/* Stats */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="card-elevated rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary">
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">{providers.length}</p>
-          <p className="text-sm text-gray-500">Total de provedores</p>
+          <p className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">{providers.length}</p>
+          <p className="text-sm text-text-muted dark:text-dark-text-muted">Total de provedores</p>
         </div>
         <div className="card-elevated rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary">
           <p className="text-2xl font-bold text-green-600 dark:text-green-400">
             {providers.filter((p) => p.isConfigured).length}
           </p>
-          <p className="text-sm text-gray-500">Configured</p>
+          <p className="text-sm text-text-muted dark:text-dark-text-muted">Configurados</p>
         </div>
         <div className="card-elevated rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary">
           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
             {providers.filter((p) => p.hasOverride).length}
           </p>
-          <p className="text-sm text-gray-500">With Overrides</p>
+          <p className="text-sm text-text-muted dark:text-dark-text-muted">Personalizados</p>
         </div>
       </div>
 
@@ -399,12 +399,12 @@ export function ProvidersTab() {
           onClick={() => setEditingProvider(null)}
         >
           <div
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto"
+            className="mx-4 max-h-[min(90dvh,780px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-bg-secondary shadow-2xl dark:border-dark-border dark:bg-dark-bg-secondary"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
                   Editar provedor: {providers.find((p) => p.id === editingProvider)?.name}
                 </h3>
                 <button
@@ -418,13 +418,13 @@ export function ProvidersTab() {
               <div className="space-y-4">
                 {/* Provider Type */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
                     Tipo de provedor
                   </label>
                   <select
                     value={editForm.providerType}
                     onChange={(e) => setEditForm((f) => ({ ...f, providerType: e.target.value }))}
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
                   >
                     {PROVIDER_TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
@@ -432,14 +432,14 @@ export function ProvidersTab() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-text-muted dark:text-dark-text-muted">
                     Define a integração utilizada para realizar chamadas à IA.
                   </p>
                 </div>
 
                 {/* Base URL */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
                     Base URL
                   </label>
                   <input
@@ -447,9 +447,9 @@ export function ProvidersTab() {
                     value={editForm.baseUrl}
                     onChange={(e) => setEditForm((f) => ({ ...f, baseUrl: e.target.value }))}
                     placeholder="https://api.example.com/v1"
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 font-mono text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-text-muted dark:text-dark-text-muted">
                     Endereço da API deste provedor. Deixe vazio para usar o padrão.
                   </p>
                 </div>
@@ -457,10 +457,10 @@ export function ProvidersTab() {
                 {/* Enabled toggle */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <label className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
                       Ativado
                     </label>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-text-muted dark:text-dark-text-muted">
                       Provedores desativados não aparecem na escolha de modelos.
                     </p>
                   </div>
@@ -480,7 +480,7 @@ export function ProvidersTab() {
 
                 {/* Notes */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
                     Observações
                   </label>
                   <textarea
@@ -488,13 +488,13 @@ export function ProvidersTab() {
                     onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
                     placeholder="Observações opcionais sobre esta configuração..."
                     rows={2}
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
                   />
                 </div>
 
                 {/* Billing Type */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
                     Tipo de cobrança
                   </label>
                   <select
@@ -502,13 +502,13 @@ export function ProvidersTab() {
                     onChange={(e) =>
                       setEditForm((f) => ({ ...f, billingType: e.target.value as never }))
                     }
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
                   >
                     <option value="pay-per-use">Pagamento por uso (API)</option>
                     <option value="subscription">Assinatura (mensalidade fixa)</option>
                     <option value="free">Gratuito (local ou cota gratuita)</option>
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-text-muted dark:text-dark-text-muted">
                     Pagamento por uso: cobrança por token. Assinatura: valor mensal fixo.
                     Gratuito: sem cobrança por chamada.
                   </p>
@@ -518,7 +518,7 @@ export function ProvidersTab() {
                 {editForm.billingType === 'subscription' && (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
                         Custo mensal (US$)
                       </label>
                       <input
@@ -535,11 +535,11 @@ export function ProvidersTab() {
                           }))
                         }
                         placeholder="e.g. 20.00"
-                        className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
                         Nome do plano
                       </label>
                       <input
@@ -552,7 +552,7 @@ export function ProvidersTab() {
                           }))
                         }
                         placeholder="e.g. ChatGPT Plus"
-                        className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
                       />
                     </div>
                   </div>
@@ -565,7 +565,7 @@ export function ProvidersTab() {
                   onClick={() => handleResetOverride(editingProvider)}
                   className="text-sm text-red-600 hover:text-red-700 dark:text-red-400"
                 >
-                  Reset to Default
+                  Restaurar padrão
                 </button>
                 <div className="flex flex-wrap gap-2">
                   <button
