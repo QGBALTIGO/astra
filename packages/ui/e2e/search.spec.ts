@@ -70,10 +70,10 @@ test.describe('Global Search Overlay', () => {
 
     // Type a query that should match page names
     const searchInput = dialog.locator('input[type="text"]');
-    await searchInput.fill('task');
+    await searchInput.fill('tarefa');
     await page.waitForTimeout(500);
 
-    // Should show results (at least Pages section with "Tasks" match)
+    // Should show results in Portuguese for Tarefas.
     const resultButtons = dialog.locator('button');
     const resultCount = await resultButtons.count();
     expect(resultCount).toBeGreaterThan(0);
@@ -85,7 +85,7 @@ test.describe('Global Search Overlay', () => {
     await expect(dialog).toBeVisible({ timeout: 3000 });
 
     // Before typing, should show hint
-    const hintText = dialog.locator('text=Start typing');
+    const hintText = dialog.getByText('Digite para pesquisar...');
     await expect(hintText).toBeVisible();
   });
 
@@ -99,7 +99,7 @@ test.describe('Global Search Overlay', () => {
     await page.waitForTimeout(500);
 
     // Should show "No results" message
-    const noResults = dialog.locator('text=No results');
+    const noResults = dialog.getByText('Nenhum resultado', { exact: false });
     await expect(noResults).toBeVisible({ timeout: 3000 });
   });
 
@@ -111,13 +111,13 @@ test.describe('Global Search Overlay', () => {
     const dialog = page.locator('[role="dialog"][aria-modal="true"]');
     await expect(dialog).toBeVisible({ timeout: 3000 });
 
-    // Search for "dashboard" (should match Dashboard page)
+    // Search for the translated dashboard name without accent.
     const searchInput = dialog.locator('input[type="text"]');
-    await searchInput.fill('dashboard');
+    await searchInput.fill('visao geral');
     await page.waitForTimeout(500);
 
     // Click first result button
-    const firstResult = dialog.locator('button').first();
+    const firstResult = dialog.getByRole('button', { name: /Visão geral/ }).first();
     await firstResult.click();
 
     // Overlay should close
@@ -128,17 +128,17 @@ test.describe('Global Search Overlay', () => {
     expect(page.url()).toContain('/dashboard');
   });
 
-  test('search for "task" shows Tasks result', async ({ page }) => {
+  test('search for "tarefa" shows Tarefas result', async ({ page }) => {
     await page.keyboard.press('Control+k');
     const dialog = page.locator('[role="dialog"][aria-modal="true"]');
     await expect(dialog).toBeVisible({ timeout: 3000 });
 
     const searchInput = dialog.locator('input[type="text"]');
-    await searchInput.fill('task');
+    await searchInput.fill('tarefa');
     await page.waitForTimeout(500);
 
-    // Should see "Tasks" in results
-    const tasksResult = dialog.locator('button:has-text("Tasks")');
+    // The translated Tarefas result must be available.
+    const tasksResult = dialog.getByRole('button', { name: /Tarefas/ });
     await expect(tasksResult.first()).toBeVisible({ timeout: 3000 });
 
     // Click it
