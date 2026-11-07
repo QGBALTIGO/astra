@@ -136,7 +136,9 @@ export class Agent {
     // The registry may grow beyond the provider's 128-tool limit as plugins,
     // extensions and MCP servers are added. Prefer the existing discovery
     // tools over silently removing calendar, finance or custom capabilities.
-    const withinProviderLimit = (definitions: readonly ToolDefinition[]): readonly ToolDefinition[] => {
+    const withinProviderLimit = (
+      definitions: readonly ToolDefinition[]
+    ): readonly ToolDefinition[] => {
       if (definitions.length <= MAX_EXPOSED_PROVIDER_TOOLS) return definitions;
 
       const discovery = this.tools.getDefinitionsByNames([
