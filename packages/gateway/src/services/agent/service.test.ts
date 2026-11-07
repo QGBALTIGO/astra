@@ -188,6 +188,7 @@ vi.mock('../extension/service.js', () => ({
 
 vi.mock('./prompt.js', () => ({
   BASE_SYSTEM_PROMPT: 'Test system prompt',
+  CHANNEL_SYSTEM_PROMPT: 'Astra é um assistente em português do Brasil.',
 }));
 
 vi.mock('../../tools/agent-tool-registry.js', () => ({
