@@ -134,6 +134,16 @@ app.get('/', async (c) => {
     if (await hasApiKey(provider)) {
       configuredProviders.push(provider);
       let models = convertToModelInfo(provider);
+      // In Astra's Groq-only mode, only present maintained chat models. Do
+      // not offer obsolete model IDs or audio-only engines in the chat picker.
+      if (process.env.ASTRA_ONLY_GROQ === 'true') {
+        const allowed = new Set([
+          'openai/gpt-oss-120b',
+          'openai/gpt-oss-20b',
+          'qwen/qwen3.8-27b',
+        ]);
+        models = models.filter((item) => allowed.has(item.id));
+      }
 
       // Filter out disabled models if enabledOnly is true
       if (enabledOnly) {

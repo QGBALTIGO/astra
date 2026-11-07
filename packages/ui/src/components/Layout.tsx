@@ -16,12 +16,6 @@ import { FleetStatusIndicator } from './FleetStatusIndicator';
 const CustomizePage = lazy(() =>
   import('../pages/CustomizePage').then((m) => ({ default: m.CustomizePage }))
 );
-const StatsPanel = lazy(() => import('./StatsPanel').then((m) => ({ default: m.StatsPanel })));
-const DebugDrawer = lazy(() => import('./DebugDrawer').then((m) => ({ default: m.DebugDrawer })));
-const MiniChat = lazy(() => import('./MiniChat').then((m) => ({ default: m.MiniChat })));
-const MiniTerminal = lazy(() =>
-  import('./MiniTerminal').then((m) => ({ default: m.MiniTerminal }))
-);
 const GlobalSearchOverlay = lazy(() =>
   import('./GlobalSearchOverlay').then((m) => ({ default: m.GlobalSearchOverlay }))
 );
@@ -40,7 +34,6 @@ export function Layout() {
   const { status: wsStatus } = useGateway();
   const isMobile = useIsMobile();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [isStatsPanelCollapsed, setIsStatsPanelCollapsed] = useState(true);
   // PulseSlotGrid removed from header — available as widget in zone config
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isCustomizePanelOpen, setIsCustomizePanelOpen] = useState(false);
@@ -129,7 +122,7 @@ export function Layout() {
             Ir para o conteúdo
           </a>
 
-          <div className="astra-shell flex flex-col h-screen bg-bg-primary dark:bg-dark-bg-primary">
+          <div className="astra-shell flex flex-col h-dvh bg-bg-primary dark:bg-dark-bg-primary">
             {/* Global Header Bar — 5 zones: Brand | Left | Center | Right | Settings */}
             <header className="astra-header relative h-14 flex items-center px-4 md:px-6 border-b border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary shrink-0 z-50">
               {/* Zone 1: Brand (fixed) */}
@@ -160,10 +153,10 @@ export function Layout() {
 
               {/* Zones 2-4: Configurable header zones (desktop only) */}
               {!isMobile && (
-                <>
-                  <div className="w-px h-5 bg-border dark:bg-dark-border mx-3 shrink-0" />
+                <div className="hidden min-w-0 items-center gap-3 overflow-hidden xl:flex">
+                  <div className="h-5 w-px shrink-0 bg-border dark:bg-dark-border" />
                   <HeaderItemsBar />
-                </>
+                </div>
               )}
 
               {/* Spacer — pushes settings to far right */}
@@ -264,40 +257,14 @@ export function Layout() {
                 </main>
               </div>
 
-              {/* Right Sidebar - Stats or Detail Panel (desktop only) */}
-              {!isMobile && (
-                <Suspense fallback={null}>
-                  <StatsPanel
-                    isCollapsed={isStatsPanelCollapsed}
-                    onToggle={() => setIsStatsPanelCollapsed(!isStatsPanelCollapsed)}
-                  />
-                </Suspense>
-              )}
             </div>
 
-            {/* Realtime WS→UI wiring (invisible) */}
+            {/* Mantém somente o barramento em tempo real; painéis flutuantes
+                técnicos foram retirados da área principal. As páginas
+                completas continuam acessíveis pela navegação. */}
             <RealtimeBridge onBadgeUpdate={handleBadgeUpdate} />
 
-            {/* Floating mini chat widget (desktop only, hidden on ChatPage) */}
-            {!isMobile && (
-              <Suspense fallback={null}>
-                <MiniChat />
-              </Suspense>
-            )}
-
-            {/* Floating mini terminal widget (desktop only, hidden on CodingAgentsPage) */}
-            {!isMobile && (
-              <Suspense fallback={null}>
-                <MiniTerminal />
-              </Suspense>
-            )}
-
-            {/* Debug Drawer */}
-            <Suspense fallback={null}>
-              <DebugDrawer />
-            </Suspense>
-
-            {/* Global Search Overlay */}
+                        {/* Global Search Overlay */}
             {isSearchOpen && (
               <Suspense fallback={null}>
                 <GlobalSearchOverlay onClose={() => setIsSearchOpen(false)} />

@@ -148,7 +148,7 @@ export class ExpensesRepository extends BaseRepository {
         this.userId,
         input.date,
         input.amount,
-        input.currency ?? 'TRY',
+        input.currency ?? 'BRL',
         input.category ?? 'other',
         input.description,
         input.paymentMethod ?? null,

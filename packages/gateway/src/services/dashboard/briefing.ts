@@ -148,8 +148,20 @@ export async function generateAIBriefing(
     const prompt = buildBriefingPrompt(data);
 
     const { getDefaultProvider, getDefaultModel } = await import('../app-settings.js');
-    const provider = options?.provider ?? (await getDefaultProvider()) ?? 'openai';
-    const model = options?.model ?? (await getDefaultModel(provider)) ?? 'gpt-4o-mini';
+    const groqOnly = process.env.ASTRA_ONLY_GROQ === 'true';
+    // Keep the scarce Groq token budget for user conversations. Show an
+    // instant deterministic summary by default; AI generation stays available
+    // when the user explicitly requests a refreshed briefing.
+    if (groqOnly && !options?.forceRefresh) {
+      const fallback = generateFallbackBriefing(data);
+      briefingCache.set(userId, fallback, dataHash);
+      return fallback;
+    }
+    const provider = groqOnly ? 'groq' : (options?.provider ?? (await getDefaultProvider()));
+    if (!provider) return generateFallbackBriefing(data);
+    const model = groqOnly
+      ? ((await getDefaultModel('groq')) ?? 'openai/gpt-oss-120b')
+      : (options?.model ?? (await getDefaultModel(provider)) ?? 'gpt-4o-mini');
 
     try {
       const { getOrCreateChatAgent } = await import('../agent/service.js');
@@ -196,14 +208,18 @@ export async function generateAIBriefingStreaming(
   const prompt = buildBriefingPrompt(data);
 
   const { getDefaultModel } = await import('../app-settings.js');
-  const model = options.model ?? (await getDefaultModel(options.provider)) ?? 'default';
+  const groqOnly = process.env.ASTRA_ONLY_GROQ === 'true';
+  const provider = groqOnly ? 'groq' : options.provider;
+  const model = groqOnly
+    ? ((await getDefaultModel('groq')) ?? 'openai/gpt-oss-120b')
+    : (options.model ?? (await getDefaultModel(provider)) ?? 'default');
 
   try {
     const { getOrCreateChatAgent } = await import('../agent/service.js');
     // Dedicated conversationId, distinct from the non-streaming briefing path,
     // so the two never share a single-flight agent instance.
     const agent = await getOrCreateChatAgent(
-      options.provider,
+      provider,
       model,
       undefined,
       null,

@@ -44,7 +44,7 @@ const VALID_CATEGORIES: readonly ExpenseCategory[] = [
 const EXPENSE_DATE_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
 
 const MONTH_NAMES = Array.from({ length: 12 }, (_, i) =>
-  new Date(2000, i).toLocaleString('en-US', { month: 'long' })
+  new Date(2000, i).toLocaleString('pt-BR', { month: 'long' })
 );
 
 const CATEGORY_COLORS: Record<ExpenseCategory, string> = {
