@@ -67,6 +67,14 @@ describe('isPathAllowedAsync', () => {
     expect(await isPathAllowedAsync(path.join(tmpDir, 'file.txt'), tmpDir)).toBe(true);
   });
 
+  it('allows differently cased Windows workspace paths after canonicalization', async () => {
+    if (process.platform !== 'win32') return;
+    // Windows permits mixed-case directory names; compare using the actual
+    // filesystem identity instead of a case-sensitive lexical prefix.
+    const mixedCase = path.join(tmpDir.toUpperCase(), 'nested', 'safe.txt');
+    expect(await isPathAllowedAsync(mixedCase, tmpDir)).toBe(true);
+  });
+
   it('blocks paths outside workspace and tmp', async () => {
     // A path that exists but is in neither the workspace nor os.tmpdir().
     // tmpDir IS under os.tmpdir(), so pick a root-level path instead.
