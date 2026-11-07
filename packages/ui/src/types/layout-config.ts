@@ -142,8 +142,8 @@ export const SIDEBAR_SECTION_LABELS: Record<string, string> = {
   workflows: 'Automações',
   recents: 'Conversas recentes',
   // AI & Automation
-  agents: 'Agents',
-  claws: 'Claws',
+  agents: 'Agentes',
+  claws: 'Agentes autônomos',
   'agentic-executions': 'Tarefas automatizadas',
   triggers: 'Lembretes',
   artifacts: 'Arquivos gerados',

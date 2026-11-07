@@ -30,7 +30,7 @@ import { useModalClose } from '../hooks';
 import { PageHomeTab } from '../components/PageHomeTab';
 
 type TabId = 'home' | 'goals';
-const TAB_LABELS: Record<TabId, string> = { home: 'Home', goals: 'Goals' };
+const TAB_LABELS: Record<TabId, string> = { home: 'Como funciona', goals: 'Objetivos' };
 
 const statusColors = {
   active: 'bg-primary/10 text-primary',
@@ -61,8 +61,8 @@ export function GoalsPage() {
     defaultTab: 'goals',
   });
 
-  const activeTab = (searchParams.get('tab') as TabId) || 'home';
-  const setActiveTab = (t: TabId) => setSearchParams(t === 'home' ? {} : { tab: t });
+  const activeTab = (searchParams.get('tab') as TabId) || 'goals';
+  const setActiveTab = (t: TabId) => setSearchParams({ tab: t });
 
   const { confirm } = useDialog();
   const toast = useToast();
@@ -86,7 +86,7 @@ export function GoalsPage() {
       const data = await goalsApi.list(params);
       setGoals(data.goals);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load goals');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar os objetivos');
     } finally {
       setIsLoading(false);
     }
@@ -111,7 +111,7 @@ export function GoalsPage() {
     async (goalId: string) => {
       if (
         !(await confirm({
-          message: 'Are you sure you want to delete this goal?',
+          message: 'Excluir este objetivo? Essa ação não pode ser desfeita.',
           variant: 'danger',
         }))
       )
@@ -197,10 +197,10 @@ export function GoalsPage() {
             ]}
             title="Set and Track Goals"
             subtitle="Define personal or professional goals, track milestones, and let your AI help you stay on track with reminders and suggestions."
-            cta={{ label: 'View Goals', icon: Target, onClick: () => setActiveTab('goals') }}
+            cta={{ label: 'Ver objetivos', icon: Target, onClick: () => setActiveTab('goals') }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to Goals"
+            skipHomeLabel="Ir diretamente para Objetivos"
             features={[
               {
                 icon: Target,
@@ -298,7 +298,7 @@ export function GoalsPage() {
                 iconBgColor="bg-amber-500/10 dark:bg-amber-500/20"
                 iconColor="text-amber-500"
                 action={{
-                  label: 'Create Goal',
+                  label: 'Criar objetivo',
                   onClick: () => setShowCreateModal(true),
                   icon: Plus,
                 }}
@@ -456,7 +456,7 @@ function GoalItem({ goal, isExpanded, onToggle, onEdit, onDelete, onStatusChange
               onClick={() => onStatusChange('completed')}
               className="p-1 text-text-muted dark:text-dark-text-muted hover:text-success transition-colors"
               title="Mark complete"
-              aria-label="Mark goal as complete"
+              aria-label="Concluir objetivo"
             >
               <CheckCircle2 className="w-4 h-4" />
             </button>
@@ -484,7 +484,7 @@ function GoalItem({ goal, isExpanded, onToggle, onEdit, onDelete, onStatusChange
           <button
             onClick={onDelete}
             className="p-1 text-text-muted dark:text-dark-text-muted hover:text-error transition-colors"
-            aria-label="Delete goal"
+            aria-label="Excluir objetivo"
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -595,7 +595,7 @@ function GoalModal({ goal, onClose, onSave }: GoalModalProps) {
         <form onSubmit={handleSubmit}>
           <div className="p-6 border-b border-border dark:border-dark-border">
             <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-              {goal ? 'Edit Goal' : 'Create Goal'}
+              {goal ? 'Editar objetivo' : 'Criar objetivo'}
             </h3>
           </div>
 
@@ -621,7 +621,7 @@ function GoalModal({ goal, onClose, onSave }: GoalModalProps) {
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Add more details..."
+                placeholder="Adicione mais detalhes..."
                 rows={3}
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
               />
@@ -669,7 +669,7 @@ function GoalModal({ goal, onClose, onSave }: GoalModalProps) {
               disabled={!title.trim() || isSaving}
               className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isSaving ? 'Saving...' : goal ? 'Save' : 'Create'}
+              {isSaving ? 'Salvando...' : goal ? 'Salvar' : 'Criar'}
             </button>
           </div>
         </form>

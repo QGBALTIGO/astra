@@ -61,11 +61,11 @@ export function CalendarPage() {
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('week');
 
   type TabId = 'home' | 'calendar';
-  const TAB_LABELS: Record<TabId, string> = { home: 'Home', calendar: 'Calendar' };
+  const TAB_LABELS: Record<TabId, string> = { home: 'Como funciona', calendar: 'Agenda' };
 
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId =
-    tabParam && (['home', 'calendar'] as string[]).includes(tabParam) ? tabParam : 'home';
+    tabParam && (['home', 'calendar'] as string[]).includes(tabParam) ? tabParam : 'calendar';
   const setTab = (tab: TabId) => {
     const params = new URLSearchParams(searchParams);
     params.set('tab', tab);
@@ -87,7 +87,7 @@ export function CalendarPage() {
       const data = await calendarApi.list(params);
       setEvents(data as CalendarEvent[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load events');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar os compromissos');
     } finally {
       setIsLoading(false);
     }
@@ -111,7 +111,7 @@ export function CalendarPage() {
   const handleDelete = async (eventId: string) => {
     if (
       !(await confirm({
-        message: 'Are you sure you want to delete this event?',
+        message: 'Excluir este compromisso? Essa ação não pode ser desfeita.',
         variant: 'danger',
       }))
     )
@@ -119,7 +119,7 @@ export function CalendarPage() {
 
     try {
       await calendarApi.delete(eventId);
-      toast.success('Event deleted');
+      toast.success('Compromisso excluído');
       fetchEvents();
     } catch {
       // API client handles error reporting
@@ -207,7 +207,7 @@ export function CalendarPage() {
           }}
           skipHomeChecked={skipHome}
           onSkipHomeChange={onSkipHomeChange}
-          skipHomeLabel="Skip this screen and go directly to Calendar"
+          skipHomeLabel="Ir diretamente para Agenda"
           features={[
             {
               icon: Calendar,
@@ -235,9 +235,9 @@ export function CalendarPage() {
             },
           ]}
           steps={[
-            { title: 'Create an event', detail: 'Click "Add Event" to get started.' },
+            { title: 'Crie um compromisso', detail: 'Clique em adicionar para começar.' },
             { title: 'Set date & time', detail: 'Pick a date, time, and duration.' },
-            { title: 'Add reminders', detail: 'Set reminders to stay on track.' },
+            { title: 'Ative lembretes', detail: 'Defina lembretes para não esquecer compromissos.' },
             {
               title: 'Peça para a IA agendar',
               detail: 'Tell your assistant to create or reschedule events.',
@@ -338,7 +338,7 @@ export function CalendarPage() {
             setEditingEvent(null);
           }}
           onSave={() => {
-            toast.success(editingEvent ? 'Event updated' : 'Event created');
+            toast.success(editingEvent ? 'Compromisso atualizado' : 'Compromisso criado');
             setShowCreateModal(false);
             setEditingEvent(null);
             fetchEvents();
@@ -400,7 +400,7 @@ function EventItem({ event, onEdit, onDelete }: EventItemProps) {
       <button
         onClick={onDelete}
         className="p-1 text-text-muted dark:text-dark-text-muted hover:text-error transition-colors"
-        aria-label="Delete event"
+        aria-label="Excluir compromisso"
       >
         <Trash2 className="w-4 h-4" />
       </button>
@@ -476,7 +476,7 @@ function EventModal({ event, defaultDate, onClose, onSave }: EventModalProps) {
         <form onSubmit={handleSubmit}>
           <div className="p-6 border-b border-border dark:border-dark-border">
             <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-              {event ? 'Edit Event' : 'Create Event'}
+              {event ? 'Editar compromisso' : 'Criar compromisso'}
             </h3>
           </div>
 
@@ -489,7 +489,7 @@ function EventModal({ event, defaultDate, onClose, onSave }: EventModalProps) {
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Event title"
+                placeholder="Nome do compromisso"
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                 autoFocus
               />
@@ -502,7 +502,7 @@ function EventModal({ event, defaultDate, onClose, onSave }: EventModalProps) {
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Add details..."
+                placeholder="Adicione detalhes..."
                 rows={3}
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
               />
@@ -584,7 +584,7 @@ function EventModal({ event, defaultDate, onClose, onSave }: EventModalProps) {
                 type="text"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                placeholder="Add location"
+                placeholder="Adicione o local"
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div>
@@ -623,7 +623,7 @@ function EventModal({ event, defaultDate, onClose, onSave }: EventModalProps) {
               disabled={!title.trim() || !startDate || isSaving}
               className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isSaving ? 'Saving...' : event ? 'Save' : 'Create'}
+              {isSaving ? 'Salvando...' : event ? 'Salvar' : 'Criar'}
             </button>
           </div>
         </form>

@@ -165,7 +165,7 @@ export function Sidebar({
       data-testid="sidebar"
       className={
         isMobile
-          ? `astra-sidebar fixed inset-y-0 left-0 z-40 w-64 bg-bg-secondary dark:bg-dark-bg-secondary flex flex-col transform transition-transform duration-200 ease-out ${
+          ? `astra-sidebar fixed inset-y-0 left-0 z-[70] w-64 bg-bg-secondary dark:bg-dark-bg-secondary flex flex-col transform transition-transform duration-200 ease-out ${
               isOpen ? 'translate-x-0' : '-translate-x-full'
             }`
           : `${desktopWidthClass} astra-sidebar border-r border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary flex flex-col`

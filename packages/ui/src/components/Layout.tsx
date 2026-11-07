@@ -220,7 +220,7 @@ export function Layout() {
               {/* Backdrop (mobile only, when sidebar open) */}
               {isMobile && isMobileSidebarOpen && (
                 <div
-                  className="fixed inset-0 bg-black/50 z-30"
+                  className="fixed inset-0 bg-black/50 z-[60]"
                   onClick={() => setIsMobileSidebarOpen(false)}
                   aria-hidden="true"
                 />

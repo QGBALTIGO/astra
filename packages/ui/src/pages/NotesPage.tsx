@@ -47,11 +47,11 @@ export function NotesPage() {
   const { animatedItems, handleDelete: animatedDelete } = useAnimatedList(notes);
 
   type TabId = 'home' | 'notes';
-  const TAB_LABELS: Record<TabId, string> = { home: 'Home', notes: 'Notes' };
+  const TAB_LABELS: Record<TabId, string> = { home: 'Como funciona', notes: 'Anotações' };
 
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId =
-    tabParam && (['home', 'notes'] as string[]).includes(tabParam) ? tabParam : 'home';
+    tabParam && (['home', 'notes'] as string[]).includes(tabParam) ? tabParam : 'notes';
   const setTab = (tab: TabId) => {
     const params = new URLSearchParams(searchParams);
     params.set('tab', tab);
@@ -70,7 +70,7 @@ export function NotesPage() {
       const data = await notesApi.list(params);
       setNotes(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load notes');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar as anotações');
     } finally {
       setIsLoading(false);
     }
@@ -95,7 +95,7 @@ export function NotesPage() {
     async (noteId: string) => {
       if (
         !(await confirm({
-          message: 'Are you sure you want to delete this note?',
+          message: 'Excluir esta anotação? Essa ação não pode ser desfeita.',
           variant: 'danger',
         }))
       )
@@ -181,7 +181,7 @@ export function NotesPage() {
           title="Quick Notes & Snippets"
           subtitle="Capture ideas, save snippets, and jot down notes — all searchable and accessible to your AI for context."
           cta={{
-            label: 'Create Note',
+            label: 'Criar anotação',
             icon: Plus,
             onClick: () => {
               setTab('notes');
@@ -190,7 +190,7 @@ export function NotesPage() {
           }}
           skipHomeChecked={skipHome}
           onSkipHomeChange={onSkipHomeChange}
-          skipHomeLabel="Skip this screen and go directly to Notes"
+          skipHomeLabel="Ir diretamente para Anotações"
           features={[
             {
               icon: Edit2,
@@ -218,10 +218,10 @@ export function NotesPage() {
             },
           ]}
           steps={[
-            { title: 'Create a note', detail: 'Click "New Note" to start writing.' },
-            { title: 'Write or paste content', detail: 'Add a title and body text.' },
+            { title: 'Crie uma anotação', detail: 'Clique em nova anotação para começar.' },
+            { title: 'Escreva ou cole o conteúdo', detail: 'Add a title and body text.' },
             {
-              title: 'Pin important notes',
+              title: 'Fixe as anotações importantes',
               detail: 'Pin notes you need quick access to.',
             },
             {
@@ -278,8 +278,8 @@ export function NotesPage() {
                 iconColor="text-emerald-500"
                 action={
                   !searchQuery
-                    ? { label: 'Create Note', onClick: () => setShowCreateModal(true), icon: Plus }
-                    : { label: 'Clear Search', onClick: () => setSearchQuery('') }
+                    ? { label: 'Criar anotação', onClick: () => setShowCreateModal(true), icon: Plus }
+                    : { label: 'Limpar busca', onClick: () => setSearchQuery('') }
                 }
               />
             ) : (
@@ -403,7 +403,7 @@ function NoteCard({ note, onClick, onTogglePin, onDelete }: NoteCardProps) {
               onDelete();
             }}
             className="p-1 text-text-muted dark:text-dark-text-muted hover:text-error rounded transition-colors"
-            aria-label="Delete note"
+            aria-label="Excluir anotação"
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -514,7 +514,7 @@ function NoteModal({ note, onClose, onSave }: NoteModalProps) {
                 disabled={!content.trim() || isSaving}
                 className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {isSaving ? 'Saving...' : note ? 'Save' : 'Create'}
+                {isSaving ? 'Salvando...' : note ? 'Salvar' : 'Criar'}
               </button>
             </div>
           </div>

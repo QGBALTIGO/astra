@@ -44,11 +44,11 @@ export function ContactsPage() {
   const { animatedItems, handleDelete: animatedDelete } = useAnimatedList(contacts);
 
   type TabId = 'home' | 'contacts';
-  const TAB_LABELS: Record<TabId, string> = { home: 'Home', contacts: 'Contacts' };
+  const TAB_LABELS: Record<TabId, string> = { home: 'Como funciona', contacts: 'Contatos' };
 
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId =
-    tabParam && (['home', 'contacts'] as string[]).includes(tabParam) ? tabParam : 'home';
+    tabParam && (['home', 'contacts'] as string[]).includes(tabParam) ? tabParam : 'contacts';
 
   const { skipHome, onSkipHomeChange } = useSkipHome({
     pageName: 'contacts',
@@ -72,7 +72,7 @@ export function ContactsPage() {
       const data = await contactsApi.list(params);
       setContacts(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load contacts');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar os contatos');
     } finally {
       setIsLoading(false);
     }
@@ -97,7 +97,7 @@ export function ContactsPage() {
     async (contactId: string) => {
       if (
         !(await confirm({
-          message: 'Are you sure you want to delete this contact?',
+          message: 'Excluir este contato? Essa ação não pode ser desfeita.',
           variant: 'danger',
         }))
       )
@@ -202,7 +202,7 @@ export function ContactsPage() {
           title="Your Contact Book"
           subtitle="Store and manage contacts that your AI can reference — for emails, messages, calendar events, and reminders."
           cta={{
-            label: 'Add Contact',
+            label: 'Adicionar contato',
             icon: Plus,
             onClick: () => {
               setTab('contacts');
@@ -211,7 +211,7 @@ export function ContactsPage() {
           }}
           skipHomeChecked={skipHome}
           onSkipHomeChange={onSkipHomeChange}
-          skipHomeLabel="Skip this screen and go directly to Contacts"
+          skipHomeLabel="Ir diretamente para Contatos"
           features={[
             {
               icon: Users,
@@ -241,7 +241,7 @@ export function ContactsPage() {
           ]}
           steps={[
             {
-              title: 'Add your first contact',
+              title: 'Cadastre seu primeiro contato',
               detail: 'Click "Add Contact" to create a new entry.',
             },
             {
@@ -321,8 +321,8 @@ export function ContactsPage() {
                 iconColor="text-blue-500"
                 action={
                   !searchQuery
-                    ? { label: 'Add Contact', onClick: () => setShowCreateModal(true), icon: Plus }
-                    : { label: 'Clear Search', onClick: () => setSearchQuery('') }
+                    ? { label: 'Adicionar contato', onClick: () => setShowCreateModal(true), icon: Plus }
+                    : { label: 'Limpar busca', onClick: () => setSearchQuery('') }
                 }
               />
             ) : (
@@ -453,7 +453,7 @@ function ContactItem({ contact, onEdit, onDelete, onToggleFavorite }: ContactIte
         <button
           onClick={onDelete}
           className="p-1 text-text-muted dark:text-dark-text-muted hover:text-error transition-colors"
-          aria-label="Delete contact"
+          aria-label="Excluir contato"
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -522,7 +522,7 @@ function ContactModal({ contact, onClose, onSave }: ContactModalProps) {
         <form onSubmit={handleSubmit}>
           <div className="p-6 border-b border-border dark:border-dark-border">
             <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-              {contact ? 'Edit Contact' : 'Add Contact'}
+              {contact ? 'Editar contato' : 'Adicionar contato'}
             </h3>
           </div>
 
@@ -628,7 +628,7 @@ function ContactModal({ contact, onClose, onSave }: ContactModalProps) {
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add notes..."
+                placeholder="Adicione observações..."
                 rows={3}
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
               />
@@ -664,7 +664,7 @@ function ContactModal({ contact, onClose, onSave }: ContactModalProps) {
               disabled={!name.trim() || isSaving}
               className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isSaving ? 'Saving...' : contact ? 'Save' : 'Add'}
+              {isSaving ? 'Salvando...' : contact ? 'Salvar' : 'Adicionar'}
             </button>
           </div>
         </form>

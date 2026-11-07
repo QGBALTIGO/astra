@@ -47,7 +47,7 @@ export function SidebarFooter({ wsStatus }: SidebarFooterProps) {
           title="Log out"
         >
           <LogOut className="w-3.5 h-3.5 shrink-0" />
-          <span className="flex-1 text-left">Log Out</span>
+          <span className="flex-1 text-left">Sair</span>
         </button>
       )}
       <ConnectionIndicator status={wsStatus} />

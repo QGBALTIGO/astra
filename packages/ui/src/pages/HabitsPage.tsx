@@ -106,7 +106,7 @@ export function HabitsPage() {
 
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId =
-    tabParam && (['home', 'habits'] as string[]).includes(tabParam) ? tabParam : 'home';
+    tabParam && (['home', 'habits'] as string[]).includes(tabParam) ? tabParam : 'habits';
   const setTab = (tab: TabId) => {
     const params = new URLSearchParams(searchParams);
     params.set('tab', tab);
@@ -143,7 +143,7 @@ export function HabitsPage() {
         rate: todayRes.percentage ?? 0,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load habits');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar os hábitos');
     } finally {
       setLoading(false);
     }
@@ -171,15 +171,15 @@ export function HabitsPage() {
       toast.success('Habit logged!');
       fetchHabits();
     } catch {
-      toast.error('Failed to log habit');
+      toast.error('Não foi possível registrar o hábito');
     }
   };
 
   const handleDelete = async (habit: Habit) => {
     const ok = await confirm({
-      title: 'Delete Habit',
+      title: 'Excluir hábito',
       message: `Permanently delete "${habit.name}" and all its logs?`,
-      confirmText: 'Delete',
+      confirmText: 'Excluir',
       variant: 'danger',
     });
     if (!ok) return;
@@ -190,7 +190,7 @@ export function HabitsPage() {
       toast.success('Habit deleted');
       fetchHabits();
     } catch {
-      toast.error('Failed to delete habit');
+      toast.error('Não foi possível excluir o hábito');
     }
   };
 
@@ -200,7 +200,7 @@ export function HabitsPage() {
       toast.success('Habit archived');
       fetchHabits();
     } catch {
-      toast.error('Failed to archive');
+      toast.error('Não foi possível arquivar');
     }
   };
 
@@ -210,7 +210,7 @@ export function HabitsPage() {
       toast.success('Habit restored');
       fetchHabits();
     } catch {
-      toast.error('Failed to restore');
+      toast.error('Não foi possível restaurar');
     }
   };
 
@@ -279,7 +279,7 @@ export function HabitsPage() {
             title="Build Better Habits"
             subtitle="Track daily routines, build streaks, and let your AI help you stay consistent with habit tracking."
             cta={{
-              label: 'Create Habit',
+              label: 'Criar hábito',
               icon: Plus,
               onClick: () => {
                 setTab('habits');
@@ -288,7 +288,7 @@ export function HabitsPage() {
             }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to Habits"
+            skipHomeLabel="Ir diretamente para Hábitos"
             features={[
               {
                 icon: Zap,
@@ -321,10 +321,10 @@ export function HabitsPage() {
             ]}
             steps={[
               {
-                title: 'Create a habit',
+                title: 'Crie um hábito',
                 detail: 'Click "Create Habit" and set name, frequency, and target.',
               },
-              { title: 'Log daily', detail: 'Check off habits as you complete them each day.' },
+              { title: 'Registrar diariamente', detail: 'Check off habits as you complete them each day.' },
               {
                 title: 'Build streaks',
                 detail: 'Watch your streak grow as you maintain consistency.',
@@ -439,7 +439,7 @@ export function HabitsPage() {
               ) : habits.length === 0 ? (
                 <EmptyState
                   icon={Target}
-                  title={filter === 'archived' ? 'No archived habits' : 'No habits yet'}
+                  title={filter === 'archived' ? 'Nenhum hábito arquivado' : 'Nenhum hábito cadastrado'}
                   description={
                     filter === 'archived'
                       ? 'Archive habits you no longer track to keep your list clean.'
@@ -450,7 +450,7 @@ export function HabitsPage() {
                   iconColor="text-emerald-500"
                   action={
                     filter === 'active'
-                      ? { label: 'Create Habit', icon: Plus, onClick: () => setShowCreate(true) }
+                      ? { label: 'Criar hábito', icon: Plus, onClick: () => setShowCreate(true) }
                       : undefined
                   }
                 />
@@ -924,7 +924,7 @@ function HabitModal({
             disabled={saving || !name.trim()}
             className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
-            {saving ? 'Saving...' : habit ? 'Update' : 'Create'}
+            {saving ? 'Salvando...' : habit ? 'Update' : 'Criar'}
           </button>
         </div>
       </div>

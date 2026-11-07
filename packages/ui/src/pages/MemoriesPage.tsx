@@ -26,7 +26,7 @@ import { useDebouncedValue, useModalClose, useDebouncedCallback } from '../hooks
 import { PageHomeTab } from '../components/PageHomeTab';
 
 type TabId = 'home' | 'memories';
-const TAB_LABELS: Record<TabId, string> = { home: 'Home', memories: 'Memories' };
+const TAB_LABELS: Record<TabId, string> = { home: 'Como funciona', memories: 'Memórias' };
 
 const typeColors = {
   fact: 'bg-blue-500/10 text-blue-500',
@@ -51,8 +51,8 @@ export function MemoriesPage() {
     defaultTab: 'memories',
   });
 
-  const activeTab = (searchParams.get('tab') as TabId) || 'home';
-  const setActiveTab = (t: TabId) => setSearchParams(t === 'home' ? {} : { tab: t });
+  const activeTab = (searchParams.get('tab') as TabId) || 'memories';
+  const setActiveTab = (t: TabId) => setSearchParams({ tab: t });
 
   const { confirm } = useDialog();
   const toast = useToast();
@@ -80,7 +80,7 @@ export function MemoriesPage() {
       const data = await memoriesApi.list(params);
       setMemories(data.memories);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load memories');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar as memórias');
     } finally {
       setIsLoading(false);
     }
@@ -105,7 +105,7 @@ export function MemoriesPage() {
     async (memoryId: string) => {
       if (
         !(await confirm({
-          message: 'Are you sure you want to delete this memory?',
+          message: 'Excluir esta memória? Essa ação não pode ser desfeita.',
           variant: 'danger',
         }))
       )
@@ -186,10 +186,10 @@ export function MemoriesPage() {
             ]}
             title="Your AI's Long-Term Memory"
             subtitle="Memories let your AI remember facts, preferences, and context across conversations — so it gets better over time."
-            cta={{ label: 'View Memories', icon: Brain, onClick: () => setActiveTab('memories') }}
+            cta={{ label: 'Ver memórias', icon: Brain, onClick: () => setActiveTab('memories') }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to Memories"
+            skipHomeLabel="Ir diretamente para Memórias"
             features={[
               {
                 icon: Sparkles,
@@ -213,7 +213,7 @@ export function MemoriesPage() {
               {
                 icon: Search,
                 color: 'text-green-500 bg-green-500/10',
-                title: 'Semantic Search',
+                title: 'Busca inteligente',
                 description: 'Find memories using natural language — not just keyword matching.',
               },
             ]}
@@ -312,7 +312,7 @@ export function MemoriesPage() {
                 iconBgColor="bg-violet-500/10 dark:bg-violet-500/20"
                 iconColor="text-violet-500"
                 action={{
-                  label: 'Add Memory',
+                  label: 'Adicionar memória',
                   onClick: () => setShowCreateModal(true),
                   icon: Plus,
                 }}
@@ -400,7 +400,7 @@ function MemoryItem({ memory, onEdit, onDelete }: MemoryItemProps) {
           onDelete();
         }}
         className="p-1 text-text-muted dark:text-dark-text-muted hover:text-error transition-colors"
-        aria-label="Delete memory"
+        aria-label="Excluir memória"
       >
         <Trash2 className="w-4 h-4" />
       </button>
@@ -455,7 +455,7 @@ function MemoryModal({ memory, onClose, onSave }: MemoryModalProps) {
         <form onSubmit={handleSubmit}>
           <div className="p-6 border-b border-border dark:border-dark-border">
             <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-              {memory ? 'Edit Memory' : 'Add Memory'}
+              {memory ? 'Editar memória' : 'Adicionar memória'}
             </h3>
           </div>
 
@@ -521,7 +521,7 @@ function MemoryModal({ memory, onClose, onSave }: MemoryModalProps) {
               disabled={!content.trim() || isSaving}
               className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isSaving ? 'Saving...' : memory ? 'Save' : 'Add'}
+              {isSaving ? 'Salvando...' : memory ? 'Salvar' : 'Adicionar'}
             </button>
           </div>
         </form>

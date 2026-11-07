@@ -59,7 +59,7 @@ const typeIcons = {
 };
 
 const actionTypeLabels: Record<TriggerAction['type'], string> = {
-  chat: 'Start Chat',
+  chat: 'Iniciar conversa',
   tool: 'Run Tool',
   workflow: 'Run Workflow',
   notification: 'Send Notification',
@@ -111,8 +111,8 @@ interface TriggerStats {
 type TabId = 'home' | 'triggers' | 'activity';
 
 const TAB_LABELS: Record<TabId, string> = {
-  home: 'Home',
-  triggers: 'Triggers',
+  home: 'Como funciona',
+  triggers: 'Lembretes',
   activity: 'Activity',
 };
 
@@ -128,7 +128,7 @@ export function TriggersPage() {
   const [editingTrigger, setEditingTrigger] = useState<Trigger | null>(null);
   const [showHistory, setShowHistory] = useState<string | null>(null);
   const [history, setHistory] = useState<TriggerHistoryEntry[]>([]);
-  const [activeTab, setActiveTab] = useState<TabId>('home');
+  const [activeTab, setActiveTab] = useState<TabId>('triggers');
 
   const { skipHome, onSkipHomeChange } = useSkipHome({
     pageName: 'triggers',
@@ -165,7 +165,7 @@ export function TriggersPage() {
       const data = await triggersApi.list(params);
       setTriggers(data.triggers);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load triggers');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar os lembretes');
     } finally {
       setIsLoading(false);
     }
@@ -286,7 +286,7 @@ export function TriggersPage() {
     async (triggerId: string) => {
       if (
         !(await confirm({
-          message: 'Are you sure you want to delete this trigger?',
+          message: 'Excluir este lembrete? Essa ação não pode ser desfeita.',
           variant: 'danger',
         }))
       )
@@ -398,7 +398,7 @@ export function TriggersPage() {
                 className={`w-2 h-2 rounded-full ${engineRunning ? 'bg-success animate-pulse' : 'bg-error'}`}
               />
               <Power className="w-3 h-3" />
-              {engineLoading ? 'Loading...' : engineRunning ? 'Engine Running' : 'Engine Stopped'}
+              {engineLoading ? 'Carregando...' : engineRunning ? 'Motor ativo' : 'Motor parado'}
             </button>
           )}
         </div>
@@ -467,10 +467,10 @@ export function TriggersPage() {
             ]}
             title="Automate with Smart Triggers"
             subtitle="Triggers let your AI react to events automatically — schedules, webhooks, data changes, and custom conditions."
-            cta={{ label: 'Create Trigger', icon: Plus, onClick: () => setShowCreateModal(true) }}
+            cta={{ label: 'Criar lembrete', icon: Plus, onClick: () => setShowCreateModal(true) }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to Triggers"
+            skipHomeLabel="Ir diretamente para Lembretes"
             features={[
               {
                 icon: Clock,
@@ -482,7 +482,7 @@ export function TriggersPage() {
               {
                 icon: Zap,
                 color: 'text-purple-500 bg-purple-500/10',
-                title: 'Event-Driven',
+                title: 'Por evento',
                 description:
                   'React to system events like messages, data changes, or external webhooks in real time.',
               },
@@ -502,7 +502,7 @@ export function TriggersPage() {
               },
             ]}
             steps={[
-              { title: 'Create trigger', detail: 'Define a new trigger with a name and type.' },
+              { title: 'Criar lembrete', detail: 'Define a new trigger with a name and type.' },
               {
                 title: 'Set conditions',
                 detail: 'Configure when the trigger should fire — schedule, event, or condition.',
@@ -582,7 +582,7 @@ export function TriggersPage() {
               iconBgColor="bg-amber-500/10 dark:bg-amber-500/20"
               iconColor="text-amber-500"
               action={{
-                label: 'Create Trigger',
+                label: 'Criar lembrete',
                 onClick: () => setShowCreateModal(true),
                 icon: Plus,
               }}
@@ -1066,7 +1066,7 @@ function TriggerItem({
         <button
           onClick={onDelete}
           className="p-1 text-text-muted dark:text-dark-text-muted hover:text-error transition-colors"
-          aria-label="Delete trigger"
+          aria-label="Excluir lembrete"
         >
           <Trash2 className="w-4 h-4" />
         </button>

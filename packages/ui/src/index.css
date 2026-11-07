@@ -674,3 +674,43 @@ html.dark {
     transform: none;
   }
 }
+
+/* Astra: mobile-first containment without overlaying neighboring functions. */
+html, body, #root { width: 100%; min-width: 320px; }
+body { overflow-x: hidden; }
+.astra-shell { width: 100%; max-width: 100vw; overflow: hidden; }
+.astra-main, .astra-main main { min-width: 0; max-width: 100%; }
+.astra-main main { overflow-x: auto; overscroll-behavior: contain; }
+.astra-main main > * { min-width: 0; max-width: 100%; }
+.astra-main :where(.overflow-x-auto) { max-width: 100%; }
+.astra-main :where(button, input, select, textarea, a) { -webkit-tap-highlight-color: transparent; }
+.astra-main :where([role="dialog"]) {
+  max-height: calc(100dvh - 24px);
+  max-width: calc(100vw - 24px);
+  overflow-y: auto;
+}
+.astra-sidebar nav :where(a, button) { max-width: 100%; }
+.astra-sidebar nav :where(a, button) > span { min-width: 0; }
+@media (max-width: 639px) {
+  .astra-main main { scroll-padding-top: 12px; }
+  .astra-main main .grid[class*="grid-cols-3"],
+  .astra-main main .grid[class*="grid-cols-4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .astra-main main .grid[class*="grid-cols-2"]:has(input),
+  .astra-main main .grid[class*="grid-cols-2"]:has(select),
+  .astra-main main .grid[class*="grid-cols-2"]:has(textarea) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 390px) {
+  .astra-main main .grid[class*="grid-cols-3"],
+  .astra-main main .grid[class*="grid-cols-4"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (min-width: 640px) and (max-width: 1100px) {
+  .astra-main main .grid[class*="grid-cols-4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

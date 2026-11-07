@@ -79,11 +79,11 @@ export function ExpensesPage() {
   const [editingExpense, setEditingExpense] = useState<ExpenseEntry | null>(null);
 
   type TabId = 'home' | 'expenses';
-  const TAB_LABELS: Record<TabId, string> = { home: 'Home', expenses: 'Expenses' };
+  const TAB_LABELS: Record<TabId, string> = { home: 'Como funciona', expenses: 'Finanças' };
 
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId =
-    tabParam && (['home', 'expenses'] as string[]).includes(tabParam) ? tabParam : 'home';
+    tabParam && (['home', 'expenses'] as string[]).includes(tabParam) ? tabParam : 'expenses';
   const setTab = (tab: TabId) => {
     const params = new URLSearchParams(searchParams);
     params.set('tab', tab);
@@ -129,7 +129,7 @@ export function ExpensesPage() {
       const listJson = await expensesApi.list(listParams);
       setExpenses(Array.isArray(listJson.expenses) ? listJson.expenses : []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load expenses');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar as despesas');
     } finally {
       setIsLoading(false);
     }
@@ -154,14 +154,14 @@ export function ExpensesPage() {
     async (id: string) => {
       if (
         !(await confirm({
-          message: 'Are you sure you want to delete this expense?',
+          message: 'Excluir esta despesa? Essa ação não pode ser desfeita.',
           variant: 'danger',
         }))
       )
         return;
       try {
         await expensesApi.delete(id);
-        toast.success('Expense deleted');
+        toast.success('Despesa excluída');
         fetchData();
       } catch {
         // API client handles error reporting
@@ -242,7 +242,7 @@ export function ExpensesPage() {
           }}
           skipHomeChecked={skipHome}
           onSkipHomeChange={onSkipHomeChange}
-          skipHomeLabel="Skip this screen and go directly to Expenses"
+          skipHomeLabel="Ir diretamente para Finanças"
           features={[
             {
               icon: Plus,
@@ -270,10 +270,10 @@ export function ExpensesPage() {
             },
           ]}
           steps={[
-            { title: 'Add an expense', detail: 'Click "Add Expense" and fill in the details.' },
+            { title: 'Registre uma despesa', detail: 'Clique em adicionar despesa e informe os dados.' },
             {
               title: 'Categorize o gasto',
-              detail: 'Choose a category like food, transport, or shopping.',
+              detail: 'Escolha uma categoria, como alimentação, transporte ou compras.',
             },
             {
               title: 'Veja a evolução dos gastos',
@@ -421,7 +421,7 @@ export function ExpensesPage() {
                 ))}
               </div>
               <div className="mt-4 text-center text-sm text-text-muted dark:text-dark-text-muted">
-                Year Total: {monthlyData.yearTotal.toLocaleString('pt-BR')}
+                Total do ano: {monthlyData.yearTotal.toLocaleString('pt-BR')}
               </div>
             </div>
           )}
@@ -497,7 +497,7 @@ export function ExpensesPage() {
                   description={
                     selectedMonth
                       ? `No expenses for ${monthlyData?.months.find((m) => m.monthNum === selectedMonth)?.month} ${year}. Add your first expense to start tracking.`
-                      : 'Start tracking your expenses by adding your first transaction.'
+                      : 'Comece a organizar suas finanças registrando a primeira despesa.'
                   }
                   variant="minimal"
                   size="sm"
@@ -543,7 +543,7 @@ export function ExpensesPage() {
                       onClick={() => setEditingExpense(expense)}
                       className="p-1.5 text-text-muted hover:text-primary transition-colors"
                       title="Edit"
-                      aria-label="Edit expense"
+                      aria-label="Editar despesa"
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
@@ -551,7 +551,7 @@ export function ExpensesPage() {
                       onClick={() => handleDeleteExpense(expense.id)}
                       className="p-1.5 text-text-muted hover:text-error transition-colors"
                       title="Delete"
-                      aria-label="Delete expense"
+                      aria-label="Excluir despesa"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -621,14 +621,14 @@ function ExpenseFormModal({
       };
       if (isEditing) {
         await expensesApi.update(expense.id, payload);
-        toast.success('Expense updated');
+        toast.success('Despesa atualizada');
       } else {
         await expensesApi.create(payload);
-        toast.success('Expense added');
+        toast.success('Despesa adicionada');
       }
       onSaved();
     } catch {
-      toast.error(isEditing ? 'Failed to update expense' : 'Failed to add expense');
+      toast.error(isEditing ? 'Não foi possível atualizar a despesa' : 'Não foi possível adicionar a despesa');
     } finally {
       setIsSaving(false);
     }
@@ -642,7 +642,7 @@ function ExpenseFormModal({
       <div className="bg-bg-primary dark:bg-dark-bg-primary rounded-xl shadow-xl w-full max-w-md mx-4">
         <div className="px-6 py-4 border-b border-border dark:border-dark-border">
           <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            {isEditing ? 'Edit Expense' : 'Add New Expense'}
+            {isEditing ? 'Editar despesa' : 'Adicionar despesa'}
           </h3>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -711,7 +711,7 @@ function ExpenseFormModal({
               type="text"
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Store or expense description"
+              placeholder="Descreva a compra ou despesa"
               className={inputClasses}
               required
             />
@@ -752,7 +752,7 @@ function ExpenseFormModal({
               disabled={isSaving}
               className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50"
             >
-              {isSaving ? 'Saving...' : isEditing ? 'Save' : 'Add'}
+              {isSaving ? 'Salvando...' : isEditing ? 'Salvar' : 'Adicionar'}
             </button>
           </div>
         </form>

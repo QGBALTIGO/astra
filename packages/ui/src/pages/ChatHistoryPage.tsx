@@ -165,12 +165,12 @@ function SourceBadge({ source }: { source: ConvSource }) {
 type TabId = 'home' | 'history';
 
 const TAB_LABELS: Record<TabId, string> = {
-  home: 'Home',
-  history: 'History',
+  home: 'Como funciona',
+  history: 'Conversas',
 };
 
 export function ChatHistoryPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('home');
+  const [activeTab, setActiveTab] = useState<TabId>('history');
 
   const { skipHome, onSkipHomeChange } = useSkipHome({
     pageName: 'chathistory',
@@ -225,7 +225,7 @@ export function ChatHistoryPage() {
         });
         setConversations(data.conversations);
       } catch {
-        toast.error('Failed to load conversations');
+        toast.error('Não foi possível carregar as conversas');
       }
     },
     [showArchived, toast]
@@ -296,7 +296,7 @@ export function ChatHistoryPage() {
       setMessages(data.messages);
       setChannelInfo(data.channelInfo ?? null);
     } catch {
-      toast.error('Failed to load conversation');
+      toast.error('Não foi possível carregar a conversa');
     } finally {
       setIsLoadingMessages(false);
     }
@@ -323,7 +323,7 @@ export function ChatHistoryPage() {
       await refreshSelectedMessages(selectedId);
       toast.success('Reply sent');
     } catch {
-      toast.error('Failed to send reply');
+      toast.error('Não foi possível enviar a resposta');
     } finally {
       setIsSendingReply(false);
     }
@@ -347,7 +347,7 @@ export function ChatHistoryPage() {
         }
         toast.success(archived ? 'Conversation archived' : 'Conversation unarchived');
       } catch {
-        toast.error('Failed to update conversation');
+        toast.error('Não foi possível atualizar a conversa');
       }
     },
     [selectedId, toast]
@@ -357,9 +357,9 @@ export function ChatHistoryPage() {
   const handleDelete = useCallback(
     async (id: string) => {
       const ok = await confirm({
-        title: 'Delete Conversation',
+        title: 'Excluir conversa',
         message: 'This conversation will be permanently deleted. This action cannot be undone.',
-        confirmText: 'Delete',
+        confirmText: 'Excluir',
         variant: 'danger',
       });
       if (!ok) return;
@@ -374,7 +374,7 @@ export function ChatHistoryPage() {
         }
         toast.success('Conversation deleted');
       } catch {
-        toast.error('Failed to delete conversation');
+        toast.error('Não foi possível excluir a conversa');
       }
     },
     [selectedId, confirm, toast]
@@ -407,9 +407,9 @@ export function ChatHistoryPage() {
   const handleBulkDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
     const ok = await confirm({
-      title: 'Delete Conversations',
+      title: 'Excluir conversas',
       message: `Permanently delete ${selectedIds.size} conversation${selectedIds.size !== 1 ? 's' : ''}? This cannot be undone.`,
-      confirmText: 'Delete',
+      confirmText: 'Excluir',
       variant: 'danger',
     });
     if (!ok) return;
@@ -426,7 +426,7 @@ export function ChatHistoryPage() {
       toast.success(`Deleted ${ids.length} conversation${ids.length !== 1 ? 's' : ''}`);
       exitSelectMode();
     } catch {
-      toast.error('Failed to delete conversations');
+      toast.error('Não foi possível excluir as conversas');
     }
   }, [selectedIds, selectedId, confirm, toast, exitSelectMode]);
 
@@ -465,9 +465,9 @@ export function ChatHistoryPage() {
     async (days: number) => {
       setShowCleanupMenu(false);
       const ok = await confirm({
-        title: 'Delete Old Conversations',
+        title: 'Excluir conversas antigas',
         message: `Delete all conversations older than ${days} day${days !== 1 ? 's' : ''}? This cannot be undone.`,
-        confirmText: 'Delete',
+        confirmText: 'Excluir',
         variant: 'danger',
       });
       if (!ok) return;
@@ -479,7 +479,7 @@ export function ChatHistoryPage() {
         );
         fetchConversations(search || undefined);
       } catch {
-        toast.error('Failed to delete old conversations');
+        toast.error('Não foi possível excluir as conversas antigas');
       }
     },
     [confirm, toast, fetchConversations, search]
@@ -488,9 +488,9 @@ export function ChatHistoryPage() {
   const handleDeleteAll = useCallback(async () => {
     setShowCleanupMenu(false);
     const ok = await confirm({
-      title: 'Delete All Conversations',
+      title: 'Excluir todas as conversas',
       message: 'Delete ALL conversations? This cannot be undone.',
-      confirmText: 'Delete All',
+      confirmText: 'Excluir todas',
       variant: 'danger',
     });
     if (!ok) return;
@@ -504,7 +504,7 @@ export function ChatHistoryPage() {
       setMessages([]);
       exitSelectMode();
     } catch {
-      toast.error('Failed to delete conversations');
+      toast.error('Não foi possível excluir as conversas');
     }
   }, [confirm, toast, exitSelectMode]);
 
@@ -642,7 +642,7 @@ export function ChatHistoryPage() {
             }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to History"
+            skipHomeLabel="Ir diretamente para Conversas"
             features={[
               {
                 icon: History,
@@ -653,7 +653,7 @@ export function ChatHistoryPage() {
               {
                 icon: Search,
                 color: 'text-orange-500 bg-orange-500/10',
-                title: 'Search & Filter',
+                title: 'Buscar e filtrar',
                 description: 'Find conversations by keyword or date.',
               },
               {
@@ -674,7 +674,7 @@ export function ChatHistoryPage() {
                 title: 'Browse past conversations',
                 detail: 'See all your conversations in one place.',
               },
-              { title: 'Search by keyword', detail: 'Find specific topics or messages.' },
+              { title: 'Buscar por palavra-chave', detail: 'Find specific topics or messages.' },
               {
                 title: 'Click to revisit',
                 detail: 'Open any conversation to review details.',
@@ -713,7 +713,7 @@ export function ChatHistoryPage() {
                       onClick={selectedIds.size === conversations.length ? deselectAll : selectAll}
                       className="text-xs text-primary hover:underline"
                     >
-                      {selectedIds.size === conversations.length ? 'Deselect All' : 'Select All'}
+                      {selectedIds.size === conversations.length ? 'Desmarcar todas' : 'Selecionar todas'}
                     </button>
                     <button
                       onClick={exitSelectMode}

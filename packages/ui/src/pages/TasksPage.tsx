@@ -49,7 +49,7 @@ export function TasksPage() {
   const { subscribe } = useGateway();
 
   type TabId = 'home' | 'tasks';
-  const TAB_LABELS: Record<TabId, string> = { home: 'Home', tasks: 'Tasks' };
+  const TAB_LABELS: Record<TabId, string> = { home: 'Como funciona', tasks: 'Tarefas' };
 
   const { skipHome, onSkipHomeChange } = useSkipHome({
     pageName: 'tasks',
@@ -58,7 +58,7 @@ export function TasksPage() {
 
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId =
-    tabParam && (['home', 'tasks'] as string[]).includes(tabParam) ? tabParam : 'home';
+    tabParam && (['home', 'tasks'] as string[]).includes(tabParam) ? tabParam : 'tasks';
 
   const setTab = (tab: TabId) => {
     const params = new URLSearchParams(searchParams);
@@ -88,7 +88,7 @@ export function TasksPage() {
       );
       setTasks(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load tasks');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar as tarefas');
     } finally {
       setIsLoading(false);
     }
@@ -113,7 +113,7 @@ export function TasksPage() {
     async (taskId: string) => {
       try {
         await tasksApi.complete(taskId);
-        toast.success('Task completed');
+        toast.success('Tarefa concluída');
         fetchTasks();
       } catch {
         // API client handles error reporting
@@ -126,7 +126,7 @@ export function TasksPage() {
     async (taskId: string) => {
       if (
         !(await confirm({
-          message: 'Are you sure you want to delete this task?',
+          message: 'Excluir esta tarefa? Essa ação não pode ser desfeita.',
           variant: 'danger',
         }))
       )
@@ -136,7 +136,7 @@ export function TasksPage() {
         await animatedDelete(taskId, async () => {
           await tasksApi.delete(taskId);
         });
-        toast.success('Task deleted');
+        toast.success('Tarefa excluída');
         fetchTasks();
       } catch {
         // API client handles error reporting
@@ -212,7 +212,7 @@ export function TasksPage() {
           }}
           skipHomeChecked={skipHome}
           onSkipHomeChange={onSkipHomeChange}
-          skipHomeLabel="Skip this screen and go directly to Tasks"
+          skipHomeLabel="Ir diretamente para Tarefas"
           features={[
             {
               icon: Target,
@@ -241,8 +241,8 @@ export function TasksPage() {
             },
           ]}
           steps={[
-            { title: 'Create a task', detail: 'Click "Add Task" and enter a title.' },
-            { title: 'Set priority & due date', detail: 'Choose urgency and add a deadline.' },
+            { title: 'Crie uma tarefa', detail: 'Clique em adicionar e informe o título da tarefa.' },
+            { title: 'Defina prioridade e prazo', detail: 'Escolha a prioridade e informe o prazo.' },
             {
               title: 'Acompanhe o progresso',
               detail: 'Filter by status to see pending or completed tasks.',
@@ -281,7 +281,7 @@ export function TasksPage() {
             ) : error ? (
               <EmptyState
                 icon={AlertTriangle}
-                title="Failed to load tasks"
+                title="Não foi possível carregar as tarefas"
                 description={error}
                 variant="card"
                 action={{
@@ -293,22 +293,22 @@ export function TasksPage() {
             ) : tasks.length === 0 ? (
               <EmptyState
                 icon={CheckCircle2}
-                title={filter === 'all' ? 'No tasks yet' : `No ${filter} tasks`}
+                title={filter === 'all' ? 'Nenhuma tarefa cadastrada' : 'Nenhuma tarefa neste filtro'}
                 description={
                   filter === 'all'
-                    ? 'Create your first task to get started with your personal productivity system.'
+                    ? 'Adicione sua primeira tarefa para organizar sua rotina.'
                     : filter === 'pending'
-                      ? "You're all caught up! No pending tasks."
+                      ? 'Tudo em dia! Não há tarefas pendentes.'
                       : filter === 'completed'
-                        ? 'No completed tasks yet. Complete some tasks to see them here.'
-                        : 'No cancelled tasks.'
+                        ? 'Nenhuma tarefa concluída até o momento.'
+                        : 'Nenhuma tarefa cancelada.'
                 }
                 variant="card"
                 iconBgColor="bg-primary/10 dark:bg-primary/20"
                 iconColor="text-primary"
                 action={
                   filter === 'all'
-                    ? { label: 'Create Task', onClick: () => setShowCreateModal(true), icon: Plus }
+                    ? { label: 'Criar tarefa', onClick: () => setShowCreateModal(true), icon: Plus }
                     : { label: 'View All Tasks', onClick: () => setFilter('all') }
                 }
               />
@@ -339,7 +339,7 @@ export function TasksPage() {
             setEditingTask(null);
           }}
           onSave={() => {
-            toast.success(editingTask ? 'Task updated' : 'Task created');
+            toast.success(editingTask ? 'Tarefa atualizada' : 'Tarefa criada');
             setShowCreateModal(false);
             setEditingTask(null);
             fetchTasks();
@@ -378,7 +378,7 @@ function TaskItem({ task, onComplete, onEdit, onDelete }: TaskItemProps) {
         className="mt-0.5 flex-shrink-0"
         disabled={isDone}
         aria-label={
-          isCompleted ? 'Task completed' : isCancelled ? 'Task cancelled' : 'Mark task as complete'
+          isCompleted ? 'Tarefa concluída' : isCancelled ? 'Task cancelled' : 'Mark task as complete'
         }
       >
         {isCompleted ? (
@@ -442,7 +442,7 @@ function TaskItem({ task, onComplete, onEdit, onDelete }: TaskItemProps) {
       <button
         onClick={onDelete}
         className="p-1 text-text-muted dark:text-dark-text-muted hover:text-error transition-colors"
-        aria-label="Delete task"
+        aria-label="Excluir tarefa"
       >
         <Trash2 className="w-4 h-4" />
       </button>
@@ -503,7 +503,7 @@ function TaskModal({ task, onClose, onSave }: TaskModalProps) {
         <form onSubmit={handleSubmit}>
           <div className="p-6 border-b border-border dark:border-dark-border">
             <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-              {task ? 'Edit Task' : 'Create Task'}
+              {task ? 'Editar tarefa' : 'Criar tarefa'}
             </h3>
           </div>
 
@@ -529,7 +529,7 @@ function TaskModal({ task, onClose, onSave }: TaskModalProps) {
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Add details..."
+                placeholder="Adicione detalhes..."
                 rows={3}
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
               />
@@ -606,7 +606,7 @@ function TaskModal({ task, onClose, onSave }: TaskModalProps) {
               disabled={!title.trim() || isSaving}
               className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isSaving ? 'Saving...' : task ? 'Save' : 'Create'}
+              {isSaving ? 'Salvando...' : task ? 'Salvar' : 'Criar'}
             </button>
           </div>
         </form>
