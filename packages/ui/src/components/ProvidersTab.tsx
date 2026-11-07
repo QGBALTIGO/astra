@@ -202,18 +202,18 @@ export function ProvidersTab() {
                 </span>
               )}
               {provider.hasOverride && (
-                <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
+                <span className="rounded-lg bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
                   Personalizado
                 </span>
               )}
               {provider.billingType === 'subscription' && (
-                <span className="text-xs px-1.5 py-0.5 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded">
+                <span className="rounded-lg bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
                   Assinatura
                   {provider.subscriptionCostUsd ? ` $${provider.subscriptionCostUsd}/mo` : ''}
                 </span>
               )}
               {provider.billingType === 'free' && (
-                <span className="text-xs px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded">
+                <span className="rounded-lg bg-bg-tertiary px-2 py-1 text-xs font-semibold text-text-secondary dark:bg-dark-bg-tertiary dark:text-dark-text-secondary">
                   Gratuito
                 </span>
               )}
