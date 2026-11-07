@@ -146,7 +146,7 @@ describe('ExpensesPage row date (America/New_York)', () => {
     // Category fallback renders verbatim — passes before and after the fix.
     expect(meta).toContain('unknown-cat');
     // The bug: this rendered "9/12/2026" west of UTC.
-    expect(meta).toContain('9/13/2026');
+    expect(meta).toContain('13/09/2026');
   });
 
   it('CONTROL: UTC rendering is identical before and after the fix', async () => {
@@ -155,6 +155,6 @@ describe('ExpensesPage row date (America/New_York)', () => {
     process.env.TZ = 'UTC';
     await mount([expense({ date: '2026-09-13' })]);
     const meta = rowMetaText();
-    expect(meta).toContain('9/13/2026');
+    expect(meta).toContain('13/09/2026');
   });
 });

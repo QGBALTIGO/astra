@@ -170,7 +170,7 @@ describe('CalendarPage header day-basis (America/New_York)', () => {
   it('renders the week range Sep 13 - Sep 19, 2026 for Sunday the 13th', async () => {
     await mount(TODAY_ISO, [event('2026-09-13', 'Kickoff')]);
     // viewMode defaults to 'week'.
-    expect(headerTexts()).toContain('Sep 13 - Sep 19, 2026');
+    expect(headerTexts()).toContain('13 de set. - 19 de set. de 2026');
   });
 
   it('labels an event on the local today as "Today"', async () => {
@@ -188,7 +188,7 @@ describe('CalendarPage header day-basis (America/New_York)', () => {
 
   it('labels an older event with its own weekday, not the day before', async () => {
     await mount(TODAY_ISO, [event('2026-09-20', 'Review')]);
-    expect(groupHeaderTexts()).toContain('Sunday, September 20');
+    expect(groupHeaderTexts()).toContain('domingo, 20 de setembro');
   });
 
   it('shows "October 2026" when the month view is on 2026-10-01', async () => {
@@ -196,13 +196,13 @@ describe('CalendarPage header day-basis (America/New_York)', () => {
     // the buggy month label reads a whole month back.
     await mount('2026-10-01T13:00:00Z', [event('2026-10-01', 'Sprint start')]);
     await click('Month');
-    expect(headerTexts()).toContain('October 2026');
+    expect(headerTexts()).toContain('outubro de 2026');
   });
 
   it('shows "Sunday, September 13, 2026" in day mode', async () => {
     await mount(TODAY_ISO, [event('2026-09-13', 'Kickoff')]);
     await click('Day');
-    expect(headerTexts()).toContain('Sunday, September 13, 2026');
+    expect(headerTexts()).toContain('domingo, 13 de setembro de 2026');
   });
 
   it('CONTROL: today/upcoming counters stay correct (round-46 fix not regressed)', async () => {

@@ -138,7 +138,7 @@ async function mount(events: ReturnType<typeof event>[] = [IN_WINDOW, OUT_FUTURE
 /** The rendered detail text of the 📅 "Prep my week" chip. */
 function prepWeekDetail(): string | null {
   const chip = Array.from(container.querySelectorAll('button')).find((b) =>
-    (b.textContent ?? '').includes('Prep my week')
+    (b.textContent ?? '').includes('Organizar minha semana')
   );
   return chip ? (chip.textContent ?? null) : null;
 }

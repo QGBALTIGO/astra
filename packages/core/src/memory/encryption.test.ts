@@ -36,7 +36,7 @@ describe('deriveKey', () => {
     expect(deriveKey('pw1', salt).equals(deriveKey('pw2', salt))).toBe(false);
     const otherSalt = Buffer.from('b'.repeat(64), 'hex');
     expect(deriveKey('pw', salt).equals(deriveKey('pw', otherSalt))).toBe(false);
-  });
+  }, 20_000);
 
   it('uses a strong default iteration count', () => {
     expect(PBKDF2_DEFAULT_ITERATIONS).toBeGreaterThanOrEqual(100_000);

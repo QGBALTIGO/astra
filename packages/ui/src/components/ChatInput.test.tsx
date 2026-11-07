@@ -108,7 +108,7 @@ describe('ChatInput', () => {
       render(createElement(ChatInput, { onSend: vi.fn() }));
       const textarea = document.querySelector('textarea');
       expect(textarea).not.toBeNull();
-      expect(textarea?.getAttribute('placeholder')).toBe('Type a message...');
+      expect(textarea?.getAttribute('placeholder')).toBe('Escreva sua mensagem...');
     });
 
     it('renders with custom placeholder', () => {
@@ -131,7 +131,7 @@ describe('ChatInput', () => {
   describe('send button', () => {
     it('is disabled when textarea is empty and no images', () => {
       render(createElement(ChatInput, { onSend: vi.fn() }));
-      const btn = document.querySelector('button[aria-label="Send message"]') as HTMLButtonElement;
+      const btn = document.querySelector('button[aria-label="Enviar mensagem"]') as HTMLButtonElement;
       expect(btn).not.toBeNull();
       expect(btn.disabled).toBe(true);
     });
@@ -139,7 +139,7 @@ describe('ChatInput', () => {
     it('is enabled when textarea has text', () => {
       render(createElement(ChatInput, { onSend: vi.fn() }));
       typeText('Hello');
-      const btn = document.querySelector('button[aria-label="Send message"]') as HTMLButtonElement;
+      const btn = document.querySelector('button[aria-label="Enviar mensagem"]') as HTMLButtonElement;
       expect(btn.disabled).toBe(false);
     });
 
@@ -147,7 +147,7 @@ describe('ChatInput', () => {
       const onSend = vi.fn();
       render(createElement(ChatInput, { onSend }));
       typeText('Hello world');
-      const sendBtn = document.querySelector('button[aria-label="Send message"]')!;
+      const sendBtn = document.querySelector('button[aria-label="Enviar mensagem"]')!;
       act(() => {
         sendBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
@@ -158,7 +158,7 @@ describe('ChatInput', () => {
       const onSend = vi.fn();
       render(createElement(ChatInput, { onSend }));
       typeText('Hello');
-      const sendBtn = document.querySelector('button[aria-label="Send message"]')!;
+      const sendBtn = document.querySelector('button[aria-label="Enviar mensagem"]')!;
       act(() => {
         sendBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
@@ -203,14 +203,14 @@ describe('ChatInput', () => {
   describe('loading / disabled state', () => {
     it('shows Stop button when isLoading is true', () => {
       render(createElement(ChatInput, { onSend: vi.fn(), isLoading: true }));
-      expect(document.querySelector('button[aria-label="Stop generation"]')).not.toBeNull();
-      expect(document.querySelector('button[aria-label="Send message"]')).toBeNull();
+      expect(document.querySelector('button[aria-label="Parar resposta"]')).not.toBeNull();
+      expect(document.querySelector('button[aria-label="Enviar mensagem"]')).toBeNull();
     });
 
     it('calls onStop when Stop button is clicked', () => {
       const onStop = vi.fn();
       render(createElement(ChatInput, { onSend: vi.fn(), isLoading: true, onStop }));
-      const stopBtn = document.querySelector('button[aria-label="Stop generation"]')!;
+      const stopBtn = document.querySelector('button[aria-label="Parar resposta"]')!;
       act(() => {
         stopBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
@@ -225,7 +225,7 @@ describe('ChatInput', () => {
     it('disables image upload button when isLoading', () => {
       render(createElement(ChatInput, { onSend: vi.fn(), isLoading: true }));
       const imgBtn = document.querySelector(
-        'button[aria-label="Attach image"]'
+        'button[aria-label="Anexar imagem"]'
       ) as HTMLButtonElement;
       expect(imgBtn.disabled).toBe(true);
     });
@@ -244,7 +244,7 @@ describe('ChatInput', () => {
   describe('file upload', () => {
     it('renders image upload button', () => {
       render(createElement(ChatInput, { onSend: vi.fn() }));
-      expect(document.querySelector('button[aria-label="Attach image"]')).not.toBeNull();
+      expect(document.querySelector('button[aria-label="Anexar imagem"]')).not.toBeNull();
     });
 
     it('shows attachment error for oversized image', async () => {
@@ -397,7 +397,7 @@ describe('ChatInput', () => {
       const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
       const clickSpy = vi.spyOn(fileInput, 'click');
 
-      const imgBtn = container.querySelector('button[aria-label="Attach image"]')!;
+      const imgBtn = container.querySelector('button[aria-label="Anexar imagem"]')!;
       act(() => {
         imgBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
