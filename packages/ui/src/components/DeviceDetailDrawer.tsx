@@ -270,7 +270,9 @@ function CommandsTab({ device }: { device: EdgeDevice }) {
           </button>
         </div>
         {commands.length === 0 ? (
-          <p className="text-xs text-text-muted dark:text-dark-text-muted">Nenhum comando enviado.</p>
+          <p className="text-xs text-text-muted dark:text-dark-text-muted">
+            Nenhum comando enviado.
+          </p>
         ) : (
           <div className="space-y-1.5">
             {commands.map((cmd) => (

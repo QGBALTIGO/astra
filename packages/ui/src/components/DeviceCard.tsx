@@ -58,8 +58,7 @@ export function DeviceCard({ device, onDelete, onUpdate: _onUpdate, onClick }: D
     e.stopPropagation();
     const confirmed = await confirm({
       title: `Remover "${device.name}"?`,
-      message:
-        'O dispositivo e o histórico de telemetria serão excluídos permanentemente.',
+      message: 'O dispositivo e o histórico de telemetria serão excluídos permanentemente.',
       variant: 'danger',
     });
     if (!confirmed) return;

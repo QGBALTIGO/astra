@@ -219,7 +219,10 @@ export function NotesPage() {
           ]}
           steps={[
             { title: 'Crie uma anotação', detail: 'Clique em nova anotação para começar.' },
-            { title: 'Escreva ou cole o conteúdo', detail: 'Adicione um título e o conteúdo da anotação.' },
+            {
+              title: 'Escreva ou cole o conteúdo',
+              detail: 'Adicione um título e o conteúdo da anotação.',
+            },
             {
               title: 'Fixe as anotações importantes',
               detail: 'Pin notes you need quick access to.',

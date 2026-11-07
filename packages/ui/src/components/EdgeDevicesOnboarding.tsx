@@ -223,8 +223,7 @@ const USE_CASES: UseCase[] = [
   {
     emoji: '💡',
     title: 'Controle de atuadores',
-    description:
-      'Envie comandos para relés, LEDs, motores e servos mediante autorização.',
+    description: 'Envie comandos para relés, LEDs, motores e servos mediante autorização.',
     example: '"Desligue os relés da área B."',
   },
   {
@@ -251,20 +250,17 @@ const STEPS: Step[] = [
   {
     n: 2,
     title: 'Cadastre um dispositivo',
-    detail:
-      'Informe o tipo de dispositivo e configure sensores e atuadores conforme necessário.',
+    detail: 'Informe o tipo de dispositivo e configure sensores e atuadores conforme necessário.',
   },
   {
     n: 3,
     title: 'Instale o código do dispositivo',
-    detail:
-      'Use o exemplo Python ou Arduino e configure servidor MQTT, userId e deviceId.',
+    detail: 'Use o exemplo Python ou Arduino e configure servidor MQTT, userId e deviceId.',
   },
   {
     n: 4,
     title: 'Acompanhe as leituras',
-    detail:
-      'Quando o dispositivo publicar telemetria, as leituras poderão aparecer no painel.',
+    detail: 'Quando o dispositivo publicar telemetria, as leituras poderão aparecer no painel.',
   },
   {
     n: 5,
@@ -326,8 +322,7 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
       {/* Use cases */}
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
-          <Zap className="w-4 h-4 text-primary" />
-          O que você pode fazer
+          <Zap className="w-4 h-4 text-primary" />O que você pode fazer
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {USE_CASES.map((uc) => (
@@ -402,7 +397,9 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
 
       {/* Requirements */}
       <div className="border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 rounded-xl p-4 space-y-2">
-        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">⚙️ Pré-requisitos</p>
+        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+          ⚙️ Pré-requisitos
+        </p>
         <ul className="text-xs text-amber-700 dark:text-amber-300 space-y-1 list-none">
           <li>
             <span className="font-mono bg-amber-100 dark:bg-amber-500/20 px-1.5 py-0.5 rounded">

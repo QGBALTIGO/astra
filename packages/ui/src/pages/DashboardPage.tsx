@@ -575,7 +575,9 @@ export function DashboardPage() {
       </div>
 
       {/* Content */}
-      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:space-y-6 sm:p-6">{renderTabContent()}</div>
+      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:space-y-6 sm:p-6">
+        {renderTabContent()}
+      </div>
 
       {/* Quick Add Modal */}
       {quickAddType && (

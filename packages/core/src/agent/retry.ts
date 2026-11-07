@@ -191,13 +191,10 @@ export async function withRetry<T>(
       // Check if result is an error that should be retried
       if (!result.ok && attempt < maxRetries && retryableErrors(result.error)) {
         lastError = result.error;
-        const delayMs = providerRetryDelay(result.error, calculateDelay(
-          attempt,
-          initialDelayMs,
-          maxDelayMs,
-          backoffMultiplier,
-          addJitter
-        ));
+        const delayMs = providerRetryDelay(
+          result.error,
+          calculateDelay(attempt, initialDelayMs, maxDelayMs, backoffMultiplier, addJitter)
+        );
 
         onRetry(attempt + 1, result.error, delayMs);
         log.info(`Attempt ${attempt + 1}/${maxRetries} failed, retrying in ${delayMs}ms...`);
@@ -214,13 +211,10 @@ export async function withRetry<T>(
 
       // Check if we should retry
       if (attempt < maxRetries && retryableErrors(error)) {
-        const delayMs = providerRetryDelay(error, calculateDelay(
-          attempt,
-          initialDelayMs,
-          maxDelayMs,
-          backoffMultiplier,
-          addJitter
-        ));
+        const delayMs = providerRetryDelay(
+          error,
+          calculateDelay(attempt, initialDelayMs, maxDelayMs, backoffMultiplier, addJitter)
+        );
 
         onRetry(attempt + 1, error, delayMs);
         log.info(

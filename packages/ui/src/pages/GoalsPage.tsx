@@ -288,7 +288,11 @@ export function GoalsPage() {
             ) : goals.length === 0 ? (
               <EmptyState
                 icon={Target}
-                title={statusFilter === 'all' ? 'Nenhum objetivo ainda' : `Nenhum objetivo com status ${statusFilter}`}
+                title={
+                  statusFilter === 'all'
+                    ? 'Nenhum objetivo ainda'
+                    : `Nenhum objetivo com status ${statusFilter}`
+                }
                 description={
                   statusFilter === 'all'
                     ? 'Crie objetivos e acompanhe seu progresso. O Astra pode ajudar a dividir cada meta em etapas práticas.'

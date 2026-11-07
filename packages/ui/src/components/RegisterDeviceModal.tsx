@@ -281,10 +281,7 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
               </p>
             )}
             {sensors.map((s, i) => (
-              <div
-                key={i}
-                className="flex flex-wrap gap-2 mb-2 items-center"
-              >
+              <div key={i} className="flex flex-wrap gap-2 mb-2 items-center">
                 <input
                   type="text"
                   value={s.id}
