@@ -107,7 +107,7 @@ export function ContextBar({
       {cachedTokens != null && cachedTokens > 0 && (
         <span
           className="hidden whitespace-nowrap text-text-tertiary dark:text-dark-text-tertiary sm:inline"
-          title={`${formatNumber(cachedTokens)} tokens served from prompt cache (≈10% of normal cost)`}
+          title={`${formatNumber(cachedTokens)} tokens recuperados do cache (custo aproximado de 10% do normal)`}
         >
           {formatNumber(cachedTokens)} em cache
           {estimatedTokens > 0 && (
