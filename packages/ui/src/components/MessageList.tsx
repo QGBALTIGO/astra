@@ -45,7 +45,7 @@ export function MessageList({
   onSuggestionSelect,
 }: MessageListProps) {
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
       {messages.map((message, index) => (
         <MessageBubble
           key={message.id}
@@ -165,10 +165,10 @@ function MessageBubble({
   };
 
   return (
-    <div className={`flex gap-4 ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div className={`flex min-w-0 gap-2 sm:gap-4 ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
       <div
-        className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full sm:h-10 sm:w-10 ${
           isUser
             ? 'bg-gradient-to-br from-primary to-primary-dark text-white'
             : 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white'
@@ -178,7 +178,7 @@ function MessageBubble({
       </div>
 
       {/* Content */}
-      <div className={`group flex-1 max-w-[85%] ${isUser ? 'text-right' : 'text-left'}`}>
+      <div className={`group min-w-0 flex-1 max-w-[calc(100%-2.5rem)] sm:max-w-[85%] ${isUser ? 'text-right' : 'text-left'}`}>
         {/* User attachments */}
         {isUser && message.attachments && message.attachments.length > 0 && (
           <div className={`flex gap-2 mb-2 ${isUser ? 'justify-end' : ''} flex-wrap`}>
@@ -214,7 +214,7 @@ function MessageBubble({
           const hasCodeBlock = /```[\s\S]*?```/.test(displayContent);
           return (
             <div
-              className={`${hasCodeBlock ? 'block w-full' : 'inline-block'} px-4 py-3 rounded-2xl ${
+              className={`${hasCodeBlock ? 'block w-full' : 'inline-block'} max-w-full break-words rounded-2xl px-3 py-2.5 text-sm leading-relaxed sm:px-4 sm:py-3 ${
                 isUser
                   ? 'bg-primary text-white rounded-tr-md'
                   : isError
@@ -222,7 +222,13 @@ function MessageBubble({
                     : 'bg-bg-secondary dark:bg-dark-bg-secondary text-text-primary dark:text-dark-text-primary rounded-tl-md border border-border dark:border-dark-border'
               }`}
             >
-              <MarkdownContent content={displayContent} workspaceId={workspaceId} />
+              {!isUser && !displayContent.trim() && widgets.length === 0 && suggestions.length === 0 ? (
+                <p role="status" className="break-words text-sm leading-relaxed">
+                  O Astra não retornou uma resposta em texto. Consulte os detalhes ou tente novamente.
+                </p>
+              ) : (
+                <MarkdownContent content={displayContent} workspaceId={workspaceId} />
+              )}
             </div>
           );
         })()}
@@ -293,12 +299,12 @@ function MessageBubble({
             {copied ? (
               <>
                 <Check className="w-3 h-3 text-green-500" />
-                <span className="text-green-500">Copied</span>
+                <span className="text-green-500">Copiado</span>
               </>
             ) : (
               <>
                 <Copy className="w-3 h-3" />
-                <span>Copy</span>
+                <span>Copiar</span>
               </>
             )}
           </button>
@@ -342,7 +348,7 @@ function MessageBubble({
           </div>
         )}
 
-        {/* Tool Calls - Collapsible container */}
+        {/* Ferramentas usadas - Collapsible container */}
         {(() => {
           // Merge tool calls from message.toolCalls and trace
           const toolCallItems = message.toolCalls?.length
@@ -408,13 +414,13 @@ function MessageBubble({
                   </div>
                   <Wrench className="w-3.5 h-3.5 text-text-muted dark:text-dark-text-muted" />
                   <span className="font-medium text-text-secondary dark:text-dark-text-secondary">
-                    Tool Calls
+                    Ferramentas usadas
                   </span>
                   <div className="flex items-center gap-2 ml-auto text-xs">
                     <span className={`${errorCount > 0 ? 'text-yellow-500' : 'text-green-500'}`}>
                       {successCount}/{toolCallItems.length}
                     </span>
-                    {errorCount > 0 && <span className="text-red-500">{errorCount} failed</span>}
+                    {errorCount > 0 && <span className="text-red-500">{errorCount} falhas</span>}
                   </div>
                 </button>
 

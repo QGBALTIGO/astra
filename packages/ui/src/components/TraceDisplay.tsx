@@ -56,7 +56,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
         <div className="flex items-center">
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex-1 flex items-center gap-3 px-3 py-2 hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
+            className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
           >
             <div className="text-text-muted dark:text-dark-text-muted">
               {isExpanded ? (
@@ -67,11 +67,11 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
             </div>
 
             <span className="font-medium text-text-secondary dark:text-dark-text-secondary">
-              Debug Info
+              Detalhes técnicos
             </span>
 
             {/* Quick Stats */}
-            <div className="flex items-center gap-3 ml-auto text-xs">
+            <div className="ml-auto hidden min-w-0 items-center gap-2 text-xs sm:flex">
               <span className="flex items-center gap-1 text-text-muted dark:text-dark-text-muted">
                 <Clock className="w-3 h-3" />
                 {trace.duration}ms
@@ -135,7 +135,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
           <button
             onClick={() => setShowModal(true)}
             className="px-3 py-2 text-xs text-primary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors flex items-center gap-1.5 border-l border-border dark:border-dark-border"
-            title="Open full debug logs"
+            title="Abrir registros técnicos"
           >
             <ExternalLink className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Logs</span>

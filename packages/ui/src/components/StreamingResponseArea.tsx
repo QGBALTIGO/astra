@@ -207,7 +207,7 @@ export function StreamingResponseArea({
               style={{ animationDelay: '300ms' }}
             />
           </div>
-          <span>Thinking...</span>
+          <span>Pensando...</span>
         </div>
       )}
     </div>

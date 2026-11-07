@@ -222,7 +222,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         .filter((a) => a.type === 'prompt' && a.promptText)
         .map((a) => a.promptText!)
         .join('\n\n');
-      const rawUserText = value.trim() || (imagePreviews.length > 0 ? 'Analyze this image.' : '');
+      const rawUserText = value.trim() || (imagePreviews.length > 0 ? 'Descreva esta imagem.' : '');
       const userText = promptPrefixes ? `${promptPrefixes}\n\n${rawUserText}` : rawUserText;
       const contextBlock = buildContextBlock(attachments);
       const finalMessage = userText + contextBlock;
@@ -278,7 +278,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-3 items-end">
+    <form onSubmit={handleSubmit} className="flex min-w-0 items-end gap-2 sm:gap-3">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -290,7 +290,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         aria-hidden="true"
       />
 
-      <div className="flex-1 relative">
+      <div className="relative min-w-0 flex-1">
         {/* Image previews */}
         {imagePreviews.length > 0 && (
           <div className="flex gap-2 mb-2 px-1">
@@ -346,7 +346,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           </div>
         )}
 
-        <div className="flex items-end gap-1">
+        <div className="flex min-w-0 items-end gap-1">
           {/* Resource Picker Button */}
           <ToolPicker onSelect={handleResourceSelect} disabled={isLoading} />
 
@@ -357,7 +357,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             disabled={isLoading || imagePreviews.length >= MAX_IMAGE_ATTACHMENTS}
             className="p-2.5 text-text-muted dark:text-dark-text-muted hover:text-primary dark:hover:text-primary hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Anexar imagem"
-            title={`Attach image (max ${MAX_IMAGE_ATTACHMENTS})`}
+            title={`Anexar imagem (máximo ${MAX_IMAGE_ATTACHMENTS})`}
           >
             <Image className="w-5 h-5" />
           </button>
@@ -372,7 +372,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           />
 
           {/* Textarea */}
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <textarea
               ref={textareaRef}
               value={value}
@@ -380,14 +380,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               onKeyDown={handleKeyDown}
               placeholder={
                 imagePreviews.length > 0
-                  ? 'Describe what you want to know about the image...'
+                  ? 'O que você quer saber sobre a imagem?'
                   : attachments.length > 0
-                    ? 'Ask about the attached context...'
+                    ? 'Pergunte sobre o contexto anexado...'
                     : placeholder
               }
               disabled={isLoading}
               rows={1}
-              className="w-full px-4 py-3 bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary placeholder:text-text-muted dark:placeholder:text-dark-text-muted border border-border dark:border-dark-border rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="w-full min-w-0 px-3 py-3 text-base sm:px-4 sm:text-sm bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary placeholder:text-text-muted dark:placeholder:text-dark-text-muted border border-border dark:border-dark-border rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             />
           </div>
         </div>
@@ -398,7 +398,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         <button
           type="button"
           onClick={handleStop}
-          className="px-4 py-3 bg-error hover:bg-error/90 text-white rounded-xl transition-colors flex items-center justify-center"
+          className="shrink-0 px-3 py-3 sm:px-4 bg-error hover:bg-error/90 text-white rounded-xl transition-colors flex items-center justify-center"
           aria-label="Parar resposta"
           title="Parar resposta"
         >
@@ -408,7 +408,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         <button
           type="submit"
           disabled={!value.trim() && imagePreviews.length === 0}
-          className="px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+          className="shrink-0 px-3 py-3 sm:px-4 bg-primary hover:bg-primary-dark text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
           aria-label="Enviar mensagem"
         >
           <Send className="w-5 h-5" />

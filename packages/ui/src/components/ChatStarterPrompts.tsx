@@ -207,10 +207,10 @@ export function ChatStarterPrompts({
   if (!show) return null;
 
   return (
-    <div className="astra-chat-welcome flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-      <div className="h-full flex items-center justify-center">
-        <div className="astra-welcome-inner text-center w-full max-w-2xl">
-          <h3 className="astra-welcome-title text-2xl font-semibold text-text-primary dark:text-dark-text-primary mb-3">
+    <div className="astra-chat-welcome flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-2 py-3 sm:px-6 sm:py-6">
+      <div className="flex min-h-full w-full items-center justify-center">
+        <div className="astra-welcome-inner w-full min-w-0 max-w-2xl text-center">
+          <h3 className="astra-welcome-title mb-2 text-xl font-semibold leading-tight text-text-primary dark:text-dark-text-primary sm:mb-3 sm:text-2xl">
             O que vamos organizar hoje?
           </h3>
 
@@ -261,7 +261,7 @@ function NoProvidersMessage() {
           <span className="font-medium">Nenhuma chave de IA configurada</span>
         </div>
         <p className="text-sm text-text-muted dark:text-dark-text-muted">
-          Configure at least one AI provider to start chatting.
+          Configure o Groq para conversar com o Astra.
         </p>
       </div>
       <a
@@ -288,8 +288,8 @@ function DefaultWelcome({
         Converse naturalmente sobre suas tarefas, agenda, lembretes e finanças.
       </p>
       <p className="text-sm text-text-muted dark:text-dark-text-muted mb-4">
-        IA conectada: <span className="font-medium text-primary">{currentProviderName}</span> /{' '}
-        <span className="font-mono">{model}</span>
+        IA conectada: <span className="font-medium text-primary">{currentProviderName}</span>
+        <span className="hidden sm:inline"> · {model}</span>
       </p>
     </>
   );
