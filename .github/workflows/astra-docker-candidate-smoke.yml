@@ -1,0 +1,31 @@
+name: Astra release candidate Docker smoke
+on:
+  push:
+    branches:
+      - test/astra-docker-1001639e-20261107
+    paths:
+      - .github/workflows/astra-docker-candidate-smoke.yml
+permissions:
+  contents: read
+jobs:
+  docker-build:
+    if: github.repository == 'QGBALTIGO/astra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/astra-docker-1001639e-20261107
+      - name: Verify reviewed Astra source commit
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "1001639e735d6c7795abd04f6007e7f20fd9e3ed"
+          git show --oneline --stat HEAD
+      - name: Build candidate Docker image without publishing
+        run: docker build --progress=plain --tag astra-review:1001639e .
+      - name: Inspect production image runtime
+        run: |
+          docker image inspect astra-review:1001639e --format '{{.Id}} {{.Architecture}} {{.Config.User}}'
+          docker run --rm --entrypoint node astra-review:1001639e --version
+      - name: Confirm no registry publishing was performed
+        run: echo "The image was only built on this runner; no push or deployment was requested."
