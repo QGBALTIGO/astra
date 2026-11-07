@@ -565,7 +565,7 @@ export function ChannelsPage() {
                               className={`w-1.5 h-1.5 rounded-full ${getStatusColor(ch.status).replace('text-', 'bg-')}`}
                             />
                             <span className="text-[10px] text-text-muted dark:text-dark-text-muted capitalize">
-                              {ch.status}
+                              {{ connected: 'Conectado', connecting: 'Conectando', disconnected: 'Desconectado', error: 'Erro' }[ch.status] ?? ch.status}
                             </span>
                             {ch.botInfo?.username && (
                               <span className="text-[10px] text-text-muted dark:text-dark-text-muted">
