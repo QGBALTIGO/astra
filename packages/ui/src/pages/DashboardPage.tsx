@@ -240,7 +240,9 @@ export function DashboardPage() {
                 label: 'Despesas',
                 value: expenses.total,
                 sub:
-                  expenses.thisMonth > 0 ? `${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(expenses.thisMonth)} neste mês` : undefined,
+                  expenses.thisMonth > 0
+                    ? `${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(expenses.thisMonth)} neste mês`
+                    : undefined,
                 icon: Receipt,
                 color: 'text-orange-500',
                 bgColor: 'bg-orange-500/10',
@@ -436,7 +438,11 @@ export function DashboardPage() {
                 </Link>
               </div>
               <p className="text-sm text-text-muted dark:text-dark-text-muted">
-                {summary.calendar.upcoming} {summary.calendar.upcoming === 1 ? 'compromisso previsto' : 'compromissos previstos'} para esta semana
+                {summary.calendar.upcoming}{' '}
+                {summary.calendar.upcoming === 1
+                  ? 'compromisso previsto'
+                  : 'compromissos previstos'}{' '}
+                para esta semana
               </p>
             </div>
           )}

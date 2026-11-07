@@ -244,9 +244,7 @@ export function ProvidersTab() {
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 provider.isEnabled ? 'bg-primary' : 'bg-bg-tertiary dark:bg-dark-bg-tertiary'
               }`}
-              title={
-                provider.isEnabled ? 'Desativar provedor' : 'Ativar provedor'
-              }
+              title={provider.isEnabled ? 'Desativar provedor' : 'Ativar provedor'}
             >
               <span
                 className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -309,7 +307,9 @@ export function ProvidersTab() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">Provedores de IA</h3>
+        <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
+          Provedores de IA
+        </h3>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           Revise as conexões, o tipo de API e os modelos de forma organizada.
         </p>
@@ -338,7 +338,11 @@ export function ProvidersTab() {
                   : 'bg-bg-tertiary text-text-secondary dark:bg-dark-bg-tertiary dark:text-dark-text-secondary hover:bg-primary/10'
               }`}
             >
-              {{ all: 'Todos', configured: 'Configurados', unconfigured: 'Não configurados' }[filter]}
+              {
+                { all: 'Todos', configured: 'Configurados', unconfigured: 'Não configurados' }[
+                  filter
+                ]
+              }
             </button>
           ))}
         </div>
@@ -347,7 +351,9 @@ export function ProvidersTab() {
       {/* Stats */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="card-elevated rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary">
-          <p className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">{providers.length}</p>
+          <p className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">
+            {providers.length}
+          </p>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">Total de provedores</p>
         </div>
         <div className="card-elevated rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary">
@@ -509,8 +515,8 @@ export function ProvidersTab() {
                     <option value="free">Gratuito (local ou cota gratuita)</option>
                   </select>
                   <p className="mt-1 text-xs text-text-muted dark:text-dark-text-muted">
-                    Pagamento por uso: cobrança por token. Assinatura: valor mensal fixo.
-                    Gratuito: sem cobrança por chamada.
+                    Pagamento por uso: cobrança por token. Assinatura: valor mensal fixo. Gratuito:
+                    sem cobrança por chamada.
                   </p>
                 </div>
 

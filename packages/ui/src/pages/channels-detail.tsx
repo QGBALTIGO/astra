@@ -102,7 +102,9 @@ export function ChannelDetail({
       toast.success('Mensagem de teste enviada');
       setShowTestForm(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Não foi possível enviar a mensagem de teste');
+      toast.error(
+        err instanceof Error ? err.message : 'Não foi possível enviar a mensagem de teste'
+      );
     } finally {
       setIsSending(false);
     }
@@ -600,8 +602,8 @@ export function PairingBanner() {
             <div className="flex items-center gap-2">
               <Key className="w-4 h-4 text-warning" />
               <span className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-                {unclaimedChannels.length} {unclaimedChannels.length === 1 ? 'canal precisa' : 'canais precisam'} de
-                setup
+                {unclaimedChannels.length}{' '}
+                {unclaimedChannels.length === 1 ? 'canal precisa' : 'canais precisam'} de setup
               </span>
             </div>
             <span className="text-xs text-text-muted dark:text-dark-text-muted">

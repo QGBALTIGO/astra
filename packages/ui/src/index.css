@@ -694,7 +694,10 @@ body {
 .astra-main .astra-stat-card {
   display: block;
   min-height: 104px;
-  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 .astra-main .astra-stat-card:hover {
   border-color: rgba(46, 123, 246, 0.45);

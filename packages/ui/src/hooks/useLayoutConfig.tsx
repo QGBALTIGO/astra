@@ -489,9 +489,7 @@ function readConfig(): LayoutConfig {
       localStorage.setItem('astra-orion-nav-v2', '1');
       const previous = JSON.parse(raw);
       if (isValidConfig(previous) && previous.version === LAYOUT_CONFIG_VERSION) {
-        const previousSections = [...previous.sidebar.sections].sort(
-          (a, b) => a.order - b.order
-        );
+        const previousSections = [...previous.sidebar.sections].sort((a, b) => a.order - b.order);
         const legacyIds = [
           '/',
           '/dashboard',
@@ -507,8 +505,10 @@ function readConfig(): LayoutConfig {
         ];
         if (legacyIds.every((id, index) => previousSections[index]?.id === id)) {
           const orderedIds = new Set(DEFAULT_SIDEBAR_SECTIONS.map((section) => section.id));
-          const defaults = DEFAULT_SIDEBAR_SECTIONS.map((section) =>
-            previousSections.find((previousSection) => previousSection.id === section.id) ?? section
+          const defaults = DEFAULT_SIDEBAR_SECTIONS.map(
+            (section) =>
+              previousSections.find((previousSection) => previousSection.id === section.id) ??
+              section
           );
           const extraSections = previousSections.filter((section) => !orderedIds.has(section.id));
           const next = {

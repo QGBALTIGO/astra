@@ -39,10 +39,29 @@ const NAV_GROUP_LABELS: Record<string, string> = {
 function getVisualNavGroup(id: string): string {
   if (id === '/' || id === '/dashboard' || id === 'search' || id === 'recents' || id === '/history')
     return 'principal';
-  if (id === 'scheduled' || ['/calendar', '/tasks', '/expenses', '/memories', '/triggers', 'tasks', 'notes', 'habits', 'goals', 'memories', 'contacts'].includes(id))
+  if (
+    id === 'scheduled' ||
+    [
+      '/calendar',
+      '/tasks',
+      '/expenses',
+      '/memories',
+      '/triggers',
+      'tasks',
+      'notes',
+      'habits',
+      'goals',
+      'memories',
+      'contacts',
+    ].includes(id)
+  )
     return 'rotina';
   if (id === 'customize') return 'preferencias';
-  if (['/channels', 'channels', 'edge-devices', '/edge-devices', 'mcp-servers', 'ai-models'].includes(id))
+  if (
+    ['/channels', 'channels', 'edge-devices', '/edge-devices', 'mcp-servers', 'ai-models'].includes(
+      id
+    )
+  )
     return 'conexoes';
   const group = getSectionGroup(id);
   if (group === 'personal') return 'rotina';
@@ -205,14 +224,21 @@ export function Sidebar({
       )}
 
       {/* Navigation — config-driven section rendering */}
-      <nav className="astra-sidebar-nav flex-1 min-h-0 overflow-y-auto" data-testid="sidebar-nav" aria-label="Navegação principal">
+      <nav
+        className="astra-sidebar-nav flex-1 min-h-0 overflow-y-auto"
+        data-testid="sidebar-nav"
+        aria-label="Navegação principal"
+      >
         {visibleSections.map((section, sectionIdx) => {
           const currentGroup = getVisualNavGroup(section.id);
           const previousGroup =
             sectionIdx > 0 ? getVisualNavGroup(visibleSections[sectionIdx - 1]!.id) : null;
           const divider =
             currentGroup !== previousGroup ? (
-              <p className="astra-sidebar-group-label" data-testid={`sidebar-group-${currentGroup}`}>
+              <p
+                className="astra-sidebar-group-label"
+                data-testid={`sidebar-group-${currentGroup}`}
+              >
                 {NAV_GROUP_LABELS[currentGroup]}
               </p>
             ) : null;
@@ -244,17 +270,17 @@ export function Sidebar({
               <div key={section.id}>
                 {divider}
                 <PinnedNavLink
-                item={navItem}
-                onCloseCustomize={onCloseCustomize}
-                isCustomizeOpen={isCustomizeOpen}
-                badge={
-                  section.id === '/history'
-                    ? badgeCounts.inbox
-                    : section.id === '/tasks'
-                      ? badgeCounts.tasks
-                      : undefined
-                }
-              />
+                  item={navItem}
+                  onCloseCustomize={onCloseCustomize}
+                  isCustomizeOpen={isCustomizeOpen}
+                  badge={
+                    section.id === '/history'
+                      ? badgeCounts.inbox
+                      : section.id === '/tasks'
+                        ? badgeCounts.tasks
+                        : undefined
+                  }
+                />
               </div>
             );
           }
@@ -264,14 +290,14 @@ export function Sidebar({
               return (
                 <div key="search">
                   {divider}
-                <button
-                  onClick={onSearchOpen}
-                  data-testid="sidebar-search-btn"
-                  className="astra-nav-link w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary text-left"
-                >
-                  <Search className="w-4 h-4 shrink-0" />
-                  <span className="truncate flex-1">Buscar</span>
-                </button>
+                  <button
+                    onClick={onSearchOpen}
+                    data-testid="sidebar-search-btn"
+                    className="astra-nav-link w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary text-left"
+                  >
+                    <Search className="w-4 h-4 shrink-0" />
+                    <span className="truncate flex-1">Buscar</span>
+                  </button>
                 </div>
               );
 
@@ -279,22 +305,22 @@ export function Sidebar({
               return (
                 <div key="scheduled">
                   {divider}
-                <NavLink
-                  to="/calendar"
-                  end
-                  onClick={onCloseCustomize}
-                  data-testid="sidebar-scheduled-link"
-                  className={({ isActive }) =>
-                    `astra-nav-link flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm transition-colors ${
-                      isActive && !isCustomizeOpen
-                        ? 'astra-nav-link--active'
-                        : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
-                    }`
-                  }
-                >
-                  <Calendar className="w-4 h-4 shrink-0" />
-                  <span className="truncate flex-1">Agenda</span>
-                </NavLink>
+                  <NavLink
+                    to="/calendar"
+                    end
+                    onClick={onCloseCustomize}
+                    data-testid="sidebar-scheduled-link"
+                    className={({ isActive }) =>
+                      `astra-nav-link flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm transition-colors ${
+                        isActive && !isCustomizeOpen
+                          ? 'astra-nav-link--active'
+                          : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
+                      }`
+                    }
+                  >
+                    <Calendar className="w-4 h-4 shrink-0" />
+                    <span className="truncate flex-1">Agenda</span>
+                  </NavLink>
                 </div>
               );
 

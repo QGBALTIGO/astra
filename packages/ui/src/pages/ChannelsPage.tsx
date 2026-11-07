@@ -319,7 +319,10 @@ export function ChannelsPage() {
   const handleDeleteUser = useCallback(
     async (userId: string) => {
       if (
-        !(await confirm({ message: 'Excluir este usuário? Essa ação não poderá ser desfeita.', variant: 'danger' }))
+        !(await confirm({
+          message: 'Excluir este usuário? Essa ação não poderá ser desfeita.',
+          variant: 'danger',
+        }))
       )
         return;
       try {
@@ -565,7 +568,12 @@ export function ChannelsPage() {
                               className={`w-1.5 h-1.5 rounded-full ${getStatusColor(ch.status).replace('text-', 'bg-')}`}
                             />
                             <span className="text-[10px] text-text-muted dark:text-dark-text-muted capitalize">
-                              {{ connected: 'Conectado', connecting: 'Conectando', disconnected: 'Desconectado', error: 'Erro' }[ch.status] ?? ch.status}
+                              {{
+                                connected: 'Conectado',
+                                connecting: 'Conectando',
+                                disconnected: 'Desconectado',
+                                error: 'Erro',
+                              }[ch.status] ?? ch.status}
                             </span>
                             {ch.botInfo?.username && (
                               <span className="text-[10px] text-text-muted dark:text-dark-text-muted">
