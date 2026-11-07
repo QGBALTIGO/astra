@@ -34,7 +34,7 @@ export function formatChannelTables(markdown: string): string {
       if (headers.length >= 2 && headers.length <= 12 && isDivider(lines[i + 1]!, headers.length)) {
         const rows: string[][] = [];
         let j = i + 2;
-        while (j < lines.length && lines[j]!.includes('|')) {
+        while (j < lines.length && lines[j]!.trimStart().startsWith('|')) {
           const cells = parseCells(lines[j]!);
           if (cells.length !== headers.length) break;
           rows.push(cells);
