@@ -107,13 +107,13 @@ function formatDate(dateStr: string): string {
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
   if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' });
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  if (diffDays === 1) return 'Ontem';
+  if (diffDays < 7) return d.toLocaleDateString('pt-BR', { weekday: 'short' });
+  return d.toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' });
 }
 
 function formatFullDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleString([], {
+  return new Date(dateStr).toLocaleString('pt-BR', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -126,12 +126,12 @@ type ConvSource = 'telegram' | 'discord' | 'whatsapp' | 'slack' | 'web';
 
 /** Detect conversation source and platform */
 function getSource(conv: Conversation): ConvSource {
-  if (conv.source === 'canal' && conv.channelPlatform) {
+  if (conv.source === 'channel' && conv.channelPlatform) {
     return conv.channelPlatform as ConvSource;
   }
   // Fallback: detect from metadata
   const meta = conv.metadata as Record<string, unknown> | undefined;
-  if (meta?.source === 'canal') {
+  if (meta?.source === 'channel') {
     const platform = meta.platform as string;
     if (platform === 'discord') return 'discord';
     if (platform === 'whatsapp') return 'whatsapp';
