@@ -119,7 +119,7 @@ function optionalConfigString(config: Record<string, unknown>, key: string): str
 }
 
 function parseMode(value: unknown): TelegramChannelConfig['parse_mode'] {
-  return value === 'Markdown' || value === 'MarkdownV2' || value === 'HTML' ? value : undefined;
+  return value === 'Markdown' || value === 'MarkdownV2' || value === 'HTML' ? value : 'HTML';
 }
 
 function voiceReplyMode(value: unknown): TelegramChannelConfig['voice_reply_mode'] {
