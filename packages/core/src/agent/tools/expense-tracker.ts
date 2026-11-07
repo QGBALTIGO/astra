@@ -210,8 +210,8 @@ export const addExpenseTool: ToolDefinition = {
       },
       currency: {
         type: 'string',
-        description: 'Currency code (TRY, USD, EUR). Defaults to TRY.',
-        enum: ['TRY', 'USD', 'EUR', 'GBP'],
+        description: 'Currency code (BRL, TRY, USD, EUR, GBP). Defaults to BRL.',
+        enum: ['BRL', 'TRY', 'USD', 'EUR', 'GBP'],
       },
       category: {
         type: 'string',
@@ -273,7 +273,7 @@ export const addExpenseExecutor: ToolExecutor = async (
       id: generateExpenseId(),
       date: (args.date as string) ?? localDayString(new Date()),
       amount: args.amount as number,
-      currency: (args.currency as string) ?? 'TRY',
+      currency: (args.currency as string) ?? 'BRL',
       category: args.category as ExpenseCategory,
       description: args.description as string,
       paymentMethod: args.paymentMethod as string | undefined,
@@ -329,8 +329,8 @@ export const batchAddExpensesTool: ToolDefinition = {
             },
             currency: {
               type: 'string',
-              description: 'Currency code (TRY, USD, EUR). Defaults to TRY.',
-              enum: ['TRY', 'USD', 'EUR', 'GBP'],
+              description: 'Currency code (BRL, TRY, USD, EUR, GBP). Defaults to BRL.',
+              enum: ['BRL', 'TRY', 'USD', 'EUR', 'GBP'],
             },
             category: {
               type: 'string',
@@ -399,7 +399,7 @@ export const batchAddExpensesExecutor: ToolExecutor = async (
         id: generateExpenseId(),
         date: input.date ?? localDayString(new Date()),
         amount: input.amount,
-        currency: input.currency ?? 'TRY',
+        currency: input.currency ?? 'BRL',
         category: input.category,
         description: input.description,
         paymentMethod: input.paymentMethod,
@@ -422,7 +422,7 @@ export const batchAddExpensesExecutor: ToolExecutor = async (
         addedCount: addedExpenses.length,
         totalAmount,
         expenses: addedExpenses,
-        message: `Added ${addedExpenses.length} expenses (total: ${totalAmount} ${addedExpenses[0]?.currency ?? 'TRY'})`,
+        message: `Added ${addedExpenses.length} expenses (total: ${totalAmount} ${addedExpenses[0]?.currency ?? 'BRL'})`,
         totalExpenses: db.expenses.length,
       }),
     };
@@ -967,7 +967,7 @@ const updateExpenseTool: ToolDefinition = {
       },
       currency: {
         type: 'string',
-        enum: ['TRY', 'USD', 'EUR', 'GBP'],
+        enum: ['BRL', 'TRY', 'USD', 'EUR', 'GBP'],
         description: 'New currency',
       },
       category: {
