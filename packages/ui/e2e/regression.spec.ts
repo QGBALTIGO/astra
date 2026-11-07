@@ -31,55 +31,32 @@ test.describe('Regression Tests — Cross-Feature Verification', () => {
     expect(hasDetail).toBe(true);
   });
 
-  // === MINI CHAT ===
+  // === MAIN CHAT ACCESS ===
 
-  test('MiniChat float button is visible on non-chat pages', async ({ page }) => {
-    // MiniChat is hidden on "/" (ChatPage) and on mobile
+  test('assistente principal permanece acessível a partir do dashboard', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/dashboard');
-    await page.waitForTimeout(2000);
-
-    const chatButton = page.locator('[aria-label="Open chat"]');
-    // On /dashboard, MiniChat should be visible (float button)
-    await expect(chatButton).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="sidebar"]')).toBeVisible();
+    await page.locator('[data-testid="sidebar"] a[href="/"]').first().click();
+    await expect(page.getByPlaceholder('Escreva sua mensagem...')).toBeVisible();
   });
 
-  test('MiniChat is hidden on ChatPage (/)', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
+  test('a página de chat exibe seu compositor sem botão lateral duplicado', async ({ page }) => {
     await page.goto('/');
-    await page.waitForTimeout(2000);
-
-    const chatButton = page.locator('[aria-label="Open chat"]');
-    const count = await chatButton.count();
-    // Should NOT be visible on the main chat page
-    expect(count).toBe(0);
+    await expect(page.getByPlaceholder('Escreva sua mensagem...')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Enviar mensagem' })).toBeVisible();
+    await expect(page.locator('[aria-label="Open chat"]')).toHaveCount(0);
   });
 
-  test('MiniChat opens and closes', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
+  test('alternar entre dashboard e conversa mantém entrada do chat disponível', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await expect(page.getByPlaceholder('Escreva sua mensagem...')).toBeVisible();
     await page.goto('/dashboard');
-    await page.waitForTimeout(2000);
-
-    const chatButton = page.locator('[aria-label="Open chat"]');
-    if ((await chatButton.count()) === 0) {
-      test.skip();
-      return;
-    }
-
-    // Open MiniChat
-    await chatButton.click();
-    await page.waitForTimeout(500);
-
-    // Close button should appear
-    const closeButton = page.locator('[aria-label="Close chat"]');
-    await expect(closeButton).toBeVisible({ timeout: 3000 });
-
-    // Close MiniChat
-    await closeButton.click();
-    await page.waitForTimeout(500);
-
-    // Float button should reappear
-    await expect(chatButton).toBeVisible({ timeout: 3000 });
+    await expect(page.locator('#main-content')).toBeVisible();
+    await page.goto('/');
+    await expect(page.getByPlaceholder('Escreva sua mensagem...')).toBeVisible();
   });
 
   // === MOBILE SIDEBAR ===
@@ -90,7 +67,7 @@ test.describe('Regression Tests — Cross-Feature Verification', () => {
     await page.waitForTimeout(2000);
 
     // Desktop sidebar should be hidden on mobile
-    const menuButton = page.locator('button[aria-label="Open menu"]').first();
+    const menuButton = page.locator('button[aria-label="Abrir menu"]').first();
     await expect(menuButton).toBeVisible({ timeout: 5000 });
 
     // Open sidebar
@@ -139,7 +116,8 @@ test.describe('Regression Tests — Cross-Feature Verification', () => {
       }
     });
 
-    await page.goto('/customize');
+    await page.goto('/');
+    await page.locator('[data-testid="sidebar-customize-link"] button').click();
     await page.waitForTimeout(3000);
 
     const realErrors = consoleErrors.filter(
@@ -186,8 +164,8 @@ test.describe('Regression Tests — Cross-Feature Verification', () => {
     await page.waitForTimeout(1000);
     await expect(page.locator('[data-testid="sidebar"]')).toBeVisible();
 
-    // Navigate to customize
-    await page.goto('/customize');
+    // Open the persistent customization panel.
+    await page.locator('[data-testid="sidebar-customize-link"] button').click();
     await page.waitForTimeout(1000);
     await expect(page.locator('[data-testid="sidebar"]')).toBeVisible();
 
@@ -210,8 +188,8 @@ test.describe('Regression Tests — Cross-Feature Verification', () => {
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible({ timeout: 3000 });
 
-    // Test from customize
-    await page.goto('/customize');
+    // Test while the persistent customization panel is open.
+    await page.locator('[data-testid="sidebar-customize-link"] button').click();
     await page.waitForTimeout(2000);
 
     await page.keyboard.press('Control+k');
