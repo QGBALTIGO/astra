@@ -53,11 +53,11 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
 
             <h1 className="text-xl font-semibold text-text-primary dark:text-dark-text-primary mb-2">
-              Something went wrong
+              Não foi possível abrir esta tela
             </h1>
 
             <p className="text-text-muted dark:text-dark-text-muted mb-6">
-              An unexpected error occurred. You can try refreshing the page or going back to home.
+              O Astra encontrou um problema ao carregar esta página. Tente atualizar ou voltar ao início.
             </p>
 
             {this.state.error && (
@@ -66,7 +66,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 {this.state.errorInfo && (
                   <details className="text-xs text-text-muted dark:text-dark-text-muted">
                     <summary className="cursor-pointer hover:text-text-primary dark:hover:text-dark-text-primary">
-                      Stack trace
+                      Detalhes técnicos
                     </summary>
                     <pre className="mt-2 overflow-auto max-h-40 text-[10px]">
                       {this.state.errorInfo.componentStack}
@@ -82,14 +82,14 @@ export class ErrorBoundary extends Component<Props, State> {
                 className="flex items-center gap-2 px-4 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-secondary dark:text-dark-text-secondary rounded-lg hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary transition-colors"
               >
                 <Home className="w-4 h-4" />
-                Go Home
+                Ir ao início
               </button>
               <button
                 onClick={this.handleReload}
                 className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
-                Reload Page
+                Atualizar página
               </button>
             </div>
           </div>

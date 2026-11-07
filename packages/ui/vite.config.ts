@@ -78,9 +78,9 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['logo.svg', 'ownpilot-logo.jpeg'],
         manifest: {
-          name: 'OwnPilot',
-          short_name: 'OwnPilot',
-          description: 'Privacy-first AI Assistant Dashboard',
+          name: 'Astra',
+          short_name: 'Astra',
+          description: 'Assistente pessoal com IA, agenda, tarefas e finanças.',
           theme_color: '#0f172a',
           background_color: '#0f172a',
           display: 'standalone',
@@ -104,17 +104,11 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          cleanupOutdatedCaches: true,
+          skipWaiting: true,
+          clientsClaim: true,
           globPatterns: ['**/*.{js,css,html,svg,jpeg,png,ico,woff2}'],
-          runtimeCaching: [
-            {
-              urlPattern: /^\/api\/v1\/(chat|conversations|models|providers|settings)/,
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-cache',
-                expiration: { maxEntries: 50, maxAgeSeconds: 300 },
-              },
-            },
-          ],
+          // APIs autenticadas devem sempre ser consultadas pela rede.
         },
       }),
       cssSizeGuard(),

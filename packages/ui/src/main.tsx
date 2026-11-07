@@ -28,6 +28,21 @@ import { ToastProvider } from './components/ToastProvider';
 import './index.css';
 import { installPtBrUi } from './i18n/ptBR';
 
+// A PWA antiga pode solicitar um chunk removido apos um deploy.
+// Recarregue so uma vez para recuperar o HTML atual, sem loops.
+window.addEventListener('vite:preloadError', (event) => {
+  const marker = 'astra:preload-retry';
+  try {
+    const last = Number(sessionStorage.getItem(marker) ?? '0');
+    if (Date.now() - last < 60_000) return;
+    sessionStorage.setItem(marker, String(Date.now()));
+    event.preventDefault();
+    window.location.reload();
+  } catch {
+    // Caso o navegador bloqueie o armazenamento, use a tela de erro.
+  }
+});
+
 installPtBrUi();
 
 createRoot(document.getElementById('root')!).render(

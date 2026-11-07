@@ -29,6 +29,11 @@ export class PageErrorBoundary extends Component<Props, State> {
   }
 
   handleRetry = () => {
+    const message = this.state.error?.message ?? '';
+    if (/dynamically imported module|Unable to preload CSS|ChunkLoadError|Loading chunk/i.test(message)) {
+      window.location.reload();
+      return;
+    }
     this.setState({ hasError: false, error: null });
   };
 
@@ -40,10 +45,10 @@ export class PageErrorBoundary extends Component<Props, State> {
             <AlertTriangle className="w-6 h-6 text-error" />
           </div>
           <h2 className="text-lg font-medium text-text-primary dark:text-dark-text-primary mb-2">
-            Page failed to load
+            Não foi possível carregar esta seção
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted mb-1 max-w-sm text-center">
-            An error occurred while rendering this page.
+            O Astra encontrou um erro nesta área. Tente novamente.
           </p>
           {this.state.error && (
             <p className="text-xs font-mono text-error mb-4 max-w-sm text-center truncate">
@@ -55,7 +60,7 @@ export class PageErrorBoundary extends Component<Props, State> {
             className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors text-sm"
           >
             <RefreshCw className="w-4 h-4" />
-            Try Again
+            Tentar novamente
           </button>
         </div>
       );

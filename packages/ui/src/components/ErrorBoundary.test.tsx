@@ -49,7 +49,7 @@ describe('ErrorBoundary', () => {
       createElement(ErrorBoundary, null, createElement('div', { 'data-testid': 'child' }, 'Hello'))
     );
     expect(container.querySelector('[data-testid="child"]')?.textContent).toBe('Hello');
-    expect(container.textContent).not.toContain('Something went wrong');
+    expect(container.textContent).not.toContain('Não foi possível abrir esta tela');
   });
 
   it('catches errors and shows default fallback UI', () => {
@@ -60,8 +60,8 @@ describe('ErrorBoundary', () => {
       createElement(ErrorBoundary, null, createElement(ExplodingChild, { shouldThrow: true }))
     );
 
-    expect(container.textContent).toContain('Something went wrong');
-    expect(container.textContent).toContain('An unexpected error occurred');
+    expect(container.textContent).toContain('Não foi possível abrir esta tela');
+    expect(container.textContent).toContain('O Astra encontrou um problema');
 
     consoleSpy.mockRestore();
   });
@@ -89,10 +89,10 @@ describe('ErrorBoundary', () => {
 
     const container = render(createElement(ErrorBoundary, null, createElement(ThrowChild)));
 
-    // Click the "Stack trace" summary to reveal the details
+    // Click the "Detalhes técnicos" summary to reveal the details
     const summary = container.querySelector('summary');
     expect(summary).not.toBeNull();
-    expect(summary?.textContent).toBe('Stack trace');
+    expect(summary?.textContent).toBe('Detalhes técnicos');
 
     consoleSpy.mockRestore();
   });
@@ -116,12 +116,12 @@ describe('ErrorBoundary', () => {
     expect(container.querySelector('[data-testid="custom-fallback"]')).not.toBeNull();
     expect(container.textContent).toContain('Custom error UI');
     // Should NOT show the default fallback
-    expect(container.textContent).not.toContain('Something went wrong');
+    expect(container.textContent).not.toContain('Não foi possível abrir esta tela');
 
     consoleSpy.mockRestore();
   });
 
-  it('calls window.location.reload when Reload Page button is clicked', () => {
+  it('calls window.location.reload when Atualizar página button is clicked', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const reloadFn = vi.fn();
     Object.defineProperty(window, 'location', {
@@ -134,9 +134,9 @@ describe('ErrorBoundary', () => {
       createElement(ErrorBoundary, null, createElement(ExplodingChild, { shouldThrow: true }))
     );
 
-    // Find the Reload Page button
+    // Find the Atualizar página button
     const buttons = container.querySelectorAll('button');
-    const reloadButton = Array.from(buttons).find((b) => b.textContent?.includes('Reload'));
+    const reloadButton = Array.from(buttons).find((b) => b.textContent?.includes('Atualizar página'));
     expect(reloadButton).not.toBeNull();
 
     act(() => {
@@ -148,7 +148,7 @@ describe('ErrorBoundary', () => {
     consoleSpy.mockRestore();
   });
 
-  it('sets window.location.href when Go Home button is clicked', () => {
+  it('sets window.location.href when Ir ao início button is clicked', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     let hrefValue = '/current';
     const locationDescriptor = {
@@ -171,7 +171,7 @@ describe('ErrorBoundary', () => {
     );
 
     const buttons = container.querySelectorAll('button');
-    const goHomeBtn = Array.from(buttons).find((b) => b.textContent?.includes('Go Home'));
+    const goHomeBtn = Array.from(buttons).find((b) => b.textContent?.includes('Ir ao início'));
     expect(goHomeBtn).not.toBeNull();
 
     act(() => {
@@ -229,7 +229,7 @@ describe('ErrorBoundary', () => {
     );
 
     // After throw, should show error UI
-    expect(container.textContent).toContain('Something went wrong');
+    expect(container.textContent).toContain('Não foi possível abrir esta tela');
 
     // Signal that next render should succeed, then reset the error boundary
     hasBeenReset = true;
@@ -242,7 +242,7 @@ describe('ErrorBoundary', () => {
     expect(recovered).not.toBeNull();
     expect(recovered?.textContent).toBe('Recovered!');
     // Error UI should be gone
-    expect(container.textContent).not.toContain('Something went wrong');
+    expect(container.textContent).not.toContain('Não foi possível abrir esta tela');
 
     consoleSpy.mockRestore();
   });
