@@ -184,7 +184,7 @@ describe('MessageList', () => {
         onRetry={vi.fn()}
       />
     );
-    expect(html).toContain('Retry Message');
+    expect(html).toContain('Tentar novamente');
   });
 
   it('shows thinking content header when present', () => {
@@ -199,7 +199,7 @@ describe('MessageList', () => {
       />
     );
     // Header is always visible — content is behind a collapsible toggle
-    expect(html).toContain('Thought Process');
+    expect(html).toContain('Raciocínio da IA');
     // Content is hidden by default (collapsed)
     expect(html).not.toContain('I need to reason about this');
   });
@@ -215,7 +215,7 @@ describe('MessageList', () => {
         ]}
       />
     );
-    expect(html).toContain('+ context attached');
+    expect(html).toContain('+ contexto anexado');
     // The [ATTACHED CONTEXT] marker should be stripped from display
     expect(html).not.toContain('[ATTACHED CONTEXT]');
   });
@@ -237,7 +237,7 @@ describe('MessageList', () => {
         ]}
       />
     );
-    expect(html).toContain('Tool Calls');
+    expect(html).toContain('Ferramentas usadas');
   });
 
   it('shows trace display when trace is present', () => {
@@ -268,7 +268,7 @@ describe('MessageList', () => {
         ]}
       />
     );
-    expect(html).toContain('Debug Info');
+    expect(html).toContain('Detalhes técnicos');
   });
 
   it('renders code block content', () => {
@@ -289,7 +289,7 @@ describe('MessageList', () => {
     const html = renderToStaticMarkup(
       <MessageList messages={[message({ content: 'Copyable content' })]} />
     );
-    expect(html).toContain('Copy');
+    expect(html).toContain('Copiar');
   });
 
   it('strips TOOL CATALOG markers from display', () => {
@@ -305,7 +305,7 @@ describe('MessageList', () => {
     );
     expect(html).toContain('My question');
     expect(html).not.toContain('[TOOL CATALOG]');
-    expect(html).toContain('+ context attached');
+    expect(html).toContain('+ contexto anexado');
   });
 
   it('shows empty attachment chip size when size is 0', () => {
