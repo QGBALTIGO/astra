@@ -1,0 +1,46 @@
+name: Astra PR one-time Prettier
+on:
+  push:
+    branches: ['fix/astra-channel-realistic-qa-20261107']
+    paths:
+      - '.github/workflows/astra-pr-format-once.yml'
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Format seven flagged source files and commit to PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            'packages/gateway/src/channels/normalizers/channel-qa-1000.test.ts'
+            'packages/gateway/src/channels/normalizers/channel-table-format.ts'
+            'packages/gateway/src/channels/plugins/telegram/progress-manager.test.ts'
+            'packages/gateway/src/services/agent/prompt.ts'
+            'packages/gateway/src/services/agent/service.test.ts'
+            'packages/gateway/src/tools/expense-tools.test.ts'
+            'packages/gateway/src/tools/expense-tools.ts'
+          )
+          pnpm exec prettier --write "${files[@]}"
+          git add -- "${files[@]}"
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'style(astra): format QA and channel fixes with Prettier'
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
