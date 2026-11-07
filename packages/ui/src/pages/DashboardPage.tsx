@@ -139,7 +139,7 @@ export function DashboardPage() {
             onClick={fetchSummary}
             className="mt-3 px-4 py-1.5 text-sm bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors"
           >
-            Retry
+            Tentar novamente
           </button>
         </div>
       </div>
@@ -366,7 +366,7 @@ export function DashboardPage() {
               Arquivos fixados
             </h3>
             <Link to="/artifacts" className="text-xs text-primary hover:underline">
-              View all
+              Ver todos
             </Link>
           </div>
           <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
@@ -523,7 +523,7 @@ export function DashboardPage() {
       {/* Header */}
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 dark:border-dark-border sm:px-6 sm:py-4">
         <div>
-          <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
+          <h2 className="text-xl font-bold tracking-tight text-text-primary dark:text-dark-text-primary">
             Visão geral
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
@@ -574,7 +574,7 @@ export function DashboardPage() {
       </div>
 
       {/* Content */}
-      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:space-y-6 sm:p-6">
+      <div className="astra-dashboard-content min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:space-y-6 sm:p-6">
         {renderTabContent()}
       </div>
 
