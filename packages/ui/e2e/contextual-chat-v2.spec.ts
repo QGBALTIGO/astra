@@ -1,102 +1,50 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Contextual Chat v2 — Sidebar Chat Integration', () => {
+/**
+ * E2E regression tests for Astra's currently supported primary chat.
+ *
+ * The previous suite targeted a retired StatsPanel sidebar with test IDs that
+ * no longer exist. These assertions exercise the real composer, input state,
+ * action buttons and navigation without sending prompts to a paid provider.
+ */
+test.describe('Astra — conversa principal e navegação contextual', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('#main-content')).toBeVisible();
   });
 
-  // === T28.1: Sidebar chat tab is visible and clickable ===
-
-  test('sidebar chat tab is visible and clickable', async ({ page }) => {
-    const chatTab = page.locator('[data-testid="chat-tab"]');
-    await expect(chatTab).toBeVisible();
-    await chatTab.click();
-    const messageList = page.locator('[data-testid="chat-message-list"]');
-    await expect(messageList).toBeVisible();
+  test('campo da conversa fica disponível ao abrir o assistente', async ({ page }) => {
+    const input = page.getByPlaceholder('Escreva sua mensagem...');
+    await expect(input).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Enviar mensagem' })).toBeDisabled();
   });
 
-  // === T28.2: Context banner shows on workspace page ===
+  test('digitar mensagem ativa o envio sem disparar uma solicitação externa', async ({ page }) => {
+    const input = page.getByPlaceholder('Escreva sua mensagem...');
+    await input.fill('Teste de digitação, sem envio');
+    await expect(input).toHaveValue('Teste de digitação, sem envio');
+    await expect(page.getByRole('button', { name: 'Enviar mensagem' })).toBeEnabled();
+  });
 
-  test('context banner shows on workspace page', async ({ page }) => {
+  test('remover texto desativa envio de mensagem vazia', async ({ page }) => {
+    const input = page.getByPlaceholder('Escreva sua mensagem...');
+    await input.fill('rascunho');
+    await expect(page.getByRole('button', { name: 'Enviar mensagem' })).toBeEnabled();
+    await input.fill('  ');
+    await expect(page.getByRole('button', { name: 'Enviar mensagem' })).toBeDisabled();
+  });
+
+  test('navegar para tarefas preserva o acesso ao chat principal', async ({ page }) => {
+    await page.goto('/tasks');
+    await expect(page.locator('#main-content')).toBeVisible();
+    await page.goto('/');
+    await expect(page.getByPlaceholder('Escreva sua mensagem...')).toBeVisible();
+  });
+
+  test('navegar para espaços preserva a disponibilidade da conversa', async ({ page }) => {
     await page.goto('/workspaces');
-    await page.waitForLoadState('networkidle');
-    // Click chat tab to activate chat panel
-    const chatTab = page.locator('[data-testid="chat-tab"]');
-    await expect(chatTab).toBeVisible();
-    await chatTab.click();
-    // Chat input should be accessible on workspaces page
-    const chatInput = page.locator('[data-testid="chat-input"]');
-    await expect(chatInput).toBeVisible();
-  });
-
-  // === T28.3: Suggestions show when chat is empty ===
-
-  test('suggestions show when chat is empty', async ({ page }) => {
-    await page.goto('/workflows');
-    await page.waitForLoadState('networkidle');
-    const chatTab = page.locator('[data-testid="chat-tab"]');
-    await expect(chatTab).toBeVisible();
-    await chatTab.click();
-    // When chat is empty, suggestions or message list should be visible
-    const messageList = page.locator('[data-testid="chat-message-list"]');
-    await expect(messageList).toBeVisible();
-    // Input should be empty (no prior messages means suggestions area renders)
-    const chatInput = page.locator('[data-testid="chat-input"]');
-    await expect(chatInput).toHaveValue('');
-  });
-
-  // === T28.4: Can type in sidebar chat input ===
-
-  test('can type in sidebar chat input', async ({ page }) => {
-    const chatTab = page.locator('[data-testid="chat-tab"]');
-    await chatTab.click();
-    const input = page.locator('[data-testid="chat-input"]');
-    await input.fill('test message from e2e');
-    await expect(input).toHaveValue('test message from e2e');
-  });
-
-  // === T28.5: Send button is disabled when input is empty ===
-
-  test('send button is disabled when input is empty', async ({ page }) => {
-    const chatTab = page.locator('[data-testid="chat-tab"]');
-    await chatTab.click();
-    const input = page.locator('[data-testid="chat-input"]');
-    const sendBtn = page.locator('[data-testid="chat-send-btn"]');
-    // Ensure input is empty
-    await input.fill('');
-    await expect(sendBtn).toBeDisabled();
-  });
-
-  // === T28.6: Stats tab still works (regression) ===
-
-  test('stats tab still works (regression)', async ({ page }) => {
-    const statsTab = page.locator('[data-testid="stats-tab"]');
-    await expect(statsTab).toBeVisible();
-    await statsTab.click();
-    await expect(statsTab).toHaveAttribute('aria-selected', 'true');
-    // Stats tab content should render
-    const tabContent = page.locator('[data-testid="tab-content"]');
-    await expect(tabContent).toBeVisible();
-  });
-
-  // === T28.7: Tab switching preserves state ===
-
-  test('tab switching preserves state', async ({ page }) => {
-    // Switch to chat and type
-    const chatTab = page.locator('[data-testid="chat-tab"]');
-    const statsTab = page.locator('[data-testid="stats-tab"]');
-    await chatTab.click();
-    const input = page.locator('[data-testid="chat-input"]');
-    await input.fill('preserve this text');
-    await expect(input).toHaveValue('preserve this text');
-
-    // Switch to stats
-    await statsTab.click();
-    await expect(statsTab).toHaveAttribute('aria-selected', 'true');
-
-    // Switch back to chat — text should be preserved
-    await chatTab.click();
-    await expect(input).toHaveValue('preserve this text');
+    await expect(page.locator('#main-content')).toBeVisible();
+    await page.goto('/');
+    await expect(page.getByPlaceholder('Escreva sua mensagem...')).toBeVisible();
   });
 });
