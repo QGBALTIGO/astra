@@ -24,6 +24,7 @@ jobs:
     # Chromium from Playwright 1.58.2 does not support the ubuntu-26.04 runner.
     # Pin to the same supported image as the isolated Astra UI audit.
     runs-on: ubuntu-24.04
+    timeout-minutes: 35
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -118,7 +119,9 @@ jobs:
 
       - name: Playwright E2E
         if: github.event_name == 'pull_request'
-        run: pnpm --filter @ownpilot/ui exec playwright test
+        # Fail fast while aligning legacy E2E selectors with the redesigned UI.
+        # A failing test still fails CI; remove this cap once the suite is green.
+        run: pnpm --filter @ownpilot/ui exec playwright test --max-failures=8 --workers=2
         env:
           CI: 'true'
 
