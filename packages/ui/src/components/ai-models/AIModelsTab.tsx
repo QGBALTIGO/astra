@@ -85,7 +85,7 @@ export function AIModelsTab() {
       setLocalProviders(localData);
       setLocalTemplates(templatesData);
     } catch {
-      setError('Failed to load model configurations');
+      setError('Não foi possível carregar os modelos de IA');
     } finally {
       setIsLoading(false);
     }
@@ -184,7 +184,7 @@ export function AIModelsTab() {
       setSuccess(`Model ${enabled ? 'enabled' : 'disabled'}`);
       setTimeout(() => setSuccess(null), 2000);
     } catch {
-      setError('Failed to toggle model');
+      setError('Não foi possível ativar ou desativar o modelo');
     } finally {
       setTogglingModel(null);
     }
@@ -221,7 +221,7 @@ export function AIModelsTab() {
       setSuccess('Model updated');
       setTimeout(() => setSuccess(null), 2000);
     } catch {
-      setError('Failed to update model');
+      setError('Não foi possível atualizar o modelo');
     }
   };
 
@@ -250,7 +250,7 @@ export function AIModelsTab() {
     if (
       !(await confirm({
         message:
-          'This will delete all synced provider configs and resync fresh from models.dev. Protected providers (OpenAI, Anthropic, Google, etc.) will be preserved. Continue?',
+          'Isso excluirá as configurações sincronizadas e buscará novamente os modelos. Provedores protegidos serão preservados. Continuar?',
         variant: 'danger',
       }))
     ) {
@@ -268,7 +268,7 @@ export function AIModelsTab() {
       setTimeout(() => setSuccess(null), 5000);
       await loadData();
     } catch {
-      setError('Reset sync failed');
+      setError('Não foi possível restaurar a sincronização');
     } finally {
       setIsSyncing(false);
     }
@@ -293,7 +293,7 @@ export function AIModelsTab() {
       );
       await loadData();
     } catch {
-      setError('Failed to discover models. Is the provider running?');
+      setError('Não foi possível buscar modelos. O provedor está funcionando?');
     } finally {
       setIsDiscovering(false);
     }
@@ -322,7 +322,7 @@ export function AIModelsTab() {
         await handleLocalDiscover(data.id);
       }
     } catch {
-      setError('Failed to add local provider');
+      setError('Não foi possível adicionar o provedor local');
     }
   };
 
@@ -340,7 +340,7 @@ export function AIModelsTab() {
       setTimeout(() => setSuccess(null), 3000);
       await loadData();
     } catch {
-      setError('Failed to discover models. Is the provider running?');
+      setError('Não foi possível buscar modelos. O provedor está funcionando?');
     } finally {
       setDiscoveringLocal(null);
     }
@@ -361,7 +361,7 @@ export function AIModelsTab() {
       setTimeout(() => setSuccess(null), 2000);
       await loadData();
     } catch {
-      setError('Failed to delete provider');
+      setError('Não foi possível excluir o provedor local');
     }
   };
 
@@ -371,7 +371,7 @@ export function AIModelsTab() {
       await apiClient.patch(`/local-providers/${providerId}/toggle`);
       await loadData();
     } catch {
-      setError('Failed to toggle provider');
+      setError('Não foi possível alterar o provedor');
     }
   };
 
@@ -379,11 +379,11 @@ export function AIModelsTab() {
   const handleSetDefaultLocal = async (providerId: string) => {
     try {
       await apiClient.patch(`/local-providers/${providerId}/set-default`);
-      setSuccess('Default provider updated');
+      setSuccess('Provedor padrão atualizado');
       setTimeout(() => setSuccess(null), 2000);
       await loadData();
     } catch {
-      setError('Failed to set default provider');
+      setError('Não foi possível definir o provedor padrão');
     }
   };
 
@@ -391,7 +391,7 @@ export function AIModelsTab() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-text-muted dark:text-dark-text-muted">Loading AI models...</p>
+        <p className="text-text-muted dark:text-dark-text-muted">Carregando modelos de IA...</p>
       </div>
     );
   }
@@ -416,50 +416,50 @@ export function AIModelsTab() {
         </div>
       )}
 
-      {/* Local AI Providers Section */}
-      <div className="border border-success/30 rounded-xl overflow-hidden">
-        <button
-          onClick={() => setShowLocalSection(!showLocalSection)}
-          className="w-full flex items-center justify-between p-4 bg-success/5 hover:bg-success/10 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <Server className="w-5 h-5 text-success" />
-            <h3 className="font-semibold text-text-primary dark:text-dark-text-primary">
-              Local AI Providers
-            </h3>
-            <span className="text-xs text-text-muted dark:text-dark-text-muted">
-              {localProviders.length} provider{localProviders.length !== 1 ? 's' : ''}
+      {/* Provedores locais — ações irmãs, sem botão aninhado */}
+      <div className="overflow-hidden rounded-2xl border border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3 dark:border-dark-border">
+          <button
+            type="button"
+            onClick={() => setShowLocalSection(!showLocalSection)}
+            aria-expanded={showLocalSection}
+            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-xl py-1 text-left hover:text-primary"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <Server className="h-5 w-5 shrink-0 text-primary" />
+              <span className="truncate font-semibold text-text-primary dark:text-dark-text-primary">
+                Inteligência artificial local
+              </span>
+              <span className="hidden text-xs text-text-muted dark:text-dark-text-muted sm:inline">
+                {localProviders.length} {localProviders.length === 1 ? 'provedor' : 'provedores'}
+              </span>
             </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowAddLocalDialog(true);
-              }}
-              className="px-2.5 py-1 text-xs rounded-lg bg-success text-white hover:bg-success/90 transition-colors flex items-center gap-1"
-            >
-              <Plus className="w-3.5 h-3.5" /> Add
-            </button>
             <ChevronDown
-              className={`w-4 h-4 text-text-muted transition-transform ${showLocalSection ? 'rotate-180' : ''}`}
+              className={`h-4 w-4 shrink-0 text-text-muted transition-transform ${showLocalSection ? 'rotate-180' : ''}`}
             />
-          </div>
-        </button>
-
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddLocalDialog(true)}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-dark"
+          >
+            <Plus className="h-4 w-4" />
+            Adicionar
+          </button>
+        </div>
         {showLocalSection && (
           <div className="p-4 bg-bg-primary dark:bg-dark-bg-primary">
             {localProviders.length === 0 ? (
               <div className="text-center py-6">
                 <Server className="w-8 h-8 text-text-muted dark:text-dark-text-muted mx-auto mb-2 opacity-50" />
                 <p className="text-sm text-text-muted dark:text-dark-text-muted mb-2">
-                  No local providers configured
+                  Nenhum provedor local configurado
                 </p>
                 <button
                   onClick={() => setShowAddLocalDialog(true)}
                   className="text-sm text-success hover:text-success/80"
                 >
-                  Add LM Studio, Ollama, or other local AI
+                  Adicionar Ollama, LM Studio ou outra IA local
                 </button>
               </div>
             ) : (
@@ -469,7 +469,7 @@ export function AIModelsTab() {
                     key={lp.id}
                     className={`card-elevated p-3 rounded-lg border transition-all ${
                       lp.isEnabled
-                        ? 'border-success/30 bg-bg-primary dark:bg-dark-bg-primary'
+                        ? 'border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary'
                         : 'border-border/50 dark:border-dark-border/50 bg-bg-secondary/50 dark:bg-dark-bg-secondary/50 opacity-60'
                     }`}
                   >
@@ -483,7 +483,7 @@ export function AIModelsTab() {
                             {lp.providerType}
                           </span>
                           {lp.isDefault && (
-                            <span className="flex-shrink-0" title="Default provider">
+                            <span className="flex-shrink-0" title="Provedor padrão">
                               <Star className="w-3.5 h-3.5 text-amber-500" />
                             </span>
                           )}
@@ -499,7 +499,7 @@ export function AIModelsTab() {
 
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-text-muted dark:text-dark-text-muted">
-                        {lp.modelCount} model{lp.modelCount !== 1 ? 's' : ''}
+                        {lp.modelCount} {lp.modelCount === 1 ? 'modelo' : 'modelos'}
                         {lp.lastDiscoveredAt && (
                           <> &bull; {new Date(lp.lastDiscoveredAt).toLocaleDateString()}</>
                         )}
@@ -510,7 +510,7 @@ export function AIModelsTab() {
                           onClick={() => handleLocalDiscover(lp.id)}
                           disabled={discoveringLocal === lp.id}
                           className="p-1 rounded hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary text-text-muted hover:text-success transition-colors disabled:opacity-50"
-                          title="Discover models"
+                          title="Buscar modelos"
                         >
                           <Search
                             className={`w-3.5 h-3.5 ${discoveringLocal === lp.id ? 'animate-pulse' : ''}`}
@@ -520,7 +520,7 @@ export function AIModelsTab() {
                           <button
                             onClick={() => handleSetDefaultLocal(lp.id)}
                             className="p-1 rounded hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary text-text-muted hover:text-amber-500 transition-colors"
-                            title="Set as default"
+                            title="Definir como padrão"
                           >
                             <Star className="w-3.5 h-3.5" />
                           </button>
@@ -532,14 +532,14 @@ export function AIModelsTab() {
                               ? 'hover:bg-error/10 text-success hover:text-error'
                               : 'hover:bg-success/10 text-text-muted hover:text-success'
                           }`}
-                          title={lp.isEnabled ? 'Disable' : 'Enable'}
+                          title={lp.isEnabled ? 'Desativar' : 'Ativar'}
                         >
                           <Power className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDeleteLocalProvider(lp.id, lp.name)}
                           className="p-1 rounded hover:bg-error/10 text-text-muted hover:text-error transition-colors"
-                          title="Delete"
+                          title="Excluir"
                         >
                           <Trash className="w-3.5 h-3.5" />
                         </button>
@@ -580,7 +580,7 @@ export function AIModelsTab() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
             <input
               type="text"
-              placeholder="Search models..."
+              placeholder="Buscar modelos..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 pr-4 py-2 text-sm bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50"
@@ -593,7 +593,7 @@ export function AIModelsTab() {
             onChange={(e) => setSelectedProvider(e.target.value)}
             className="px-3 py-2 text-sm bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
           >
-            <option value="all">All Providers</option>
+            <option value="all">Todos os provedores</option>
             {uniqueProviders.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.isConfigured ? '✓ ' : ''}
@@ -621,12 +621,12 @@ export function AIModelsTab() {
             onClick={() => setShowConfiguredOnly(!showConfiguredOnly)}
             className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
               showConfiguredOnly
-                ? 'bg-success text-white border-success'
+                ? 'bg-primary text-white border-primary'
                 : 'bg-bg-tertiary dark:bg-dark-bg-tertiary border-border dark:border-dark-border text-text-primary dark:text-dark-text-primary'
             }`}
-            title="Show only models with API keys configured"
+            title="Mostrar somente modelos com chave de API configurada"
           >
-            Configured
+            Configurados
           </button>
 
           {/* Enabled only toggle */}
@@ -638,7 +638,7 @@ export function AIModelsTab() {
                 : 'bg-bg-tertiary dark:bg-dark-bg-tertiary border-border dark:border-dark-border text-text-primary dark:text-dark-text-primary'
             }`}
           >
-            Enabled
+            Ativados
           </button>
 
           {/* Providers panel toggle */}
@@ -651,7 +651,7 @@ export function AIModelsTab() {
             }`}
           >
             <Plus className="w-4 h-4" />
-            Providers
+            Provedores
             <ChevronDown
               className={`w-4 h-4 transition-transform ${showProvidersPanel ? 'rotate-180' : ''}`}
             />
@@ -662,10 +662,10 @@ export function AIModelsTab() {
             onClick={handleSync}
             disabled={isSyncing}
             className="px-3 py-2 text-sm rounded-lg border transition-colors flex items-center gap-1.5 bg-bg-tertiary dark:bg-dark-bg-tertiary border-border dark:border-dark-border text-text-primary dark:text-dark-text-primary hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary disabled:opacity-50"
-            title="Sync models from models.dev (updates existing configs)"
+            title="Sincronizar modelos e atualizar configurações existentes"
           >
             <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-            Sync
+            Sincronizar
           </button>
 
           {/* Reset & Resync button */}
@@ -673,10 +673,10 @@ export function AIModelsTab() {
             onClick={handleResetSync}
             disabled={isSyncing}
             className="px-3 py-2 text-sm rounded-lg border transition-colors flex items-center gap-1.5 bg-error/5 border-error/30 text-error hover:bg-error/10 disabled:opacity-50"
-            title="Delete all synced configs and resync fresh from models.dev"
+            title="Apagar configurações sincronizadas e sincronizar novamente"
           >
             <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-            Reset
+            Restaurar
           </button>
 
           {/* Discover models from local provider */}
@@ -686,7 +686,7 @@ export function AIModelsTab() {
               onChange={(e) => setDiscoverProvider(e.target.value)}
               className="px-2 py-2 text-sm rounded-lg border bg-bg-tertiary dark:bg-dark-bg-tertiary border-border dark:border-dark-border text-text-primary dark:text-dark-text-primary"
             >
-              <option value="">Select provider...</option>
+              <option value="">Selecione o provedor...</option>
               {uniqueProviders.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -697,10 +697,10 @@ export function AIModelsTab() {
               onClick={() => handleDiscoverModels(discoverProvider)}
               disabled={isDiscovering || !discoverProvider}
               className="px-3 py-2 text-sm rounded-lg border transition-colors flex items-center gap-1.5 bg-primary/5 border-primary/30 text-primary hover:bg-primary/10 disabled:opacity-50 whitespace-nowrap"
-              title="Fetch models from provider's /v1/models endpoint (LM Studio, Ollama, etc.)"
+              title="Consultar modelos no endpoint do provedor local"
             >
               <Search className={`w-4 h-4 ${isDiscovering ? 'animate-pulse' : ''}`} />
-              Discover Models
+              Buscar modelos
             </button>
           </div>
         </div>
@@ -711,7 +711,7 @@ export function AIModelsTab() {
         <div className="p-4 bg-bg-secondary dark:bg-dark-bg-secondary border border-border dark:border-dark-border rounded-xl">
           <div className="flex items-center justify-between mb-4">
             <h4 className="font-medium text-text-primary dark:text-dark-text-primary">
-              Available Providers
+              Provedores disponíveis
             </h4>
             <p className="text-xs text-text-muted dark:text-dark-text-muted">
               {availableProviders.filter((p) => p.isConfigured).length} configured &bull;{' '}
@@ -727,7 +727,7 @@ export function AIModelsTab() {
                   key={provider.id}
                   className={`card-elevated p-3 rounded-lg border ${
                     provider.isConfigured
-                      ? 'border-success/30 bg-success/5'
+                      ? 'border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary'
                       : 'border-border dark:border-dark-border bg-bg-primary dark:bg-dark-bg-primary'
                   }`}
                 >
@@ -748,13 +748,13 @@ export function AIModelsTab() {
                         </span>
                       </div>
                       <p className="text-xs text-text-muted dark:text-dark-text-muted mt-0.5">
-                        {provider.modelCount} models
+                        {provider.modelCount} modelos
                         {provider.description && <> &bull; {provider.description}</>}
                       </p>
                     </div>
                     {provider.isConfigured ? (
                       <span className="flex-shrink-0 px-2 py-0.5 text-xs rounded bg-success/10 text-success flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Ready
+                        <Check className="w-3 h-3" /> Pronto
                       </span>
                     ) : (
                       <span className="flex-shrink-0 px-2 py-0.5 text-xs rounded bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-muted">
