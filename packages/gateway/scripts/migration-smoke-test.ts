@@ -37,6 +37,10 @@ const CRITICAL_TABLES = [
   // Financial tables must exist on fresh installs and after upgrades.
   'expenses',
   'usage_records',
+  // Tables used by /api/v1/edge must survive the schema squash.
+  'edge_devices',
+  'edge_commands',
+  'edge_telemetry',
 ];
 
 async function main(): Promise<void> {
