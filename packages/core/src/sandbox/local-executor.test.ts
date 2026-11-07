@@ -65,6 +65,9 @@ describe('local-executor', () => {
   // ===========================================================================
 
   describe('executePythonLocal', () => {
+    // Python subprocess startup on shared Windows runners may exceed 10s.
+    // Keep a deadline above the executor's own 30s timeout; assertions still fail
+    // if the subprocess does not produce the required output.
     it('executes simple Python code', async () => {
       const result = await executePythonLocal("print('hello')");
 
@@ -73,7 +76,7 @@ describe('local-executor', () => {
         return;
       }
       expect(result.stdout.trim()).toBe('hello');
-    }, 10000);
+    }, 35000);
 
     it('returns success=true for valid code', async () => {
       const result = await executePythonLocal("print('ok')");
@@ -83,7 +86,7 @@ describe('local-executor', () => {
       }
       expect(result.success).toBe(true);
       expect(result.exitCode).toBe(0);
-    }, 10000);
+    }, 35000);
 
     it('returns success=false for invalid Python code', async () => {
       const result = await executePythonLocal('def broken(');
@@ -93,7 +96,7 @@ describe('local-executor', () => {
       }
       expect(result.success).toBe(false);
       expect(result.exitCode).not.toBe(0);
-    }, 10000);
+    }, 35000);
   });
 
   // ===========================================================================
