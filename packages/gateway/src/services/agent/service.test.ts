@@ -1328,6 +1328,49 @@ describe('getOrCreateDefaultAgent', () => {
 // =============================================================================
 
 describe('getOrCreateChatAgent', () => {
+
+  it('uses a compact Portuguese prompt and 768 output tokens for Groq channels', async () => {
+    const { agent } = makeMockAgent();
+    mockCreateAgent.mockReturnValue(agent);
+    await mod.getOrCreateChatAgent(
+      'groq',
+      'openai/gpt-oss-120b',
+      undefined,
+      null,
+      'channel:telegram:session-one',
+      undefined,
+      true
+    );
+
+    const config = mockCreateAgent.mock.calls.at(-1)?.[0] as
+      | { model: { maxTokens: number }; systemPrompt: string }
+      | undefined;
+    expect(config?.model.maxTokens).toBe(768);
+    expect(config?.systemPrompt).toContain('Astra');
+    expect(config?.systemPrompt).toContain('português do Brasil');
+    expect(chatAgentCache.has('chat|groq|openai/gpt-oss-120b|conv_channel:telegram:session-one|channel')).toBe(true);
+  });
+
+  it('keeps web Groq limits unchanged and isolates external sessions', async () => {
+    mockCreateAgent.mockImplementation(() => makeMockAgent().agent);
+
+    const a = await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-120b');
+    const b = await mod.getOrCreateChatAgent(
+      'groq', 'openai/gpt-oss-120b', undefined, null, 'channel:telegram:a', undefined, true
+    );
+    const c = await mod.getOrCreateChatAgent(
+      'groq', 'openai/gpt-oss-120b', undefined, null, 'channel:whatsapp:b', undefined, true
+    );
+
+    expect(a).not.toBe(b);
+    expect(b).not.toBe(c);
+    const configs = mockCreateAgent.mock.calls.map(([config]) => config as { model: { maxTokens: number } });
+    expect(configs[0]?.model.maxTokens).toBe(8192);
+    expect(configs[1]?.model.maxTokens).toBe(768);
+    expect(configs[2]?.model.maxTokens).toBe(768);
+  });
+
+
   it('returns cached chat agent', async () => {
     const { agent } = makeMockAgent();
     mockLruGet.mockImplementation((cache: Map<string, unknown>, key: string) => {
