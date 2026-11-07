@@ -79,7 +79,7 @@ export function WorkflowCanvas({
       {nodes.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <p className="text-text-muted dark:text-dark-text-muted text-sm">
-            Drag tools from the left panel to start building your workflow
+            Adicione nós para começar a montar sua automação
           </p>
         </div>
       )}
