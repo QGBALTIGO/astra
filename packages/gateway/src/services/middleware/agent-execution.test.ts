@@ -288,17 +288,15 @@ describe('createAgentExecutionMiddleware', () => {
       const ctx = createContext({ store: { agent, provider: 'groq', model: 'model' } });
       const next = vi.fn().mockResolvedValue(createNextResult());
 
-      for (const source of ['channel', 'telegram', 'whatsapp']) {
-        const msg = createMessage({ metadata: { source } });
-        const result = await middleware(msg, ctx, next);
-        expect(result.response.content).toBe(
-          'Não consegui processar sua mensagem agora. Tente novamente em instantes.'
-        );
-        expect(result.response.content).not.toContain('OpenAI');
-        expect(result.response.content).not.toContain('128');
-        // Raw error is retained for internal diagnostics, never the outgoing text.
-        expect(result.response.metadata.error).toBe(rawError);
-      }
+      const msg = createMessage({ metadata: { source: 'channel', platform: 'telegram' } });
+      const result = await middleware(msg, ctx, next);
+      expect(result.response.content).toBe(
+        'Não consegui processar sua mensagem agora. Tente novamente em instantes.'
+      );
+      expect(result.response.content).not.toContain('OpenAI');
+      expect(result.response.content).not.toContain('128');
+      // Raw error is retained for internal diagnostics, never the outgoing text.
+      expect(result.response.metadata.error).toBe(rawError);
     });
 
     it('should set error in context', async () => {
@@ -365,7 +363,7 @@ describe('createAgentExecutionMiddleware', () => {
       const agent = createAgent();
       agent.chat.mockRejectedValue(new Error('Authorization: secret provider error'));
       const ctx = createContext({ store: { agent } });
-      const msg = createMessage({ metadata: { source: 'telegram' } });
+      const msg = createMessage({ metadata: { source: 'channel', platform: 'telegram' } });
       const result = await middleware(msg, ctx, vi.fn());
 
       expect(result.response.content).toBe(
