@@ -37,7 +37,7 @@ RUN pnpm build
 FROM node:22-alpine AS production
 
 # Install Chromium for headless browser automation (puppeteer-core)
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont su-exec
 
 # Install pnpm (pinned to match packageManager field)
 RUN corepack enable && corepack prepare pnpm@10.29.3 --activate
@@ -76,8 +76,11 @@ ENV PORT=8080
 ENV HOST=0.0.0.0
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-# Switch to non-root user
-USER ownpilot
+# Railway volumes are mounted after the image build and may be root-owned.
+# The entrypoint fixes only the data-volume ownership, then drops to UID 1001.
+COPY scripts/railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/railway-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/railway-entrypoint.sh"]
 
 # Expose port
 EXPOSE 8080
