@@ -16,11 +16,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: test/astra-docker-1001639e-20261107
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Verify reviewed Astra source commit
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "1001639e735d6c7795abd04f6007e7f20fd9e3ed"
+          git merge-base --is-ancestor 1001639e735d6c7795abd04f6007e7f20fd9e3ed HEAD
+          # The only delta from the validated candidate is this disposable CI file.
+          test "$(git diff --name-only 1001639e735d6c7795abd04f6007e7f20fd9e3ed HEAD)" = ".github/workflows/astra-docker-candidate-smoke.yml"
           git show --oneline --stat HEAD
       - name: Build candidate Docker image without publishing
         run: docker build --progress=plain --tag astra-review:1001639e .
