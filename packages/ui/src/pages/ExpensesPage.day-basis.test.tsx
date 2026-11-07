@@ -223,7 +223,7 @@ describe('ExpenseFormModal default date (America/New_York evening)', () => {
   it('CONTROL: editing an expense keeps that expense stored date', async () => {
     // Also true before and after: the bug only affected the create default.
     await mount([expense({ date: '2026-08-01' })]);
-    const editBtn = container.querySelector('[aria-label="Edit expense"]');
+    const editBtn = container.querySelector('[aria-label="Editar despesa"]');
     expect(editBtn, 'expense row did not render').not.toBeNull();
     await click(editBtn!);
     expect(dateInput()).not.toBeNull();
