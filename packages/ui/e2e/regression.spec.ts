@@ -18,7 +18,8 @@ test.describe('Regression Tests — Cross-Feature Verification', () => {
 
   test('StatsPanel is NOT shown on /customize (detail panel shown instead)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/customize');
+    await page.goto('/');
+    await page.locator('[data-testid="sidebar-customize-link"] button').click();
     await page.waitForSelector('[data-testid="customize-tab-items"]', { timeout: 10000 });
 
     // On customize page, right panel should be CustomizeDetailPanel, not StatsPanel
