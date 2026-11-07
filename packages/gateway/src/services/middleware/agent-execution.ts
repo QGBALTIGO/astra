@@ -18,12 +18,16 @@ const log = getLog('Middleware:AgentExecution');
  * Never send provider errors, API response bodies or tool schemas to channel
  * users. Retain the original error in internal context and diagnostics.
  */
-function userFacingAgentError(message: NormalizedMessage, details: string): string {
-  const source = message.metadata?.source;
-  const isChannel = source === 'channel';
-  return isChannel
-    ? 'Não consegui processar sua mensagem agora. Tente novamente em instantes.'
-    : `Error: ${details}`;
+export function userFacingAgentError(message: NormalizedMessage, details: string): string {
+  if (message.metadata?.source !== 'channel') return `Error: ${details}`;
+  if (
+    /(?:api|stream) error:\s*429\b|\bhttp\s*429\b|rate limit reached|tokens per minute|too many requests/i.test(
+      details
+    )
+  ) {
+    return '⚠️ O Groq atingiu temporariamente o limite de uso. Aguarde alguns instantes. Se a mensagem era para registrar algo, confira seus registros antes de repetir para evitar duplicidade.';
+  }
+  return 'Não consegui processar sua mensagem agora. Tente novamente em instantes.';
 }
 
 /** Minimal agent interface needed by this middleware */
