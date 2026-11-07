@@ -7,6 +7,9 @@ const authFile = path.join(__dirname, 'playwright/.auth/user.json');
 
 export default defineConfig({
   testDir: './e2e',
+  // The 59-route cross-viewport audit runs in its own isolated PostgreSQL job.
+  // Avoid rerunning it via the general frontend E2E suite.
+  testIgnore: /astra-route-audit\.spec\.ts/,
   timeout: 30000,
   retries: 0,
   use: {

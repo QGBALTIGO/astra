@@ -53,7 +53,7 @@ const SlotBox = memo(function SlotBox({ slot }: { slot: Slot }) {
 
   return (
     <div
-      title={`Slot ${slot.slotIdx + 1} — idle`}
+      title={`Vaga ${slot.slotIdx + 1} — livre`}
       className="w-16 h-8 rounded-lg border border-dashed border-gray-700/60 flex items-center justify-center bg-gray-800/20"
     >
       <span className="text-[11px] text-gray-600 font-mono">{slot.slotIdx + 1}</span>
@@ -77,7 +77,7 @@ export const ConcurrencyBar = memo(function ConcurrencyBar({
   onDecrease?: () => void;
 }) {
   return (
-    <div className="flex items-center gap-4 px-6 py-2.5 bg-[#0c0c18] dark:bg-[#080810] border-b border-[#1c1c30]">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-[#1c1c30] bg-[#0c0c18] px-3 py-2.5 dark:bg-[#080810] sm:gap-x-4 sm:px-6">
       {/* Left: LLM Slots label */}
       <div className="flex items-center gap-2 shrink-0">
         <Zap className="w-4 h-4 text-primary" />
@@ -88,14 +88,14 @@ export const ConcurrencyBar = memo(function ConcurrencyBar({
       <div className="h-4 w-px bg-gray-700/50 shrink-0" />
 
       {/* Slot boxes */}
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 max-w-full flex-1 items-center gap-2 overflow-x-auto">
         {slots.map((slot) => (
           <SlotBox key={slot.slotIdx} slot={slot} />
         ))}
       </div>
 
       {/* Utilization bar + count */}
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex shrink-0 items-center gap-2">
         {/* Mini utilization bar */}
         <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
           <div
@@ -128,12 +128,12 @@ export const ConcurrencyBar = memo(function ConcurrencyBar({
 
       {/* Controls */}
       {onIncrease && onDecrease && (
-        <div className="flex items-center gap-1 ml-auto">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <button
             onClick={onDecrease}
             disabled={maxSlots <= 1}
             className="w-6 h-6 rounded text-sm font-bold text-gray-500 hover:text-gray-300 hover:bg-gray-800 disabled:opacity-20 disabled:cursor-not-allowed border border-gray-700/50 transition-all"
-            title="Decrease max slots"
+            title="Reduzir limite de chamadas simultâneas"
           >
             −
           </button>
@@ -141,7 +141,7 @@ export const ConcurrencyBar = memo(function ConcurrencyBar({
             onClick={onIncrease}
             disabled={maxSlots >= 10}
             className="w-6 h-6 rounded text-sm font-bold text-gray-500 hover:text-gray-300 hover:bg-gray-800 disabled:opacity-20 disabled:cursor-not-allowed border border-gray-700/50 transition-all"
-            title="Increase max slots"
+            title="Aumentar limite de chamadas simultâneas"
           >
             +
           </button>

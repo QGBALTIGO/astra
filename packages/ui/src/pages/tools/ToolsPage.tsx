@@ -16,7 +16,7 @@ export function ToolsPage() {
   const navigate = useNavigate();
 
   type TabId = 'home' | 'tools';
-  const TAB_LABELS: Record<TabId, string> = { home: 'Home', tools: 'Tools' };
+  const TAB_LABELS: Record<TabId, string> = { home: 'Início', tools: 'Ferramentas' };
 
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId =
@@ -95,42 +95,42 @@ export function ToolsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Tools
+            Ferramentas
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
             {groupedTools
-              ? `${groupedTools.totalTools} tools in ${Object.keys(groupedTools.categories).length} categories`
-              : 'Loading...'}
+              ? `${groupedTools.totalTools} ferramentas em ${Object.keys(groupedTools.categories).length} categorias`
+              : 'Carregando...'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <input
             type="text"
-            placeholder="Search tools..."
+            placeholder="Pesquisar ferramentas..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="px-3 py-1.5 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-sm text-text-primary dark:text-dark-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 w-48"
+            className="min-w-0 w-full rounded-lg border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary sm:w-48"
           />
           <button
             onClick={expandAll}
             className="px-3 py-1.5 text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded-lg transition-colors"
           >
-            Expand All
+            Expandir tudo
           </button>
           <button
             onClick={collapseAll}
             className="px-3 py-1.5 text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded-lg transition-colors"
           >
-            Collapse All
+            Recolher tudo
           </button>
         </div>
       </header>
 
       {/* Tab Bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 gap-1 overflow-x-auto border-b border-border px-4 dark:border-dark-border sm:px-6">
         {(['home', 'tools'] as TabId[]).map((tab) => (
           <button
             key={tab}

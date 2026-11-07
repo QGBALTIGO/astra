@@ -1,4 +1,4 @@
-import { test, chromium } from '@playwright/test';
+import { test, expect, chromium } from '@playwright/test';
 import fs from 'node:fs';
 
 const routes = [
@@ -68,7 +68,7 @@ const widths = [
   { device: 'desktop', width: 1440, height: 900 },
 ];
 const english =
-  /^(Welcome|Getting Started|New Chat|Settings|Tools|Search|Save|Cancel|Add|Delete|Loading|Refresh|For you|Examples|No results|Try again|Coming soon|Sign In|Dashboard|Overview|Next|Previous|Configure API Keys|Select a.*|Choose a.*|Create [A-Z].*|No [A-Z].*|Your [A-Z].*)$/i;
+  /^(Welcome|Getting Started|New Chat|Settings|Tools|Search|Save|Cancel|Add|Delete|Loading|Refresh|For you|Examples|No results|Try again|Coming soon|Sign In|Dashboard|Overview|Next|Previous|Configure API Keys|Select a.*|Choose a.*|Create [A-Z].*|No [A-Z].*|Your [A-Z].*|AI Daily Briefing|AI Briefing Unavailable|Suggested Focus Areas|Today.s Priorities|No claws|Create one|Code Execution|Tool Calls|Generated at.*|Today you have.*|AI briefing generation is.*|Complete your most urgent tasks.*)$/i;
 
 test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
   test.setTimeout(25 * 60 * 1000);
@@ -157,7 +157,7 @@ test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
           };
           const labels = Array.from(
             document.querySelectorAll(
-              '#root h1,#root h2,#root h3,#root button,#root label,#root [role=tab],#root nav a'
+              '#root h1,#root h2,#root h3,#root button,#root label,#root [role=tab],#root nav a,#main-content p,#main-content li'
             )
           )
             .filter(isVisible)
@@ -275,4 +275,61 @@ test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
   fs.writeFileSync('qa/reports/latest.json', JSON.stringify({ summary, findings: all }, null, 2));
   fs.writeFileSync('qa/reports/latest.md', lines.join('\n'));
   console.log('AUDIT_SUMMARY ' + JSON.stringify(summary));
+});
+
+test('Telas críticas do Astra sem estouro horizontal em 10 larguras', async () => {
+  test.setTimeout(6 * 60 * 1000);
+  const browser = await chromium.launch();
+  const context = await browser.newContext({
+    baseURL: 'http://127.0.0.1:18080',
+    locale: 'pt-BR',
+    reducedMotion: 'reduce',
+    serviceWorkers: 'block',
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto('/login');
+    await page.locator('input[type=password]').first().fill('AstraQA_Only2026!');
+    await page.locator('button[type=submit]').first().click();
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 14000 });
+
+    for (const width of [320, 360, 375, 390, 430, 768, 1024, 1280, 1440, 1920]) {
+      await page.setViewportSize({ width, height: width <= 430 ? 800 : 900 });
+      for (const route of ['/history', '/goals', '/settings/coding-agents', '/edge-devices']) {
+        const response = await page.goto(route, { waitUntil: 'domcontentloaded' });
+        expect(response?.status(), `${route} em ${width}px deve carregar`).toBe(200);
+        const main = page.locator('#main-content');
+        await expect(main).toBeVisible();
+        await page.waitForFunction(() => {
+          const main = document.querySelector('#main-content');
+          if (!main || (main.textContent?.trim().length ?? 0) < 8) return false;
+          return !(
+            main.querySelector('.animate-spin') &&
+            main.firstElementChild?.classList.contains('py-12')
+          );
+        });
+        const dimensions = await page.evaluate(() => {
+          const main = document.querySelector('#main-content');
+          return {
+            document: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+            main: main ? Math.max(0, main.scrollWidth - main.clientWidth) : Infinity,
+          };
+        });
+        console.log(
+          `responsive-critical ${width}px ${route}: document=${dimensions.document}px main=${dimensions.main}px`
+        );
+        expect(
+          dimensions.document,
+          `${route} em ${width}px: overflow no documento`
+        ).toBeLessThanOrEqual(7);
+        expect(
+          dimensions.main,
+          `${route} em ${width}px: overflow na área principal`
+        ).toBeLessThanOrEqual(20);
+      }
+    }
+  } finally {
+    await context.close();
+    await browser.close();
+  }
 });

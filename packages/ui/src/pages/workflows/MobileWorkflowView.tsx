@@ -104,7 +104,7 @@ function BackHeader({ title, onClose }: { title: string; onClose: () => void }) 
       <button
         onClick={onClose}
         className="p-1 rounded-md text-text-muted dark:text-dark-text-muted hover:text-text-primary dark:hover:text-dark-text-primary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
-        aria-label="Back"
+        aria-label="Voltar"
       >
         <svg
           className="w-5 h-5"
@@ -163,9 +163,11 @@ export function MobileWorkflowView({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {/* Tab content */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className={`min-h-0 min-w-0 flex-1 ${activeTab === 'canvas' ? 'overflow-hidden' : 'overflow-y-auto'}`}
+      >
         {activeTab === 'nodes' && (
           <ToolPalette
             className="w-full border-r-0"
@@ -175,7 +177,11 @@ export function MobileWorkflowView({
           />
         )}
 
-        {activeTab === 'canvas' && <div className="w-full h-full min-h-[300px]">{canvas}</div>}
+        {activeTab === 'canvas' && (
+          <div data-testid="workflow-mobile-canvas" className="relative h-full min-h-0 w-full">
+            {canvas}
+          </div>
+        )}
 
         {activeTab === 'config' &&
           (hasSelection ? (
@@ -191,23 +197,31 @@ export function MobileWorkflowView({
             <div className="flex items-center justify-center h-full p-8 text-center">
               <div className="text-text-muted dark:text-dark-text-muted">
                 <ConfigIcon />
-                <p className="mt-2 text-sm">Select a node to configure</p>
+                <p className="mt-2 text-sm">Selecione um nó para configurar</p>
               </div>
             </div>
           ))}
       </div>
 
       {/* Bottom tab bar */}
-      <div className="flex-shrink-0 flex border-t border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary">
+      <div
+        role="tablist"
+        aria-label="Editor de automação"
+        className="flex-shrink-0 flex border-t border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary"
+      >
         {(
           [
-            { id: 'nodes' as const, label: 'Nodes', icon: <NodesIcon /> },
+            { id: 'nodes' as const, label: 'Nós', icon: <NodesIcon /> },
             { id: 'canvas' as const, label: 'Canvas', icon: <CanvasIcon /> },
-            { id: 'config' as const, label: 'Config', icon: <ConfigIcon /> },
+            { id: 'config' as const, label: 'Configurar', icon: <ConfigIcon /> },
           ] satisfies { id: MobileTab; label: string; icon: ReactNode }[]
         ).map((tab) => (
           <button
             key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            data-testid={`workflow-mobile-tab-${tab.id}`}
             onClick={() => onTabChange(tab.id)}
             className={`flex-1 flex flex-col items-center justify-center py-2 text-[10px] font-medium transition-colors ${
               activeTab === tab.id
@@ -229,15 +243,15 @@ export function MobileWorkflowView({
 function panelLabel(panel: string): string {
   switch (panel) {
     case 'variables':
-      return 'Variables';
+      return 'Variáveis';
     case 'copilot':
-      return 'AI Copilot';
+      return 'Copiloto de IA';
     case 'input-params':
-      return 'Input Parameters';
+      return 'Parâmetros de entrada';
     case 'versions':
-      return 'Version History';
+      return 'Histórico de versões';
     default:
-      return 'Panel';
+      return 'Painel';
   }
 }
 
@@ -280,7 +294,7 @@ function PanelContent({ panel, editor }: { panel: string; editor: WorkflowEditor
         <Suspense
           fallback={
             <div className="flex items-center justify-center p-8 text-sm text-text-muted">
-              Loading...
+              Carregando...
             </div>
           }
         >

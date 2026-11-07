@@ -320,7 +320,7 @@ describe('buildBriefingPrompt', () => {
     const data = createMockBriefingData();
     const prompt = buildBriefingPrompt(data);
 
-    const today = new Date().toLocaleDateString('en-US', {
+    const today = new Date().toLocaleDateString('pt-BR', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -451,6 +451,7 @@ describe('buildBriefingPrompt', () => {
     const data = createMockBriefingData();
     const prompt = buildBriefingPrompt(data);
 
+    expect(prompt).toContain('português do Brasil (pt-BR)');
     expect(prompt).toContain('Format your response as JSON');
     expect(prompt).toContain('"summary": "..."');
     expect(prompt).toContain('"priorities":');
@@ -626,9 +627,9 @@ describe('generateFallbackBriefing', () => {
 
     const result = generateFallbackBriefing(data);
 
-    expect(result.summary).toContain('3 tasks due');
-    expect(result.summary).toContain('2 events');
-    expect(result.summary).toContain('4 habits');
+    expect(result.summary).toContain('3 tarefas');
+    expect(result.summary).toContain('2 compromissos');
+    expect(result.summary).toContain('4 hábitos');
     expect(result.modelUsed).toBe('fallback');
     expect(result.cached).toBe(false);
     expect(result.id).toContain('fallback');
@@ -644,7 +645,7 @@ describe('generateFallbackBriefing', () => {
 
     const result = generateFallbackBriefing(data);
 
-    expect(result.priorities).toContain('Address 3 overdue task(s)');
+    expect(result.priorities).toContain('Resolva 3 tarefas em atraso.');
   });
 
   it('includes due today tasks in priorities', () => {
@@ -657,7 +658,7 @@ describe('generateFallbackBriefing', () => {
 
     const result = generateFallbackBriefing(data);
 
-    expect(result.priorities).toContain('Complete 5 task(s) due today');
+    expect(result.priorities).toContain('Conclua 5 tarefas previstas para hoje.');
   });
 
   it('includes calendar events in priorities', () => {
@@ -670,7 +671,7 @@ describe('generateFallbackBriefing', () => {
 
     const result = generateFallbackBriefing(data);
 
-    expect(result.priorities).toContain('Attend 4 scheduled event(s)');
+    expect(result.priorities).toContain('Participe de 4 compromissos agendados.');
   });
 
   it('includes streaks at risk in priorities', () => {
@@ -686,7 +687,7 @@ describe('generateFallbackBriefing', () => {
 
     const result = generateFallbackBriefing(data);
 
-    expect(result.priorities).toContain('Maintain 2 habit streak(s) at risk');
+    expect(result.priorities).toContain('Mantenha a sequência de 2 hábitos em risco.');
   });
 
   it('includes all priority types when all conditions met', () => {
@@ -708,24 +709,24 @@ describe('generateFallbackBriefing', () => {
     const result = generateFallbackBriefing(data);
 
     expect(result.priorities).toHaveLength(4);
-    expect(result.priorities).toContain('Address 2 overdue task(s)');
-    expect(result.priorities).toContain('Complete 1 task(s) due today');
-    expect(result.priorities).toContain('Attend 3 scheduled event(s)');
-    expect(result.priorities).toContain('Maintain 1 habit streak(s) at risk');
+    expect(result.priorities).toContain('Resolva 2 tarefas em atraso.');
+    expect(result.priorities).toContain('Conclua 1 tarefa prevista para hoje.');
+    expect(result.priorities).toContain('Participe de 3 compromissos agendados.');
+    expect(result.priorities).toContain('Mantenha a sequência de 1 hábito em risco.');
   });
 
   it('has AI unavailable insight', () => {
     const data = createMockBriefingData();
     const result = generateFallbackBriefing(data);
 
-    expect(result.insights).toEqual(['AI briefing generation is currently unavailable.']);
+    expect(result.insights).toEqual(['Resumo gerado automaticamente com base nos seus dados.']);
   });
 
   it('has focus area suggestion', () => {
     const data = createMockBriefingData();
     const result = generateFallbackBriefing(data);
 
-    expect(result.suggestedFocusAreas).toEqual(['Complete your most urgent tasks first.']);
+    expect(result.suggestedFocusAreas).toEqual(['Comece pelas tarefas mais urgentes.']);
   });
 
   it('sets expiresAt 5 minutes from generation', () => {

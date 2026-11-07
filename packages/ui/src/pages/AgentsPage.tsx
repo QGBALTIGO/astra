@@ -252,13 +252,13 @@ export function AgentsPage() {
             ) : agents.length === 0 ? (
               <EmptyState
                 icon={Bot}
-                title="No agents yet"
-                description="Create your first AI agent to get started. Agents can use different models and tools to help with various tasks."
+                title="Nenhum agente criado"
+                description="Crie seu primeiro agente de IA para auxiliar em tarefas com ferramentas autorizadas."
                 variant="card"
                 iconBgColor="bg-violet-500/10 dark:bg-violet-500/20"
                 iconColor="text-violet-500"
                 action={{
-                  label: 'Create Agent',
+                  label: 'Criar agente',
                   onClick: () => setShowCreateModal(true),
                   icon: Plus,
                 }}

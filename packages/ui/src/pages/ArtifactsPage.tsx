@@ -297,11 +297,11 @@ export function ArtifactsPage() {
             ) : artifacts.length === 0 ? (
               <EmptyState
                 icon={LayoutTemplate}
-                title="No artifacts yet"
+                title="Nenhum artefato criado"
                 description={
                   searchQuery
-                    ? 'No artifacts match your search'
-                    : 'Ask the AI to create charts, dashboards, forms, or visual content'
+                    ? 'Nenhum artefato corresponde à busca'
+                    : 'Peça à IA para criar gráficos, painéis, formulários ou conteúdos visuais.'
                 }
               />
             ) : (

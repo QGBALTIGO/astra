@@ -537,7 +537,7 @@ export function DashboardPage() {
               onClick={handleRefresh}
               disabled={isRefreshing}
               className="p-1.5 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors disabled:opacity-50"
-              title="Refresh"
+              title="Atualizar dados"
             >
               <RefreshCw
                 className={`w-4 h-4 text-text-muted dark:text-dark-text-muted ${isRefreshing ? 'animate-spin' : ''}`}
@@ -551,8 +551,8 @@ export function DashboardPage() {
       </header>
 
       {/* Tabs */}
-      <div className="max-w-full overflow-x-auto border-b border-border px-3 pt-3 dark:border-dark-border sm:px-6 sm:pt-4">
-        <div className="flex w-max min-w-full gap-1">
+      <div className="min-w-0 max-w-full border-b border-border px-3 pt-3 dark:border-dark-border sm:overflow-x-auto sm:px-6 sm:pt-4">
+        <div className="grid w-full min-w-0 grid-cols-2 gap-1 sm:flex sm:w-max sm:min-w-full">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -560,7 +560,7 @@ export function DashboardPage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-t-lg px-3 py-2 text-sm font-medium transition-colors ${
+                className={`flex min-w-0 items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-xs font-medium transition-colors sm:shrink-0 sm:justify-start sm:whitespace-nowrap sm:rounded-t-lg sm:px-3 sm:py-2 sm:text-sm ${
                   isActive
                     ? 'bg-bg-secondary dark:bg-dark-bg-secondary text-text-primary dark:text-dark-text-primary border-t border-l border-r border-border dark:border-dark-border'
                     : 'text-text-muted dark:text-dark-text-muted hover:text-text-primary dark:hover:text-dark-text-primary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
@@ -575,7 +575,9 @@ export function DashboardPage() {
       </div>
 
       {/* Content */}
-      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:space-y-6 sm:p-6">{renderTabContent()}</div>
+      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:space-y-6 sm:p-6">
+        {renderTabContent()}
+      </div>
 
       {/* Quick Add Modal */}
       {quickAddType && (

@@ -5,9 +5,20 @@ on:
     paths:
       - '.github/workflows/astra-ui-route-audit.yml'
       - 'packages/ui/e2e/astra-route-audit.spec.ts'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/astra-ui-route-audit.yml'
+      - 'packages/ui/**'
   workflow_dispatch:
 permissions:
   contents: read
+
+# A new push supersedes older audits for the same PR, avoiding duplicate CI work.
+concurrency:
+  group: astra-ui-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   responsive-sweep:
     runs-on: ubuntu-24.04

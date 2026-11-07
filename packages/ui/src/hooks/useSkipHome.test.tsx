@@ -53,9 +53,15 @@ afterEach(() => {
 });
 
 describe('useSkipHome', () => {
-  it('returns skipHome=false when localStorage is empty', () => {
+  it('opens the real feature directly when no preference is saved', () => {
     const t = renderHook('test');
-    expect(t.resultRef.current!.skipHome).toBe(false);
+    expect(t.resultRef.current!.skipHome).toBe(true);
+    t.cleanup();
+  });
+
+  it('navigates to the default function automatically for a new visitor', () => {
+    const t = renderHook('test', 'overview');
+    expect(mockNavigate).toHaveBeenCalledWith({ search: 'tab=overview' }, { replace: true });
     t.cleanup();
   });
 
@@ -84,6 +90,7 @@ describe('useSkipHome', () => {
   });
 
   it('updates skipHome state on onSkipHomeChange', () => {
+    localStorage.setItem('ownpilot:test:skipHome', 'false');
     const t = renderHook('test');
     expect(t.resultRef.current!.skipHome).toBe(false);
 
@@ -98,7 +105,8 @@ describe('useSkipHome', () => {
     expect(mockNavigate).toHaveBeenCalledWith({ search: 'tab=overview' }, { replace: true });
   });
 
-  it('does not navigate when skipHome is false', () => {
+  it('does not navigate when skipHome was explicitly disabled', () => {
+    localStorage.setItem('ownpilot:test:skipHome', 'false');
     renderHook('test', 'overview');
     expect(mockNavigate).not.toHaveBeenCalled();
   });
@@ -130,7 +138,7 @@ describe('useSkipHome', () => {
       throw new Error('storage unavailable');
     });
     const t = renderHook('test');
-    expect(t.resultRef.current!.skipHome).toBe(false);
+    expect(t.resultRef.current!.skipHome).toBe(true);
     t.cleanup();
   });
 

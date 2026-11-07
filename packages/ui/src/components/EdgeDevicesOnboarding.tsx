@@ -121,33 +121,33 @@ function FlowDiagram() {
           <div className="flex-1 flex flex-col items-center gap-1 mx-4">
             <div className="w-full flex items-center gap-1">
               <div className="flex-1 h-px border-t-2 border-dashed border-green-400" />
-              <span className="text-green-500 text-[10px] whitespace-nowrap">MQTT publish</span>
+              <span className="text-green-500 text-[10px] whitespace-nowrap">Publicação MQTT</span>
               <div className="flex-1 h-px border-t-2 border-dashed border-green-400" />
             </div>
-            <div className="text-[10px] text-text-muted">telemetry • status</div>
+            <div className="text-[10px] text-text-muted">telemetria • status</div>
           </div>
 
           <div className="flex flex-col items-center gap-1">
             <div className="w-12 h-12 rounded-xl bg-primary/10 border-2 border-primary/30 flex items-center justify-center text-xl">
               🤖
             </div>
-            <span className="text-text-muted text-[10px]">MQTT Broker</span>
+            <span className="text-text-muted text-[10px]">Servidor MQTT</span>
           </div>
 
           <div className="flex-1 flex flex-col items-center gap-1 mx-4">
             <div className="w-full flex items-center gap-1">
               <div className="flex-1 h-px border-t-2 border-primary/60" />
-              <span className="text-primary text-[10px] whitespace-nowrap">subscribe</span>
+              <span className="text-primary text-[10px] whitespace-nowrap">assinatura</span>
               <div className="flex-1 h-px border-t-2 border-primary/60" />
             </div>
-            <div className="text-[10px] text-text-muted">store • broadcast</div>
+            <div className="text-[10px] text-text-muted">armazenar • transmitir</div>
           </div>
 
           <div className="flex flex-col items-center gap-1">
             <div className="w-12 h-12 rounded-xl bg-violet-100 dark:bg-violet-500/20 flex items-center justify-center text-xl">
               🧠
             </div>
-            <span className="text-text-muted text-[10px]">OwnPilot</span>
+            <span className="text-text-muted text-[10px]">Astra</span>
           </div>
         </div>
 
@@ -157,19 +157,19 @@ function FlowDiagram() {
           <div className="flex-1 flex flex-col items-center gap-1 mx-4">
             <div className="w-full flex items-center gap-1">
               <div className="flex-1 h-px border-t-2 border-dashed border-red-400" />
-              <span className="text-red-400 text-[10px] whitespace-nowrap">MQTT publish</span>
+              <span className="text-red-400 text-[10px] whitespace-nowrap">Publicação MQTT</span>
               <div className="flex-1 h-px border-t-2 border-dashed border-red-400" />
             </div>
-            <div className="text-[10px] text-text-muted">commands</div>
+            <div className="text-[10px] text-text-muted">comandos</div>
           </div>
           <div className="w-12" />
           <div className="flex-1 flex flex-col items-center gap-1 mx-4">
             <div className="w-full flex items-center gap-1">
               <div className="flex-1 h-px border-t-2 border-violet-400/60" />
-              <span className="text-violet-400 text-[10px] whitespace-nowrap">AI trigger</span>
+              <span className="text-violet-400 text-[10px] whitespace-nowrap">gatilho IA</span>
               <div className="flex-1 h-px border-t-2 border-violet-400/60" />
             </div>
-            <div className="text-[10px] text-text-muted">rule • agent</div>
+            <div className="text-[10px] text-text-muted">regra • agente</div>
           </div>
           <div className="w-12" />
         </div>
@@ -177,19 +177,19 @@ function FlowDiagram() {
         {/* Topics */}
         <div className="mt-5 pt-4 border-t border-border dark:border-dark-border grid grid-cols-3 gap-3 text-[10px]">
           <div>
-            <span className="text-text-muted">Telemetry topic:</span>
+            <span className="text-text-muted">Tópico de telemetria:</span>
             <div className="mt-0.5 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded px-2 py-1 text-green-600 dark:text-green-400">
               ownpilot/&#123;userId&#125;/devices/&#123;deviceId&#125;/telemetry
             </div>
           </div>
           <div>
-            <span className="text-text-muted">Commands topic:</span>
+            <span className="text-text-muted">Tópico de comandos:</span>
             <div className="mt-0.5 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded px-2 py-1 text-red-500 dark:text-red-400">
               ownpilot/&#123;userId&#125;/devices/&#123;deviceId&#125;/commands
             </div>
           </div>
           <div>
-            <span className="text-text-muted">Status topic:</span>
+            <span className="text-text-muted">Tópico de status:</span>
             <div className="mt-0.5 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded px-2 py-1 text-blue-500 dark:text-blue-400">
               ownpilot/&#123;userId&#125;/devices/&#123;deviceId&#125;/status
             </div>
@@ -210,28 +210,27 @@ interface UseCase {
 const USE_CASES: UseCase[] = [
   {
     emoji: '🌡️',
-    title: 'Environmental Monitoring',
-    description: 'Collect temperature, humidity, CO₂, or pressure data from any room or location.',
+    title: 'Monitoramento ambiental',
+    description: 'Acompanhe temperatura, umidade, CO₂ e pressão em diversos ambientes.',
     example: '"What\u2019s the temperature in the server room right now?"',
   },
   {
     emoji: '🚪',
-    title: 'Security & Access',
-    description: 'Track door, window, and motion sensors. Get notified on unusual activity.',
-    example: '"Alert me if the garage door opens after midnight."',
+    title: 'Segurança e acesso',
+    description: 'Monitore sensores de portas, janelas e movimento e receba alertas.',
+    example: '"Avise se a porta da garagem abrir depois da meia-noite."',
   },
   {
     emoji: '💡',
-    title: 'Actuator Control',
-    description:
-      'Send commands to relays, LEDs, motors, and servos — triggered by AI or schedules.',
-    example: '"Turn off all relay switches in zone B."',
+    title: 'Controle de atuadores',
+    description: 'Envie comandos para relés, LEDs, motores e servos mediante autorização.',
+    example: '"Desligue os relés da área B."',
   },
   {
     emoji: '📊',
-    title: 'AI-Powered Analysis',
-    description: 'Query sensor history, detect anomalies, and get AI insights over your data.',
-    example: '"Has humidity been above 80% in the last week?"',
+    title: 'Análises com IA',
+    description: 'Consulte histórico e identifique leituras atípicas com auxílio da IA.',
+    example: '"A umidade passou de 80% na última semana?"',
   },
 ];
 
@@ -244,33 +243,30 @@ interface Step {
 const STEPS: Step[] = [
   {
     n: 1,
-    title: 'Set up an MQTT broker',
+    title: 'Configure o servidor MQTT',
     detail:
-      'Run Mosquitto locally or use a hosted broker (HiveMQ, EMQX, AWS IoT). Set MQTT_BROKER_URL in your OwnPilot .env file.',
+      'Configure o Mosquitto ou outro servidor MQTT e defina MQTT_BROKER_URL no ambiente do Astra.',
   },
   {
     n: 2,
-    title: 'Register your device',
-    detail:
-      'Click "Register Device" above. Define the device type, its sensors (e.g. temperature, humidity) and actuators (e.g. relay, LED).',
+    title: 'Cadastre um dispositivo',
+    detail: 'Informe o tipo de dispositivo e configure sensores e atuadores conforme necessário.',
   },
   {
     n: 3,
-    title: 'Flash or run client code',
-    detail:
-      'Use the Python snippet (Raspberry Pi / any Linux device) or the Arduino/ESP32 sketch. Swap in your broker address, userId, and deviceId.',
+    title: 'Instale o código do dispositivo',
+    detail: 'Use o exemplo Python ou Arduino e configure servidor MQTT, userId e deviceId.',
   },
   {
     n: 4,
-    title: 'Watch data flow in',
-    detail:
-      'Once the device publishes to the telemetry topic, values appear on the card in real time via WebSocket. Green dot = online.',
+    title: 'Acompanhe as leituras',
+    detail: 'Quando o dispositivo publicar telemetria, as leituras poderão aparecer no painel.',
   },
   {
     n: 5,
-    title: 'Connect to AI & Triggers',
+    title: 'Integre IA e automações',
     detail:
-      'Create a Trigger with condition type "stale_goals" or ask the AI agent directly. It can read sensor values and send commands on your behalf.',
+      'Consulte dados por meio das ferramentas disponíveis e autorize comandos antes da execução.',
   },
 ];
 
@@ -299,18 +295,18 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
           </span>
         </div>
         <h1 className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">
-          Connect Physical Devices to Your AI
+          Conecte dispositivos físicos à sua IA
         </h1>
         <p className="text-text-secondary dark:text-dark-text-secondary max-w-xl mx-auto leading-relaxed">
-          Edge Devices lets you stream sensor data from IoT hardware into OwnPilot over MQTT, then
-          query, analyze, and control those devices using natural language — or automated triggers.
+          Envie dados de sensores para o Astra usando MQTT, acompanhe o histórico e gerencie
+          dispositivos em uma única interface.
         </p>
         <button
           onClick={onRegister}
           className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition-colors mt-2"
         >
           <Plus className="w-4 h-4" />
-          Register Your First Device
+          Cadastrar primeiro dispositivo
         </button>
       </div>
 
@@ -318,7 +314,7 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
           <Activity className="w-4 h-4 text-primary" />
-          How It Works
+          Como funciona
         </h2>
         <FlowDiagram />
       </div>
@@ -326,8 +322,7 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
       {/* Use cases */}
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
-          <Zap className="w-4 h-4 text-primary" />
-          What You Can Do
+          <Zap className="w-4 h-4 text-primary" />O que você pode fazer
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {USE_CASES.map((uc) => (
@@ -344,7 +339,7 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
               <p className="text-xs text-text-secondary dark:text-dark-text-secondary leading-relaxed">
                 {uc.description}
               </p>
-              <p className="text-xs text-primary italic">"{uc.example}"</p>
+              <p className="text-xs text-primary italic">{uc.example}</p>
             </div>
           ))}
         </div>
@@ -354,7 +349,7 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-primary" />
-          Getting Started
+          Primeiros passos
         </h2>
         <div className="space-y-3">
           {STEPS.map((step) => (
@@ -379,7 +374,7 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
           <Cpu className="w-4 h-4 text-primary" />
-          Quick-Start Code
+          Exemplos de código
         </h2>
 
         <div className="space-y-4">
@@ -402,17 +397,19 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
 
       {/* Requirements */}
       <div className="border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 rounded-xl p-4 space-y-2">
-        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">⚙️ Prerequisites</p>
+        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+          ⚙️ Pré-requisitos
+        </p>
         <ul className="text-xs text-amber-700 dark:text-amber-300 space-y-1 list-none">
           <li>
             <span className="font-mono bg-amber-100 dark:bg-amber-500/20 px-1.5 py-0.5 rounded">
               MQTT_BROKER_URL
             </span>{' '}
-            — set in your OwnPilot <span className="font-mono">.env</span> file (e.g.{' '}
+            — defina no ambiente do Astra (ex.:{' '}
             <span className="font-mono">mqtt://localhost:1883</span>)
           </li>
           <li>
-            An MQTT broker running —{' '}
+            Um servidor MQTT ativo —{' '}
             <a
               href="https://mosquitto.org"
               target="_blank"
@@ -441,8 +438,8 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
             </a>
           </li>
           <li>
-            Your device's <span className="font-mono">userId</span> from your OwnPilot profile and
-            the <span className="font-mono">deviceId</span> you get after registering
+            O <span className="font-mono">userId</span> da conta e o{' '}
+            <span className="font-mono">deviceId</span> gerado ao cadastrar o dispositivo
           </li>
         </ul>
       </div>
@@ -454,10 +451,10 @@ export function EdgeDevicesOnboarding({ onRegister }: Props) {
           className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition-colors shadow-sm"
         >
           <Plus className="w-4 h-4" />
-          Register Your First Device
+          Cadastrar primeiro dispositivo
         </button>
         <p className="text-xs text-text-muted dark:text-dark-text-muted mt-2">
-          You can add sensors and actuators during registration.
+          Você pode incluir sensores e atuadores durante o cadastro.
         </p>
       </div>
     </div>

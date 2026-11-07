@@ -17,6 +17,17 @@ import { timeAgo } from '../utils/formatters';
 // Helpers
 // =============================================================================
 
+const COMMAND_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pendente',
+  sent: 'Enviado',
+  acknowledged: 'Recebido',
+  completed: 'Concluído',
+  failed: 'Falhou',
+  timeout: 'Expirado',
+};
+
+const TAB_LABELS = { sensors: 'Sensores', commands: 'Comandos', info: 'Informações' } as const;
+
 const CMD_STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400',
   sent: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400',
@@ -70,7 +81,7 @@ function SensorsTab({ device }: { device: EdgeDevice }) {
   if (device.sensors.length === 0) {
     return (
       <p className="text-sm text-text-muted dark:text-dark-text-muted py-4 text-center">
-        No sensors configured.
+        Nenhum sensor configurado.
       </p>
     );
   }
@@ -84,7 +95,7 @@ function SensorsTab({ device }: { device: EdgeDevice }) {
           className="flex items-center gap-1 text-xs text-text-muted hover:text-primary transition-colors"
         >
           <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
+          Atualizar
         </button>
       </div>
       {device.sensors.map((sensor) => {
@@ -116,7 +127,7 @@ function SensorsTab({ device }: { device: EdgeDevice }) {
                     {sensor.unit ? ` ${sensor.unit}` : ''}
                   </span>
                 ) : (
-                  <span className="text-xs text-text-muted">No data</span>
+                  <span className="text-xs text-text-muted">Sem dados</span>
                 )}
                 {isOpen ? (
                   <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
@@ -128,13 +139,13 @@ function SensorsTab({ device }: { device: EdgeDevice }) {
             {isOpen && (
               <div className="px-3 pb-2 border-t border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary">
                 {hist.length === 0 ? (
-                  <p className="text-xs text-text-muted py-2">No history available.</p>
+                  <p className="text-xs text-text-muted py-2">Nenhum histórico disponível.</p>
                 ) : (
                   <table className="w-full text-xs mt-2">
                     <thead>
                       <tr className="text-text-muted">
-                        <th className="text-left font-medium pb-1">Value</th>
-                        <th className="text-right font-medium pb-1">Recorded</th>
+                        <th className="text-left font-medium pb-1">Valor</th>
+                        <th className="text-right font-medium pb-1">Registrado</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -188,14 +199,14 @@ function CommandsTab({ device }: { device: EdgeDevice }) {
 
   const handleSend = async () => {
     if (!cmdType.trim()) {
-      setSendError('Command type is required.');
+      setSendError('Informe o tipo de comando.');
       return;
     }
     let payload: Record<string, unknown> = {};
     try {
       if (payloadStr.trim()) payload = JSON.parse(payloadStr) as Record<string, unknown>;
     } catch {
-      setSendError('Invalid JSON payload.');
+      setSendError('O conteúdo precisa ser um JSON válido.');
       return;
     }
     setSendError('');
@@ -206,7 +217,7 @@ function CommandsTab({ device }: { device: EdgeDevice }) {
       setCmdType('');
       setPayloadStr('{}');
     } catch (err) {
-      setSendError(err instanceof Error ? err.message : 'Failed to send command.');
+      setSendError(err instanceof Error ? err.message : 'Não foi possível enviar o comando.');
     } finally {
       setIsSending(false);
     }
@@ -217,14 +228,14 @@ function CommandsTab({ device }: { device: EdgeDevice }) {
       {/* Send command */}
       <div className="border border-border dark:border-dark-border rounded-lg p-3 space-y-2">
         <p className="text-xs font-medium text-text-secondary dark:text-dark-text-secondary uppercase tracking-wide">
-          Send Command
+          Enviar comando
         </p>
         {sendError && <p className="text-xs text-red-500">{sendError}</p>}
         <input
           type="text"
           value={cmdType}
           onChange={(e) => setCmdType(e.target.value)}
-          placeholder="Command type (e.g. toggle, set_brightness)"
+          placeholder="Tipo do comando (ex.: toggle)"
           className="w-full px-3 py-1.5 text-xs border border-border dark:border-dark-border rounded-lg bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
         />
         <textarea
@@ -240,7 +251,7 @@ function CommandsTab({ device }: { device: EdgeDevice }) {
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
           <Send className="w-3.5 h-3.5" />
-          {isSending ? 'Sending…' : 'Send'}
+          {isSending ? 'Enviando…' : 'Enviar'}
         </button>
       </div>
 
@@ -248,7 +259,7 @@ function CommandsTab({ device }: { device: EdgeDevice }) {
       <div>
         <div className="flex items-center justify-between mb-2">
           <p className="text-xs font-medium text-text-secondary dark:text-dark-text-secondary uppercase tracking-wide">
-            Command History
+            Histórico de comandos
           </p>
           <button
             onClick={loadCommands}
@@ -259,7 +270,9 @@ function CommandsTab({ device }: { device: EdgeDevice }) {
           </button>
         </div>
         {commands.length === 0 ? (
-          <p className="text-xs text-text-muted dark:text-dark-text-muted">No commands yet.</p>
+          <p className="text-xs text-text-muted dark:text-dark-text-muted">
+            Nenhum comando enviado.
+          </p>
         ) : (
           <div className="space-y-1.5">
             {commands.map((cmd) => (
@@ -276,7 +289,7 @@ function CommandsTab({ device }: { device: EdgeDevice }) {
                 <span
                   className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${CMD_STATUS_COLORS[cmd.status] ?? ''}`}
                 >
-                  {cmd.status}
+                  {COMMAND_STATUS_LABELS[cmd.status] ?? cmd.status}
                 </span>
               </div>
             ))}
@@ -323,7 +336,7 @@ function InfoTab({
       <div className="space-y-3">
         <div>
           <label className="block text-xs font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
-            Name
+            Nome
           </label>
           <input
             type="text"
@@ -334,13 +347,13 @@ function InfoTab({
         </div>
         <div>
           <label className="block text-xs font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
-            Firmware Version
+            Versão do firmware
           </label>
           <input
             type="text"
             value={firmware}
             onChange={(e) => setFirmware(e.target.value)}
-            placeholder="e.g. 2.1.0"
+            placeholder="Ex.: 2.1.0"
             className="w-full px-3 py-1.5 text-sm border border-border dark:border-dark-border rounded-lg bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
@@ -349,17 +362,17 @@ function InfoTab({
           disabled={isSaving}
           className="px-4 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
-          {isSaving ? 'Saving…' : saved ? 'Saved!' : 'Save Changes'}
+          {isSaving ? 'Salvando…' : saved ? 'Salvo!' : 'Salvar alterações'}
         </button>
       </div>
 
       <div className="border-t border-border dark:border-dark-border pt-4 space-y-2">
         <p className="text-xs font-medium text-text-secondary dark:text-dark-text-secondary uppercase tracking-wide">
-          MQTT Topics
+          Tópicos MQTT
         </p>
         {[
-          { label: 'Telemetry', topic: `${mqttBase}/telemetry` },
-          { label: 'Commands', topic: `${mqttBase}/commands` },
+          { label: 'Telemetria', topic: `${mqttBase}/telemetry` },
+          { label: 'Comandos', topic: `${mqttBase}/commands` },
           { label: 'Status', topic: `${mqttBase}/status` },
         ].map(({ label, topic }) => (
           <div key={label}>
@@ -373,20 +386,20 @@ function InfoTab({
 
       <div className="border-t border-border dark:border-dark-border pt-4 space-y-1 text-xs text-text-muted dark:text-dark-text-muted">
         <p>
-          Protocol:{' '}
+          Protocolo:{' '}
           <span className="text-text-primary dark:text-dark-text-primary">{device.protocol}</span>
         </p>
         <p>
-          Type: <span className="text-text-primary dark:text-dark-text-primary">{device.type}</span>
+          Tipo: <span className="text-text-primary dark:text-dark-text-primary">{device.type}</span>
         </p>
         <p>
-          Registered:{' '}
+          Cadastrado em:{' '}
           <span className="text-text-primary dark:text-dark-text-primary">
-            {new Date(device.createdAt).toLocaleDateString()}
+            {new Date(device.createdAt).toLocaleDateString('pt-BR')}
           </span>
         </p>
         <p>
-          Device ID: <code className="font-mono">{device.id}</code>
+          ID do dispositivo: <code className="font-mono">{device.id}</code>
         </p>
       </div>
     </div>
@@ -433,12 +446,12 @@ export function DeviceDetailDrawer({ device, onClose, onUpdated }: Props) {
               </h2>
             </div>
             <p className="text-xs text-text-muted dark:text-dark-text-muted mt-0.5">
-              Last seen: {device.lastSeen ? timeAgo(device.lastSeen) : 'Never'}
+              Última atividade: {device.lastSeen ? timeAgo(device.lastSeen) : 'Nunca'}
             </p>
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label="Fechar"
             className="p-1.5 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
           >
             <X className="w-4 h-4 text-text-muted" />
@@ -457,7 +470,7 @@ export function DeviceDetailDrawer({ device, onClose, onUpdated }: Props) {
                   : 'text-text-secondary dark:text-dark-text-secondary hover:text-text-primary dark:hover:text-dark-text-primary'
               }`}
             >
-              {t}
+              {TAB_LABELS[t]}
             </button>
           ))}
         </div>

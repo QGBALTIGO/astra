@@ -150,7 +150,11 @@ export default defineConfig(({ mode }) => {
             proxy: {
               '/api': {
                 target: apiTarget,
-                changeOrigin: true,
+                // Preserve the browser Host. The gateway compares the Origin
+                // and the request's canonical host for cookie-session CSRF
+                // protection. Rewriting Host to :8080 breaks genuine
+                // same-origin browser writes from the Vite dev server :8199.
+                changeOrigin: false,
               },
               '/ws': {
                 target: wsTarget,

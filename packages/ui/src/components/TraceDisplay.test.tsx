@@ -158,15 +158,15 @@ describe('TraceDisplay', () => {
     const container = render(<TraceDisplay trace={minimalTrace()} />);
 
     // Header should show debug info and duration
-    expect(container.textContent).toContain('Debug Info');
+    expect(container.textContent).toContain('Detalhes técnicos');
     expect(container.textContent).toContain('500ms');
 
     // Should have the Logs button
     expect(container.textContent).toContain('Logs');
 
     // Expanded content should NOT be visible initially
-    expect(container.textContent).not.toContain('Routing');
-    expect(container.textContent).not.toContain('Model Calls');
+    expect(container.textContent).not.toContain('Roteamento');
+    expect(container.textContent).not.toContain('Chamadas do modelo');
   });
 
   it('expands to show routing, model calls, and current sections when clicked', () => {
@@ -174,7 +174,7 @@ describe('TraceDisplay', () => {
 
     // Find and click the expandable header
     const headerBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Debug Info')
+      btn.textContent?.includes('Detalhes técnicos')
     );
     expect(headerBtn).not.toBeNull();
 
@@ -183,16 +183,16 @@ describe('TraceDisplay', () => {
     });
 
     // Expanded sections should be visible
-    expect(container.textContent).toContain('Routing');
+    expect(container.textContent).toContain('Roteamento');
     expect(container.textContent).toContain('Find relevant files');
     expect(container.textContent).toContain('searchFiles');
     expect(container.textContent).toContain('users');
     expect(container.textContent).toContain('search-server');
     expect(container.textContent).toContain('85%');
-    expect(container.textContent).toContain('Model Calls');
+    expect(container.textContent).toContain('Chamadas do modelo');
     expect(container.textContent).toContain('anthropic/claude-3');
-    expect(container.textContent).toContain('500 in');
-    expect(container.textContent).toContain('200 out');
+    expect(container.textContent).toContain('500 entrada');
+    expect(container.textContent).toContain('200 saída');
     expect(container.textContent).toContain('1200ms');
   });
 
@@ -200,13 +200,13 @@ describe('TraceDisplay', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
     const headerBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Debug Info')
+      btn.textContent?.includes('Detalhes técnicos')
     );
     act(() => {
       headerBtn?.click();
     });
 
-    expect(container.textContent).toContain('Autonomy Checks');
+    expect(container.textContent).toContain('Verificações de autonomia');
     expect(container.textContent).toContain('deleteFile');
     expect(container.textContent).toContain('readFile');
     expect(container.textContent).toContain('High risk operation');
@@ -216,30 +216,30 @@ describe('TraceDisplay', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
     const headerBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Debug Info')
+      btn.textContent?.includes('Detalhes técnicos')
     );
     act(() => {
       headerBtn?.click();
     });
 
-    expect(container.textContent).toContain('Operations');
-    expect(container.textContent).toContain('DB reads: 10');
-    expect(container.textContent).toContain('DB writes: 3');
-    expect(container.textContent).toContain('Memory adds: 2');
-    expect(container.textContent).toContain('Memory recalls: 5');
+    expect(container.textContent).toContain('Operações');
+    expect(container.textContent).toContain('Consultas ao banco: 10');
+    expect(container.textContent).toContain('Gravações no banco: 3');
+    expect(container.textContent).toContain('Memórias adicionadas: 2');
+    expect(container.textContent).toContain('Memórias recuperadas: 5');
   });
 
   it('shows triggers fired section', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
     const headerBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Debug Info')
+      btn.textContent?.includes('Detalhes técnicos')
     );
     act(() => {
       headerBtn?.click();
     });
 
-    expect(container.textContent).toContain('Triggers Fired');
+    expect(container.textContent).toContain('Automações disparadas');
     expect(container.textContent).toContain('report_generator');
   });
 
@@ -247,13 +247,13 @@ describe('TraceDisplay', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
     const headerBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Debug Info')
+      btn.textContent?.includes('Detalhes técnicos')
     );
     act(() => {
       headerBtn?.click();
     });
 
-    expect(container.textContent).toContain('MCP Tool Calls');
+    expect(container.textContent).toContain('Ferramentas MCP');
     expect(container.textContent).toContain('webSearch');
     expect(container.textContent).toContain('tool_start');
     expect(container.textContent).toContain('tool_end');
@@ -264,13 +264,13 @@ describe('TraceDisplay', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
     const headerBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Debug Info')
+      btn.textContent?.includes('Detalhes técnicos')
     );
     act(() => {
       headerBtn?.click();
     });
 
-    expect(container.textContent).toContain('Errors');
+    expect(container.textContent).toContain('Erros');
     expect(container.textContent).toContain('Failed to connect to database on retry 2');
   });
 
@@ -278,33 +278,33 @@ describe('TraceDisplay', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
     const headerBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Debug Info')
+      btn.textContent?.includes('Detalhes técnicos')
     );
     act(() => {
       headerBtn?.click();
     });
 
-    expect(container.textContent).toContain('Request');
+    expect(container.textContent).toContain('Requisição');
     expect(container.textContent).toContain('anthropic');
     expect(container.textContent).toContain('/v1/messages');
-    expect(container.textContent).toContain('Response');
+    expect(container.textContent).toContain('Resposta');
     expect(container.textContent).toContain('success');
     expect(container.textContent).toContain('stop');
-    expect(container.textContent).toContain('500 chars');
+    expect(container.textContent).toContain('500 caracteres');
   });
 
   it('shows retries section', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
     const headerBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Debug Info')
+      btn.textContent?.includes('Detalhes técnicos')
     );
     act(() => {
       headerBtn?.click();
     });
 
-    expect(container.textContent).toContain('Retries');
-    expect(container.textContent).toContain('Attempt 2');
+    expect(container.textContent).toContain('Novas tentativas');
+    expect(container.textContent).toContain('Tentativa 2');
     expect(container.textContent).toContain('Connection timeout');
   });
 
@@ -312,14 +312,14 @@ describe('TraceDisplay', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
     const headerBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Debug Info')
+      btn.textContent?.includes('Detalhes técnicos')
     );
     act(() => {
       headerBtn?.click();
     });
 
     // The events section is collapsed by default, so we should see "All Events (2)"
-    expect(container.textContent).toContain('All Events');
+    expect(container.textContent).toContain('Todos os eventos');
     expect(container.textContent).toContain('2');
   });
 
@@ -344,8 +344,8 @@ describe('TraceDisplay', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
     // Collapsed header should show token count
-    expect(container.textContent).toContain('500 in');
-    expect(container.textContent).toContain('200 out');
+    expect(container.textContent).toContain('500 entrada');
+    expect(container.textContent).toContain('200 saída');
   });
 
   it('shows autonomy blocked count in collapsed header', () => {
@@ -353,13 +353,13 @@ describe('TraceDisplay', () => {
     const container = render(<TraceDisplay trace={trace} />);
 
     // 1 blocked autonomy check
-    expect(container.textContent).toContain('1 blocked');
+    expect(container.textContent).toContain('1 bloqueado');
   });
 
   it('shows retry count in collapsed header', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
-    expect(container.textContent).toContain('1 retries');
+    expect(container.textContent).toContain('1 tentativa');
   });
 
   it('shows MCP event count in collapsed header', () => {
@@ -379,7 +379,7 @@ describe('TraceDisplay', () => {
   it('shows routing info in collapsed header', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
-    expect(container.textContent).toContain('1 tools');
+    expect(container.textContent).toContain('1 ferramentas');
     expect(container.textContent).toContain('85%');
   });
 
@@ -387,19 +387,19 @@ describe('TraceDisplay', () => {
     const container = render(<TraceDisplay trace={traceWithFullData()} />);
 
     const headerBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Debug Info')
+      btn.textContent?.includes('Detalhes técnicos')
     );
 
     // Expand
     act(() => {
       headerBtn?.click();
     });
-    expect(container.textContent).toContain('Routing');
+    expect(container.textContent).toContain('Roteamento');
 
     // Collapse
     act(() => {
       headerBtn?.click();
     });
-    expect(container.textContent).not.toContain('Routing');
+    expect(container.textContent).not.toContain('Roteamento');
   });
 });

@@ -292,7 +292,7 @@ export function ClawsPage() {
         openClawDetail={openClawDetail}
       />
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary flex items-center gap-2">
             <Zap className="w-5 h-5 text-primary" />
@@ -304,7 +304,7 @@ export function ClawsPage() {
             {needsAttentionCount > 0 && ` \u00B7 ${needsAttentionCount} needs attention`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* View mode toggle — persists per-user in localStorage. */}
           <div
             role="group"
@@ -353,7 +353,7 @@ export function ClawsPage() {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            New Claw
+            Novo Claw
           </button>
         </div>
       </header>
@@ -426,7 +426,7 @@ export function ClawsPage() {
       )}
 
       {/* Tab Bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 gap-1 overflow-x-auto border-b border-border px-4 dark:border-dark-border sm:px-6">
         {(['home', 'claws'] as PageTab[]).map((tab) => (
           <button
             key={tab}
@@ -439,7 +439,7 @@ export function ClawsPage() {
           >
             {tab === 'home' && <Home className="w-3.5 h-3.5" />}
             {tab === 'claws' && <Activity className="w-3.5 h-3.5" />}
-            {tab === 'home' ? 'Home' : 'Claws'}
+            {tab === 'home' ? 'Início' : 'Claws'}
           </button>
         ))}
       </div>
@@ -461,9 +461,9 @@ export function ClawsPage() {
           ) : claws.length === 0 ? (
             <EmptyState
               icon={Zap}
-              title="No claws yet"
-              description="Create your first Claw agent to start autonomous task execution."
-              action={{ label: 'Create Claw', onClick: () => setShowCreate(true) }}
+              title="Nenhum agente Claw criado"
+              description="Crie um agente Claw para executar tarefas autônomas com as permissões adequadas."
+              action={{ label: 'Criar agente Claw', onClick: () => setShowCreate(true) }}
             />
           ) : (
             <div className="space-y-4">
@@ -657,11 +657,11 @@ export function ClawsPage() {
               )}
 
               <div className="flex flex-wrap items-center gap-3">
-                <div className="flex-1 min-w-[200px]">
+                <div className="min-w-0 w-full sm:flex-1">
                   <input
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by name, mission, or ID..."
+                    placeholder="Pesquisar por nome, missão ou ID..."
                     className="w-full px-3 py-2 text-sm rounded-lg border border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary text-text-primary dark:text-dark-text-primary placeholder:text-text-muted"
                   />
                 </div>
@@ -757,10 +757,10 @@ export function ClawsPage() {
                     disabled={page === 0}
                     className="px-3 py-1.5 text-sm rounded border border-border dark:border-dark-border disabled:opacity-40 hover:bg-bg-tertiary"
                   >
-                    Previous
+                    Anterior
                   </button>
                   <span className="text-xs text-text-muted dark:text-dark-text-muted">
-                    Page {page + 1} of {Math.ceil(totalClaws / pageSize)}
+                    Página {page + 1} de {Math.ceil(totalClaws / pageSize)}
                   </span>
                   <button
                     onClick={() => setPage((p) => p + 1)}

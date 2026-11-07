@@ -60,6 +60,16 @@ function getStateIcon(state: string) {
   }
 }
 
+const STATE_LABELS: Record<string, string> = {
+  running: 'Em execução',
+  starting: 'Iniciando',
+  paused: 'Pausado',
+  waiting: 'Aguardando',
+  escalation_pending: 'Pendente',
+  failed: 'Falhou',
+  stopped: 'Parado',
+};
+
 interface ClawsWidgetProps {
   limit?: number;
 }
@@ -116,7 +126,7 @@ export function ClawsWidget({ limit = 6 }: ClawsWidgetProps) {
       const result = await clawsApi.list();
       setClaws(result.claws);
     } catch {
-      setError('Failed to load claws');
+      setError('Não foi possível carregar os agentes autônomos.');
     } finally {
       setIsLoading(false);
     }
@@ -200,7 +210,7 @@ export function ClawsWidget({ limit = 6 }: ClawsWidgetProps) {
         <div className="flex items-center gap-2 mb-4">
           <Zap className="w-4 h-4 text-primary" />
           <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-            Claws
+            Agentes autônomos
           </h3>
         </div>
         <div className="space-y-3">
@@ -218,7 +228,7 @@ export function ClawsWidget({ limit = 6 }: ClawsWidgetProps) {
         <div className="flex items-center gap-2 mb-4">
           <Zap className="w-4 h-4 text-primary" />
           <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-            Claws
+            Agentes autônomos
           </h3>
         </div>
         <div className="flex items-center gap-2 text-error text-sm">
@@ -232,19 +242,19 @@ export function ClawsWidget({ limit = 6 }: ClawsWidgetProps) {
   if (displayClaws.length === 0) {
     return (
       <div className="card-elevated p-4 bg-bg-secondary dark:bg-dark-bg-secondary border border-border dark:border-dark-border rounded-xl">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-primary" />
             <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-              Claws
+              Agentes autônomos
             </h3>
           </div>
         </div>
         <div className="text-center py-6">
           <Zap className="w-8 h-8 text-text-muted dark:text-dark-text-muted mx-auto mb-2" />
-          <p className="text-sm text-text-muted dark:text-dark-text-muted">No claws</p>
+          <p className="text-sm text-text-muted dark:text-dark-text-muted">Nenhum agente autônomo cadastrado</p>
           <Link to="/claws" className="text-xs text-primary hover:underline mt-2 inline-block">
-            Create one
+            Criar agente
           </Link>
         </div>
       </div>
@@ -253,34 +263,34 @@ export function ClawsWidget({ limit = 6 }: ClawsWidgetProps) {
 
   return (
     <div className="card-elevated p-4 bg-bg-secondary dark:bg-dark-bg-secondary border border-border dark:border-dark-border rounded-xl">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <div className="flex items-center gap-2">
           <Zap className="w-4 h-4 text-primary" />
           <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-            Claws
+            Agentes autônomos
           </h3>
           <span className="text-xs text-text-muted dark:text-dark-text-muted">
             ({claws.length})
           </span>
         </div>
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="flex items-center gap-1 text-success">
             <Play className="w-3 h-3" />
-            {runningCount} running
+            {runningCount} em execução
           </span>
           {escalationCount > 0 && (
             <span className="flex items-center gap-1 text-purple-500">
               <AlertCircle className="w-3 h-3" />
-              {escalationCount} pending
+              {escalationCount} pendentes
             </span>
           )}
           {reflectionCount > 0 && (
             <span
               className="flex items-center gap-1 text-purple-500"
-              title="Claws with consecutive errors past the reflection threshold"
+              title="Agentes que precisam de revisão por erros consecutivos"
             >
               <Brain className="w-3 h-3" />
-              {reflectionCount} reflect
+              {reflectionCount} em análise
             </span>
           )}
           <span className="flex items-center gap-1 text-text-muted dark:text-dark-text-muted">
@@ -341,34 +351,34 @@ export function ClawsWidget({ limit = 6 }: ClawsWidgetProps) {
                               : 'bg-text-muted/10 text-text-muted dark:bg-dark-text-muted/10 dark:text-dark-text-muted'
                     }`}
                   >
-                    {state === 'escalation_pending' ? 'escalation' : state}
+                    {STATE_LABELS[state] ?? state}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-text-muted dark:text-dark-text-muted flex-wrap">
                   <span>{claw.mode}</span>
-                  {claw.depth > 0 && <span>depth {claw.depth}</span>}
+                  {claw.depth > 0 && <span>nível {claw.depth}</span>}
                   {claw.session && (
                     <>
                       <span>•</span>
                       <span className="flex items-center gap-1">
                         <RefreshCw className="w-3 h-3" />
-                        {claw.session.cyclesCompleted} cycles
+                        {claw.session.cyclesCompleted} ciclos
                       </span>
                     </>
                   )}
                   {reflectionPending && (
                     <span
                       className="inline-flex items-center gap-1 text-purple-500"
-                      title={`Reflection required after ${consecutiveErrors} consecutive errors`}
+                      title={`Revisão necessária após ${consecutiveErrors} erros consecutivos`}
                     >
                       <Brain className="w-3 h-3" />
-                      reflect
+                      Revisar
                     </span>
                   )}
                   {consecutiveErrors > 0 && !reflectionPending && (
                     <span
                       className="inline-flex items-center gap-1 text-amber-500"
-                      title={`${consecutiveErrors} consecutive error(s)`}
+                      title={`${consecutiveErrors} erros consecutivos`}
                     >
                       ⚠ {consecutiveErrors}
                     </span>

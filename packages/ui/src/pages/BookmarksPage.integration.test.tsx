@@ -139,7 +139,7 @@ describe('BookmarksPage integration', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 0));
     });
-    expect(container.textContent).toContain('No bookmarks yet');
+    expect(container.textContent).toContain('Nenhum favorito ainda');
   });
 
   it('renders the error state with a Try Again action when the API rejects', async () => {
@@ -332,7 +332,7 @@ describe('BookmarksPage integration', () => {
       await new Promise((r) => setTimeout(r, 400));
     });
 
-    expect(container.textContent).toContain('No bookmarks found');
+    expect(container.textContent).toContain('Nenhum favorito encontrado');
   });
 
   it('renders the home tab by default with the PageHomeTab CTA', async () => {

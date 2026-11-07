@@ -25,6 +25,8 @@ import type { CalendarEvent } from '../api';
 import { localDayString } from '../utils/formatters';
 import { PageHomeTab } from '../components/PageHomeTab';
 
+const VIEW_MODE_LABELS = { day: 'Dia', week: 'Semana', month: 'Mês' } as const;
+
 const colorOptions = [
   { value: 'blue', label: 'Azul', class: 'bg-primary' },
   { value: 'green', label: 'Verde', class: 'bg-success' },
@@ -133,17 +135,16 @@ export function CalendarPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Calendar
+            Agenda
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            {todayEvents.length} event{todayEvents.length !== 1 ? 's' : ''} today,{' '}
-            {upcomingEvents.length} upcoming
+            {todayEvents.length} hoje, {upcomingEvents.length} futuros
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {/* View Mode Toggle */}
           <div className="flex bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg p-1">
             {(['day', 'week', 'month'] as const).map((mode) => (
@@ -156,7 +157,7 @@ export function CalendarPage() {
                     : 'text-text-secondary dark:text-dark-text-secondary hover:text-text-primary dark:hover:text-dark-text-primary'
                 }`}
               >
-                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                {VIEW_MODE_LABELS[mode]}
               </button>
             ))}
           </div>
@@ -165,7 +166,7 @@ export function CalendarPage() {
             className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Add Event
+            Novo compromisso
           </button>
         </div>
       </header>
@@ -236,7 +237,7 @@ export function CalendarPage() {
           ]}
           steps={[
             { title: 'Crie um compromisso', detail: 'Clique em adicionar para começar.' },
-            { title: 'Set date & time', detail: 'Pick a date, time, and duration.' },
+            { title: 'Defina data e horário', detail: 'Escolha a data, o horário e a duração.' },
             {
               title: 'Ative lembretes',
               detail: 'Defina lembretes para não esquecer compromissos.',
@@ -252,29 +253,29 @@ export function CalendarPage() {
       {activeTab === 'calendar' && (
         <>
           {/* Date Navigation */}
-          <div className="flex items-center justify-between px-6 py-3 border-b border-border dark:border-dark-border">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3 dark:border-dark-border sm:px-6">
             <button
               onClick={() => setSelectedDate(navigateDate(selectedDate, viewMode, -1))}
               className="px-3 py-1 text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded transition-colors"
             >
-              Previous
+              Anterior
             </button>
-            <div className="flex items-center gap-3">
-              <h3 className="text-lg font-medium text-text-primary dark:text-dark-text-primary">
+            <div className="flex min-w-0 flex-wrap items-center justify-center gap-2">
+              <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary sm:text-lg">
                 {formatDateRange(selectedDate, viewMode)}
               </h3>
               <button
                 onClick={() => setSelectedDate(localToday)}
                 className="px-2 py-1 text-sm text-primary hover:underline"
               >
-                Today
+                Hoje
               </button>
             </div>
             <button
               onClick={() => setSelectedDate(navigateDate(selectedDate, viewMode, 1))}
               className="px-3 py-1 text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded transition-colors"
             >
-              Next
+              Próximo
             </button>
           </div>
 

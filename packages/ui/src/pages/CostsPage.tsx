@@ -34,6 +34,18 @@ import { PageHomeTab } from '../components/PageHomeTab';
 import { useSkipHome } from '../hooks/useSkipHome';
 
 type Period = 'day' | 'week' | 'month' | 'year';
+const PERIOD_LABELS: Record<Period, string> = {
+  day: 'Dia',
+  week: 'Semana',
+  month: 'Mês',
+  year: 'Ano',
+};
+const COST_TAB_LABELS = {
+  home: 'Início',
+  overview: 'Visão geral',
+  breakdown: 'Detalhamento',
+  budget: 'Orçamento',
+} as const;
 
 export function CostsPage() {
   const toast = useToast();
@@ -101,18 +113,18 @@ export function CostsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Cost Dashboard
+            Custos da inteligência artificial
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            AI usage costs and budget tracking
+            Acompanhamento de consumo e limites de orçamento
           </p>
         </div>
 
         {/* Period Selector */}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {(['day', 'week', 'month', 'year'] as Period[]).map((p) => (
             <button
               key={p}
@@ -123,26 +135,26 @@ export function CostsPage() {
                   : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
               }`}
             >
-              {p.charAt(0).toUpperCase() + p.slice(1)}
+              {PERIOD_LABELS[p]}
             </button>
           ))}
         </div>
       </header>
 
       {/* Tabs */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 gap-1 overflow-x-auto border-b border-border px-4 dark:border-dark-border sm:px-6">
         {(['home', 'overview', 'breakdown', 'budget'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:px-4 ${
               activeTab === tab
                 ? 'border-primary text-primary'
                 : 'border-transparent text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:border-border dark:hover:border-dark-border'
             }`}
           >
             {tab === 'home' && <Home className="w-3.5 h-3.5" />}
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {COST_TAB_LABELS[tab]}
           </button>
         ))}
       </div>

@@ -53,7 +53,7 @@ function WorkflowPanelFallback({ className = '' }: { className?: string }) {
     <div
       className={`flex shrink-0 items-center justify-center border-l border-border bg-bg-secondary text-sm text-text-muted dark:border-dark-border dark:bg-dark-bg-secondary dark:text-dark-text-muted ${className}`}
     >
-      Loading...
+      Carregando...
     </div>
   );
 }
@@ -80,7 +80,7 @@ function WorkflowEditorInner() {
   // ========================================================================
 
   if (editor.isLoading) {
-    return <LoadingSpinner message="Loading workflow..." />;
+    return <LoadingSpinner message="Carregando automação..." />;
   }
 
   if (!editor.workflow) {
@@ -88,7 +88,7 @@ function WorkflowEditorInner() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       {/* Top Bar */}
       <WorkflowEditorToolbar
         workflowName={editor.workflowName}

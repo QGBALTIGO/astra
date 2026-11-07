@@ -49,7 +49,12 @@ export function GlobalSearchOverlay({ onClose }: Props) {
   // Search logic
   const performSearch = useCallback(
     (q: string) => {
-      const lower = q.trim().toLowerCase();
+      const normalized = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLocaleLowerCase('pt-BR');
+      const lower = normalized(q.trim());
       if (!lower) {
         setResults({ pages: [], workflows: [], conversations: [] });
         return;
@@ -58,15 +63,14 @@ export function GlobalSearchOverlay({ onClose }: Props) {
       // Pages: filter by label + description
       const pages = ALL_NAV_ITEMS.filter((item) => {
         const desc = NAV_DESCRIPTIONS[item.to] ?? '';
-        return item.label.toLowerCase().includes(lower) || desc.toLowerCase().includes(lower);
+        return normalized(item.label).includes(lower) || normalized(desc).includes(lower);
       }).slice(0, 8);
 
       // Workflows: filter cached
       const workflows = cachedWorkflows
         .filter(
           (w) =>
-            w.name.toLowerCase().includes(lower) ||
-            (w.description ?? '').toLowerCase().includes(lower)
+            normalized(w.name).includes(lower) || normalized(w.description ?? '').includes(lower)
         )
         .slice(0, 5);
 
@@ -117,7 +121,7 @@ export function GlobalSearchOverlay({ onClose }: Props) {
       onKeyDown={handleKeyDown}
       role="dialog"
       aria-modal="true"
-      aria-label="Global search"
+      aria-label="Busca global"
     >
       <div className="w-full max-w-[580px] max-h-[500px] mx-4 bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl border border-border dark:border-dark-border shadow-2xl flex flex-col overflow-hidden">
         {/* Search input */}
@@ -128,7 +132,7 @@ export function GlobalSearchOverlay({ onClose }: Props) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search pages, workflows, conversations..."
+            placeholder="Buscar páginas, automações e conversas..."
             className="flex-1 bg-transparent border-none outline-none text-base text-text-primary dark:text-dark-text-primary placeholder:text-text-secondary/50 dark:placeholder:text-dark-text-secondary/50"
           />
           <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border text-text-secondary dark:text-dark-text-secondary font-mono shrink-0">
@@ -140,19 +144,19 @@ export function GlobalSearchOverlay({ onClose }: Props) {
         <div className="flex-1 overflow-y-auto p-2">
           {!trimmed && (
             <p className="py-6 text-center text-sm text-text-secondary dark:text-dark-text-secondary">
-              Start typing to search...
+              Digite para pesquisar...
             </p>
           )}
 
           {trimmed && !hasResults && (
             <p className="py-6 text-center text-sm text-text-secondary dark:text-dark-text-secondary">
-              No results for &ldquo;{trimmed}&rdquo;
+              Nenhum resultado para &ldquo;{trimmed}&rdquo;
             </p>
           )}
 
           {/* Pages */}
           {results.pages.length > 0 && (
-            <ResultGroup label="Pages">
+            <ResultGroup label="Páginas">
               {results.pages.map((item) => (
                 <ResultItem
                   key={item.to}
@@ -167,7 +171,7 @@ export function GlobalSearchOverlay({ onClose }: Props) {
 
           {/* Workflows */}
           {results.workflows.length > 0 && (
-            <ResultGroup label="Workflows">
+            <ResultGroup label="Automações">
               {results.workflows.map((wf) => (
                 <ResultItem
                   key={wf.id}
@@ -182,13 +186,13 @@ export function GlobalSearchOverlay({ onClose }: Props) {
 
           {/* Conversations */}
           {results.conversations.length > 0 && (
-            <ResultGroup label="Conversations">
+            <ResultGroup label="Conversas">
               {results.conversations.map((conv) => (
                 <ResultItem
                   key={conv.id}
                   icon={<MessageSquare className="w-4 h-4" />}
-                  label={conv.title || 'Untitled conversation'}
-                  hint={new Date(conv.updatedAt).toLocaleDateString()}
+                  label={conv.title || 'Conversa sem título'}
+                  hint={new Date(conv.updatedAt).toLocaleDateString('pt-BR')}
                   onClick={() => handleSelect(`/history/${conv.id}`)}
                 />
               ))}

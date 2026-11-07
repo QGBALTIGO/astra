@@ -46,13 +46,13 @@ const DEVICE_TYPES: { value: EdgeDeviceType; label: string }[] = [
   { value: 'raspberry-pi', label: 'Raspberry Pi' },
   { value: 'esp32', label: 'ESP32' },
   { value: 'arduino', label: 'Arduino' },
-  { value: 'custom', label: 'Custom' },
+  { value: 'custom', label: 'Personalizado' },
 ];
 
 const PROTOCOLS: { value: EdgeProtocol; label: string }[] = [
   { value: 'mqtt', label: 'MQTT' },
   { value: 'websocket', label: 'WebSocket' },
-  { value: 'http-poll', label: 'HTTP Poll' },
+  { value: 'http-poll', label: 'Consulta HTTP' },
 ];
 
 const SENSOR_TYPES: EdgeSensorType[] = [
@@ -66,6 +66,17 @@ const SENSOR_TYPES: EdgeSensorType[] = [
   'custom',
 ];
 
+const SENSOR_TYPE_LABELS: Record<EdgeSensorType, string> = {
+  temperature: 'Temperatura',
+  humidity: 'Umidade',
+  motion: 'Movimento',
+  light: 'Luz',
+  pressure: 'Pressão',
+  camera: 'Câmera',
+  door: 'Porta',
+  custom: 'Personalizado',
+};
+
 const ACTUATOR_TYPES: EdgeActuatorType[] = [
   'relay',
   'servo',
@@ -75,6 +86,16 @@ const ACTUATOR_TYPES: EdgeActuatorType[] = [
   'motor',
   'custom',
 ];
+
+const ACTUATOR_TYPE_LABELS: Record<EdgeActuatorType, string> = {
+  relay: 'Relé',
+  servo: 'Servo',
+  led: 'LED',
+  buzzer: 'Alarme',
+  display: 'Visor',
+  motor: 'Motor',
+  custom: 'Personalizado',
+};
 
 function newSensor(): SensorRow {
   return { id: '', name: '', type: 'custom', unit: '' };
@@ -101,20 +122,20 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('Device name is required.');
+      setError('Informe o nome do dispositivo.');
       return;
     }
 
     // Validate sensor/actuator IDs are filled
     for (const s of sensors) {
       if (!s.id.trim() || !s.name.trim()) {
-        setError('Each sensor must have an ID and a name.');
+        setError('Cada sensor precisa de um identificador e um nome.');
         return;
       }
     }
     for (const a of actuators) {
       if (!a.id.trim() || !a.name.trim()) {
-        setError('Each actuator must have an ID and a name.');
+        setError('Cada atuador precisa de um identificador e um nome.');
         return;
       }
     }
@@ -141,7 +162,7 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
       });
       if (device) onCreated(device);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to register device.');
+      setError(err instanceof Error ? err.message : 'Não foi possível cadastrar o dispositivo.');
     } finally {
       setIsSaving(false);
     }
@@ -161,11 +182,11 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border dark:border-dark-border">
           <h2 className="text-base font-semibold text-text-primary dark:text-dark-text-primary">
-            Register Device
+            Cadastrar dispositivo
           </h2>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label="Fechar"
             className="p-1.5 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
           >
             <X className="w-4 h-4 text-text-muted" />
@@ -184,19 +205,19 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <label className="block text-xs font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
-                Device Name *
+                Nome do dispositivo *
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Living Room Sensor"
+                placeholder="Ex.: Sensor da sala"
                 className="w-full px-3 py-1.5 text-sm border border-border dark:border-dark-border rounded-lg bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
-                Type
+                Tipo
               </label>
               <select
                 value={type}
@@ -212,7 +233,7 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
             </div>
             <div>
               <label className="block text-xs font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
-                Protocol
+                Protocolo
               </label>
               <select
                 value={protocol}
@@ -228,13 +249,13 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
             </div>
             <div className="col-span-2">
               <label className="block text-xs font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
-                Firmware Version
+                Versão do firmware
               </label>
               <input
                 type="text"
                 value={firmware}
                 onChange={(e) => setFirmware(e.target.value)}
-                placeholder="e.g. 1.0.0"
+                placeholder="Ex.: 1.0.0"
                 className="w-full px-3 py-1.5 text-sm border border-border dark:border-dark-border rounded-lg bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
@@ -244,48 +265,45 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-medium text-text-secondary dark:text-dark-text-secondary uppercase tracking-wide">
-                Sensors
+                Sensores
               </span>
               <button
                 type="button"
                 onClick={() => setSensors((prev) => [...prev, newSensor()])}
                 className="flex items-center gap-1 text-xs text-primary hover:underline"
               >
-                <Plus className="w-3 h-3" /> Add
+                <Plus className="w-3 h-3" /> Adicionar
               </button>
             </div>
             {sensors.length === 0 && (
               <p className="text-xs text-text-muted dark:text-dark-text-muted italic">
-                No sensors — add one above.
+                Nenhum sensor cadastrado.
               </p>
             )}
             {sensors.map((s, i) => (
-              <div
-                key={i}
-                className="grid grid-cols-[1fr_1fr_auto_auto_auto] gap-2 mb-2 items-center"
-              >
+              <div key={i} className="flex flex-wrap gap-2 mb-2 items-center">
                 <input
                   type="text"
                   value={s.id}
                   onChange={(e) => updateSensor(i, { id: e.target.value })}
                   placeholder="ID"
-                  className="px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="min-w-0 flex-[1_1_110px] px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <input
                   type="text"
                   value={s.name}
                   onChange={(e) => updateSensor(i, { name: e.target.value })}
-                  placeholder="Name"
-                  className="px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Nome"
+                  className="min-w-0 flex-[1_1_110px] px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <select
                   value={s.type}
                   onChange={(e) => updateSensor(i, { type: e.target.value as EdgeSensorType })}
-                  className="px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="min-w-0 flex-[1_1_110px] px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   {SENSOR_TYPES.map((t) => (
                     <option key={t} value={t}>
-                      {t}
+                      {SENSOR_TYPE_LABELS[t]}
                     </option>
                   ))}
                 </select>
@@ -293,13 +311,13 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
                   type="text"
                   value={s.unit}
                   onChange={(e) => updateSensor(i, { unit: e.target.value })}
-                  placeholder="Unit"
+                  placeholder="Unidade"
                   className="w-14 px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <button
                   type="button"
                   onClick={() => setSensors((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="p-1 text-text-muted hover:text-red-500 transition-colors"
+                  className="shrink-0 p-1 text-text-muted hover:text-red-500 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -311,52 +329,52 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-medium text-text-secondary dark:text-dark-text-secondary uppercase tracking-wide">
-                Actuators
+                Atuadores
               </span>
               <button
                 type="button"
                 onClick={() => setActuators((prev) => [...prev, newActuator()])}
                 className="flex items-center gap-1 text-xs text-primary hover:underline"
               >
-                <Plus className="w-3 h-3" /> Add
+                <Plus className="w-3 h-3" /> Adicionar
               </button>
             </div>
             {actuators.length === 0 && (
               <p className="text-xs text-text-muted dark:text-dark-text-muted italic">
-                No actuators — add one above.
+                Nenhum atuador cadastrado.
               </p>
             )}
             {actuators.map((a, i) => (
-              <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto] gap-2 mb-2 items-center">
+              <div key={i} className="flex flex-wrap gap-2 mb-2 items-center">
                 <input
                   type="text"
                   value={a.id}
                   onChange={(e) => updateActuator(i, { id: e.target.value })}
                   placeholder="ID"
-                  className="px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="min-w-0 flex-[1_1_110px] px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <input
                   type="text"
                   value={a.name}
                   onChange={(e) => updateActuator(i, { name: e.target.value })}
-                  placeholder="Name"
-                  className="px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Nome"
+                  className="min-w-0 flex-[1_1_110px] px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <select
                   value={a.type}
                   onChange={(e) => updateActuator(i, { type: e.target.value as EdgeActuatorType })}
-                  className="px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="min-w-0 flex-[1_1_110px] px-2 py-1 text-xs border border-border dark:border-dark-border rounded bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   {ACTUATOR_TYPES.map((t) => (
                     <option key={t} value={t}>
-                      {t}
+                      {ACTUATOR_TYPE_LABELS[t]}
                     </option>
                   ))}
                 </select>
                 <button
                   type="button"
                   onClick={() => setActuators((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="p-1 text-text-muted hover:text-red-500 transition-colors"
+                  className="shrink-0 p-1 text-text-muted hover:text-red-500 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -372,14 +390,14 @@ export function RegisterDeviceModal({ onClose, onCreated }: Props) {
             onClick={onClose}
             className="px-4 py-1.5 text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded-lg transition-colors"
           >
-            Cancel
+            Cancelar
           </button>
           <button
             onClick={handleSubmit}
             disabled={isSaving}
             className="px-4 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
-            {isSaving ? 'Registering…' : 'Register Device'}
+            {isSaving ? 'Cadastrando…' : 'Cadastrar dispositivo'}
           </button>
         </div>
       </div>

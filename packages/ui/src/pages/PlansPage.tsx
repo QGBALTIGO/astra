@@ -68,10 +68,10 @@ const stepStatusIcons: Record<PlanStep['status'], typeof Circle> = {
 type PlansTabId = 'home' | 'goals' | 'plans' | 'templates';
 
 const PLANS_TABS: { key: PlansTabId; label: string; icon: typeof Target }[] = [
-  { key: 'home', label: 'Home', icon: Home },
-  { key: 'goals', label: 'Goals', icon: Target },
-  { key: 'plans', label: 'Plans', icon: ListChecks },
-  { key: 'templates', label: 'Templates', icon: LayoutTemplate },
+  { key: 'home', label: 'Início', icon: Home },
+  { key: 'goals', label: 'Objetivos', icon: Target },
+  { key: 'plans', label: 'Planos', icon: ListChecks },
+  { key: 'templates', label: 'Modelos', icon: LayoutTemplate },
 ];
 
 export function PlansPage() {
@@ -209,13 +209,13 @@ export function PlansPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Plans
+            Planos
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            {runningCount} running, {completedCount} completed
+            {runningCount} em execução, {completedCount} concluídos
           </p>
         </div>
         <button
@@ -223,12 +223,12 @@ export function PlansPage() {
           className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
         >
           <Plus className="w-4 h-4" />
-          New Plan
+          Novo plano
         </button>
       </header>
 
       {/* Tab bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 gap-1 overflow-x-auto border-b border-border px-4 dark:border-dark-border sm:px-6">
         {PLANS_TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -236,7 +236,7 @@ export function PlansPage() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:px-4 ${
                 isActive
                   ? 'border-primary text-primary'
                   : 'border-transparent text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:border-border dark:hover:border-dark-border'

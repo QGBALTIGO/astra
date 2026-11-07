@@ -48,7 +48,7 @@ interface DataTypeConfig {
 
 const DATA_TYPES: Record<DataType, DataTypeConfig> = {
   tasks: {
-    name: 'Tasks',
+    name: 'Tarefas',
     icon: CheckCircle2,
     endpoint: '/tasks',
     columns: [
@@ -61,7 +61,7 @@ const DATA_TYPES: Record<DataType, DataTypeConfig> = {
     searchable: true,
   },
   bookmarks: {
-    name: 'Bookmarks',
+    name: 'Favoritos',
     icon: Bookmark,
     endpoint: '/bookmarks',
     columns: [
@@ -74,7 +74,7 @@ const DATA_TYPES: Record<DataType, DataTypeConfig> = {
     searchable: true,
   },
   notes: {
-    name: 'Notes',
+    name: 'Notas',
     icon: FileText,
     endpoint: '/notes',
     columns: [
@@ -86,7 +86,7 @@ const DATA_TYPES: Record<DataType, DataTypeConfig> = {
     searchable: true,
   },
   calendar: {
-    name: 'Calendar Events',
+    name: 'Compromissos',
     icon: Calendar,
     endpoint: '/calendar',
     columns: [
@@ -99,7 +99,7 @@ const DATA_TYPES: Record<DataType, DataTypeConfig> = {
     searchable: true,
   },
   contacts: {
-    name: 'Contacts',
+    name: 'Contatos',
     icon: Users,
     endpoint: '/contacts',
     columns: [
@@ -112,7 +112,7 @@ const DATA_TYPES: Record<DataType, DataTypeConfig> = {
     searchable: true,
   },
   expenses: {
-    name: 'Expenses',
+    name: 'Despesas',
     icon: DollarSign,
     endpoint: '/expenses',
     columns: [
@@ -128,14 +128,14 @@ const DATA_TYPES: Record<DataType, DataTypeConfig> = {
 
 function formatCellValue(value: unknown, type: string): string {
   if (value === null || value === undefined) return '-';
-  if (type === 'boolean') return value ? 'Yes' : 'No';
+  if (type === 'boolean') return value ? 'Sim' : 'Não';
   if (type === 'date') {
     if (typeof value === 'string') {
       const date = new Date(value);
       return (
-        date.toLocaleDateString() +
+        date.toLocaleDateString('pt-BR') +
         (value.includes('T')
-          ? ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          ? ' ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
           : '')
       );
     }
@@ -427,11 +427,15 @@ export function DataBrowserPage() {
             ) : records.length === 0 ? (
               <EmptyState
                 icon={Table}
-                title={searchQuery ? 'No records found' : `No ${config.name.toLowerCase()} yet`}
+                title={
+                  searchQuery
+                    ? 'Nenhum registro encontrado'
+                    : `Nenhum registro de ${config.name.toLowerCase()} ainda`
+                }
                 description={
                   searchQuery
-                    ? 'Try a different search term.'
-                    : `Add your first ${config.name.toLowerCase().replace(/s$/, '')} to get started.`
+                    ? 'Tente outro termo de pesquisa.'
+                    : 'Adicione seu primeiro registro para começar.'
                 }
               />
             ) : (
@@ -511,7 +515,7 @@ export function DataBrowserPage() {
                 </div>
 
                 <p className="mt-4 text-sm text-text-muted dark:text-dark-text-muted">
-                  Showing {records.length} record{records.length !== 1 ? 's' : ''}
+                  Exibindo {records.length} {records.length === 1 ? 'registro' : 'registros'}
                 </p>
               </div>
             )}

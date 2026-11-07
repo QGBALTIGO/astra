@@ -118,11 +118,19 @@ export async function isPathAllowedAsync(
     const allowedPaths = getAllowedPaths(workspaceDir);
 
     for (const allowed of allowedPaths) {
-      const resolvedAllowed = path.resolve(allowed);
+      // Normalize both sides through the filesystem: on Windows, realpath can
+      // return a short 8.3 alias (e.g. RUNNER~1) for a file inside a directory
+      // supplied under its long name. Comparing a canonical target against a
+      // lexical workspace path incorrectly denies safe files.
+      const resolvedAllowed = await realpathNearestExistingAncestor(allowed);
 
-      // Normalize separators for cross-platform comparison (Windows backslash → forward slash)
-      const normalizedPath = resolvedPath.replace(/\\/g, '/');
-      const normalizedAllowed = resolvedAllowed.replace(/\\/g, '/');
+      const normalizeForComparison = (value: string): string => {
+        const withForwardSlashes = value.replace(/\\/g, '/');
+        // Windows paths are case-insensitive; Linux/macOS paths are not.
+        return process.platform === 'win32' ? withForwardSlashes.toLowerCase() : withForwardSlashes;
+      };
+      const normalizedPath = normalizeForComparison(resolvedPath);
+      const normalizedAllowed = normalizeForComparison(resolvedAllowed);
 
       // Check exact match or proper subdirectory (with forward slash separator)
       if (

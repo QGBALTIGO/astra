@@ -56,7 +56,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
         <div className="flex items-center">
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex-1 flex items-center gap-3 px-3 py-2 hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
+            className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
           >
             <div className="text-text-muted dark:text-dark-text-muted">
               {isExpanded ? (
@@ -67,11 +67,11 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
             </div>
 
             <span className="font-medium text-text-secondary dark:text-dark-text-secondary">
-              Debug Info
+              Detalhes técnicos
             </span>
 
             {/* Quick Stats */}
-            <div className="flex items-center gap-3 ml-auto text-xs">
+            <div className="ml-auto hidden min-w-0 items-center gap-2 text-xs sm:flex">
               <span className="flex items-center gap-1 text-text-muted dark:text-dark-text-muted">
                 <Clock className="w-3 h-3" />
                 {trace.duration}ms
@@ -83,14 +83,14 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                   title={`${totalInputTokens} in / ${totalOutputTokens} out`}
                 >
                   <Brain className="w-3 h-3" />
-                  {totalInputTokens} in / {totalOutputTokens} out
+                  {totalInputTokens} entrada / {totalOutputTokens} saída
                 </span>
               )}
 
               {autonomyBlocked > 0 && (
                 <span className="flex items-center gap-1 text-orange-500">
                   <AlertTriangle className="w-3 h-3" />
-                  {autonomyBlocked} blocked
+                  {autonomyBlocked} {autonomyBlocked === 1 ? 'bloqueado' : 'bloqueados'}
                 </span>
               )}
 
@@ -98,8 +98,8 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                 <span className="flex items-center gap-1 text-purple-500">
                   <Filter className="w-3 h-3" />
                   {(trace.routing.suggestedTools?.length ?? 0) > 0
-                    ? `${trace.routing.suggestedTools!.length} tools`
-                    : `${trace.routing.relevantExtensionIds?.length ?? 0} ext`}
+                    ? `${trace.routing.suggestedTools!.length} ferramentas`
+                    : `${trace.routing.relevantExtensionIds?.length ?? 0} extensões`}
                   {trace.routing.confidence > 0 && (
                     <span className="opacity-70">
                       ({Math.round(trace.routing.confidence * 100)}%)
@@ -111,7 +111,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
               {hasRetries && (
                 <span className="flex items-center gap-1 text-amber-500">
                   <RefreshCw className="w-3 h-3" />
-                  {trace.retries?.length} retries
+                  {trace.retries?.length} {trace.retries?.length === 1 ? 'tentativa' : 'tentativas'}
                 </span>
               )}
 
@@ -135,7 +135,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
           <button
             onClick={() => setShowModal(true)}
             className="px-3 py-2 text-xs text-primary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors flex items-center gap-1.5 border-l border-border dark:border-dark-border"
-            title="Open full debug logs"
+            title="Abrir registros técnicos"
           >
             <ExternalLink className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Logs</span>
@@ -147,7 +147,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
           <div className="border-t border-border dark:border-dark-border divide-y divide-border dark:divide-dark-border">
             {/* Routing (request preprocessor) */}
             {trace.routing && (
-              <TraceSection title="Routing" icon={<Filter className="w-4 h-4" />}>
+              <TraceSection title="Roteamento" icon={<Filter className="w-4 h-4" />}>
                 <div className="space-y-2">
                   {trace.routing.intentHint && (
                     <div className="px-2 py-1 text-xs text-purple-600 dark:text-purple-400 bg-purple-500/10 rounded">
@@ -159,7 +159,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                   {trace.routing.suggestedTools?.length > 0 && (
                     <div>
                       <div className="text-xs text-text-muted dark:text-dark-text-muted mb-1">
-                        Suggested Tools:
+                        Ferramentas sugeridas:
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {trace.routing.suggestedTools.map((tool) => (
@@ -179,7 +179,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                   {(trace.routing.relevantExtensionIds?.length ?? 0) > 0 && (
                     <div>
                       <div className="text-xs text-text-muted dark:text-dark-text-muted mb-1">
-                        Extensions:
+                        Extensões:
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {trace.routing.relevantExtensionIds!.map((id) => (
@@ -198,7 +198,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                   {trace.routing.relevantTables && trace.routing.relevantTables.length > 0 && (
                     <div>
                       <div className="text-xs text-text-muted dark:text-dark-text-muted mb-1">
-                        Data Tables:
+                        Tabelas de dados:
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {trace.routing.relevantTables.map((table) => (
@@ -218,7 +218,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                     trace.routing.relevantMcpServers.length > 0 && (
                       <div>
                         <div className="text-xs text-text-muted dark:text-dark-text-muted mb-1">
-                          MCP Servers:
+                          Servidores MCP:
                         </div>
                         <div className="flex flex-wrap gap-1">
                           {trace.routing.relevantMcpServers.map((server) => (
@@ -245,7 +245,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                         </span>
                       ))}
                     <span className="px-2 py-0.5 text-xs bg-gray-500/10 text-text-muted dark:text-dark-text-muted rounded">
-                      confidence: {Math.round((trace.routing.confidence ?? 0) * 100)}%
+                      confiança: {Math.round((trace.routing.confidence ?? 0) * 100)}%
                     </span>
                   </div>
                 </div>
@@ -254,7 +254,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
 
             {/* Model Calls */}
             {(trace.modelCalls?.length ?? 0) > 0 && (
-              <TraceSection title="Model Calls" icon={<Brain className="w-4 h-4" />}>
+              <TraceSection title="Chamadas do modelo" icon={<Brain className="w-4 h-4" />}>
                 <div className="space-y-1">
                   {trace.modelCalls.map((model, i) => (
                     <div
@@ -266,7 +266,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                       </span>
                       {model.inputTokens !== undefined || model.outputTokens !== undefined ? (
                         <span className="text-xs text-blue-500">
-                          {model.inputTokens ?? 0} in / {model.outputTokens ?? 0} out
+                          {model.inputTokens ?? 0} entrada / {model.outputTokens ?? 0} saída
                         </span>
                       ) : (
                         model.tokens !== undefined && (
@@ -286,7 +286,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
 
             {/* Autonomy Checks */}
             {(trace.autonomyChecks?.length ?? 0) > 0 && (
-              <TraceSection title="Autonomy Checks" icon={<AlertTriangle className="w-4 h-4" />}>
+              <TraceSection title="Verificações de autonomia" icon={<AlertTriangle className="w-4 h-4" />}>
                 <div className="space-y-1">
                   {trace.autonomyChecks.map((check, i) => (
                     <div
@@ -319,26 +319,26 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
               trace.dbOperations?.writes > 0 ||
               trace.memoryOps?.adds > 0 ||
               trace.memoryOps?.recalls > 0) && (
-              <TraceSection title="Operations" icon={<Database className="w-4 h-4" />}>
+              <TraceSection title="Operações" icon={<Database className="w-4 h-4" />}>
                 <div className="flex flex-wrap gap-2">
                   {trace.dbOperations.reads > 0 && (
                     <span className="px-2 py-0.5 text-xs bg-blue-500/10 text-blue-500 rounded">
-                      DB reads: {trace.dbOperations.reads}
+                      Consultas ao banco: {trace.dbOperations.reads}
                     </span>
                   )}
                   {trace.dbOperations.writes > 0 && (
                     <span className="px-2 py-0.5 text-xs bg-green-500/10 text-green-500 rounded">
-                      DB writes: {trace.dbOperations.writes}
+                      Gravações no banco: {trace.dbOperations.writes}
                     </span>
                   )}
                   {trace.memoryOps.adds > 0 && (
                     <span className="px-2 py-0.5 text-xs bg-purple-500/10 text-purple-500 rounded">
-                      Memory adds: {trace.memoryOps.adds}
+                      Memórias adicionadas: {trace.memoryOps.adds}
                     </span>
                   )}
                   {trace.memoryOps.recalls > 0 && (
                     <span className="px-2 py-0.5 text-xs bg-indigo-500/10 text-indigo-500 rounded">
-                      Memory recalls: {trace.memoryOps.recalls}
+                      Memórias recuperadas: {trace.memoryOps.recalls}
                     </span>
                   )}
                 </div>
@@ -347,7 +347,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
 
             {/* Triggers Fired */}
             {(trace.triggersFired?.length ?? 0) > 0 && (
-              <TraceSection title="Triggers Fired" icon={<Zap className="w-4 h-4" />}>
+              <TraceSection title="Automações disparadas" icon={<Zap className="w-4 h-4" />}>
                 <div className="flex flex-wrap gap-1">
                   {trace.triggersFired.map((trigger, i) => (
                     <span
@@ -363,7 +363,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
 
             {/* MCP Tool Events */}
             {trace.mcpToolEvents && trace.mcpToolEvents.length > 0 && (
-              <TraceSection title="MCP Tool Calls" icon={<Zap className="w-4 h-4" />}>
+              <TraceSection title="Ferramentas MCP" icon={<Zap className="w-4 h-4" />}>
                 <div className="space-y-1">
                   {trace.mcpToolEvents.map((event, i) => (
                     <div
@@ -410,7 +410,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
 
             {/* Errors */}
             {trace.errors && trace.errors.length > 0 && (
-              <TraceSection title="Errors" icon={<XCircle className="w-4 h-4 text-red-500" />}>
+              <TraceSection title="Erros" icon={<XCircle className="w-4 h-4 text-red-500" />}>
                 <div className="space-y-1">
                   {trace.errors.map((error, i) => (
                     <div
@@ -426,35 +426,35 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
 
             {/* Request Info */}
             {trace.request && (
-              <TraceSection title="Request" icon={<Send className="w-4 h-4" />}>
+              <TraceSection title="Requisição" icon={<Send className="w-4 h-4" />}>
                 <div className="space-y-1 text-xs">
                   <div className="flex gap-2 px-2 py-1 rounded bg-bg-secondary dark:bg-dark-bg-secondary">
-                    <span className="text-text-muted dark:text-dark-text-muted">Provider:</span>
+                    <span className="text-text-muted dark:text-dark-text-muted">Provedor:</span>
                     <span className="text-text-primary dark:text-dark-text-primary font-mono">
                       {trace.request.provider}
                     </span>
                   </div>
                   <div className="flex gap-2 px-2 py-1 rounded bg-bg-secondary dark:bg-dark-bg-secondary">
-                    <span className="text-text-muted dark:text-dark-text-muted">Model:</span>
+                    <span className="text-text-muted dark:text-dark-text-muted">Modelo:</span>
                     <span className="text-text-primary dark:text-dark-text-primary font-mono">
                       {trace.request.model}
                     </span>
                   </div>
                   <div className="flex gap-2 px-2 py-1 rounded bg-bg-secondary dark:bg-dark-bg-secondary">
-                    <span className="text-text-muted dark:text-dark-text-muted">Endpoint:</span>
+                    <span className="text-text-muted dark:text-dark-text-muted">Endereço da API:</span>
                     <span className="text-text-primary dark:text-dark-text-primary font-mono">
                       {trace.request.endpoint}
                     </span>
                   </div>
                   <div className="flex gap-2 px-2 py-1 rounded bg-bg-secondary dark:bg-dark-bg-secondary">
-                    <span className="text-text-muted dark:text-dark-text-muted">Messages:</span>
+                    <span className="text-text-muted dark:text-dark-text-muted">Mensagens:</span>
                     <span className="text-text-primary dark:text-dark-text-primary">
                       {trace.request.messageCount}
                     </span>
                   </div>
                   {trace.request.tools && trace.request.tools.length > 0 && (
                     <div className="px-2 py-1 rounded bg-bg-secondary dark:bg-dark-bg-secondary">
-                      <span className="text-text-muted dark:text-dark-text-muted">Tools:</span>
+                      <span className="text-text-muted dark:text-dark-text-muted">Ferramentas:</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {trace.request.tools.map((tool, i) => (
                           <span
@@ -473,10 +473,10 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
 
             {/* Response Info */}
             {trace.response && (
-              <TraceSection title="Response" icon={<Code className="w-4 h-4" />}>
+              <TraceSection title="Resposta" icon={<Code className="w-4 h-4" />}>
                 <div className="space-y-1 text-xs">
                   <div className="flex gap-2 px-2 py-1 rounded bg-bg-secondary dark:bg-dark-bg-secondary">
-                    <span className="text-text-muted dark:text-dark-text-muted">Status:</span>
+                    <span className="text-text-muted dark:text-dark-text-muted">Estado:</span>
                     <span
                       className={`font-medium ${
                         trace.response.status === 'success' ? 'text-green-500' : 'text-red-500'
@@ -488,7 +488,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                   {trace.response.finishReason && (
                     <div className="flex gap-2 px-2 py-1 rounded bg-bg-secondary dark:bg-dark-bg-secondary">
                       <span className="text-text-muted dark:text-dark-text-muted">
-                        Finish Reason:
+                        Motivo do encerramento:
                       </span>
                       <span className="text-text-primary dark:text-dark-text-primary font-mono">
                         {trace.response.finishReason}
@@ -498,10 +498,10 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                   {trace.response.contentLength !== undefined && (
                     <div className="flex gap-2 px-2 py-1 rounded bg-bg-secondary dark:bg-dark-bg-secondary">
                       <span className="text-text-muted dark:text-dark-text-muted">
-                        Content Length:
+                        Tamanho da resposta:
                       </span>
                       <span className="text-text-primary dark:text-dark-text-primary">
-                        {trace.response.contentLength} chars
+                        {trace.response.contentLength} caracteres
                       </span>
                     </div>
                   )}
@@ -511,7 +511,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
 
             {/* Retries */}
             {trace.retries && trace.retries.length > 0 && (
-              <TraceSection title="Retries" icon={<RefreshCw className="w-4 h-4 text-amber-500" />}>
+              <TraceSection title="Novas tentativas" icon={<RefreshCw className="w-4 h-4 text-amber-500" />}>
                 <div className="space-y-1">
                   {trace.retries.map((retry, i) => (
                     <div
@@ -519,10 +519,10 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                       className="flex items-center gap-2 px-2 py-1 rounded bg-amber-500/10 text-xs flex-wrap"
                     >
                       <span className="text-amber-600 dark:text-amber-400 font-medium">
-                        Attempt {retry.attempt}
+                        Tentativa {retry.attempt}
                       </span>
                       <span className="text-text-muted dark:text-dark-text-muted">
-                        delayed {retry.delayMs}ms
+                        aguardou {retry.delayMs}ms
                       </span>
                       <span className="text-red-500 whitespace-pre-wrap break-all">
                         {retry.error}
@@ -533,7 +533,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
               </TraceSection>
             )}
 
-            {/* All Events (collapsible) */}
+            {/* Todos os eventos (collapsible) */}
             <EventsSection events={trace.events} toolCalls={trace.toolCalls} />
           </div>
         )}
@@ -598,7 +598,7 @@ function EventsSection({ events, toolCalls = [] }: EventsSectionProps) {
         className="flex items-center gap-2 text-text-secondary dark:text-dark-text-secondary"
       >
         {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-        <span className="text-xs font-medium">All Events ({events.length})</span>
+        <span className="text-xs font-medium">Todos os eventos ({events.length})</span>
       </button>
 
       {isExpanded && (
@@ -664,7 +664,7 @@ function EventsSection({ events, toolCalls = [] }: EventsSectionProps) {
                     {toolCallData.arguments && Object.keys(toolCallData.arguments).length > 0 && (
                       <div>
                         <div className="text-xs text-text-muted dark:text-dark-text-muted mb-1">
-                          Arguments:
+                          Argumentos:
                         </div>
                         <pre className="text-xs bg-bg-tertiary dark:bg-dark-bg-tertiary p-2 rounded overflow-x-auto text-text-primary dark:text-dark-text-primary whitespace-pre-wrap break-all">
                           {JSON.stringify(toolCallData.arguments, null, 2)}
@@ -674,7 +674,7 @@ function EventsSection({ events, toolCalls = [] }: EventsSectionProps) {
                     {toolCallData.result && (
                       <div>
                         <div className="text-xs text-text-muted dark:text-dark-text-muted mb-1">
-                          Result:
+                          Resultado:
                         </div>
                         <pre className="text-xs bg-bg-tertiary dark:bg-dark-bg-tertiary p-2 rounded overflow-x-auto text-text-primary dark:text-dark-text-primary whitespace-pre-wrap break-all">
                           {typeof toolCallData.result === 'string'
@@ -686,7 +686,7 @@ function EventsSection({ events, toolCalls = [] }: EventsSectionProps) {
                     {toolCallData.error && (
                       <div>
                         <div className="text-xs text-text-muted dark:text-dark-text-muted mb-1">
-                          Error:
+                          Erro:
                         </div>
                         <div className="text-xs text-red-500 bg-red-500/10 p-2 rounded whitespace-pre-wrap break-all">
                           {toolCallData.error}

@@ -289,11 +289,15 @@ export function ApprovalsPage() {
               ) : approvals.length === 0 ? (
                 <EmptyState
                   icon={ShieldCheck}
-                  title={tab === 'pending' ? 'No Pending Approvals' : 'No Approvals Yet'}
+                  title={
+                    tab === 'pending'
+                      ? 'Nenhuma aprovação pendente'
+                      : 'Nenhuma aprovação registrada'
+                  }
                   description={
                     tab === 'pending'
-                      ? 'When a workflow reaches an approval gate, it will appear here for review.'
-                      : 'Approval records will appear here when workflows use approval gate nodes.'
+                      ? 'Quando um fluxo solicitar aprovação, a tarefa aparecerá aqui para análise.'
+                      : 'O histórico será exibido quando os fluxos solicitarem aprovação.'
                   }
                 />
               ) : (

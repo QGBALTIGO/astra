@@ -12,3 +12,7 @@ packages/ui/vite.config.js
 packages/ui/vite.config.d.ts
 _*
 packages/**/_*
+# Browser test outputs and ephemeral login sessions (never source code)
+packages/ui/playwright/.auth/
+**/test-results/
+**/playwright-report/

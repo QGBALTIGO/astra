@@ -1,143 +1,117 @@
 /**
- * E2E tests for mobile viewport behavior in the workflow editor.
+ * Responsive E2E tests for a real, temporary workflow.
  *
- * Verifies that the responsive layout switches correctly:
- * - Desktop (≥768px): three-panel layout (ToolPalette | Canvas | ConfigPanel)
- * - Mobile (<768px):  single-panel tabbed layout with bottom tab bar
+ * The legacy suite navigated to /workflows/e2e-mobile-test without creating
+ * that record, then silently skipped a nonexistent editor. This suite creates
+ * a workflow via the authenticated browser, tests actual UI and cleans up
+ * against the isolated CI PostgreSQL database. It never runs a workflow or IA.
  */
+import { test as base, expect } from '@playwright/test';
 
-import { test, expect, type Page } from '@playwright/test';
+type WorkflowFixture = { workflowId: string };
 
-test.describe('Workflow Editor — Mobile Responsive Layout', () => {
-  const WORKFLOW_URL = '/workflows/e2e-mobile-test';
+const test = base.extend<WorkflowFixture>({
+  workflowId: async ({ page }, use) => {
+    await page.goto('/workflows');
+    const created = await page.evaluate(async () => {
+      const response = await fetch('/api/v1/workflows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Astra E2E — editor responsivo',
+          nodes: [],
+          edges: [],
+        }),
+      });
+      return { ok: response.ok, status: response.status, body: await response.json() };
+    });
 
-  /** Wait up to 8 s for the editor UI (tab bar or canvas) to appear. */
-  async function waitForEditor(page: Page): Promise<boolean> {
+    expect(created.ok, `criação do fluxo de teste: HTTP ${created.status}`).toBe(true);
+    const data = created.body as { success?: boolean; data?: { id?: string } };
+    expect(data.success).toBe(true);
+    const workflowId = data.data?.id;
+    expect(workflowId).toBeTruthy();
+
     try {
-      await page.waitForFunction(
-        () => {
-          const buttons = document.querySelectorAll('button');
-          for (const btn of buttons) {
-            const text = btn.textContent?.trim() ?? '';
-            // Mobile: "Nodes" tab button
-            if (text === 'Nodes') return true;
-            // Desktop: "Tools" section header in ToolPalette
-            if (text === 'Tools') return true;
-          }
-          return false;
-        },
-        { timeout: 8000 }
-      );
-      return true;
-    } catch {
-      return false;
+      await page.goto(`/workflows/${encodeURIComponent(workflowId!)}`);
+      await expect(page.locator('#main-content')).toBeVisible();
+      await use(workflowId!);
+    } finally {
+      const removed = await page.evaluate(async (id) => {
+        const response = await fetch(`/api/v1/workflows/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        });
+        return { ok: response.ok, status: response.status };
+      }, workflowId!);
+      expect(removed.ok, `remoção do fluxo de teste: HTTP ${removed.status}`).toBe(true);
     }
-  }
+  },
+});
 
-  // ─── MOBILE VIEWPORT ────────────────────────────────────
+test.describe('Editor de automações — celular', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
 
-  test.describe('Mobile viewport (375×812)', () => {
-    test.beforeEach(async ({ page }) => {
-      await page.setViewportSize({ width: 375, height: 812 });
-      await page.goto(WORKFLOW_URL);
-    });
-
-    test('shows bottom tab bar with Nodes / Canvas / Config tabs', async ({ page }) => {
-      const ready = await waitForEditor(page);
-      if (!ready) {
-        test.skip();
-        return;
-      }
-
-      // The three tab buttons should exist
-      await expect(page.locator('button:has-text("Nodes")').first()).toBeVisible({ timeout: 3000 });
-      await expect(page.locator('button:has-text("Canvas")').first()).toBeVisible();
-      await expect(page.locator('button:has-text("Config")').first()).toBeVisible();
-    });
-
-    test('can switch between Nodes and Canvas tabs', async ({ page }) => {
-      const ready = await waitForEditor(page);
-      if (!ready) {
-        test.skip();
-        return;
-      }
-
-      // Default tab is "Nodes" — ToolPalette search input should be visible
-      const searchInput = page.locator('input[placeholder*="earch"]').first();
-      const hasSearch = await searchInput.isVisible().catch(() => false);
-
-      // Switch to Canvas
-      await page.locator('button:has-text("Canvas")').first().click();
-      await page.waitForTimeout(300);
-
-      // The ReactFlow element should now be visible
-      const reactFlow = page.locator('.react-flow').first();
-      const hasCanvas = await reactFlow.isVisible().catch(() => false);
-
-      // Switch back to Nodes
-      await page.locator('button:has-text("Nodes")').first().click();
-      await page.waitForTimeout(300);
-
-      // Search should be visible again (if it was before)
-      if (hasSearch) {
-        await expect(searchInput).toBeVisible({ timeout: 3000 });
-      }
-    });
-
-    test('Config tab shows empty state when no node is selected', async ({ page }) => {
-      const ready = await waitForEditor(page);
-      if (!ready) {
-        test.skip();
-        return;
-      }
-
-      await page.locator('button:has-text("Config")').first().click();
-      await page.waitForTimeout(300);
-
-      // Should show "Select a node to configure" text
-      const emptyText = page.locator('text=Select a node to configure');
-      const hasEmpty = await emptyText.isVisible().catch(() => false);
-
-      // Or show the NodeConfigPanel if a node happens to be selected
-      const configPanel = page.locator('text=Configure');
-      const hasConfig = await configPanel.isVisible().catch(() => false);
-
-      expect(hasEmpty || hasConfig).toBe(true);
-    });
+  test('mostra as três abas acessíveis', async ({ page, workflowId }) => {
+    await expect(page).toHaveURL(new RegExp(`/workflows/${workflowId}`));
+    await expect(page.getByRole('tablist', { name: 'Editor de automação' })).toBeVisible();
+    await expect(page.getByTestId('workflow-mobile-tab-nodes')).toBeVisible();
+    await expect(page.getByTestId('workflow-mobile-tab-canvas')).toBeVisible();
+    await expect(page.getByTestId('workflow-mobile-tab-config')).toBeVisible();
+    await expect(page.getByTestId('workflow-mobile-tab-nodes')).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
   });
 
-  // ─── DESKTOP VIEWPORT ───────────────────────────────────
+  test('troca entre nós e canvas sem perder a pesquisa', async ({ page, workflowId }) => {
+    expect(workflowId).toBeTruthy();
+    await expect(page.getByPlaceholder('Buscar ferramentas...')).toBeVisible();
+    await page.getByTestId('workflow-mobile-tab-canvas').click();
+    const canvasPanel = page.getByTestId('workflow-mobile-canvas');
+    await expect(canvasPanel).toBeVisible();
+    // React Flow must have a measurable area. A hidden, zero-height canvas
+    // previously passed DOM-existence tests but was unusable on a phone.
+    const flow = canvasPanel.locator('.react-flow');
+    await expect(flow).toBeVisible();
+    const dimensions = await flow.boundingBox();
+    expect(dimensions?.width ?? 0).toBeGreaterThan(100);
+    expect(dimensions?.height ?? 0).toBeGreaterThan(100);
+    await expect(page.getByTestId('workflow-mobile-tab-canvas')).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    await page.getByTestId('workflow-mobile-tab-nodes').click();
+    await expect(page.getByPlaceholder('Buscar ferramentas...')).toBeVisible();
+  });
 
-  test.describe('Desktop viewport (1440×900)', () => {
-    test.beforeEach(async ({ page }) => {
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto(WORKFLOW_URL);
-    });
+  test('aba de configuração mostra estado vazio correto', async ({ page, workflowId }) => {
+    expect(workflowId).toBeTruthy();
+    await page.getByTestId('workflow-mobile-tab-config').click();
+    await expect(page.getByText('Selecione um nó para configurar')).toBeVisible();
+  });
 
-    test('shows ToolPalette with a search input', async ({ page }) => {
-      const ready = await waitForEditor(page);
-      if (!ready) {
-        test.skip();
-        return;
-      }
+  test('o editor não cria overflow horizontal no celular', async ({ page, workflowId }) => {
+    expect(workflowId).toBeTruthy();
+    await expect(page.getByTestId('workflow-mobile-tab-nodes')).toBeVisible();
+    const overflow = await page.evaluate(() =>
+      Math.max(0, document.documentElement.scrollWidth - innerWidth)
+    );
+    expect(overflow).toBeLessThanOrEqual(7);
+  });
+});
 
-      // The ToolPalette should be visible on the left with a search input
-      const searchInputs = page.locator('input[placeholder*="earch"]');
-      const count = await searchInputs.count();
-      expect(count).toBeGreaterThanOrEqual(1);
-    });
+test.describe('Editor de automações — computador', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
 
-    test('mobile tab bar is NOT visible on desktop', async ({ page }) => {
-      const ready = await waitForEditor(page);
-      if (!ready) {
-        test.skip();
-        return;
-      }
+  test('mostra ferramentas e canvas do fluxo real', async ({ page, workflowId }) => {
+    expect(workflowId).toBeTruthy();
+    await expect(page.getByPlaceholder('Buscar ferramentas...')).toBeVisible();
+    await expect(page.locator('.react-flow')).toBeVisible();
+  });
 
-      // The "Nodes" tab button is part of the mobile-only bottom bar
-      const nodesTab = page.locator('button:has-text("Nodes")');
-      const visible = await nodesTab.isVisible().catch(() => false);
-      expect(visible).toBe(false);
-    });
+  test('não exibe a barra de abas exclusiva do celular', async ({ page, workflowId }) => {
+    expect(workflowId).toBeTruthy();
+    await expect(page.getByPlaceholder('Buscar ferramentas...')).toBeVisible();
+    await expect(page.getByTestId('workflow-mobile-tab-nodes')).toHaveCount(0);
   });
 });

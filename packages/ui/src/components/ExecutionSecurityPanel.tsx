@@ -139,7 +139,7 @@ export function ExecutionSecurityPanel() {
         className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors group cursor-pointer"
       >
         <Shield className="w-3.5 h-3.5 text-text-muted dark:text-dark-text-muted group-hover:text-primary transition-colors" />
-        <span className="text-xs text-text-muted dark:text-dark-text-muted">Code Execution</span>
+        <span className="text-xs text-text-muted dark:text-dark-text-muted">Execução de código</span>
 
         {/* Master toggle */}
         <button

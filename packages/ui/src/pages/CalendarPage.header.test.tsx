@@ -195,13 +195,13 @@ describe('CalendarPage header day-basis (America/New_York)', () => {
     // Day 1 of the month: UTC midnight of 10-01 is 20:00 on Sep 30 locally, so
     // the buggy month label reads a whole month back.
     await mount('2026-10-01T13:00:00Z', [event('2026-10-01', 'Sprint start')]);
-    await click('Month');
+    await click('Mês');
     expect(headerTexts()).toContain('outubro de 2026');
   });
 
   it('shows "Sunday, September 13, 2026" in day mode', async () => {
     await mount(TODAY_ISO, [event('2026-09-13', 'Kickoff')]);
-    await click('Day');
+    await click('Dia');
     expect(headerTexts()).toContain('domingo, 13 de setembro de 2026');
   });
 
@@ -214,6 +214,6 @@ describe('CalendarPage header day-basis (America/New_York)', () => {
       event('2026-09-14', 'Dentist'),
       event('2026-09-20', 'Review'),
     ]);
-    expect(container.textContent).toContain('1 event today, 2 upcoming');
+    expect(container.textContent).toContain('1 hoje, 2 futuros');
   });
 });

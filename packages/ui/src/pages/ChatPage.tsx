@@ -84,6 +84,7 @@ export function ChatPage() {
   const [currentAgent, setCurrentAgent] = useState<AgentDetail | null>(null);
   const [showContextDetail, setShowContextDetail] = useState(false);
   const [timelineMode, setTimelineMode] = useState(false);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
 
   // Channel mode state
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
@@ -524,10 +525,10 @@ export function ChatPage() {
       {/* Main chat area — ConversationSidebar moved to left Sidebar */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Header */}
-        <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
-          <div className="flex items-center gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary flex items-center gap-2">
+        <header data-testid="chat-header" className="relative flex min-w-0 flex-col gap-2 border-b border-border px-3 py-3 dark:border-dark-border sm:px-5 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
+          <div className="grid w-full min-w-0 grid-cols-2 gap-2 lg:flex lg:flex-1 lg:items-center lg:gap-3">
+            <div className="col-span-2 min-w-0 pr-12 lg:col-auto lg:mr-auto lg:pr-0">
+              <h2 className="flex min-w-0 items-center gap-2 truncate text-base font-semibold text-text-primary dark:text-dark-text-primary sm:text-lg">
                 {isChannelMode ? (
                   <>
                     {activeConv?.channelPlatform === 'telegram' ? (
@@ -537,7 +538,7 @@ export function ChatPage() {
                     ) : (
                       <MessageSquare className="w-5 h-5 text-primary" />
                     )}
-                    {activeConv?.title ?? activeConv?.channelSenderName ?? 'Channel Chat'}
+                    {activeConv?.title ?? activeConv?.channelSenderName ?? 'Conversa de canal'}
                     <span className="px-1.5 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded-full capitalize">
                       {activeConv?.channelPlatform ?? 'channel'}
                     </span>
@@ -551,11 +552,11 @@ export function ChatPage() {
                   'Conversa'
                 )}
               </h2>
-              <p className="text-sm text-text-muted dark:text-dark-text-muted">
+              <p className="hidden min-w-0 truncate text-xs text-text-muted dark:text-dark-text-muted sm:block">
                 {isChannelMode ? (
-                  `${activeConv?.channelSenderName ? `with ${activeConv.channelSenderName} · ` : ''}Messages go to ${activeConv?.channelPlatform ?? 'channel'}`
+                  `${activeConv?.channelSenderName ? `Com ${activeConv.channelSenderName} · ` : ''}Mensagens pelo ${activeConv?.channelPlatform ?? 'canal'}`
                 ) : currentAgent ? (
-                  `Using ${currentProviderName} / ${model}`
+                  `Usando ${currentProviderName}`
                 ) : !isLoadingModels && configuredProviders.length > 0 && !isProviderConfigured ? (
                   <span className="text-warning">Provedor de IA não configurado</span>
                 ) : (
@@ -571,24 +572,27 @@ export function ChatPage() {
             />
 
             {/* Provider/Model Selector */}
-            <div className="relative">
+            <div className="relative min-w-0">
               <button
+                type="button"
+                aria-label="Selecionar modelo de IA"
+                title={`${currentProviderName} · ${model}`}
                 onClick={() => setShowProviderMenu(!showProviderMenu)}
                 disabled={isLoadingModels}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary transition-colors disabled:opacity-50"
+                className="flex h-10 w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-xl border border-border bg-bg-tertiary px-2.5 text-xs transition-colors hover:bg-bg-secondary disabled:opacity-50 dark:border-dark-border dark:bg-dark-bg-tertiary dark:hover:bg-dark-bg-secondary sm:text-sm lg:w-auto lg:max-w-[260px]"
               >
                 {isLoadingModels ? (
                   <span className="text-text-muted dark:text-dark-text-muted animate-pulse">
-                    Loading...
+                    Carregando...
                   </span>
                 ) : (
                   <>
-                    <span className="font-medium text-text-primary dark:text-dark-text-primary">
+                    <span className="shrink-0 truncate font-medium text-text-primary dark:text-dark-text-primary">
                       {currentProviderName}
                     </span>
                     {/* CLI and bridge providers don't have model selection */}
                     {!provider.startsWith('cli-') && !provider.startsWith('bridge-') && (
-                      <span className="text-text-muted dark:text-dark-text-muted">/ {model}</span>
+                      <span className="min-w-0 flex-1 truncate text-left text-text-muted dark:text-dark-text-muted">· {model}</span>
                     )}
                     {provider.startsWith('bridge-') && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-accent/10 text-accent">
@@ -632,17 +636,17 @@ export function ChatPage() {
                   );
 
                   return (
-                    <div className="absolute top-full left-0 mt-1 w-full sm:w-80 max-w-[90vw] bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg shadow-lg dark:shadow-black/50 z-50 max-h-96 overflow-y-auto">
+                    <div data-testid="chat-model-menu" className="fixed inset-x-3 top-40 z-[80] max-h-[min(58dvh,440px)] overflow-y-auto rounded-xl border border-border bg-bg-primary shadow-2xl dark:border-dark-border dark:bg-dark-bg-primary dark:shadow-black/50 sm:absolute sm:inset-x-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 sm:max-w-[90vw]">
                       {configuredProviders.length === 0 ? (
                         <div className="p-4 text-center">
                           <p className="text-sm text-text-muted dark:text-dark-text-muted mb-2">
-                            No providers configured
+                            Nenhum provedor configurado
                           </p>
                           <a
                             href="/settings"
                             className="text-sm text-primary hover:underline flex items-center justify-center gap-1"
                           >
-                            <Settings className="w-4 h-4" /> Configure API Keys
+                            <Settings className="w-4 h-4" /> Configurar chave de API
                           </a>
                         </div>
                       ) : (
@@ -650,7 +654,7 @@ export function ChatPage() {
                           {/* API Section */}
                           <div className="border-b border-border dark:border-dark-border">
                             <div className="px-3 py-1.5 text-[10px] font-semibold text-text-muted dark:text-dark-text-muted uppercase tracking-wider bg-bg-secondary/50 dark:bg-dark-bg-secondary/50">
-                              API — Context Inject
+                              Modelos disponíveis
                             </div>
                             {apiEntries.length > 0 ? (
                               apiEntries.map(([providerId, providerModels]) => (
@@ -684,7 +688,7 @@ export function ChatPage() {
                                             <span>{m.name}</span>
                                             {m.recommended && (
                                               <span className="text-[10px] opacity-70">
-                                                Recommended
+                                                Recomendado
                                               </span>
                                             )}
                                           </div>
@@ -701,13 +705,13 @@ export function ChatPage() {
                               ))
                             ) : (
                               <div className="px-3 py-2.5 text-xs text-text-muted dark:text-dark-text-muted">
-                                No API providers configured —{' '}
+                                Nenhum provedor disponível —{' '}
                                 <a
                                   href="/models?tab=models"
                                   className="text-primary hover:underline not-italic font-medium"
                                   onClick={() => setShowProviderMenu(false)}
                                 >
-                                  add in Settings
+                                  abrir configurações
                                 </a>
                               </div>
                             )}
@@ -717,7 +721,7 @@ export function ChatPage() {
                           {bridgeEntries.length > 0 && (
                             <div>
                               <div className="px-3 py-1.5 text-[10px] font-semibold text-text-muted dark:text-dark-text-muted uppercase tracking-wider bg-bg-secondary/50 dark:bg-dark-bg-secondary/50">
-                                Bridge — CLI Spawn
+                                Integrações locais
                               </div>
                               {bridgeEntries.map(([providerId, providerModels]) => (
                                 <div key={providerId}>
@@ -765,12 +769,12 @@ export function ChatPage() {
             </div>
           </div>
 
-          {/* Right-side actions */}
-          <div className="flex items-center gap-2">
+          {/* A nova conversa fica acessível sem quebrar a largura no celular. */}
+          <div className="absolute right-3 top-3 flex shrink-0 items-center gap-2 lg:static">
             {/* Timeline toggle */}
             <button
               onClick={() => setTimelineMode(!timelineMode)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors ${
+              className="hidden items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors lg:flex ${
                 timelineMode
                   ? 'bg-primary/10 border-primary/30 text-primary'
                   : 'border-border dark:border-dark-border text-text-muted dark:text-dark-text-muted hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
@@ -794,8 +798,9 @@ export function ChatPage() {
             {/* New Chat button */}
             <button
               onClick={handleNewChat}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-primary hover:bg-primary-dark rounded-lg transition-colors"
-              title="Start a new chat"
+              className="flex h-9 w-9 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-medium text-white transition-colors hover:bg-primary-dark lg:h-auto lg:w-auto lg:px-3 lg:py-1.5"
+              aria-label="Nova conversa"
+              title="Nova conversa"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -805,7 +810,7 @@ export function ChatPage() {
                   d="M12 4v16m8-8H4"
                 />
               </svg>
-              New Chat
+              <span className="hidden lg:inline">Nova conversa</span>
             </button>
           </div>
         </header>
@@ -868,33 +873,33 @@ export function ChatPage() {
 
         {/* Auto-compact suggestion — appears once when context crosses 85% */}
         {!isChannelMode && autoCompactPrompt && (
-          <div className="flex items-center gap-3 px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800/40 text-xs">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800/40 text-xs">
             <span className="text-yellow-800 dark:text-yellow-200 font-medium">
-              Context {autoCompactPrompt.fillPercent}% full
+              Contexto: {autoCompactPrompt.fillPercent}% usado
             </span>
             <span className="text-yellow-700 dark:text-yellow-300/80 truncate">
-              Compact older messages into a summary to free up room without losing the thread?
+              Resumir mensagens antigas para liberar espaço?
             </span>
-            <div className="ml-auto flex items-center gap-2 shrink-0">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
               <button
                 onClick={handleAcceptAutoCompact}
                 disabled={isCompacting}
                 className="px-2.5 py-1 rounded-md bg-yellow-600 text-white text-xs hover:bg-yellow-700 disabled:opacity-50"
               >
-                {isCompacting ? 'Compacting…' : 'Compact now'}
+                {isCompacting ? 'Resumindo…' : 'Resumir'}
               </button>
               <button
                 onClick={dismissAutoCompactPrompt}
                 className="px-2 py-1 rounded-md text-yellow-800 dark:text-yellow-200 hover:bg-yellow-100 dark:hover:bg-yellow-900/40"
               >
-                Not now
+                Agora não
               </button>
               <button
                 onClick={disableAutoCompactPrompt}
                 className="px-2 py-1 rounded-md text-yellow-700/80 dark:text-yellow-300/70 hover:bg-yellow-100 dark:hover:bg-yellow-900/40"
                 title="Stop showing this banner. You can still compact manually from the context bar."
               >
-                Don't ask again
+                Não perguntar novamente
               </button>
             </div>
           </div>
@@ -926,7 +931,7 @@ export function ChatPage() {
 
         {/* Click outside to close menu */}
         {showProviderMenu && (
-          <div className="fixed inset-0 z-40" onClick={() => setShowProviderMenu(false)} />
+          <div className="fixed inset-0 z-[70]" onClick={() => setShowProviderMenu(false)} />
         )}
 
         {/* Channel mode message list */}
@@ -934,7 +939,7 @@ export function ChatPage() {
 
         {/* Messages */}
         {!isChannelMode && (
-          <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div data-testid="chat-messages" className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 sm:px-6 sm:py-4">
             {messages.length === 0 ? (
               <ChatStarterPrompts
                 show
@@ -1018,12 +1023,24 @@ export function ChatPage() {
         )}
 
         {/* Input */}
-        <div className="px-6 py-4 border-t border-border dark:border-dark-border">
+        <div className="min-w-0 shrink-0 border-t border-border px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 dark:border-dark-border sm:px-6 sm:py-4">
           {!isChannelMode && (
             <>
-              <ExecutionSecurityPanel />
-              <ToolCallLimitPanel />
-              <ThinkingToggle />
+              <button
+                type="button"
+                aria-expanded={showAdvancedOptions}
+                aria-controls="chat-advanced-options"
+                onClick={() => setShowAdvancedOptions((open) => !open)}
+                className="mb-2 flex w-full items-center justify-between rounded-lg px-2 py-1 text-xs text-text-muted hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary sm:hidden"
+              >
+                <span>Opções avançadas</span>
+                <span aria-hidden="true">{showAdvancedOptions ? '−' : '+'}</span>
+              </button>
+              <div id="chat-advanced-options" className={`${showAdvancedOptions ? 'block' : 'hidden'} sm:block`}>
+                <ExecutionSecurityPanel />
+                <ToolCallLimitPanel />
+                <ThinkingToggle />
+              </div>
             </>
           )}
           <ChatInput
@@ -1032,7 +1049,7 @@ export function ChatPage() {
             onStop={cancelRequest}
             isLoading={isLoading}
             placeholder={
-              isChannelMode ? `Message ${activeConv?.channelPlatform ?? 'channel'}…` : undefined
+              isChannelMode ? `Mensagem para ${activeConv?.channelPlatform ?? 'canal'}…` : undefined
             }
           />
         </div>

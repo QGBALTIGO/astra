@@ -8,6 +8,41 @@ import type {
   ActionCooldowns,
 } from '../../api';
 
+const RULE_TEXT: Record<string, { title: string; description: string }> = {
+  stale_goals: {
+    title: 'Objetivos desatualizados',
+    description: 'Objetivos sem atualização recente',
+  },
+  upcoming_deadline: {
+    title: 'Prazos próximos',
+    description: 'Objetivos com prazo nos próximos dias',
+  },
+  no_activity: {
+    title: 'Sem atividade recente',
+    description: 'Nenhuma atividade do usuário há mais de dois dias',
+  },
+  low_progress: { title: 'Progresso baixo', description: 'Objetivos ativos com baixo progresso' },
+  memory_cleanup: {
+    title: 'Limpeza de memórias',
+    description: 'Muitas memórias de baixa relevância',
+  },
+  pending_approvals: { title: 'Aprovações pendentes', description: 'Ações aguardando aprovação' },
+  trigger_errors: {
+    title: 'Erros de automação',
+    description: 'Falhas de automações nas últimas 24 horas',
+  },
+  routine_checkin: {
+    title: 'Verificação de rotina',
+    description: 'Acompanhamento diário pela manhã e à noite',
+  },
+};
+const ACTION_LABELS: Record<string, string> = {
+  create_memory: 'Criar memória',
+  update_goal_progress: 'Atualizar objetivo',
+  send_notification: 'Enviar notificação',
+  run_memory_cleanup: 'Limpar memórias',
+};
+
 interface DirectivesSectionProps {
   pulseDirectives: PulseDirectives;
   ruleDefinitions: PulseRuleDefinition[];
@@ -35,21 +70,21 @@ export function DirectivesSection({
     <div className="mb-5">
       <h4 className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-3 flex items-center gap-2">
         <Settings className="w-4 h-4" />
-        Pulse Directives
+        Diretrizes de autonomia
       </h4>
 
       {/* Template selector */}
       <div className="flex items-center gap-3 mb-4">
-        <label className="text-sm text-text-muted dark:text-dark-text-muted">Template:</label>
+        <label className="text-sm text-text-muted dark:text-dark-text-muted">Modelo:</label>
         <select
           value={pulseDirectives.template}
           onChange={(e) => onApplyTemplate(e.target.value)}
           className="px-3 py-1.5 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-sm text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
         >
-          <option value="balanced">Balanced</option>
-          <option value="conservative">Conservative</option>
-          <option value="proactive">Proactive</option>
-          <option value="minimal">Minimal</option>
+          <option value="balanced">Equilibrado</option>
+          <option value="conservative">Conservador</option>
+          <option value="proactive">Proativo</option>
+          <option value="minimal">Mínimo</option>
           {pulseDirectives.template === 'custom' && <option value="custom">Custom</option>}
         </select>
       </div>
@@ -58,7 +93,7 @@ export function DirectivesSection({
         {/* Evaluation Rules */}
         <div>
           <h5 className="text-xs font-medium text-text-muted dark:text-dark-text-muted mb-2 uppercase">
-            Evaluation Rules
+            Regras de avaliação
           </h5>
           <div className="space-y-1.5">
             {ruleDefinitions.map((rule) => {
@@ -81,10 +116,10 @@ export function DirectivesSection({
                     />
                     <div className="flex-1 min-w-0">
                       <span className="text-sm text-text-primary dark:text-dark-text-primary">
-                        {rule.label}
+                        {RULE_TEXT[rule.id]?.title ?? rule.label}
                       </span>
                       <p className="text-xs text-text-muted dark:text-dark-text-muted truncate">
-                        {rule.description}
+                        {RULE_TEXT[rule.id]?.description ?? rule.description}
                       </p>
                     </div>
                   </label>
@@ -125,7 +160,7 @@ export function DirectivesSection({
         {/* Allowed Actions */}
         <div>
           <h5 className="text-xs font-medium text-text-muted dark:text-dark-text-muted mb-2 uppercase">
-            Allowed Actions
+            Ações permitidas
           </h5>
           <div className="space-y-1.5">
             {actionTypes.map((action) => {
@@ -144,7 +179,7 @@ export function DirectivesSection({
                       className="rounded border-border dark:border-dark-border text-primary focus:ring-primary/50"
                     />
                     <span className="text-sm text-text-primary dark:text-dark-text-primary">
-                      {action.label}
+                      {ACTION_LABELS[action.id] ?? action.label}
                     </span>
                   </label>
                   {cooldownValue != null && (

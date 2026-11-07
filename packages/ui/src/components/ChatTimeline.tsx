@@ -62,7 +62,7 @@ export function ChatTimeline({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 text-sm text-text-muted dark:text-dark-text-muted">
               <Bot className="w-4 h-4" />
-              <span className="animate-pulse">Thinking...</span>
+              <span className="animate-pulse">Pensando...</span>
             </div>
           </div>
         </div>
@@ -107,7 +107,7 @@ export function ChatTimeline({
         <div className="flex items-center gap-3 pl-4 py-2">
           <div className="w-3 h-3 bg-success/30 rounded-full" />
           <span className="text-xs text-text-muted dark:text-dark-text-muted">
-            Response complete
+            Resposta concluída
           </span>
         </div>
       )}
@@ -134,9 +134,9 @@ function getToolStatus(event: ProgressEvent): 'pending' | 'running' | 'success' 
 function TimelineEntry({ event, idx, isExpanded, onToggle }: TimelineEntryProps) {
   const status = getToolStatus(event);
   const isLocalExec = event.type === 'tool_end' && event.result?.sandboxed === false;
-  const isBlocked =
+  const isBloqueado =
     event.type === 'tool_end' && event.result?.preview?.includes('blocked in Execution Security');
-  const isSecurityBlocked = event.type === 'tool_blocked';
+  const isSecurityBloqueado = event.type === 'tool_blocked';
 
   return (
     <div className="flex items-start gap-3 pl-4">
@@ -180,7 +180,7 @@ function TimelineEntry({ event, idx, isExpanded, onToggle }: TimelineEntryProps)
             <div className="flex items-center gap-1.5">
               <Wrench className="w-3.5 h-3.5 text-warning" />
               <span className="text-sm text-text-primary dark:text-dark-text-primary font-medium">
-                Calling {formatToolName(event.tool?.name ?? 'tool')}
+                Executando {formatToolName(event.tool?.name ?? 'tool')}
               </span>
               {event.tool?.reason && (
                 <span className="text-xs text-text-muted dark:text-dark-text-muted">
@@ -215,7 +215,7 @@ function TimelineEntry({ event, idx, isExpanded, onToggle }: TimelineEntryProps)
             <div className="flex items-center gap-1.5">
               <Shield className="w-3.5 h-3.5 text-red-500" />
               <span className="text-sm text-error font-medium">
-                Blocked {formatToolName(event.toolCall?.name ?? 'tool')}
+                Bloqueado {formatToolName(event.toolCall?.name ?? 'tool')}
               </span>
               {event.reason && (
                 <span className="text-xs text-text-muted dark:text-dark-text-muted">
@@ -232,13 +232,13 @@ function TimelineEntry({ event, idx, isExpanded, onToggle }: TimelineEntryProps)
               LOCAL
             </span>
           )}
-          {isBlocked && (
+          {isBloqueado && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] bg-red-500/15 text-red-600 dark:text-red-400 rounded font-semibold leading-4">
               <Shield className="w-3 h-3" />
               BLOCKED
             </span>
           )}
-          {isSecurityBlocked && (
+          {isSecurityBloqueado && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] bg-red-500/15 text-red-600 dark:text-red-400 rounded font-semibold leading-4">
               <Shield className="w-3 h-3" />
               BLOCKED
@@ -257,7 +257,7 @@ function TimelineEntry({ event, idx, isExpanded, onToggle }: TimelineEntryProps)
             ) : (
               <ChevronRight className="w-3 h-3" />
             )}
-            {isExpanded ? 'Hide' : 'Show'} result
+            {isExpanded ? 'Ocultar' : 'Mostrar'} result
           </button>
         )}
 

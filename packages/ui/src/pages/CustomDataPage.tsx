@@ -451,13 +451,13 @@ export function CustomDataPage() {
               <div className="flex flex-col items-center justify-center h-full">
                 <Database className="w-16 h-16 text-text-muted dark:text-dark-text-muted mb-4" />
                 <h3 className="text-xl font-medium text-text-primary dark:text-dark-text-primary mb-2">
-                  Select a table
+                  Selecione uma tabela
                 </h3>
                 <p className="text-text-muted dark:text-dark-text-muted mb-4">
-                  Choose a table from the sidebar or ask AI to create one.
+                  Escolha uma tabela na lista ou peça à IA para criar uma.
                 </p>
                 <div className="text-sm text-text-muted dark:text-dark-text-muted max-w-md text-center">
-                  <p className="mb-2">Try asking the AI:</p>
+                  <p className="mb-2">Você pode pedir à IA:</p>
                   <ul className="space-y-1 text-left">
                     <li className="flex items-center gap-2">
                       <ChevronRight className="w-4 h-4 text-primary" />

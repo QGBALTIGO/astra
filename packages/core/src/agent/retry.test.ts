@@ -243,7 +243,10 @@ describe('withRetry', () => {
       const rateLimit = new Error(
         'Groq stream error: 429 - Rate limit reached. Please try again in 2.5s.'
       );
-      const operation = vi.fn().mockResolvedValueOnce(err(rateLimit)).mockResolvedValueOnce(ok('ok'));
+      const operation = vi
+        .fn()
+        .mockResolvedValueOnce(err(rateLimit))
+        .mockResolvedValueOnce(ok('ok'));
       const onRetry = vi.fn();
 
       const resultPromise = withRetry(operation, {
@@ -259,9 +262,7 @@ describe('withRetry', () => {
     });
 
     it('does not use a misleading retry hint on a permanent 400 response', async () => {
-      const badRequest = new Error(
-        'Groq API error: 400 - invalid input. Please try again in 50s.'
-      );
+      const badRequest = new Error('Groq API error: 400 - invalid input. Please try again in 50s.');
       const operation = vi.fn().mockResolvedValue(err(badRequest));
       const result = await withRetry(operation, { maxRetries: 2, addJitter: false });
       expect(result).toEqual(err(badRequest));

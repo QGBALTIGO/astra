@@ -466,7 +466,7 @@ export function ChatHistoryPage() {
       setShowCleanupMenu(false);
       const ok = await confirm({
         title: 'Excluir conversas antigas',
-        message: `Delete all conversations older than ${days} day${days !== 1 ? 's' : ''}? This cannot be undone.`,
+        message: `Excluir todas as conversas older than ${days} day${days !== 1 ? 's' : ''}? This cannot be undone.`,
         confirmText: 'Excluir',
         variant: 'danger',
       });
@@ -509,29 +509,29 @@ export function ChatHistoryPage() {
   }, [confirm, toast, exitSelectMode]);
 
   if (isLoading) {
-    return <LoadingSpinner message="Loading chat history..." />;
+    return <LoadingSpinner message="Carregando histórico de conversas..." />;
   }
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6 border-b border-border dark:border-dark-border">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Chat History
+            Histórico de conversas
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            {conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
-            {showArchived ? ' (archived)' : ''}
+            {conversations.length} {conversations.length === 1 ? 'conversa' : 'conversas'}
+            {showArchived ? ' (arquivadas)' : ''}
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-1 sm:gap-2">
           <div className="flex items-center gap-1.5 text-xs text-text-muted dark:text-dark-text-muted">
             <span
               className={`w-2 h-2 rounded-full ${wsStatus === 'connected' ? 'bg-success' : 'bg-text-muted'}`}
             />
-            {wsStatus === 'connected' ? 'Live' : 'Offline'}
+            {wsStatus === 'connected' ? 'Conectado' : 'Desconectado'}
           </div>
 
           {/* Cleanup dropdown */}
@@ -541,7 +541,7 @@ export function ChatHistoryPage() {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
             >
               <Trash2 className="w-4 h-4" />
-              Cleanup
+              Limpar
               <ChevronDown className="w-3 h-3" />
             </button>
             {showCleanupMenu && (
@@ -550,20 +550,20 @@ export function ChatHistoryPage() {
                   onClick={() => handleDeleteOld(7)}
                   className="w-full text-left px-4 py-2 text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
                 >
-                  Delete older than 7 days
+                  Excluir conversas anteriores a 7 dias
                 </button>
                 <button
                   onClick={() => handleDeleteOld(30)}
                   className="w-full text-left px-4 py-2 text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
                 >
-                  Delete older than 30 days
+                  Excluir conversas anteriores a 30 dias
                 </button>
                 <div className="border-t border-border dark:border-dark-border my-1" />
                 <button
                   onClick={handleDeleteAll}
                   className="w-full text-left px-4 py-2 text-sm text-error hover:bg-error/10"
                 >
-                  Delete all conversations
+                  Excluir todas as conversas
                 </button>
               </div>
             )}
@@ -578,7 +578,7 @@ export function ChatHistoryPage() {
             }`}
           >
             <Archive className="w-4 h-4" />
-            Archived
+            Arquivadas
           </button>
 
           <button
@@ -590,7 +590,7 @@ export function ChatHistoryPage() {
             }`}
           >
             <Check className="w-4 h-4" />
-            Select
+            Selecionar
           </button>
 
           <button
@@ -698,15 +698,17 @@ export function ChatHistoryPage() {
 
       {/* History Tab */}
       {activeTab === 'history' && (
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex flex-1 min-w-0 overflow-hidden">
           {/* Conversation List Sidebar */}
-          <aside className="w-80 border-r border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary flex flex-col overflow-hidden">
+          <aside
+            className={`${selectedId && !selectMode ? 'hidden lg:flex' : 'flex'} w-full shrink-0 flex-col overflow-hidden border-r border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary lg:w-80`}
+          >
             {/* Search + Select Mode Header */}
             <div className="p-3 border-b border-border dark:border-dark-border">
               {selectMode ? (
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-text-secondary dark:text-dark-text-secondary">
-                    {selectedIds.size} selected
+                    {selectedIds.size} selecionadas
                   </span>
                   <div className="flex items-center gap-2">
                     <button
@@ -744,7 +746,7 @@ export function ChatHistoryPage() {
               {conversations.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-text-muted dark:text-dark-text-muted p-4">
                   <MessageSquare className="w-12 h-12 mb-3 opacity-20" />
-                  <p className="text-sm">No conversations found</p>
+                  <p className="text-sm">Nenhuma conversa encontrada</p>
                 </div>
               ) : (
                 <div className="divide-y divide-border dark:divide-dark-border">
@@ -788,7 +790,7 @@ export function ChatHistoryPage() {
                                     : 'text-text-primary dark:text-dark-text-primary'
                                 }`}
                               >
-                                {conv.title || 'Untitled'}
+                                {conv.title || 'Sem título'}
                               </h4>
                               <span className="text-[10px] text-text-muted dark:text-dark-text-muted whitespace-nowrap flex-shrink-0">
                                 {formatDate(conv.updatedAt)}
@@ -803,7 +805,8 @@ export function ChatHistoryPage() {
                                 </span>
                               )}
                               <span className="text-[10px] text-text-muted dark:text-dark-text-muted ml-auto flex-shrink-0">
-                                {conv.messageCount} msg{conv.messageCount !== 1 ? 's' : ''}
+                                {conv.messageCount}{' '}
+                                {conv.messageCount === 1 ? 'mensagem' : 'mensagens'}
                               </span>
                             </div>
 
@@ -825,7 +828,7 @@ export function ChatHistoryPage() {
             {selectMode && selectedIds.size > 0 && (
               <div className="border-t border-border dark:border-dark-border bg-bg-primary dark:bg-dark-bg-primary px-4 py-3 flex items-center justify-between">
                 <span className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-                  {selectedIds.size} selected
+                  {selectedIds.size} selecionadas
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -833,14 +836,14 @@ export function ChatHistoryPage() {
                     className="px-3 py-1.5 text-xs rounded-lg bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary/80 transition-colors"
                   >
                     <Archive className="w-3.5 h-3.5 inline mr-1" />
-                    {showArchived ? 'Unarchive' : 'Archive'}
+                    {showArchived ? 'Desarquivar' : 'Arquivar'}
                   </button>
                   <button
                     onClick={handleBulkDelete}
                     className="px-3 py-1.5 text-xs rounded-lg bg-error text-white hover:bg-error/90 transition-colors"
                   >
                     <Trash2 className="w-3.5 h-3.5 inline mr-1" />
-                    Delete
+                    Excluir
                   </button>
                 </div>
               </div>
@@ -848,17 +851,19 @@ export function ChatHistoryPage() {
           </aside>
 
           {/* Message Thread */}
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div
+            className={`${selectedId && !selectMode ? 'flex' : 'hidden lg:flex'} min-w-0 flex-1 flex-col overflow-hidden`}
+          >
             {!selectedId ? (
               <div className="flex flex-col items-center justify-center h-full text-text-muted dark:text-dark-text-muted">
                 <History className="w-16 h-16 mb-4 opacity-20" />
                 <p>Selecione uma conversa para visualizar</p>
                 <p className="text-sm mt-1">
-                  All conversations from Web UI and channels are shown here
+                  As conversas do painel e dos canais conectados aparecem aqui
                 </p>
               </div>
             ) : isLoadingMessages ? (
-              <LoadingSpinner message="Loading messages..." />
+              <LoadingSpinner message="Carregando mensagens..." />
             ) : (
               <>
                 {/* Conversation Header */}
@@ -878,7 +883,7 @@ export function ChatHistoryPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary truncate">
-                          {selectedConv.title || 'Untitled'}
+                          {selectedConv.title || 'Sem título'}
                         </h3>
                         <SourceBadge source={getSource(selectedConv)} />
                       </div>
@@ -898,7 +903,7 @@ export function ChatHistoryPage() {
                             {selectedConv.provider}/{selectedConv.model}
                           </span>
                         )}
-                        <span>{selectedConv.messageCount} messages</span>
+                        <span>{selectedConv.messageCount} mensagens</span>
                       </div>
                     </div>
 
@@ -906,7 +911,7 @@ export function ChatHistoryPage() {
                       <button
                         onClick={() => handleArchive(selectedConv.id, !selectedConv.isArchived)}
                         className="p-1.5 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary text-text-muted dark:text-dark-text-muted"
-                        title={selectedConv.isArchived ? 'Unarchive' : 'Archive'}
+                        title={selectedConv.isArchived ? 'Desarquivar' : 'Arquivar'}
                       >
                         <Archive className="w-4 h-4" />
                       </button>

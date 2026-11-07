@@ -67,7 +67,7 @@ describe('PageHomeTab', () => {
     const checkbox = container.querySelector<HTMLInputElement>('#skip-home');
     expect(checkbox).toBeDefined();
     expect(checkbox!.checked).toBe(false);
-    expect(container.textContent).toContain('Skip this screen next time');
+    expect(container.textContent).toContain('Ir direto para esta função na próxima visita');
   });
 
   it('renders skip home checkbox as checked when skipHomeChecked is true', () => {
@@ -122,7 +122,7 @@ describe('PageHomeTab', () => {
 
     expect(container.textContent).toContain('Action 1');
     expect(container.textContent).toContain('Action 2');
-    expect(container.textContent).toContain('Quick Actions');
+    expect(container.textContent).toContain('Ações rápidas');
   });
 
   it('calls quick action onClick when clicked', () => {

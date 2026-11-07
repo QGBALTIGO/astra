@@ -53,7 +53,7 @@ export function CodingAgentSettingsPage() {
     refetch: fetchStatuses,
   } = usePageData<CodingAgentStatus[]>(() => codingAgentsApi.status(), [], {
     onError: (err) =>
-      toast.error(err instanceof Error ? err.message : 'Failed to load provider status'),
+      toast.error(err instanceof Error ? err.message : 'Não foi possível carregar os provedores'),
   });
   const statuses = statusesData ?? [];
 
@@ -64,12 +64,12 @@ export function CodingAgentSettingsPage() {
         const result = await codingAgentsApi.test(provider);
         setTestResults((prev) => ({ ...prev, [provider]: result }));
         if (result.available) {
-          toast.success(`${provider} is ready`);
+          toast.success(`${provider} está pronto para uso`);
         } else {
-          toast.warning(`${provider} test failed — check installation`);
+          toast.warning(`O teste de ${provider} falhou. Verifique a instalação.`);
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Test failed');
+        toast.error(err instanceof Error ? err.message : 'O teste falhou');
       } finally {
         setTestingProvider(null);
       }
@@ -85,24 +85,24 @@ export function CodingAgentSettingsPage() {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
   }[] = [
-    { id: 'home', label: 'Home', icon: Home },
-    { id: 'providers', label: 'Providers', icon: Terminal },
-    { id: 'permissions', label: 'Permissions', icon: Shield },
-    { id: 'skills', label: 'Skills', icon: Puzzle },
-    { id: 'budget', label: 'Budget', icon: DollarSign },
-    { id: 'security', label: 'Security', icon: Lock },
+    { id: 'home', label: 'Início', icon: Home },
+    { id: 'providers', label: 'Provedores', icon: Terminal },
+    { id: 'permissions', label: 'Permissões', icon: Shield },
+    { id: 'skills', label: 'Habilidades', icon: Puzzle },
+    { id: 'budget', label: 'Orçamento', icon: DollarSign },
+    { id: 'security', label: 'Segurança', icon: Lock },
   ];
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Coding Agent Settings
+            Configurações dos agentes de código
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            {installedCount} of {statuses.length} providers installed
+            {installedCount} de {statuses.length} provedores instalados
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -110,7 +110,7 @@ export function CodingAgentSettingsPage() {
             onClick={() => void fetchStatuses()}
             disabled={isLoading}
             className="p-2 rounded-lg text-text-muted dark:text-dark-text-muted hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors disabled:opacity-50"
-            title="Refresh"
+            title="Atualizar"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
@@ -119,18 +119,18 @@ export function CodingAgentSettingsPage() {
             className="px-3 py-1.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors inline-flex items-center gap-1.5"
           >
             <Terminal className="w-4 h-4" />
-            Open Terminal Sessions
+            Abrir sessões de terminal
           </button>
         </div>
       </header>
 
       {/* Tabs */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 gap-1 overflow-x-auto border-b border-border px-4 dark:border-dark-border sm:px-6">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:px-4 ${
               activeTab === tab.id
                 ? 'border-primary text-primary'
                 : 'border-transparent text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:border-border dark:hover:border-dark-border'
@@ -143,7 +143,7 @@ export function CodingAgentSettingsPage() {
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
         {activeTab === 'home' && (
           <PageHomeTab
             heroIcons={[
@@ -151,90 +151,96 @@ export function CodingAgentSettingsPage() {
               { icon: Shield, color: 'text-violet-500 bg-violet-500/10' },
               { icon: DollarSign, color: 'text-emerald-500 bg-emerald-500/10' },
             ]}
-            title="Configure Coding Agents"
-            subtitle="Set up providers, permissions, skills, budgets, and security rules for your AI coding assistants."
+            title="Configure agentes de código"
+            subtitle="Organize provedores, permissões, habilidades, limites de uso e segurança dos agentes de código."
             cta={{
-              label: 'View Providers',
+              label: 'Ver provedores',
               icon: Terminal,
               onClick: () => setActiveTab('providers'),
             }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to Providers"
+            skipHomeLabel="Ir diretamente para os provedores"
             features={[
               {
                 icon: Layers,
                 color: 'text-primary bg-primary/10',
-                title: 'Provider Setup',
-                description: 'Install and configure coding agent providers.',
+                title: 'Configuração de provedores',
+                description: 'Instale e configure os provedores de agentes de código.',
               },
               {
                 icon: Lock,
                 color: 'text-orange-500 bg-orange-500/10',
-                title: 'Permission Control',
-                description: 'Set boundaries for what agents can do.',
+                title: 'Controle de permissões',
+                description: 'Defina quais ações cada agente pode executar.',
               },
               {
                 icon: BookOpen,
                 color: 'text-emerald-500 bg-emerald-500/10',
-                title: 'Skill Packs',
-                description: 'Enable relevant skill packs for your agents.',
+                title: 'Pacotes de habilidades',
+                description: 'Habilite as habilidades necessárias para cada agente.',
               },
               {
                 icon: DollarSign,
                 color: 'text-violet-500 bg-violet-500/10',
-                title: 'Budget Limits',
-                description: 'Control spending and usage limits.',
+                title: 'Limites de orçamento',
+                description: 'Configure limites de uso e de despesas.',
               },
             ]}
             steps={[
-              { title: 'Add coding providers', detail: 'Install and configure agent backends.' },
               {
-                title: 'Set permission boundaries',
-                detail: 'Define what actions agents can take.',
+                title: 'Adicione provedores de código',
+                detail: 'Instale e configure os serviços necessários.',
               },
-              { title: 'Enable relevant skills', detail: 'Choose skill packs for your workflow.' },
               {
-                title: 'Configure budget & security',
-                detail: 'Set spending limits and security rules.',
+                title: 'Defina as permissões',
+                detail: 'Escolha quais operações cada agente pode executar.',
+              },
+              {
+                title: 'Habilite as habilidades',
+                detail: 'Selecione os recursos necessários para sua rotina.',
+              },
+              {
+                title: 'Configure orçamento e segurança',
+                detail: 'Defina limites de consumo e regras de proteção.',
               },
             ]}
             quickActions={[
               {
                 icon: Terminal,
-                label: 'Providers',
-                description: 'Manage coding agent providers.',
+                label: 'Provedores',
+                description: 'Gerencie os provedores de agentes de código.',
                 onClick: () => setActiveTab('providers'),
               },
               {
                 icon: Shield,
-                label: 'Permissions',
-                description: 'Configure agent permissions.',
+                label: 'Permissões',
+                description: 'Configure permissões dos agentes.',
                 onClick: () => setActiveTab('permissions'),
               },
               {
                 icon: Puzzle,
-                label: 'Skills',
-                description: 'Manage skill packs.',
+                label: 'Habilidades',
+                description: 'Gerencie pacotes de habilidades.',
                 onClick: () => setActiveTab('skills'),
               },
               {
                 icon: DollarSign,
-                label: 'Budget',
-                description: 'Set budget and usage limits.',
+                label: 'Orçamento',
+                description: 'Defina limites de uso e consumo.',
                 onClick: () => setActiveTab('budget'),
               },
               {
                 icon: Lock,
-                label: 'Security',
-                description: 'Configure security rules.',
+                label: 'Segurança',
+                description: 'Configure regras de segurança.',
                 onClick: () => setActiveTab('security'),
               },
             ]}
           />
         )}
         {activeTab !== 'home' && (
-          <div className="p-6 max-w-3xl mx-auto w-full space-y-6">
+          <div className="mx-auto w-full min-w-0 max-w-3xl space-y-6 p-4 sm:p-6">
             {activeTab === 'providers' && (
               <ProvidersTab
                 statuses={statuses}

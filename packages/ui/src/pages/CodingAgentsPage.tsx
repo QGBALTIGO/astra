@@ -510,7 +510,7 @@ export function CodingAgentsPage() {
                       className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors inline-flex items-center gap-2"
                     >
                       <Plus className="w-4 h-4" />
-                      Create Session
+                      Criar sessão
                     </button>
                   )}
                 </div>

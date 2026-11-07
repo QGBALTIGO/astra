@@ -22,7 +22,7 @@ const PRESETS = [
   { label: '100', value: 100 },
   { label: '200', value: 200 },
   { label: '500', value: 500 },
-  { label: 'Unlimited', value: 0 },
+  { label: 'Sem limite', value: 0 },
 ] as const;
 
 function loadLimit(): number {
@@ -63,7 +63,7 @@ export function ToolCallLimitPanel({ onChange }: ToolCallLimitPanelProps) {
     [onChange]
   );
 
-  const displayLabel = limit === 0 ? 'Unlimited' : String(limit);
+  const displayLabel = limit === 0 ? 'Sem limite' : String(limit);
 
   return (
     <div className="mb-2">
@@ -84,7 +84,7 @@ export function ToolCallLimitPanel({ onChange }: ToolCallLimitPanelProps) {
         >
           <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
         </svg>
-        <span className="text-xs text-text-muted dark:text-dark-text-muted">Tool Calls</span>
+        <span className="text-xs text-text-muted dark:text-dark-text-muted">Limite de ferramentas</span>
 
         <span
           className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
@@ -109,7 +109,7 @@ export function ToolCallLimitPanel({ onChange }: ToolCallLimitPanelProps) {
       {isExpanded && (
         <div className="mt-1 px-2 py-2 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg border border-border dark:border-dark-border space-y-2">
           <p className="text-[10px] text-text-muted dark:text-dark-text-muted">
-            Max tool calls per message. 0 = unlimited.
+            Máximo de chamadas por mensagem. Use 0 para não limitar.
           </p>
 
           {/* Preset buttons */}
