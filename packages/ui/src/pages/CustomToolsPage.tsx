@@ -318,7 +318,11 @@ export function CustomToolsPage() {
           ) : filteredTools.length === 0 ? (
             <EmptyState
               icon={Code}
-              title={searchQuery ? 'Nenhuma ferramenta corresponde à busca' : 'Nenhuma ferramenta personalizada ainda'}
+              title={
+                searchQuery
+                  ? 'Nenhuma ferramenta corresponde à busca'
+                  : 'Nenhuma ferramenta personalizada ainda'
+              }
               description={
                 searchQuery
                   ? 'Tente outro termo de pesquisa.'
@@ -326,7 +330,11 @@ export function CustomToolsPage() {
               }
               action={
                 !searchQuery
-                  ? { label: 'Criar ferramenta', onClick: () => setIsCreateModalOpen(true), icon: Plus }
+                  ? {
+                      label: 'Criar ferramenta',
+                      onClick: () => setIsCreateModalOpen(true),
+                      icon: Plus,
+                    }
                   : undefined
               }
             />

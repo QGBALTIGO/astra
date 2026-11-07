@@ -700,7 +700,9 @@ export function ChatHistoryPage() {
       {activeTab === 'history' && (
         <div className="flex flex-1 min-w-0 overflow-hidden">
           {/* Conversation List Sidebar */}
-          <aside className={`${selectedId && !selectMode ? 'hidden lg:flex' : 'flex'} w-full shrink-0 flex-col overflow-hidden border-r border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary lg:w-80`}>
+          <aside
+            className={`${selectedId && !selectMode ? 'hidden lg:flex' : 'flex'} w-full shrink-0 flex-col overflow-hidden border-r border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary lg:w-80`}
+          >
             {/* Search + Select Mode Header */}
             <div className="p-3 border-b border-border dark:border-dark-border">
               {selectMode ? (
@@ -803,7 +805,8 @@ export function ChatHistoryPage() {
                                 </span>
                               )}
                               <span className="text-[10px] text-text-muted dark:text-dark-text-muted ml-auto flex-shrink-0">
-                                {conv.messageCount} {conv.messageCount === 1 ? 'mensagem' : 'mensagens'}
+                                {conv.messageCount}{' '}
+                                {conv.messageCount === 1 ? 'mensagem' : 'mensagens'}
                               </span>
                             </div>
 
@@ -848,7 +851,9 @@ export function ChatHistoryPage() {
           </aside>
 
           {/* Message Thread */}
-          <div className={`${selectedId && !selectMode ? 'flex' : 'hidden lg:flex'} min-w-0 flex-1 flex-col overflow-hidden`}>
+          <div
+            className={`${selectedId && !selectMode ? 'flex' : 'hidden lg:flex'} min-w-0 flex-1 flex-col overflow-hidden`}
+          >
             {!selectedId ? (
               <div className="flex flex-col items-center justify-center h-full text-text-muted dark:text-dark-text-muted">
                 <History className="w-16 h-16 mb-4 opacity-20" />

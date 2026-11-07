@@ -29,7 +29,9 @@ test.describe('Navegação lateral do Astra', () => {
     await expect(page.locator('#main-content')).toBeVisible();
   });
 
-  test('Personalizar abre e fecha um painel sem navegar para rota inexistente', async ({ page }) => {
+  test('Personalizar abre e fecha um painel sem navegar para rota inexistente', async ({
+    page,
+  }) => {
     const button = page.locator('[data-testid="sidebar-customize-link"] button');
     await button.click();
     await expect(page.locator('[data-testid="customize-tab-items"]')).toBeVisible();

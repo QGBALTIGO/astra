@@ -289,7 +289,11 @@ export function ApprovalsPage() {
               ) : approvals.length === 0 ? (
                 <EmptyState
                   icon={ShieldCheck}
-                  title={tab === 'pending' ? 'Nenhuma aprovação pendente' : 'Nenhuma aprovação registrada'}
+                  title={
+                    tab === 'pending'
+                      ? 'Nenhuma aprovação pendente'
+                      : 'Nenhuma aprovação registrada'
+                  }
                   description={
                     tab === 'pending'
                       ? 'Quando um fluxo solicitar aprovação, a tarefa aparecerá aqui para análise.'

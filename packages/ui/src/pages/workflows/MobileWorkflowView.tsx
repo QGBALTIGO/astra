@@ -165,7 +165,9 @@ export function MobileWorkflowView({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {/* Tab content */}
-      <div className={`min-h-0 min-w-0 flex-1 ${activeTab === 'canvas' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+      <div
+        className={`min-h-0 min-w-0 flex-1 ${activeTab === 'canvas' ? 'overflow-hidden' : 'overflow-y-auto'}`}
+      >
         {activeTab === 'nodes' && (
           <ToolPalette
             className="w-full border-r-0"
@@ -202,7 +204,11 @@ export function MobileWorkflowView({
       </div>
 
       {/* Bottom tab bar */}
-      <div role="tablist" aria-label="Editor de automação" className="flex-shrink-0 flex border-t border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary">
+      <div
+        role="tablist"
+        aria-label="Editor de automação"
+        className="flex-shrink-0 flex border-t border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary"
+      >
         {(
           [
             { id: 'nodes' as const, label: 'Nós', icon: <NodesIcon /> },

@@ -27,7 +27,12 @@ import type { Task } from '../types';
 import { localDayString } from '../utils/formatters';
 import { PageHomeTab } from '../components/PageHomeTab';
 
-const TASK_FILTER_LABELS = { all: 'Todas', pending: 'Pendentes', completed: 'Concluídas', cancelled: 'Canceladas' } as const;
+const TASK_FILTER_LABELS = {
+  all: 'Todas',
+  pending: 'Pendentes',
+  completed: 'Concluídas',
+  cancelled: 'Canceladas',
+} as const;
 
 const priorityColors = {
   low: 'text-text-muted dark:text-dark-text-muted',

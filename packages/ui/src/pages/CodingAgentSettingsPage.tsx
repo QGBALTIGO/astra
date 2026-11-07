@@ -188,12 +188,18 @@ export function CodingAgentSettingsPage() {
               },
             ]}
             steps={[
-              { title: 'Adicione provedores de código', detail: 'Instale e configure os serviços necessários.' },
+              {
+                title: 'Adicione provedores de código',
+                detail: 'Instale e configure os serviços necessários.',
+              },
               {
                 title: 'Defina as permissões',
                 detail: 'Escolha quais operações cada agente pode executar.',
               },
-              { title: 'Habilite as habilidades', detail: 'Selecione os recursos necessários para sua rotina.' },
+              {
+                title: 'Habilite as habilidades',
+                detail: 'Selecione os recursos necessários para sua rotina.',
+              },
               {
                 title: 'Configure orçamento e segurança',
                 detail: 'Defina limites de consumo e regras de proteção.',

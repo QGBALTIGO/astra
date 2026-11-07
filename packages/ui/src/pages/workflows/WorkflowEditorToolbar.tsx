@@ -112,7 +112,9 @@ export function WorkflowEditorToolbar({
           placeholder="Nome da automação..."
         />
 
-        {hasUnsavedChanges && <span className="hidden sm:inline text-xs text-warning">Não salvo</span>}
+        {hasUnsavedChanges && (
+          <span className="hidden sm:inline text-xs text-warning">Não salvo</span>
+        )}
 
         <button
           onClick={handleSave}
@@ -243,7 +245,9 @@ export function WorkflowEditorToolbar({
               : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border'
           }`}
           title={
-            showCopilot ? 'Ocultar copiloto' : 'Copiloto de IA — crie automações por linguagem natural'
+            showCopilot
+              ? 'Ocultar copiloto'
+              : 'Copiloto de IA — crie automações por linguagem natural'
           }
         >
           <Sparkles className="w-3.5 h-3.5" />

@@ -26,7 +26,9 @@ test.describe('Regression Tests — Cross-Feature Verification', () => {
     await expect(page.locator('[data-testid="customize-detail-panel"]')).toHaveCount(0);
     const info = page.locator('[data-testid="customize-info-dashboard"]');
     await info.click();
-    await expect(page.locator('[data-testid="customize-detail-panel"]')).toContainText('Visão geral');
+    await expect(page.locator('[data-testid="customize-detail-panel"]')).toContainText(
+      'Visão geral'
+    );
   });
 
   // === MAIN CHAT ACCESS ===

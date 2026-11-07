@@ -427,7 +427,11 @@ export function DataBrowserPage() {
             ) : records.length === 0 ? (
               <EmptyState
                 icon={Table}
-                title={searchQuery ? 'Nenhum registro encontrado' : `Nenhum registro de ${config.name.toLowerCase()} ainda`}
+                title={
+                  searchQuery
+                    ? 'Nenhum registro encontrado'
+                    : `Nenhum registro de ${config.name.toLowerCase()} ainda`
+                }
                 description={
                   searchQuery
                     ? 'Tente outro termo de pesquisa.'

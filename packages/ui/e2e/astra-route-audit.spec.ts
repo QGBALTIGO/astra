@@ -318,8 +318,14 @@ test('Telas críticas do Astra sem estouro horizontal em 10 larguras', async () 
         console.log(
           `responsive-critical ${width}px ${route}: document=${dimensions.document}px main=${dimensions.main}px`
         );
-        expect(dimensions.document, `${route} em ${width}px: overflow no documento`).toBeLessThanOrEqual(7);
-        expect(dimensions.main, `${route} em ${width}px: overflow na área principal`).toBeLessThanOrEqual(20);
+        expect(
+          dimensions.document,
+          `${route} em ${width}px: overflow no documento`
+        ).toBeLessThanOrEqual(7);
+        expect(
+          dimensions.main,
+          `${route} em ${width}px: overflow na área principal`
+        ).toBeLessThanOrEqual(20);
       }
     }
   } finally {

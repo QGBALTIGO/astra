@@ -459,8 +459,8 @@ export function SecurityDashboardPage() {
                 Nenhuma análise de segurança ainda
               </h2>
               <p className="text-sm text-text-muted dark:text-dark-text-muted mb-4 max-w-md">
-                Execute uma análise para identificar possíveis vulnerabilidades em extensões, ferramentas, gatilhos e fluxos,
-                incluindo suas políticas de execução.
+                Execute uma análise para identificar possíveis vulnerabilidades em extensões,
+                ferramentas, gatilhos e fluxos, incluindo suas políticas de execução.
               </p>
               <button
                 onClick={runScan}

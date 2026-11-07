@@ -9,14 +9,32 @@ import type {
 } from '../../api';
 
 const RULE_TEXT: Record<string, { title: string; description: string }> = {
-  stale_goals: { title: 'Objetivos desatualizados', description: 'Objetivos sem atualização recente' },
-  upcoming_deadline: { title: 'Prazos próximos', description: 'Objetivos com prazo nos próximos dias' },
-  no_activity: { title: 'Sem atividade recente', description: 'Nenhuma atividade do usuário há mais de dois dias' },
+  stale_goals: {
+    title: 'Objetivos desatualizados',
+    description: 'Objetivos sem atualização recente',
+  },
+  upcoming_deadline: {
+    title: 'Prazos próximos',
+    description: 'Objetivos com prazo nos próximos dias',
+  },
+  no_activity: {
+    title: 'Sem atividade recente',
+    description: 'Nenhuma atividade do usuário há mais de dois dias',
+  },
   low_progress: { title: 'Progresso baixo', description: 'Objetivos ativos com baixo progresso' },
-  memory_cleanup: { title: 'Limpeza de memórias', description: 'Muitas memórias de baixa relevância' },
+  memory_cleanup: {
+    title: 'Limpeza de memórias',
+    description: 'Muitas memórias de baixa relevância',
+  },
   pending_approvals: { title: 'Aprovações pendentes', description: 'Ações aguardando aprovação' },
-  trigger_errors: { title: 'Erros de automação', description: 'Falhas de automações nas últimas 24 horas' },
-  routine_checkin: { title: 'Verificação de rotina', description: 'Acompanhamento diário pela manhã e à noite' },
+  trigger_errors: {
+    title: 'Erros de automação',
+    description: 'Falhas de automações nas últimas 24 horas',
+  },
+  routine_checkin: {
+    title: 'Verificação de rotina',
+    description: 'Acompanhamento diário pela manhã e à noite',
+  },
 };
 const ACTION_LABELS: Record<string, string> = {
   create_memory: 'Criar memória',

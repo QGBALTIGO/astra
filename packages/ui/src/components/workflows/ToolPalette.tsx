@@ -743,8 +743,8 @@ export function ToolPalette({
       {/* Footer */}
       <div className="p-3 border-t border-border dark:border-dark-border">
         <p className="text-[10px] text-text-muted dark:text-dark-text-muted leading-relaxed">
-          Arraste ferramentas para o canvas ou clique em <Plus className="w-2.5 h-2.5 inline" /> para adicionar.
-          Connect nodes by drawing edges between handles.
+          Arraste ferramentas para o canvas ou clique em <Plus className="w-2.5 h-2.5 inline" />{' '}
+          para adicionar. Connect nodes by drawing edges between handles.
         </p>
       </div>
     </div>

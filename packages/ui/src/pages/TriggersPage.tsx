@@ -44,7 +44,13 @@ import { TriggerModal } from '../components/TriggerModal';
 import { TriggerHistoryModal } from '../components/TriggerHistoryModal';
 import { useAnimatedList } from '../hooks/useAnimatedList';
 
-const TRIGGER_FILTER_LABELS = { all: 'Todos', schedule: 'Agendados', event: 'Eventos', condition: 'Condições', webhook: 'Webhooks' } as const;
+const TRIGGER_FILTER_LABELS = {
+  all: 'Todos',
+  schedule: 'Agendados',
+  event: 'Eventos',
+  condition: 'Condições',
+  webhook: 'Webhooks',
+} as const;
 
 const typeColors = {
   schedule: 'bg-blue-500/10 text-blue-500',

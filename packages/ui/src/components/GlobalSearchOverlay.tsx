@@ -50,7 +50,10 @@ export function GlobalSearchOverlay({ onClose }: Props) {
   const performSearch = useCallback(
     (q: string) => {
       const normalized = (value: string) =>
-        value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLocaleLowerCase('pt-BR');
       const lower = normalized(q.trim());
       if (!lower) {
         setResults({ pages: [], workflows: [], conversations: [] });
@@ -67,8 +70,7 @@ export function GlobalSearchOverlay({ onClose }: Props) {
       const workflows = cachedWorkflows
         .filter(
           (w) =>
-            normalized(w.name).includes(lower) ||
-            normalized(w.description ?? '').includes(lower)
+            normalized(w.name).includes(lower) || normalized(w.description ?? '').includes(lower)
         )
         .slice(0, 5);
 

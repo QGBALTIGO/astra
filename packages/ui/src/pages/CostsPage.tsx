@@ -34,8 +34,18 @@ import { PageHomeTab } from '../components/PageHomeTab';
 import { useSkipHome } from '../hooks/useSkipHome';
 
 type Period = 'day' | 'week' | 'month' | 'year';
-const PERIOD_LABELS: Record<Period, string> = { day: 'Dia', week: 'Semana', month: 'Mês', year: 'Ano' };
-const COST_TAB_LABELS = { home: 'Início', overview: 'Visão geral', breakdown: 'Detalhamento', budget: 'Orçamento' } as const;
+const PERIOD_LABELS: Record<Period, string> = {
+  day: 'Dia',
+  week: 'Semana',
+  month: 'Mês',
+  year: 'Ano',
+};
+const COST_TAB_LABELS = {
+  home: 'Início',
+  overview: 'Visão geral',
+  breakdown: 'Detalhamento',
+  budget: 'Orçamento',
+} as const;
 
 export function CostsPage() {
   const toast = useToast();

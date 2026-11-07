@@ -224,7 +224,8 @@ export function LayoutConfigPage() {
 
       {/* Info note */}
       <div className="text-xs text-text-muted dark:text-dark-text-muted bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg px-4 py-3">
-        As preferências de layout ficam salvas neste dispositivo. Algumas áreas do cabeçalho aparecem apenas no computador.
+        As preferências de layout ficam salvas neste dispositivo. Algumas áreas do cabeçalho
+        aparecem apenas no computador.
       </div>
     </div>
   );
