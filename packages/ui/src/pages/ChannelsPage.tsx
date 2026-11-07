@@ -29,8 +29,8 @@ export { timeAgo, getStatusColor, getStatusBg, StatusIcon, PlatformIcon };
 type TabId = 'home' | 'channels';
 
 const TAB_LABELS: Record<TabId, string> = {
-  home: 'Home',
-  channels: 'Channels',
+  home: 'Início',
+  channels: 'Canais',
 };
 
 // ============================================================================
@@ -92,7 +92,7 @@ export function ChannelsPage() {
         setSelectedId(resp.channels[0]!.id);
       }
     } catch {
-      toast.error('Failed to load channels');
+      toast.error('Não foi possível carregar os canais');
     } finally {
       setIsLoading(false);
     }
@@ -114,7 +114,7 @@ export function ChannelsPage() {
         setUsers(usersResp.users);
         setStats(statsResp);
       } catch {
-        toast.error('Failed to load channel details');
+        toast.error('Não foi possível carregar detalhes do canal');
       } finally {
         setDetailLoading(false);
       }
@@ -244,7 +244,7 @@ export function ChannelsPage() {
     async (channelId: string) => {
       if (
         !(await confirm({
-          message: 'Clear all messages for this channel? This cannot be undone.',
+          message: 'Apagar todas as mensagens deste canal? Esta ação não pode ser desfeita.',
           variant: 'danger',
         }))
       )
@@ -287,7 +287,7 @@ export function ChannelsPage() {
     async (userId: string) => {
       if (
         !(await confirm({
-          message: 'Block this user? They will no longer be able to message the bot.',
+          message: 'Bloquear este contato? Ele não poderá mais falar com o assistente.',
           variant: 'danger',
         }))
       )
@@ -338,7 +338,7 @@ export function ChannelsPage() {
       if (!selectedChannel) return;
       if (
         !(await confirm({
-          message: 'Deny this user? They will be blocked from messaging the bot.',
+          message: 'Rejeitar este contato? Ele será impedido de enviar mensagens ao assistente.',
           variant: 'danger',
         }))
       )
@@ -360,13 +360,13 @@ export function ChannelsPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 sm:px-6 py-4 border-b border-border dark:border-dark-border">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Channels
+            Canais conectados
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            Manage messaging channels and monitor their status
+            Conecte seu WhatsApp e acompanhe as mensagens do assistente.
           </p>
         </div>
         <button
@@ -374,32 +374,32 @@ export function ChannelsPage() {
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
         >
           <Plus className="w-3.5 h-3.5" />
-          Add Channel
+          Conectar canal
         </button>
       </header>
 
       {/* Status summary bar */}
-      <div className="flex items-center gap-4 px-6 py-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 sm:px-6 py-3">
         <div className="flex items-center gap-1.5 text-xs">
           <div className="w-2 h-2 rounded-full bg-success" />
           <span className="text-text-secondary dark:text-dark-text-secondary">
-            {summary.connected} Connected
+            {summary.connected} conectados
           </span>
         </div>
         <div className="flex items-center gap-1.5 text-xs">
           <div className="w-2 h-2 rounded-full bg-text-muted" />
           <span className="text-text-secondary dark:text-dark-text-secondary">
-            {summary.disconnected} Disconnected
+            {summary.disconnected} desconectados
           </span>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-text-muted dark:text-dark-text-muted">
           <Activity className="w-3 h-3" />
-          {summary.total} Total
+          {summary.total} no total
         </div>
       </div>
 
       {/* Tab Bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex border-b border-border dark:border-dark-border px-4 sm:px-6">
         {(['home', 'channels'] as TabId[]).map((tab) => (
           <button
             key={tab}
@@ -418,17 +418,17 @@ export function ChannelsPage() {
 
       {/* Home Tab */}
       {activeTab === 'home' && (
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           <PageHomeTab
             heroIcons={[
               { icon: MessageSquare, color: 'text-primary bg-primary/10' },
               { icon: Send, color: 'text-emerald-500 bg-emerald-500/10' },
               { icon: Globe, color: 'text-violet-500 bg-violet-500/10' },
             ]}
-            title="Chat from Any Platform"
-            subtitle="Connect messaging platforms to your AI — Telegram, WhatsApp, and more. Messages flow through the same intelligent pipeline."
+            title="Converse com o Astra pelo WhatsApp"
+            subtitle="Conecte seu WhatsApp por QR Code para conversar com o Astra e receber ajuda com sua rotina diretamente pelo celular."
             cta={{
-              label: 'View Channels',
+              label: 'Ver canais',
               icon: MessageSquare,
               onClick: () => setTab('channels'),
             }}
@@ -436,62 +436,62 @@ export function ChannelsPage() {
               {
                 icon: Globe,
                 color: 'text-blue-500 bg-blue-500/10',
-                title: 'Multi-Platform',
+                title: 'Multiplataforma',
                 description:
-                  'Connect Telegram, WhatsApp, and other messaging platforms from a single dashboard.',
+                  'Conecte WhatsApp e outros canais em um só painel, sem misturar as conversas.',
               },
               {
                 icon: Inbox,
                 color: 'text-emerald-500 bg-emerald-500/10',
-                title: 'Unified Inbox',
+                title: 'Conversas organizadas',
                 description:
-                  'All messages from every platform land in one inbox. Never miss a conversation.',
+                  'Acompanhe tudo em um só histórico e não perca mensagens importantes.',
               },
               {
                 icon: Bot,
                 color: 'text-violet-500 bg-violet-500/10',
-                title: 'Bot Integration',
+                title: 'Assistente com IA',
                 description:
-                  'Your AI responds automatically through each platform using configured bot tokens.',
+                  'O Astra responde com o modelo Groq selecionado para este ambiente.',
               },
               {
                 icon: Activity,
                 color: 'text-amber-500 bg-amber-500/10',
-                title: 'Message Pipeline',
+                title: 'Processamento inteligente',
                 description:
-                  'Messages pass through middleware, context injection, and agent execution in a unified pipeline.',
+                  'As mensagens passam por validações, memória e execução das ferramentas autorizadas.',
               },
             ]}
             steps={[
               {
-                title: 'Choose a platform',
-                detail: 'Select Telegram, WhatsApp, or another supported messaging platform.',
+                title: 'Escolha um canal',
+                detail: 'Selecione o WhatsApp ou outro canal disponível no sistema.',
               },
               {
-                title: 'Configure bot tokens',
-                detail: 'Enter your bot token or scan a QR code to authenticate with the platform.',
+                title: 'Conecte com segurança',
+                detail: 'No WhatsApp, use a câmera do celular para ler o QR Code de pareamento.',
               },
               {
-                title: 'Connect & test',
-                detail: 'Activate the channel and send a test message to verify everything works.',
+                title: 'Envie uma mensagem de teste',
+                detail: 'Teste o atendimento antes de ativar lembretes ou automações.',
               },
               {
-                title: 'Messages flow to your AI',
+                title: 'IA pronta para responder',
                 detail:
-                  'Incoming messages are processed by your AI and responses are sent back automatically.',
+                  'Depois da configuração, as mensagens são interpretadas e respondidas pelo Astra.',
               },
             ]}
             quickActions={[
               {
                 icon: MessageSquare,
-                label: 'Manage Channels',
-                description: 'View and configure your messaging channels',
+                label: 'Gerenciar canais',
+                description: 'Veja o WhatsApp e configure a conexão',
                 onClick: () => setTab('channels'),
               },
             ]}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to Channels"
+            skipHomeLabel="Ir diretamente aos canais na próxima visita"
           />
         </div>
       )}
@@ -505,8 +505,8 @@ export function ChannelsPage() {
           {/* Loading skeleton */}
           {isLoading ? (
             <div className="p-6 space-y-4">
-              <div className="flex gap-4">
-                <div className="w-72 space-y-2">
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="w-full sm:w-72 space-y-2">
                   {[1, 2, 3].map((i) => (
                     <div
                       key={i}
@@ -519,20 +519,20 @@ export function ChannelsPage() {
             </div>
           ) : (
             /* Main content */
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
               {/* Sidebar — channel list */}
-              <div className="w-72 border-r border-border dark:border-dark-border overflow-y-auto">
+              <div className="w-full md:w-72 shrink-0 max-h-56 md:max-h-none border-b md:border-b-0 md:border-r border-border dark:border-dark-border overflow-y-auto">
                 {channels.length === 0 ? (
                   <div className="p-6 text-center">
                     <Send className="w-8 h-8 mx-auto text-text-muted dark:text-dark-text-muted mb-2" />
                     <p className="text-sm text-text-muted dark:text-dark-text-muted">
-                      No channels yet
+                      Ainda não há canais conectados
                     </p>
                     <button
                       onClick={() => setShowSetup(true)}
                       className="mt-2 text-xs text-primary hover:underline"
                     >
-                      Set up your first channel
+                      Conectar meu WhatsApp
                     </button>
                   </div>
                 ) : (
@@ -583,7 +583,7 @@ export function ChannelsPage() {
               </div>
 
               {/* Detail panel */}
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 min-h-0 overflow-y-auto">
                 {selectedChannel ? (
                   <ChannelDetail
                     channel={selectedChannel}
@@ -613,7 +613,7 @@ export function ChannelsPage() {
                     <div className="text-center">
                       <Send className="w-10 h-10 mx-auto text-text-muted dark:text-dark-text-muted mb-3" />
                       <p className="text-sm text-text-muted dark:text-dark-text-muted">
-                        Select a channel to view details
+                        Selecione um canal para ver os detalhes
                       </p>
                     </div>
                   </div>
