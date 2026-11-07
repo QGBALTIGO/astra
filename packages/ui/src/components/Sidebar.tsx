@@ -267,7 +267,7 @@ export function Sidebar({
                 <button
                   onClick={onSearchOpen}
                   data-testid="sidebar-search-btn"
-                  className="w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5 text-left"
+                  className="astra-nav-link w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary text-left"
                 >
                   <Search className="w-4 h-4 shrink-0" />
                   <span className="truncate flex-1">Buscar</span>
@@ -285,10 +285,10 @@ export function Sidebar({
                   onClick={onCloseCustomize}
                   data-testid="sidebar-scheduled-link"
                   className={({ isActive }) =>
-                    `flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base ${
+                    `astra-nav-link flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm transition-colors ${
                       isActive && !isCustomizeOpen
-                        ? 'bg-primary/10 text-primary border-l-[3px] border-primary'
-                        : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5'
+                        ? 'astra-nav-link--active'
+                        : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
                     }`
                   }
                 >
@@ -304,10 +304,10 @@ export function Sidebar({
                   {divider}
                   <button
                     onClick={onCustomizeToggle}
-                    className={`w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base text-left ${
+                    className={`astra-nav-link w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-left transition-colors ${
                       isCustomizeOpen
-                        ? 'bg-primary/10 text-primary border-l-[3px] border-primary'
-                        : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5'
+                        ? 'astra-nav-link--active'
+                        : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
                     }`}
                   >
                     <ChevronRight className="w-4 h-4 shrink-0" />
@@ -327,7 +327,7 @@ export function Sidebar({
                         navigate('/history');
                       }}
                       data-testid="sidebar-recents"
-                      className="w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5 text-left"
+                      className="astra-nav-link w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary text-left"
                     >
                       <MessageSquare className="w-4 h-4 shrink-0" />
                       <span className="truncate flex-1">Recentes</span>
