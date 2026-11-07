@@ -1,0 +1,39 @@
+name: Astra PR10 one-shot formatter
+on:
+  push:
+    branches:
+      - fix/astra-reminder-delivery-and-appointment-20261107
+    paths:
+      - .github/workflows/astra-pr10-one-shot-format.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Format affected files
+        run: >-
+          pnpm exec prettier --write packages/core/src/agent/exec-context.ts packages/gateway/src/channels/channel-ai-routing.ts packages/gateway/src/channels/channel-ai-routing-quick.test.ts packages/gateway/src/db/repositories/channel-reminders.ts packages/gateway/src/db/schema/personal-data.ts packages/gateway/src/server.ts packages/gateway/src/services/agent/prompt.ts packages/gateway/src/services/agent/service.ts packages/gateway/src/services/agent/service.test.ts packages/gateway/src/services/channel-reminder-worker.ts packages/gateway/src/services/channel-reminder-worker.test.ts packages/gateway/src/tools/agent-tool-registry.ts packages/gateway/src/tools/agent-tool-registry.test.ts packages/gateway/src/tools/channel-reminder-tools.ts packages/gateway/src/tools/channel-reminder-tools.test.ts packages/gateway/src/tools/registry/core-registration.ts packages/ui/src/pages/ChatPage.tsx packages/ui/src/components/WorkspaceSelector.tsx
+      - name: Commit formatted files and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add packages/core/src/agent/exec-context.ts packages/gateway/src/channels/channel-ai-routing.ts packages/gateway/src/channels/channel-ai-routing-quick.test.ts packages/gateway/src/db/repositories/channel-reminders.ts packages/gateway/src/db/schema/personal-data.ts packages/gateway/src/server.ts packages/gateway/src/services/agent/prompt.ts packages/gateway/src/services/agent/service.ts packages/gateway/src/services/agent/service.test.ts packages/gateway/src/services/channel-reminder-worker.ts packages/gateway/src/services/channel-reminder-worker.test.ts packages/gateway/src/tools/agent-tool-registry.ts packages/gateway/src/tools/agent-tool-registry.test.ts packages/gateway/src/tools/channel-reminder-tools.ts packages/gateway/src/tools/channel-reminder-tools.test.ts packages/gateway/src/tools/registry/core-registration.ts packages/ui/src/pages/ChatPage.tsx packages/ui/src/components/WorkspaceSelector.tsx
+          git rm .github/workflows/astra-pr10-one-shot-format.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style(astra): format PR10 reminders and tablet layout"
+          git push origin HEAD:fix/astra-reminder-delivery-and-appointment-20261107
