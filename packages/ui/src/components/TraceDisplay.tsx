@@ -83,14 +83,14 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                   title={`${totalInputTokens} in / ${totalOutputTokens} out`}
                 >
                   <Brain className="w-3 h-3" />
-                  {totalInputTokens} in / {totalOutputTokens} out
+                  {totalInputTokens} entrada / {totalOutputTokens} saída
                 </span>
               )}
 
               {autonomyBlocked > 0 && (
                 <span className="flex items-center gap-1 text-orange-500">
                   <AlertTriangle className="w-3 h-3" />
-                  {autonomyBlocked} bloqueados
+                  {autonomyBlocked} {autonomyBlocked === 1 ? 'bloqueado' : 'bloqueados'}
                 </span>
               )}
 
@@ -111,7 +111,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
               {hasRetries && (
                 <span className="flex items-center gap-1 text-amber-500">
                   <RefreshCw className="w-3 h-3" />
-                  {trace.retries?.length} retries
+                  {trace.retries?.length} {trace.retries?.length === 1 ? 'tentativa' : 'tentativas'}
                 </span>
               )}
 
@@ -266,7 +266,7 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                       </span>
                       {model.inputTokens !== undefined || model.outputTokens !== undefined ? (
                         <span className="text-xs text-blue-500">
-                          {model.inputTokens ?? 0} in / {model.outputTokens ?? 0} out
+                          {model.inputTokens ?? 0} entrada / {model.outputTokens ?? 0} saída
                         </span>
                       ) : (
                         model.tokens !== undefined && (
