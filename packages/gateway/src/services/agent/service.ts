@@ -689,6 +689,7 @@ async function createChatAgentInstance(
               resolvedAuth: fbResolvedAuth,
               baseUrl: fbConfig?.baseUrl,
               headers: fbConfig?.headers,
+              defaultModel: { model: fallback.model },
             },
           ],
           onFallback: (failed, error, next) => {
