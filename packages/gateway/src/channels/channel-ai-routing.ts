@@ -34,6 +34,57 @@ export function deterministicChannelReply(text: string): string | null {
   return null;
 }
 
+
+/**
+ * Zero-token path for fully specified relative reminders.
+ * Ambiguous requests still go to the assistant instead of creating a wrong task.
+ */
+export async function tryScheduleRelativeChannelReminder(
+  message: Pick<ChannelIncomingMessage, 'text' | 'id' | 'channelPluginId' | 'platformChatId'>,
+  userId: string
+): Promise<string | null> {
+  const match = message.text.trim().match(
+    /^(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar)\s+(?:em|daqui\s+a)\s+(\d{1,5})\s*(minutos?|min|horas?|h)\s+(?:para|pra|de|que)\s+(.+)$/iu
+  );
+  if (!match) return null;
+
+  const title = match[3]!.trim().replace(/[.!?]+$/, '');
+  const amount = Number(match[1]);
+  const isHours = /^(?:h|hora)/i.test(match[2]!);
+  const delayMinutes = isHours ? amount * 60 : amount;
+  if (!title || delayMinutes < 1 || delayMinutes > 366 * 24 * 60) {
+    return 'Informe o que deseja lembrar e um prazo válido.';
+  }
+
+  const { executeChannelReminderTool } = await import('../tools/channel-reminder-tools.js');
+  return runInExecContext(
+    {
+      channelPluginId: message.channelPluginId,
+      platformChatId: message.platformChatId,
+      channelMessageId: message.id,
+    },
+    async () => {
+      const result = await executeChannelReminderTool(
+        'schedule_channel_reminder',
+        { title, delay_minutes: delayMinutes },
+        userId
+      );
+      if (!result.success) {
+        return 'Não consegui agendar esse lembrete. Nenhum aviso foi confirmado.';
+      }
+      const saved = result.result as { status?: string };
+      if (saved.status !== 'pending') {
+        return 'Esse lembrete já estava registrado nesta conversa.';
+      }
+      const timeLabel =
+        delayMinutes >= 60 && delayMinutes % 60 === 0
+          ? String(delayMinutes / 60) + (delayMinutes === 60 ? ' hora' : ' horas')
+          : String(delayMinutes) + (delayMinutes === 1 ? ' minuto' : ' minutos');
+      return '⏰ Vou lembrar você de "' + title + '" daqui a ' + timeLabel + ' aqui nesta conversa.';
+    }
+  );
+}
+
 interface ApprovalChannelApi extends ChannelPluginAPI {
   requestApproval(
     chatId: string,
@@ -66,6 +117,11 @@ export async function processViaBus(
   },
   progress?: { update(text: string): void }
 ): Promise<string> {
+  const reminderReply = message.attachments?.length
+    ? null
+    : await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId);
+  if (reminderReply) return reminderReply;
+
   const freeReply = deterministicChannelReply(message.text);
   if (freeReply && !message.attachments?.length) return freeReply;
 
