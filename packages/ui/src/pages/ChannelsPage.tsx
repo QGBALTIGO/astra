@@ -151,7 +151,7 @@ export function ChannelsPage() {
       );
     });
     const unsub4 = subscribe<{ displayName?: string }>('channel:user:pending', (data) => {
-      toast.info(`New user pending approval: ${data.displayName ?? 'Unknown'}`);
+      toast.info(`Novo usuário aguardando aprovação: ${data.displayName ?? 'Desconhecido'}`);
       if (selectedId) loadDetail(selectedId);
     });
 
@@ -169,7 +169,7 @@ export function ChannelsPage() {
       setActionLoading('connect');
       try {
         await channelsApi.connect(channelId);
-        toast.success('Channel connected');
+        toast.success('Canal conectado');
         await loadChannels();
       } catch {
         toast.error('Não foi possível conectar o canal');
@@ -185,7 +185,7 @@ export function ChannelsPage() {
       setActionLoading('disconnect');
       try {
         await channelsApi.disconnect(channelId);
-        toast.success('Channel disconnected');
+        toast.success('Canal desconectado');
         await loadChannels();
       } catch {
         toast.error('Não foi possível desconectar o canal');
@@ -209,7 +209,7 @@ export function ChannelsPage() {
       setActionLoading('logout');
       try {
         await channelsApi.logout(channelId);
-        toast.success('Channel logged out (session cleared)');
+        toast.success('Sessão do canal encerrada');
         await loadChannels();
       } catch {
         toast.error('Não foi possível encerrar a sessão do canal');
@@ -225,7 +225,7 @@ export function ChannelsPage() {
       setActionLoading('reconnect');
       try {
         await channelsApi.reconnect(channelId);
-        toast.success('Channel reconnected');
+        toast.success('Canal reconectado');
         await loadChannels();
       } catch {
         toast.error('Não foi possível reconectar o canal');
@@ -252,7 +252,7 @@ export function ChannelsPage() {
       setActionLoading('clear');
       try {
         const resp = await channelsApi.clearMessages(channelId);
-        toast.success(`Cleared ${resp.deleted} messages`);
+        toast.success(`${resp.deleted} mensagens removidas`);
         if (selectedId === channelId) loadDetail(channelId);
       } catch {
         toast.error('Não foi possível limpar as mensagens');
@@ -270,10 +270,10 @@ export function ChannelsPage() {
         if (pendingPairingCode && platform) {
           // DM pairing pending user — use code-based approval
           await channelsApi.approvePairing(platform, pendingPairingCode);
-          toast.success('User approved via pairing code');
+          toast.success('Usuário aprovado com código de vinculação');
         } else {
           await channelsApi.approveUser(userId);
-          toast.success('User approved');
+          toast.success('Usuário aprovado');
         }
         if (selectedId) loadDetail(selectedId);
       } catch {
@@ -294,7 +294,7 @@ export function ChannelsPage() {
         return;
       try {
         await channelsApi.blockUser(userId);
-        toast.success('User blocked');
+        toast.success('Usuário bloqueado');
         if (selectedId) loadDetail(selectedId);
       } catch {
         toast.error('Não foi possível bloquear o usuário');
@@ -307,7 +307,7 @@ export function ChannelsPage() {
     async (userId: string) => {
       try {
         await channelsApi.unblockUser(userId);
-        toast.success('User unblocked');
+        toast.success('Usuário desbloqueado');
         if (selectedId) loadDetail(selectedId);
       } catch {
         toast.error('Não foi possível desbloquear o usuário');
@@ -319,12 +319,12 @@ export function ChannelsPage() {
   const handleDeleteUser = useCallback(
     async (userId: string) => {
       if (
-        !(await confirm({ message: 'Delete this user? This cannot be undone.', variant: 'danger' }))
+        !(await confirm({ message: 'Excluir este usuário? Essa ação não poderá ser desfeita.', variant: 'danger' }))
       )
         return;
       try {
         await channelsApi.deleteUser(userId);
-        toast.success('User deleted');
+        toast.success('Usuário excluído');
         if (selectedId) loadDetail(selectedId);
       } catch {
         toast.error('Não foi possível excluir o usuário');
@@ -348,7 +348,7 @@ export function ChannelsPage() {
           ? selectedChannel.id.split('.')[1]!
           : selectedChannel.type;
         await channelsApi.denyPairing(platform, platformUserId);
-        toast.success('User denied');
+        toast.success('Usuário recusado');
         if (selectedId) loadDetail(selectedId);
       } catch {
         toast.error('Não foi possível recusar o usuário');
@@ -360,9 +360,9 @@ export function ChannelsPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 sm:px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-col gap-3 border-b border-border px-4 py-5 dark:border-dark-border sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div>
-          <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
+          <h2 className="text-xl font-bold tracking-tight text-text-primary dark:text-dark-text-primary">
             Canais conectados
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
@@ -371,7 +371,7 @@ export function ChannelsPage() {
         </div>
         <button
           onClick={() => setShowSetup(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
         >
           <Plus className="w-3.5 h-3.5" />
           Conectar canal
@@ -399,7 +399,7 @@ export function ChannelsPage() {
       </div>
 
       {/* Tab Bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-4 sm:px-6">
+      <div className="flex gap-2 border-b border-border px-4 pt-2 dark:border-dark-border sm:px-6">
         {(['home', 'channels'] as TabId[]).map((tab) => (
           <button
             key={tab}
@@ -418,7 +418,7 @@ export function ChannelsPage() {
 
       {/* Home Tab */}
       {activeTab === 'home' && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-bg-primary dark:bg-dark-bg-primary">
           <PageHomeTab
             heroIcons={[
               { icon: MessageSquare, color: 'text-primary bg-primary/10' },
@@ -519,7 +519,7 @@ export function ChannelsPage() {
             /* Main content */
             <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
               {/* Sidebar — channel list */}
-              <div className="w-full md:w-72 shrink-0 max-h-56 md:max-h-none border-b md:border-b-0 md:border-r border-border dark:border-dark-border overflow-y-auto">
+              <div className="max-h-64 w-full shrink-0 overflow-y-auto border-b border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary md:max-h-none md:w-72 md:border-b-0 md:border-r">
                 {channels.length === 0 ? (
                   <div className="p-6 text-center">
                     <Send className="w-8 h-8 mx-auto text-text-muted dark:text-dark-text-muted mb-2" />
@@ -534,15 +534,15 @@ export function ChannelsPage() {
                     </button>
                   </div>
                 ) : (
-                  <div className="p-2 space-y-1">
+                  <div className="space-y-1 p-3">
                     {channels.map((ch) => (
                       <button
                         key={ch.id}
                         onClick={() => setSelectedId(ch.id)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors ${
                           selectedId === ch.id
-                            ? 'bg-primary/10 border border-primary/30'
-                            : 'hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary border border-transparent'
+                            ? 'border border-primary/30 bg-primary/10'
+                            : 'border border-transparent hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
                         }`}
                       >
                         <div
@@ -581,7 +581,7 @@ export function ChannelsPage() {
               </div>
 
               {/* Detail panel */}
-              <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="min-h-0 flex-1 overflow-y-auto bg-bg-primary dark:bg-dark-bg-primary">
                 {selectedChannel ? (
                   <ChannelDetail
                     channel={selectedChannel}
