@@ -106,13 +106,13 @@ describe('TelegramProgressManager', () => {
       const pm = new TelegramProgressManager(bot as never, '12345');
       await pm.start();
       expect(bot.api.sendMessage).toHaveBeenCalledTimes(1);
-      expect(bot.api.sendMessage).toHaveBeenCalledWith('12345', '🤔 Thinking...');
+      expect(bot.api.sendMessage).toHaveBeenCalledWith('12345', '⏳ Processando sua solicitação…');
     });
 
-    it('uses default text "🤔 Thinking..."', async () => {
+    it('uses default text "⏳ Processando sua solicitação…"', async () => {
       const pm = new TelegramProgressManager(bot as never, '12345');
       await pm.start();
-      expect(bot.api.sendMessage.mock.calls[0]![1]).toBe('🤔 Thinking...');
+      expect(bot.api.sendMessage.mock.calls[0]![1]).toBe('⏳ Processando sua solicitação…');
     });
 
     it('uses custom initial text when provided', async () => {
@@ -440,12 +440,12 @@ describe('TelegramProgressManager', () => {
       expect(bot.api.editMessageText).not.toHaveBeenCalled();
     });
 
-    it('guards against empty text using "(empty response)"', async () => {
+    it('guards against empty text using "Não foi possível gerar uma resposta."', async () => {
       const pm = new TelegramProgressManager(bot as never, '12345');
       await pm.start();
       bot.api.editMessageText.mockClear();
       await pm.finish('');
-      expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, '(empty response)', {});
+      expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, 'Não foi possível gerar uma resposta.', {});
     });
 
     it('trims whitespace from final text', async () => {
@@ -456,12 +456,12 @@ describe('TelegramProgressManager', () => {
       expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, 'hello world', {});
     });
 
-    it('trims whitespace-only text to "(empty response)"', async () => {
+    it('trims whitespace-only text to "Não foi possível gerar uma resposta."', async () => {
       const pm = new TelegramProgressManager(bot as never, '12345');
       await pm.start();
       bot.api.editMessageText.mockClear();
       await pm.finish('   ');
-      expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, '(empty response)', {});
+      expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, 'Não foi possível gerar uma resposta.', {});
     });
 
     it('falls back to sendFresh when no messageId', async () => {
@@ -711,7 +711,7 @@ describe('TelegramProgressManager', () => {
       expect(bot.api.editMessageText).not.toHaveBeenCalled();
     });
 
-    it('edits message to "⚠️ Processing cancelled."', async () => {
+    it('edits message to "⚠️ Processamento cancelado."', async () => {
       const pm = new TelegramProgressManager(bot as never, '12345');
       await pm.start();
       bot.api.editMessageText.mockClear();
@@ -719,7 +719,7 @@ describe('TelegramProgressManager', () => {
       expect(bot.api.editMessageText).toHaveBeenCalledWith(
         '12345',
         100,
-        '⚠️ Processing cancelled.'
+        '⚠️ Processamento cancelado.'
       );
     });
 
