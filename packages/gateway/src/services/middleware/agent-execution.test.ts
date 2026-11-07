@@ -280,7 +280,7 @@ describe('createAgentExecutionMiddleware', () => {
       expect(result.warnings).toEqual(['Agent error: Rate limit exceeded']);
     });
 
-    it('does not expose an over-128-tools provider error to WhatsApp or Telegram users', async () => {
+    it('hides provider tool-limit errors from channel users', async () => {
       const rawError =
         'OpenAI API error: 400 - {"error":{"message":"tools: maximum number of items is 128"}}';
       const agent = createAgent();
