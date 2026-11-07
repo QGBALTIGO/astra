@@ -77,10 +77,18 @@ export class FallbackProvider implements IProvider {
       ...config,
     };
 
-    this.primary = createProvider(config.primary);
+    // A configured fallback is already the retry path. Let the primary fail
+    // fast by default so rate limits and outages switch models immediately
+    // instead of waiting through the provider's full retry budget first.
+    const primaryConfig = {
+      ...config.primary,
+      maxRetries: config.primary.maxRetries ?? 0,
+    };
+
+    this.primary = createProvider(primaryConfig);
     this.type = config.primary.provider;
     this.fallbacks = config.fallbacks.map((fc) => createProvider(fc));
-    this.orderedConfigs = [config.primary, ...config.fallbacks];
+    this.orderedConfigs = [primaryConfig, ...config.fallbacks];
     this.failureThreshold = config.circuitBreakerThreshold ?? CIRCUIT_FAILURE_THRESHOLD;
     this.cooldownMs = config.circuitBreakerCooldown ?? CIRCUIT_COOLDOWN_MS;
   }
