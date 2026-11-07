@@ -26,6 +26,14 @@ import { createMemory } from './memory.js';
 import { getErrorMessage } from '../services/error-utils.js';
 
 /**
+ * Providers using OpenAI-compatible tool calling reject requests containing more
+ * than 128 function declarations. Keep a single budget across chat, Telegram,
+ * WhatsApp and streaming, even when plugins or MCP tools increase the registry.
+ */
+const MAX_EXPOSED_PROVIDER_TOOLS = 128;
+const DISCOVERY_TOOL_NAMES = ['search_tools', 'get_tool_help', 'use_tool', 'batch_use_tool'];
+
+/**
  * Default agent configuration
  */
 const DEFAULT_CONFIG: Partial<AgentConfig> = {
@@ -125,11 +133,30 @@ export class Agent {
    * Get available tool definitions
    */
   getTools(): readonly ToolDefinition[] {
-    // Direct tool mode: expose ALL tools except use_tool/batch_use_tool (redundant)
+    // The registry may grow beyond the provider's 128-tool limit as plugins,
+    // extensions and MCP servers are added. Prefer the existing discovery
+    // tools over silently removing calendar, finance or custom capabilities.
+    const withinProviderLimit = (definitions: readonly ToolDefinition[]): readonly ToolDefinition[] => {
+      if (definitions.length <= MAX_EXPOSED_PROVIDER_TOOLS) return definitions;
+
+      const discovery = this.tools.getDefinitionsByNames([
+        ...DISCOVERY_TOOL_NAMES,
+        ...this.additionalToolNames,
+      ]);
+      if (discovery.some((tool) => tool.name === 'use_tool')) {
+        return discovery.slice(0, MAX_EXPOSED_PROVIDER_TOOLS);
+      }
+
+      // Defensive fallback for custom registries without meta-tool support.
+      // Never send a known-invalid request to the provider.
+      return definitions.slice(0, MAX_EXPOSED_PROVIDER_TOOLS);
+    };
+
     if (this.directToolMode) {
-      return this.tools
+      const direct = this.tools
         .getDefinitions()
         .filter((t) => t.name !== 'use_tool' && t.name !== 'batch_use_tool');
+      return withinProviderLimit(direct);
     }
 
     if (this.config.tools?.length) {
@@ -143,9 +170,9 @@ export class Agent {
           }
         }
       }
-      return this.tools.getDefinitionsByNames(names);
+      return withinProviderLimit(this.tools.getDefinitionsByNames(names));
     }
-    return this.tools.getDefinitions();
+    return withinProviderLimit(this.tools.getDefinitions());
   }
 
   /**
