@@ -8,7 +8,7 @@
  */
 import { test, expect } from '@playwright/test';
 
-for (const width of [320, 375, 390, 430, 768, 1024]) {
+for (const width of [320, 375, 390, 430, 768, 1024, 1100]) {
   test(`chat header controls stay inside viewport at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 812 });
     await page.goto('/');
