@@ -34,7 +34,7 @@ import { localProvidersRepo } from '../../db/repositories/local-providers.js';
 import { getSoulsRepository } from '../../db/repositories/souls.js';
 import { getAgentMessagesRepository } from '../../db/repositories/agents/messages.js';
 import { getLog } from '../log.js';
-import { BASE_SYSTEM_PROMPT, CLI_SYSTEM_PROMPT } from './prompt.js';
+import { BASE_SYSTEM_PROMPT, CHANNEL_SYSTEM_PROMPT, CLI_SYSTEM_PROMPT } from './prompt.js';
 import {
   registerGatewayTools,
   registerDynamicTools,
@@ -421,7 +421,8 @@ export async function getOrCreateChatAgent(
   fallback?: { provider: string; model: string },
   pageContext?: { path?: string } | null,
   conversationId?: string,
-  gatewayUrl?: string
+  gatewayUrl?: string,
+  channelMode = false
 ): Promise<Agent> {
   // CLI providers are NOT cached — each request may need fresh MCP session state
   // while still reusing the persistent ~/.ownpilot/workspace directory.
@@ -432,7 +433,8 @@ export async function getOrCreateChatAgent(
       `cli-${Date.now()}`,
       fallback,
       pageContext,
-      gatewayUrl
+      gatewayUrl,
+      channelMode
     );
   }
 
@@ -443,7 +445,8 @@ export async function getOrCreateChatAgent(
   const fbSuffix = fallback ? `|fb_${sanitize(fallback.provider)}_${sanitize(fallback.model)}` : '';
   const pathSuffix = pageContext?.path ? `|dir_${sanitize(pageContext.path)}` : '';
   const convSuffix = conversationId ? `|conv_${sanitize(conversationId)}` : '';
-  const cacheKey = `chat|${sanitize(provider)}|${sanitize(model)}${fbSuffix}${pathSuffix}${convSuffix}`;
+  const channelSuffix = channelMode ? '|channel' : '';
+  const cacheKey = `chat|${sanitize(provider)}|${sanitize(model)}${fbSuffix}${pathSuffix}${convSuffix}${channelSuffix}`;
 
   const cached = lruGet(chatAgentCache, cacheKey);
   if (cached) return cached;
@@ -457,7 +460,8 @@ export async function getOrCreateChatAgent(
     cacheKey,
     fallback,
     pageContext,
-    gatewayUrl
+    gatewayUrl,
+    channelMode
   ).finally(() => {
     pendingChatAgents.delete(cacheKey);
   });
@@ -477,7 +481,8 @@ async function createChatAgentInstance(
   cacheKey: string,
   fallback?: { provider: string; model: string },
   _pageContext?: { path?: string } | null,
-  gatewayUrl?: string
+  gatewayUrl?: string,
+  channelMode = false
 ): Promise<Agent> {
   // ── CLI Chat Provider path ──
   // CLI providers (cli-claude, cli-codex, cli-gemini) use login-based auth
@@ -557,7 +562,11 @@ async function createChatAgentInstance(
 
   // CLI providers get a compact identity-first prompt (no meta-tools, no namespaces).
   // API providers get the full prompt with tool schemas injected.
-  const basePrompt = isCliProvider ? CLI_SYSTEM_PROMPT : BASE_SYSTEM_PROMPT;
+  const basePrompt = isCliProvider
+    ? CLI_SYSTEM_PROMPT
+    : channelMode
+      ? CHANNEL_SYSTEM_PROMPT
+      : BASE_SYSTEM_PROMPT;
   const { systemPrompt: enhancedPrompt } = await injectMemoryIntoPrompt(basePrompt, {
     userId: 'default',
     tools: isCliProvider ? [] : toolDefs, // CLI tools are discovered via MCP, not injected
@@ -579,7 +588,13 @@ async function createChatAgentInstance(
   // extensions, skills, page context, tool suggestions, and data hints.
   const systemPromptTokens = Math.ceil(enhancedPrompt.length / 4);
   const modelMaxOutput = router.getMaxOutput(provider, model);
-  const outputBuffer = Math.min(AGENT_DEFAULT_MAX_TOKENS, modelMaxOutput);
+  // Reserve fewer output tokens for conversational channel requests on Groq;
+  // a full 8192-token reservation exhausts the 8000-TPM allowance.
+  const outputBuffer = Math.min(
+    AGENT_DEFAULT_MAX_TOKENS,
+    modelMaxOutput,
+    channelMode && provider === 'groq' ? 768 : Number.POSITIVE_INFINITY
+  );
   const memoryMaxTokens = router.computeMemoryMaxTokens({
     ctxWindow,
     systemPromptTokens,
