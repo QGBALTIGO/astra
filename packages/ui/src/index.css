@@ -665,7 +665,7 @@ body {
 }
 
 /* Shared Orion-inspired navigation, cards, and focus treatment. */
-.astra-sidebar-nav {
+.astra-sidebar nav.astra-sidebar-nav {
   padding: 16px 12px 22px;
   scrollbar-gutter: stable;
 }
@@ -728,7 +728,7 @@ body {
   line-height: 1.5;
 }
 @media (max-width: 767px) {
-  .astra-sidebar-nav {
+  .astra-sidebar nav.astra-sidebar-nav {
     padding: 14px 10px 20px;
   }
   .astra-sidebar-group-label {
