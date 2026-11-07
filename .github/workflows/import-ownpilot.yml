@@ -18,7 +18,7 @@ jobs:
           persist-credentials: true
           fetch-depth: 1
 
-      - name: Import exact upstream revision
+      - name: Import exact upstream revision (without CI workflows)
         shell: bash
         env:
           UPSTREAM_SHA: eb4c27f29d4d12778621a83e49cd673cd8b62239
@@ -29,20 +29,21 @@ jobs:
           git -C "$src" remote add origin https://github.com/ownpilot/OwnPilot.git
           git -C "$src" fetch --depth=1 origin "$UPSTREAM_SHA"
           git -C "$src" checkout --detach -q FETCH_HEAD
-          actual="$(git -C "$src" rev-parse HEAD)"
-          test "$actual" = "$UPSTREAM_SHA"
-          rsync -a --delete --exclude=.git "$src/" ./
-          cat > ASTRA_UPSTREAM.md <<EOF
-          # Astra — upstream OwnPilot
+          test "$(git -C "$src" rev-parse HEAD)" = "$UPSTREAM_SHA"
+          # The workflow token may write normal source files, but cannot change workflow files.
+          # Those will be copied separately by the authenticated GitHub integration.
+          rsync -a --delete --exclude=.git --exclude='.github/workflows/' "$src/" ./
+          cat > ASTRA_UPSTREAM.md <<'EOF'
+          # Astra — OwnPilot
 
           Este repositório importa o código-fonte original de [OwnPilot](https://github.com/ownpilot/OwnPilot) para avaliação e testes independentes.
 
-          - Upstream: `ownpilot/OwnPilot`
-          - Revisão importada: `$UPSTREAM_SHA`
-          - Licença original: MIT (ver `LICENSE`)
-          - Alterações no código do upstream durante a importação: nenhuma.
+          - Upstream: ownpilot/OwnPilot
+          - Revisão importada: eb4c27f29d4d12778621a83e49cd673cd8b62239
+          - Licença original: MIT (ver LICENSE)
+          - Alterações no código durante a importação: nenhuma
 
-          Para uso, siga o README e a documentação originais. Não publique credenciais, arquivos `.env`, sessões WhatsApp ou dados pessoais neste repositório.
+          As configurações de integração e os segredos são externos ao Git. Não versione arquivos .env, sessões WhatsApp ou dados pessoais.
           EOF
           git add -A
           if git diff --cached --quiet; then
