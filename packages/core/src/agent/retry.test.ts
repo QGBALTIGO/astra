@@ -238,6 +238,37 @@ describe('withRetry', () => {
     });
   });
 
+  describe('provider rate-limit instructions', () => {
+    it('waits for Groq token quota reset instead of retrying immediately', async () => {
+      const rateLimit = new Error(
+        'Groq stream error: 429 - Rate limit reached. Please try again in 2.5s.'
+      );
+      const operation = vi.fn().mockResolvedValueOnce(err(rateLimit)).mockResolvedValueOnce(ok('ok'));
+      const onRetry = vi.fn();
+
+      const resultPromise = withRetry(operation, {
+        maxRetries: 1,
+        initialDelayMs: 100,
+        addJitter: false,
+        onRetry,
+      });
+      await vi.advanceTimersByTimeAsync(2900);
+      expect(await resultPromise).toEqual(ok('ok'));
+      expect(onRetry).toHaveBeenCalledWith(1, rateLimit, 2750);
+      expect(operation).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not use a misleading retry hint on a permanent 400 response', async () => {
+      const badRequest = new Error(
+        'Groq API error: 400 - invalid input. Please try again in 50s.'
+      );
+      const operation = vi.fn().mockResolvedValue(err(badRequest));
+      const result = await withRetry(operation, { maxRetries: 2, addJitter: false });
+      expect(result).toEqual(err(badRequest));
+      expect(operation).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('retries on thrown retryable error', () => {
     it('retries when operation throws retryable error, then succeeds', async () => {
       const retryableError = new Error('ECONNRESET');

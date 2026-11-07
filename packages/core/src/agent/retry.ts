@@ -139,6 +139,26 @@ function calculateDelay(
 }
 
 /**
+ * Respect the explicit pause returned by a provider when its token-per-minute
+ * quota is exhausted. Groq embeds this in 429 error bodies as
+ * "Please try again in 16.245s". Immediate exponential retries waste quota.
+ * Only 429 responses may override the ordinary maxDelayMs (capped at 60s).
+ */
+function providerRetryDelay(error: unknown, normalDelayMs: number): number {
+  const message = getErrorMessage(error);
+  if (extractHttpStatus(message.toLowerCase()) !== 429) return normalDelayMs;
+
+  const instruction = message.match(/(?:please\\s+)?try\\s+again\\s+in\\s+(\\d+(?:\\.\\d+)?)\\s*s\\b/i);
+  const retryAfter = message.match(/retry[- ]after\\s*:?\\s*(\\d+(?:\\.\\d+)?)\\s*(?:seconds?|s)?/i);
+  const rawSeconds = instruction?.[1] ?? retryAfter?.[1];
+  if (!rawSeconds) return normalDelayMs;
+
+  const seconds = Number(rawSeconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) return normalDelayMs;
+  return Math.max(normalDelayMs, Math.min(60_000, Math.ceil(seconds * 1000) + 250));
+}
+
+/**
  * Sleep for specified milliseconds
  */
 function sleep(ms: number): Promise<void> {
@@ -171,13 +191,13 @@ export async function withRetry<T>(
       // Check if result is an error that should be retried
       if (!result.ok && attempt < maxRetries && retryableErrors(result.error)) {
         lastError = result.error;
-        const delayMs = calculateDelay(
+        const delayMs = providerRetryDelay(result.error, calculateDelay(
           attempt,
           initialDelayMs,
           maxDelayMs,
           backoffMultiplier,
           addJitter
-        );
+        ));
 
         onRetry(attempt + 1, result.error, delayMs);
         log.info(`Attempt ${attempt + 1}/${maxRetries} failed, retrying in ${delayMs}ms...`);
@@ -194,13 +214,13 @@ export async function withRetry<T>(
 
       // Check if we should retry
       if (attempt < maxRetries && retryableErrors(error)) {
-        const delayMs = calculateDelay(
+        const delayMs = providerRetryDelay(error, calculateDelay(
           attempt,
           initialDelayMs,
           maxDelayMs,
           backoffMultiplier,
           addJitter
-        );
+        ));
 
         onRetry(attempt + 1, error, delayMs);
         log.info(
