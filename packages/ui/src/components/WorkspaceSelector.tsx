@@ -99,6 +99,8 @@ export function WorkspaceSelector({
     <div className="relative w-full min-w-0 lg:w-auto">
       {/* Workspace Button */}
       <button
+        type="button"
+        aria-label="Selecionar ambiente"
         onClick={() => setShowMenu(!showMenu)}
         disabled={isLoading}
         className="flex h-10 w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-xl border border-border bg-bg-tertiary px-2.5 text-xs transition-colors hover:bg-bg-secondary disabled:opacity-50 dark:border-dark-border dark:bg-dark-bg-tertiary dark:hover:bg-dark-bg-secondary sm:text-sm lg:w-auto lg:max-w-[220px]"
