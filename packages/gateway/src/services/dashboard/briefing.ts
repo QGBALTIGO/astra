@@ -258,7 +258,7 @@ export async function generateAIBriefingStreaming(
  * Build the prompt for AI briefing generation.
  */
 export function buildBriefingPrompt(data: DailyBriefingData): string {
-  const today = new Date().toLocaleDateString('en-US', {
+  const today = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -297,7 +297,7 @@ export function buildBriefingPrompt(data: DailyBriefingData): string {
     .map((h) => `  - ${h.name} (${h.streakCurrent} day streak)`)
     .join('\n');
 
-  return `You are a personal AI assistant generating a daily briefing for ${today}.
+  return `Você é o Astra, assistente pessoal de brasileiros. Gere um resumo diário claro e objetivo, com linguagem natural exclusivamente em português do Brasil (pt-BR). Todas as frases dentro dos campos JSON devem estar em português; mantenha apenas os nomes técnicos das chaves JSON em inglês para compatibilidade. Não traduza os nomes de tarefas ou compromissos do usuário.\n\nYou are a personal AI assistant generating a daily briefing for ${today}.
 
 ## Today's Data
 
@@ -337,7 +337,7 @@ ${streaksAtRiskList || '  (no streaks at risk)'}
 - Success rate: ${((data.agentic ?? agenticDefault).successRate * 100).toFixed(0)}%
 - Last execution: ${(data.agentic ?? agenticDefault).lastExecutionStatus ?? 'none'}${data.agentic?.lastExecutionSummary ? ` - ${data.agentic.lastExecutionSummary.slice(0, 100)}` : ''}
 
-Generate a daily briefing with:
+IMPORTANT: All summaries, priorities, insights and focus areas MUST be written entirely in Brazilian Portuguese (pt-BR). Preserve the exact JSON property names below.\n\nGenerate a daily briefing with:
 1. A natural language SUMMARY (2-3 sentences) of the day ahead
 2. Top 3-5 PRIORITIES for today (ordered by importance)
 3. 2-3 INSIGHTS or patterns you notice
@@ -407,7 +407,7 @@ export function parseAIResponse(content: string, model: string): AIBriefing {
 
     return {
       id: `briefing_${Date.now()}`,
-      summary: parsed.summary ?? 'No summary available.',
+      summary: parsed.summary ?? 'Nenhum resumo disponível.',
       priorities: Array.isArray(parsed.priorities) ? parsed.priorities : [],
       insights: Array.isArray(parsed.insights) ? parsed.insights : [],
       suggestedFocusAreas: Array.isArray(parsed.suggestedFocusAreas)
@@ -431,24 +431,24 @@ export function generateFallbackBriefing(data: DailyBriefingData): AIBriefing {
   const priorities: string[] = [];
 
   if (data.tasks.counts.overdue > 0) {
-    priorities.push(`Address ${data.tasks.counts.overdue} overdue task(s)`);
+    priorities.push(`Resolva ${data.tasks.counts.overdue} ${data.tasks.counts.overdue === 1 ? 'tarefa em atraso' : 'tarefas em atraso'}.`);
   }
   if (data.tasks.counts.dueToday > 0) {
-    priorities.push(`Complete ${data.tasks.counts.dueToday} task(s) due today`);
+    priorities.push(`Conclua ${data.tasks.counts.dueToday} ${data.tasks.counts.dueToday === 1 ? 'tarefa prevista para hoje' : 'tarefas previstas para hoje'}.`);
   }
   if (data.calendar.counts.today > 0) {
-    priorities.push(`Attend ${data.calendar.counts.today} scheduled event(s)`);
+    priorities.push(`Participe de ${data.calendar.counts.today} ${data.calendar.counts.today === 1 ? 'compromisso agendado' : 'compromissos agendados'}.`);
   }
   if (data.habits.streaksAtRisk.length > 0) {
-    priorities.push(`Maintain ${data.habits.streaksAtRisk.length} habit streak(s) at risk`);
+    priorities.push(`Mantenha a sequência de ${data.habits.streaksAtRisk.length} ${data.habits.streaksAtRisk.length === 1 ? 'hábito' : 'hábitos'} em risco.`);
   }
 
   return {
     id: `briefing_fallback_${Date.now()}`,
-    summary: `Today you have ${data.tasks.counts.dueToday} tasks due, ${data.calendar.counts.today} events, and ${data.habits.todayProgress.total} habits to complete.`,
+    summary: `Para hoje: ${data.tasks.counts.dueToday} ${data.tasks.counts.dueToday === 1 ? 'tarefa' : 'tarefas'}, ${data.calendar.counts.today} ${data.calendar.counts.today === 1 ? 'compromisso' : 'compromissos'} e ${data.habits.todayProgress.total} ${data.habits.todayProgress.total === 1 ? 'hábito' : 'hábitos'} para acompanhar.`,
     priorities,
-    insights: ['AI briefing generation is currently unavailable.'],
-    suggestedFocusAreas: ['Complete your most urgent tasks first.'],
+    insights: ['Resumo gerado automaticamente com base nos seus dados.'],
+    suggestedFocusAreas: ['Comece pelas tarefas mais urgentes.'],
     generatedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     modelUsed: 'fallback',
