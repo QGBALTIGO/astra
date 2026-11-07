@@ -13,6 +13,9 @@ const CRITICAL_TABLES = [
   'ui_sessions',
   'expenses',
   'usage_records',
+  'edge_devices',
+  'edge_commands',
+  'edge_telemetry',
 ];
 
 describe('PostgreSQL schema bundle', () => {
@@ -30,6 +33,13 @@ describe('PostgreSQL schema bundle', () => {
     expect(MIGRATIONS_SQL).toContain(
       "ALTER TABLE expenses ALTER COLUMN currency SET DEFAULT 'BRL'"
     );
+  });
+
+  it('includes IoT device indexes and foreign keys for edge requests', () => {
+    expect(SCHEMA_SQL).toContain('REFERENCES edge_devices(id) ON DELETE CASCADE');
+    expect(INDEXES_SQL).toContain('idx_edge_devices_user');
+    expect(INDEXES_SQL).toContain('idx_edge_commands_device');
+    expect(INDEXES_SQL).toContain('idx_edge_telemetry_device_sensor');
   });
 
   it('includes ui_sessions indexes in the bundled index SQL', () => {
