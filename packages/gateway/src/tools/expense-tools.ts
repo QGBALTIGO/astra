@@ -41,7 +41,7 @@ export async function executeExpenseTool(
         const expense = await repo.create({
           date: (args.date as string) ?? localDayString(new Date()),
           amount: args.amount as number,
-          currency: (args.currency as string) ?? 'TRY',
+          currency: (args.currency as string) ?? 'BRL',
           category: (args.category as string) ?? 'other',
           description: args.description as string,
           paymentMethod: args.paymentMethod as string | undefined,
@@ -67,7 +67,7 @@ export async function executeExpenseTool(
           const expense = await repo.create({
             date: (item.date as string) ?? localDayString(new Date()),
             amount: item.amount as number,
-            currency: (item.currency as string) ?? 'TRY',
+            currency: (item.currency as string) ?? 'BRL',
             category: (item.category as string) ?? 'other',
             description: item.description as string,
             paymentMethod: item.paymentMethod as string | undefined,
