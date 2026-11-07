@@ -24,10 +24,10 @@ interface ProviderModel {
 
 // Default fallback if API fails
 const DEFAULT_MODEL: ProviderModel = {
-  provider: 'openai',
-  providerName: 'OpenAI',
-  model: 'gpt-4o-mini',
-  modelName: 'GPT-4o Mini',
+  provider: 'groq',
+  providerName: 'Groq',
+  model: 'openai/gpt-oss-120b',
+  modelName: 'GPT OSS 120B',
 };
 
 export function AIBriefingCard() {
@@ -298,10 +298,10 @@ export function AIBriefingCard() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-text-primary dark:text-dark-text-primary">
-                AI Daily Briefing
+                Resumo do dia
               </h3>
               <span className="px-2 py-0.5 text-xs rounded-full bg-primary/20 text-primary animate-pulse">
-                generating...
+                Gerando...
               </span>
             </div>
             <p className="text-xs text-text-muted dark:text-dark-text-muted truncate">
@@ -312,7 +312,7 @@ export function AIBriefingCard() {
         </div>
         <div className="px-4 pb-4">
           <p className="text-text-primary dark:text-dark-text-primary leading-relaxed">
-            {streamingText || 'Analyzing your data...'}
+            {streamingText || 'Analisando seus dados...'}
             <span className="inline-block w-2 h-4 bg-primary/60 animate-pulse ml-1" />
           </p>
         </div>
@@ -330,13 +330,13 @@ export function AIBriefingCard() {
           </div>
           <div className="flex-1">
             <h3 className="font-semibold text-text-primary dark:text-dark-text-primary">
-              AI Briefing Unavailable
+              Resumo temporariamente indisponível
             </h3>
             <p className="text-sm text-text-muted dark:text-dark-text-muted">{error}</p>
           </div>
           <button
             onClick={handleRefresh}
-            aria-label="Refresh briefing"
+            aria-label="Atualizar resumo"
             className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
           >
             <RefreshCw className="w-5 h-5 text-text-muted" />
@@ -351,7 +351,7 @@ export function AIBriefingCard() {
 
   const formatTime = (isoString: string) => {
     const date = new Date(isoString);
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    return date.toLocaleTimeString('pt-BR', { hour: 'numeric', minute: '2-digit' });
   };
 
   // Group models by provider for the dropdown
@@ -373,25 +373,25 @@ export function AIBriefingCard() {
     <div className="mb-6 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 rounded-xl overflow-visible">
       {/* Header */}
       <div
-        className="p-4 flex items-center gap-3 cursor-pointer hover:bg-primary/5 transition-colors"
+        className="flex flex-wrap items-center gap-2 p-4 cursor-pointer hover:bg-primary/5 transition-colors sm:gap-3"
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
           <Sparkles className="w-5 h-5 text-primary" />
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+        <div className="min-w-[150px] flex-1">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-semibold text-text-primary dark:text-dark-text-primary">
-              AI Daily Briefing
+              Resumo do dia
             </h3>
             {briefing.cached && (
               <span className="px-2 py-0.5 text-xs rounded-full bg-primary/20 text-primary">
-                cached
+                Em cache
               </span>
             )}
           </div>
           <p className="text-xs text-text-muted dark:text-dark-text-muted truncate">
-            Generated at {formatTime(briefing.generatedAt)} • {briefing.modelUsed}
+            Gerado às {formatTime(briefing.generatedAt)} • {briefing.modelUsed === 'fallback' ? 'Resumo automático' : briefing.modelUsed}
           </p>
         </div>
 
@@ -403,22 +403,22 @@ export function AIBriefingCard() {
               setShowModelSelector(!showModelSelector);
             }}
             className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
-            title="Change AI model"
+            title="Alterar modelo de IA"
           >
             <Settings className="w-4 h-4 text-text-muted" />
           </button>
 
           {showModelSelector && (
             <div
-              className="absolute right-0 top-full mt-2 w-72 bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg shadow-xl z-[100] max-h-80 overflow-y-auto"
+              className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2.5rem)] bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg shadow-xl z-[100] max-h-80 overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-3 border-b border-border dark:border-dark-border sticky top-0 bg-bg-primary dark:bg-dark-bg-primary">
                 <p className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-                  Select AI Model
+                  Selecionar modelo de IA
                 </p>
                 <p className="text-xs text-text-muted dark:text-dark-text-muted mt-1">
-                  Choose from your configured providers
+                  Escolha entre os provedores configurados
                 </p>
               </div>
               <div className="p-2">
@@ -449,9 +449,9 @@ export function AIBriefingCard() {
 
                 {availableModels.length === 0 && (
                   <div className="px-3 py-4 text-center text-sm text-text-muted dark:text-dark-text-muted">
-                    No providers configured.
+                    Nenhum provedor configurado.
                     <br />
-                    Add API keys in Settings.
+                    Adicione sua chave de API nas configurações.
                   </div>
                 )}
               </div>
@@ -465,7 +465,7 @@ export function AIBriefingCard() {
             handleRefresh();
           }}
           className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
-          title="Regenerate briefing"
+          title="Gerar novo resumo"
         >
           <RefreshCw className="w-4 h-4 text-text-muted" />
         </button>
@@ -492,7 +492,7 @@ export function AIBriefingCard() {
               <div className="flex items-center gap-2 mb-2">
                 <Target className="w-4 h-4 text-warning" />
                 <h4 className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-                  Today's Priorities
+                  Prioridades de hoje
                 </h4>
               </div>
               <ol className="space-y-1 pl-6">
@@ -540,7 +540,7 @@ export function AIBriefingCard() {
                   <div className="flex items-center gap-2 mb-2">
                     <Focus className="w-4 h-4 text-info" />
                     <h4 className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-                      Suggested Focus Areas
+                      Áreas de atenção sugeridas
                     </h4>
                   </div>
                   <ul className="space-y-1">
