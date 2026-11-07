@@ -161,9 +161,16 @@ export async function processViaBus(
       }
     : undefined;
 
-  // Process through the pipeline with context
-  // directToolMode: expose all tools directly to the LLM instead of meta-tool indirection
-  // (simpler/local models used via Telegram don't understand use_tool() pattern)
+  // Direct tool calling only works while the tool registry fits the provider's
+  // hard 128-function limit. With more tools (plugins, MCP, extensions), keep
+  // discovery via search_tools/use_tool instead of sending an invalid request.
+  // The same policy applies to Telegram and WhatsApp, including simple greetings.
+  const directToolCount = agent
+    .getAllToolDefinitions()
+    .filter((tool) => tool.name !== 'use_tool' && tool.name !== 'batch_use_tool').length;
+  const useDirectTools = directToolCount <= 128;
+
+  // Process through the pipeline with context.
   try {
     const result = await bus.process(normalized, {
       stream: streamCallbacks,
@@ -174,7 +181,7 @@ export async function processViaBus(
         provider: effectiveProvider,
         model: effectiveModel,
         conversationId: activeConversationId,
-        directToolMode: true,
+        directToolMode: useDirectTools,
       },
     });
 
@@ -240,5 +247,5 @@ export async function processDirectAgent(message: ChannelIncomingMessage): Promi
     const { content: stripped } = extractMemoriesFromResponse(result.value.content);
     return stripInternalTags(stripped);
   }
-  return `Sorry, I encountered an error: ${result.error.message}`;
+  return 'Não consegui processar sua mensagem agora. Tente novamente em instantes.';
 }

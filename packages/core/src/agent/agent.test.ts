@@ -285,6 +285,60 @@ describe('Agent', () => {
     });
   });
 
+  describe('provider tool declaration budget', () => {
+    it('preserves tool discovery without exceeding 128 API declarations', () => {
+      const registry = new ToolRegistry();
+      const discoveryNames = ['search_tools', 'get_tool_help', 'use_tool', 'batch_use_tool'];
+      for (const name of discoveryNames) {
+        registry.register(
+          { name, description: name, parameters: { type: 'object', properties: {} } },
+          async () => ({ content: 'ok' })
+        );
+      }
+      for (let i = 0; i < 140; i++) {
+        registry.register(
+          {
+            name: `custom_tool_${i}`,
+            description: 'Simulated plugin or MCP tool',
+            parameters: { type: 'object', properties: {} },
+          },
+          async () => ({ content: 'ok' })
+        );
+      }
+
+      const agent = new Agent(createTestConfig({ tools: discoveryNames }), { tools: registry });
+      expect(agent.getAllToolDefinitions()).toHaveLength(144);
+
+      agent.setDirectToolMode(true);
+      const exposed = agent.getTools();
+      expect(exposed.map((tool) => tool.name)).toEqual(discoveryNames);
+      expect(exposed.length).toBeLessThanOrEqual(128);
+      // Functions remain registered and callable through use_tool.
+      expect(agent.getToolRegistry().has('custom_tool_139')).toBe(true);
+      agent.setDirectToolMode(false);
+      expect(agent.getTools().map((tool) => tool.name)).toEqual(discoveryNames);
+    });
+
+    it('caps custom registries without meta-tools instead of sending invalid API requests', () => {
+      const registry = new ToolRegistry();
+      for (let i = 0; i < 150; i++) {
+        registry.register(
+          {
+            name: `tool_${i}`,
+            description: 'Simulated tool',
+            parameters: { type: 'object', properties: {} },
+          },
+          async () => ({ content: 'ok' })
+        );
+      }
+      const agent = new Agent(createTestConfig(), { tools: registry });
+      agent.setDirectToolMode(true);
+      expect(agent.getTools()).toHaveLength(128);
+      agent.setDirectToolMode(false);
+      expect(agent.getTools()).toHaveLength(128);
+    });
+  });
+
   describe('reset', () => {
     it('creates new conversation', () => {
       const agent = new Agent(createTestConfig());

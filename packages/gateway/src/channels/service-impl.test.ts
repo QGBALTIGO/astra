@@ -416,6 +416,7 @@ function createMockAgent(
   return {
     id: opts.id,
     setRequestApproval: vi.fn(),
+    getAllToolDefinitions: vi.fn(() => [] as Array<{ name: string }>),
     getConversation: vi.fn(() => ({
       id: 'conv-default',
       systemPrompt: opts.systemPrompt,
@@ -1729,6 +1730,23 @@ describe('ChannelServiceImpl', () => {
         expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
       });
 
+      it('uses discovery tools for channel requests exceeding the 128-function limit', async () => {
+        const agent = createMockAgent();
+        agent.getAllToolDefinitions.mockReturnValue(
+          Array.from({ length: 130 }, (_, index) => ({ name: `tool_${index}` }))
+        );
+        mockGetOrCreateChatAgent.mockResolvedValue(agent);
+
+        await service.processIncomingMessage(message);
+
+        expect(mockBus.process).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            context: expect.objectContaining({ directToolMode: false }),
+          })
+        );
+      });
+
       it('should route through MessageBus when available', async () => {
         await service.processIncomingMessage(message);
 
@@ -2000,7 +2018,7 @@ describe('ChannelServiceImpl', () => {
 
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
           expect.objectContaining({
-            text: expect.stringContaining('Agent failed'),
+            text: expect.stringContaining('Não consegui processar sua mensagem'),
           })
         );
       });

@@ -14,6 +14,18 @@ import { getLog } from '../log.js';
 
 const log = getLog('Middleware:AgentExecution');
 
+/**
+ * Never send provider errors, API response bodies or tool schemas to channel
+ * users. Retain the original error in internal context and diagnostics.
+ */
+function userFacingAgentError(message: NormalizedMessage, details: string): string {
+  const source = message.metadata?.source;
+  const isChannel = source === 'channel';
+  return isChannel
+    ? 'Não consegui processar sua mensagem agora. Tente novamente em instantes.'
+    : `Error: ${details}`;
+}
+
 /** Minimal agent interface needed by this middleware */
 interface ChatAgent {
   chat(
@@ -192,7 +204,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
             id: randomUUID(),
             sessionId: message.sessionId,
             role: 'assistant' as const,
-            content: `Error: ${result.error?.message ?? 'Unknown error'}`,
+            content: userFacingAgentError(message, result.error?.message ?? 'Unknown error'),
             metadata: {
               ...message.metadata,
               provider,
@@ -292,7 +304,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
           id: randomUUID(),
           sessionId: message.sessionId,
           role: 'assistant' as const,
-          content: `Error: ${err.message}`,
+          content: userFacingAgentError(message, err.message),
           metadata: { ...message.metadata, error: err.message },
           timestamp: new Date(),
         },
