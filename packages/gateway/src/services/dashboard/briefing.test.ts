@@ -451,7 +451,8 @@ describe('buildBriefingPrompt', () => {
     const data = createMockBriefingData();
     const prompt = buildBriefingPrompt(data);
 
-    expect(prompt).toContain('português do Brasil (pt-BR)');\n    expect(prompt).toContain('Format your response as JSON');
+    expect(prompt).toContain('português do Brasil (pt-BR)');
+    expect(prompt).toContain('Format your response as JSON');
     expect(prompt).toContain('"summary": "..."');
     expect(prompt).toContain('"priorities":');
     expect(prompt).toContain('"insights":');
