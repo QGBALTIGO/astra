@@ -26,11 +26,11 @@ import { localDayString } from '../utils/formatters';
 import { PageHomeTab } from '../components/PageHomeTab';
 
 const colorOptions = [
-  { value: 'blue', label: 'Blue', class: 'bg-primary' },
-  { value: 'green', label: 'Green', class: 'bg-success' },
-  { value: 'yellow', label: 'Yellow', class: 'bg-warning' },
-  { value: 'red', label: 'Red', class: 'bg-error' },
-  { value: 'purple', label: 'Purple', class: 'bg-purple-500' },
+  { value: 'blue', label: 'Azul', class: 'bg-primary' },
+  { value: 'green', label: 'Verde', class: 'bg-success' },
+  { value: 'yellow', label: 'Amarelo', class: 'bg-warning' },
+  { value: 'red', label: 'Vermelho', class: 'bg-error' },
+  { value: 'purple', label: 'Roxo', class: 'bg-purple-500' },
 ];
 
 export function CalendarPage() {
@@ -243,7 +243,7 @@ export function CalendarPage() {
             },
             {
               title: 'Peça para a IA agendar',
-              detail: 'Tell your assistant to create or reschedule events.',
+              detail: 'Peça ao Astra para criar ou remarcar compromissos.',
             },
           ]}
         />
@@ -606,7 +606,7 @@ function EventModal({ event, defaultDate, onClose, onSave }: EventModalProps) {
                       color === c.value ? 'ring-2 ring-offset-2 ring-primary' : ''
                     }`}
                     title={c.label}
-                    aria-label={`Set color to ${c.label}`}
+                    aria-label={`Selecionar a cor ${c.label}`}
                   />
                 ))}
               </div>

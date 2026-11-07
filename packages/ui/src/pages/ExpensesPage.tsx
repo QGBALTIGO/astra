@@ -182,7 +182,7 @@ export function ExpensesPage() {
               Expenses
             </h2>
             <p className="text-sm text-text-muted dark:text-dark-text-muted">
-              Monthly expense tracking and analysis
+              Controle mensal de gastos e análise financeira
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -280,7 +280,7 @@ export function ExpensesPage() {
             },
             {
               title: 'Veja a evolução dos gastos',
-              detail: 'Check the monthly chart and category breakdown.',
+              detail: 'Veja o gráfico mensal e a divisão por categorias.',
             },
             {
               title: 'Peça uma análise à IA',
@@ -383,7 +383,7 @@ export function ExpensesPage() {
           {monthlyData && (
             <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl p-6 border border-border dark:border-dark-border">
               <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-4">
-                Monthly Expenses
+                Despesas por mês
               </h2>
               <div className="flex items-end gap-2 h-48">
                 {monthlyData.months.map((month) => (
@@ -499,7 +499,7 @@ export function ExpensesPage() {
                   title="Nenhuma despesa registrada"
                   description={
                     selectedMonth
-                      ? `No expenses for ${monthlyData?.months.find((m) => m.monthNum === selectedMonth)?.month} ${year}. Add your first expense to start tracking.`
+                      ? `Nenhuma despesa registrada em ${monthlyData?.months.find((m) => m.monthNum === selectedMonth)?.month} de ${year}. Adicione uma despesa para começar.`
                       : 'Comece a organizar suas finanças registrando a primeira despesa.'
                   }
                   variant="minimal"
@@ -729,7 +729,7 @@ function ExpenseFormModal({
               type="text"
               value={formData.paymentMethod}
               onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
-              placeholder="Cash, Credit Card, etc."
+              placeholder="Dinheiro, Pix, cartão de crédito..."
               className={inputClasses}
             />
           </div>

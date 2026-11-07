@@ -533,7 +533,7 @@ function CompactChat() {
               adjustTextarea();
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Message..."
+            placeholder="Escreva uma mensagem..."
             rows={1}
             className="flex-1 resize-none bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary text-xs rounded-lg px-2.5 py-1.5 border border-border dark:border-dark-border focus:outline-none focus:border-primary placeholder:text-text-muted dark:placeholder:text-dark-text-muted"
           />
@@ -716,7 +716,7 @@ export function StatsPanel({ isCollapsed, onToggle }: StatsPanelProps) {
         {activeTab === 'stats' ? (
           <>
             {isLoading ? (
-              <LoadingSpinner size="sm" message="Loading..." />
+              <LoadingSpinner size="sm" message="Carregando..." />
             ) : (
               <>
                 {/* Quick Add */}
@@ -807,7 +807,7 @@ export function StatsPanel({ isCollapsed, onToggle }: StatsPanelProps) {
                         value={summary.expenses.total}
                         subValue={
                           summary.expenses.thisMonth > 0
-                            ? `${summary.expenses.thisMonth.toFixed(0)} this month`
+                            ? `${summary.expenses.thisMonth.toFixed(0)} neste mês`
                             : undefined
                         }
                         color="text-orange-500"
@@ -836,7 +836,7 @@ export function StatsPanel({ isCollapsed, onToggle }: StatsPanelProps) {
                     />
                     <StatCard
                       icon={TrendingUp}
-                      label="This Month"
+                      label="Neste mês"
                       value={formatCurrency(costs.monthly.totalCost)}
                       subValue={`${formatNumber(costs.monthly.totalTokens)} tokens`}
                       color="text-text-secondary"
