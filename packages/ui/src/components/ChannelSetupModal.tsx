@@ -452,7 +452,8 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                     autoFocus={platform.qrBased}
                   />
                   <p className="text-xs text-text-muted dark:text-dark-text-muted mt-1">
-                    Código do país e DDD, sem + ou espaços. Deixe em branco para detectar automaticamente.
+                    Código do país e DDD, sem + ou espaços. Deixe em branco para detectar
+                    automaticamente.
                   </p>
                 </div>
               )}
@@ -548,13 +549,19 @@ export function ChannelSetupModal({ onClose, onSuccess }: ChannelSetupModalProps
                 <>
                   <p className="text-sm text-text-secondary dark:text-dark-text-secondary mb-4 text-center">
                     No celular, abra o WhatsApp e acesse{' '}
-                    <strong>Configurações &gt; Aparelhos conectados &gt; Conectar um aparelho</strong>.
-                    Depois, leia o código abaixo:
+                    <strong>
+                      Configurações &gt; Aparelhos conectados &gt; Conectar um aparelho
+                    </strong>
+                    . Depois, leia o código abaixo:
                   </p>
 
                   {qrDataUrl ? (
                     <div className="bg-white p-3 rounded-xl shadow-md max-w-full">
-                      <img src={qrDataUrl} alt="QR Code para conectar o WhatsApp" className="w-[min(70vw,280px)] h-auto aspect-square" />
+                      <img
+                        src={qrDataUrl}
+                        alt="QR Code para conectar o WhatsApp"
+                        className="w-[min(70vw,280px)] h-auto aspect-square"
+                      />
                     </div>
                   ) : (
                     <div className="w-[280px] h-[280px] bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-xl flex items-center justify-center">

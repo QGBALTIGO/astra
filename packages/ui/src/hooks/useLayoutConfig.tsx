@@ -498,10 +498,7 @@ function readConfig(): LayoutConfig {
         const sectionIds = new Set(
           (parsed.sidebar?.sections ?? []).map((s: { id: string }) => s.id)
         );
-        if (
-          !isAstraUi &&
-          (!sectionIds.has('/agentic') || !sectionIds.has('agentic-executions'))
-        ) {
+        if (!isAstraUi && (!sectionIds.has('/agentic') || !sectionIds.has('agentic-executions'))) {
           const migrated = migrateConfig({ ...parsed, version: 10 });
           persistConfig(migrated);
           return migrated;
