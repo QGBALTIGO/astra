@@ -115,13 +115,13 @@ export function WorkflowsPage() {
   const handleCreate = useCallback(async () => {
     try {
       const wf = await workflowsApi.create({
-        name: 'Untitled Workflow',
+        name: 'Automação sem título',
         nodes: [],
         edges: [],
       });
       navigate(`/workflows/${wf.id}`);
     } catch {
-      toast.error('Failed to create workflow');
+      toast.error('Não foi possível criar a automação');
     }
   }, [navigate, toast]);
 
@@ -129,14 +129,14 @@ export function WorkflowsPage() {
     async (id: string, name: string) => {
       if (
         !(await confirm({
-          message: `Delete "${name}"? Execution logs will be preserved.`,
+          message: `Excluir "${name}"? O histórico de execução será preservado.`,
           variant: 'danger',
         }))
       )
         return;
       try {
         await workflowsApi.delete(id);
-        toast.success('Workflow deleted');
+        toast.success('Automação excluída');
         fetchWorkflows();
       } catch {
         // API client handles errors
@@ -150,7 +150,7 @@ export function WorkflowsPage() {
       const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
       try {
         await workflowsApi.update(id, { status: newStatus });
-        toast.success(newStatus === 'active' ? 'Workflow activated' : 'Workflow deactivated');
+        toast.success(newStatus === 'active' ? 'Automação ativada' : 'Automação desativada');
         fetchWorkflows();
       } catch {
         // API client handles errors
@@ -163,10 +163,10 @@ export function WorkflowsPage() {
     async (id: string) => {
       try {
         const cloned = await workflowsApi.clone(id);
-        toast.success('Workflow cloned');
+        toast.success('Automação duplicada');
         navigate(`/workflows/${cloned.id}`);
       } catch {
-        toast.error('Failed to clone workflow');
+        toast.error('Não foi possível duplicar a automação');
       }
     },
     [toast, navigate]
@@ -183,19 +183,19 @@ export function WorkflowsPage() {
         const text = await file.text();
         const json = JSON.parse(text);
         if (!json || !Array.isArray(json.nodes) || !Array.isArray(json.edges)) {
-          toast.error('Invalid workflow JSON: must contain "nodes" and "edges" arrays');
+          toast.error('JSON inválido: informe as listas de nós e conexões');
           return;
         }
         const wf = await workflowsApi.create({
-          name: json.name || 'Imported Workflow',
+          name: json.name || 'Automação importada',
           nodes: json.nodes,
           edges: json.edges,
           variables: json.variables ?? {},
         });
-        toast.success('Workflow imported');
+        toast.success('Automação importada');
         navigate(`/workflows/${wf.id}`);
       } catch {
-        toast.error('Failed to import workflow');
+        toast.error('Não foi possível importar a automação');
       }
     };
     input.click();
@@ -235,7 +235,7 @@ export function WorkflowsPage() {
             className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
-            New Workflow
+            Nova automação
           </button>
         </div>
       </header>
