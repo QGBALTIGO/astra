@@ -39,17 +39,25 @@ const statusColors = {
   abandoned: 'bg-text-muted/10 text-text-muted',
 };
 
+const statusLabels: Record<Goal['status'] | 'all', string> = {
+  all: 'Todos',
+  active: 'Ativo',
+  paused: 'Pausado',
+  completed: 'Concluído',
+  abandoned: 'Abandonado',
+};
+
 const priorityLabels: Record<number, string> = {
-  1: 'Very Low',
-  2: 'Low',
-  3: 'Low',
+  1: 'Muito baixa',
+  2: 'Baixa',
+  3: 'Baixa',
   4: 'Normal',
   5: 'Normal',
   6: 'Normal',
-  7: 'High',
-  8: 'High',
-  9: 'Critical',
-  10: 'Critical',
+  7: 'Alta',
+  8: 'Alta',
+  9: 'Crítica',
+  10: 'Crítica',
 };
 
 export function GoalsPage() {
@@ -119,7 +127,7 @@ export function GoalsPage() {
 
       try {
         await goalsApi.delete(goalId);
-        toast.success('Goal deleted');
+        toast.success('Objetivo excluído.');
         fetchGoals();
       } catch {
         // API client handles error reporting
@@ -132,7 +140,7 @@ export function GoalsPage() {
     async (goalId: string, status: Goal['status']) => {
       try {
         await goalsApi.update(goalId, { status });
-        toast.success(`Goal ${status}`);
+        toast.success(`Objetivo: ${statusLabels[status].toLowerCase()}.`);
         fetchGoals();
       } catch {
         // API client handles error reporting
@@ -150,13 +158,13 @@ export function GoalsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Goals
+            Objetivos
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            {activeCount} active, {completedCount} completed
+            {activeCount} ativos, {completedCount} concluídos
           </p>
         </div>
         <button
@@ -164,7 +172,7 @@ export function GoalsPage() {
           className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
         >
           <Plus className="w-4 h-4" />
-          New Goal
+          Novo objetivo
         </button>
       </header>
 
@@ -196,7 +204,7 @@ export function GoalsPage() {
               { icon: Star, color: 'text-violet-500 bg-violet-500/10' },
             ]}
             title="Meus objetivos"
-            subtitle="Define personal or professional goals, track milestones, and let your AI help you stay on track with reminders and suggestions."
+            subtitle="Defina objetivos pessoais ou profissionais, acompanhe etapas e organize seu progresso com a ajuda do Astra."
             cta={{ label: 'Ver objetivos', icon: Target, onClick: () => setActiveTab('goals') }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
@@ -205,44 +213,44 @@ export function GoalsPage() {
               {
                 icon: Target,
                 color: 'text-blue-500 bg-blue-500/10',
-                title: 'Goal Setting',
-                description: 'Define clear goals with titles, descriptions, and due dates.',
+                title: 'Planejamento de objetivos',
+                description: 'Defina o que deseja alcançar com título, descrição e prazo.',
               },
               {
                 icon: CheckCircle2,
                 color: 'text-green-500 bg-green-500/10',
-                title: 'Milestone Tracking',
-                description: 'Break goals into steps and track completion progress.',
+                title: 'Acompanhamento de etapas',
+                description: 'Divida objetivos em etapas e acompanhe sua conclusão.',
               },
               {
                 icon: BarChart,
                 color: 'text-amber-500 bg-amber-500/10',
-                title: 'Progress Charts',
-                description: 'Visualize your progress with percentage-based tracking.',
+                title: 'Gráficos de progresso',
+                description: 'Visualize seu avanço por meio de indicadores percentuais.',
               },
               {
                 icon: Sparkles,
                 color: 'text-violet-500 bg-violet-500/10',
-                title: 'AI Coaching',
-                description: 'Get AI-powered suggestions for next actions and motivation.',
+                title: 'Apoio da IA',
+                description: 'Receba sugestões de próximos passos de acordo com seus objetivos.',
               },
             ]}
             steps={[
               {
                 title: 'Criar um objetivo',
-                detail: 'Define what you want to achieve with a clear title and description.',
+                detail: 'Informe o resultado desejado com título e descrição claros.',
               },
               {
-                title: 'Define milestones',
-                detail: 'Break your goal into actionable steps the AI can help track.',
+                title: 'Defina as etapas',
+                detail: 'Organize o objetivo em passos práticos para acompanhar a evolução.',
               },
               {
-                title: 'Track daily progress',
-                detail: 'Update step statuses and watch your progress bar grow.',
+                title: 'Acompanhe seu progresso',
+                detail: 'Atualize a situação das etapas conforme forem concluídas.',
               },
               {
-                title: 'AI suggests next actions',
-                detail: 'Your AI assistant proactively suggests what to work on next.',
+                title: 'Sugestões da IA',
+                detail: 'Consulte o Astra para decidir quais ações priorizar.',
               },
             ]}
           />
@@ -253,18 +261,18 @@ export function GoalsPage() {
       {activeTab === 'goals' && (
         <>
           {/* Filters */}
-          <div className="flex gap-2 px-6 py-3 border-b border-border dark:border-dark-border">
+          <div className="flex min-w-0 gap-2 overflow-x-auto border-b border-border px-4 py-3 dark:border-dark-border sm:px-6">
             {(['all', 'active', 'paused', 'completed', 'abandoned'] as const).map((status) => (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
-                className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                className={`shrink-0 rounded-full px-3 py-1 text-sm transition-colors ${
                   statusFilter === status
                     ? 'bg-primary text-white'
                     : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-secondary dark:text-dark-text-secondary hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary'
                 }`}
               >
-                {status.charAt(0).toUpperCase() + status.slice(1)}
+                {statusLabels[status]}
               </button>
             ))}
           </div>
@@ -291,12 +299,12 @@ export function GoalsPage() {
                 title={
                   statusFilter === 'all'
                     ? 'Nenhum objetivo ainda'
-                    : `Nenhum objetivo com status ${statusFilter}`
+                    : `Nenhum objetivo com status ${statusLabels[statusFilter].toLowerCase()}`
                 }
                 description={
                   statusFilter === 'all'
                     ? 'Crie objetivos e acompanhe seu progresso. O Astra pode ajudar a dividir cada meta em etapas práticas.'
-                    : `You don't have any ${statusFilter} goals.`
+                    : `Não há objetivos com status ${statusLabels[statusFilter].toLowerCase()}.`
                 }
                 variant="card"
                 iconBgColor="bg-amber-500/10 dark:bg-amber-500/20"
