@@ -758,6 +758,40 @@ async function main() {
     }
   );
 
+  // Astra: verify the configured Groq credential and selected model once
+  // without blocking startup or logging the secret. This is a metadata-only
+  // request — no user messages are sent to the provider.
+  if (process.env.ASTRA_ONLY_GROQ === 'true') {
+    void (async () => {
+      const key = process.env.GROQ_API_KEY;
+      const model = process.env.ASTRA_GROQ_MODEL || 'openai/gpt-oss-120b';
+      if (!key) {
+        log.warn('[Astra] Groq not configured: missing API credential');
+        return;
+      }
+      try {
+        const response = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { Authorization: `Bearer ${key}` },
+          signal: AbortSignal.timeout(12_000),
+        });
+        if (!response.ok) {
+          log.warn('[Astra] Groq credential validation failed', { status: response.status });
+          return;
+        }
+        const payload = (await response.json()) as { data?: Array<{ id?: string }> };
+        if (payload.data?.some((item) => item.id === model)) {
+          log.info('[Astra] Groq credential and model verified', { model });
+        } else {
+          log.warn('[Astra] Groq credential verified but selected model not listed', { model });
+        }
+      } catch (error) {
+        log.warn('[Astra] Unable to verify Groq model availability', {
+          reason: error instanceof Error ? error.name : 'unknown',
+        });
+      }
+    })();
+  }
+
   // Attach WebSocket gateway to HTTP server
   wsGateway.attachToServer(server as Server);
   log.info(`WebSocket Gateway attached at ws://${host}:${port}/ws`);
