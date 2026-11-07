@@ -40,6 +40,7 @@ vi.mock('../retry.js', async (importOriginal) => {
 });
 
 import { OpenAIProvider } from './openai-provider.js';
+import { withRetry } from '../retry.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -210,6 +211,23 @@ describe('OpenAIProvider', () => {
         expect(result.value.usage?.completionTokens).toBe(20);
         expect(result.value.usage?.totalTokens).toBe(30);
       }
+    });
+
+    it('honors the configured retry budget', async () => {
+      const noRetryProvider = new OpenAIProvider({
+        provider: 'openai',
+        apiKey: 'sk-test-key',
+        maxRetries: 0,
+      });
+      mockFetch.mockImplementation(mockFetchOk(makeOpenAIResponse()));
+
+      const result = await noRetryProvider.complete(makeRequest());
+
+      expect(result.ok).toBe(true);
+      expect(withRetry).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({ maxRetries: 0 })
+      );
     });
 
     it('sends correct endpoint URL', async () => {
