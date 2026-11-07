@@ -2008,7 +2008,7 @@ describe('ChannelServiceImpl', () => {
 
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
           expect.objectContaining({
-            text: expect.stringContaining('⚠️ Context is'),
+            text: expect.stringContaining('⚠️ A conversa está usando'),
           })
         );
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
