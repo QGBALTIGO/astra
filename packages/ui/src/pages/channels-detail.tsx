@@ -77,7 +77,7 @@ export function ChannelDetail({
 }) {
   const toast = useToast();
   const [showTestForm, setShowTestForm] = useState(false);
-  const [testText, setTestText] = useState('Hello! This is a test message from OwnPilot.');
+  const [testText, setTestText] = useState('Olá! Esta é uma mensagem de teste enviada pelo Astra.');
   const [testChatId, setTestChatId] = useState('');
   const [isSending, setIsSending] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -93,16 +93,16 @@ export function ChannelDetail({
     if (!text) return;
     const chatId = chatIdAutoResolved ? autoChat : testChatId.trim() || undefined;
     if (!chatIdAutoResolved && !chatId) {
-      toast.error('Enter a Chat ID to send the test message');
+      toast.error('Informe o ID da conversa para enviar uma mensagem de teste');
       return;
     }
     setIsSending(true);
     try {
       await onSendTest(channel.id, text, chatId);
-      toast.success('Test message sent');
+      toast.success('Mensagem de teste enviada');
       setShowTestForm(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to send test message');
+      toast.error(err instanceof Error ? err.message : 'Não foi possível enviar a mensagem de teste');
     } finally {
       setIsSending(false);
     }
@@ -128,12 +128,12 @@ export function ChannelDetail({
             <StatusIcon status={channel.status} />
             <span className={`text-sm font-medium ${getStatusColor(channel.status)}`}>
               {channel.status === 'connected'
-                ? 'Connected'
+                ? 'Conectado'
                 : channel.status === 'connecting'
                   ? 'Connecting...'
                   : channel.status === 'error'
                     ? 'Error'
-                    : 'Disconnected'}
+                    : 'Desconectado'}
             </span>
           </div>
           {channel.botInfo && (
@@ -153,15 +153,15 @@ export function ChannelDetail({
       {/* Stats cards */}
       {stats && (
         <div className="grid grid-cols-3 gap-3">
-          <StatCard label="Total Messages" value={stats.totalMessages} icon={MessageSquare} />
-          <StatCard label="Today" value={stats.todayMessages} icon={Activity} />
-          <StatCard label="This Week" value={stats.weekMessages} icon={Clock} />
+          <StatCard label="Total de mensagens" value={stats.totalMessages} icon={MessageSquare} />
+          <StatCard label="Hoje" value={stats.todayMessages} icon={Activity} />
+          <StatCard label="7 dias" value={stats.weekMessages} icon={Clock} />
         </div>
       )}
 
       {stats?.lastActivityAt && (
         <p className="text-xs text-text-muted dark:text-dark-text-muted">
-          Last activity: {timeAgo(stats.lastActivityAt)}
+          Última atividade: {timeAgo(stats.lastActivityAt)}
         </p>
       )}
 
@@ -170,7 +170,7 @@ export function ChannelDetail({
         <div className="flex items-center gap-2 mb-3">
           <Users className="w-4 h-4 text-text-muted dark:text-dark-text-muted" />
           <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-            Users ({users.length})
+            Usuários ({users.length})
           </h3>
         </div>
 
@@ -185,7 +185,7 @@ export function ChannelDetail({
           </div>
         ) : users.length === 0 ? (
           <p className="text-xs text-text-muted dark:text-dark-text-muted italic py-3">
-            No users have interacted with this channel yet.
+            Nenhum usuário interagiu com este canal ainda.
           </p>
         ) : (
           <div className="border border-border dark:border-dark-border rounded-lg overflow-hidden">
@@ -196,13 +196,13 @@ export function ChannelDetail({
                     User
                   </th>
                   <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
-                    Status
+                    Situação
                   </th>
                   <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
                     Last Seen
                   </th>
                   <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
-                    Actions
+                    Ações
                   </th>
                 </tr>
               </thead>
@@ -236,7 +236,7 @@ export function ChannelDetail({
                         {user.isBlocked ? (
                           <span className="flex items-center gap-1 px-1.5 py-0.5 bg-error/10 text-error rounded text-[10px] font-medium">
                             <AlertTriangle className="w-2.5 h-2.5" />
-                            Blocked
+                            Bloqueado
                           </span>
                         ) : user.isVerified ? (
                           <span className="flex items-center gap-1 px-1.5 py-0.5 bg-success/10 text-success rounded text-[10px] font-medium">
@@ -271,14 +271,14 @@ export function ChannelDetail({
                               onClick={() =>
                                 onApproveUser(user.id, user.pendingPairingCode, channelPlatform)
                               }
-                              title="Approve"
+                              title="Aprovar"
                               className="p-1 rounded hover:bg-success/10 text-success transition-colors"
                             >
                               <ShieldCheck className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => onDenyUser(user.id, user.platformUserId)}
-                              title="Deny"
+                              title="Recusar"
                               className="p-1 rounded hover:bg-error/10 text-error transition-colors"
                             >
                               <ShieldAlert className="w-3.5 h-3.5" />
@@ -289,7 +289,7 @@ export function ChannelDetail({
                         {!user.isBlocked && user.isVerified && (
                           <button
                             onClick={() => onBlockUser(user.id)}
-                            title="Block"
+                            title="Bloquear"
                             className="p-1 rounded hover:bg-warning/10 text-warning transition-colors"
                           >
                             <ShieldAlert className="w-3.5 h-3.5" />
@@ -299,7 +299,7 @@ export function ChannelDetail({
                         {user.isBlocked && (
                           <button
                             onClick={() => onUnblockUser(user.id)}
-                            title="Unblock"
+                            title="Desbloquear"
                             className="p-1 rounded hover:bg-primary/10 text-primary transition-colors"
                           >
                             <Unlock className="w-3.5 h-3.5" />
@@ -308,7 +308,7 @@ export function ChannelDetail({
                         {/* Always: Delete */}
                         <button
                           onClick={() => onDeleteUser(user.id)}
-                          title="Delete"
+                          title="Excluir"
                           className="p-1 rounded hover:bg-error/10 text-error transition-colors"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -333,7 +333,7 @@ export function ChannelDetail({
             <>
               <ActionButton
                 icon={Send}
-                label="Send Test"
+                label="Enviar teste"
                 variant="success"
                 loading={false}
                 onClick={() => {
@@ -343,13 +343,13 @@ export function ChannelDetail({
               />
               <ActionButton
                 icon={RefreshCw}
-                label="Reconnect"
+                label="Reconectar"
                 loading={actionLoading === 'reconnect'}
                 onClick={() => onReconnect(channel.id)}
               />
               <ActionButton
                 icon={Power}
-                label="Disconnect"
+                label="Desconectar"
                 variant="warning"
                 loading={actionLoading === 'disconnect'}
                 onClick={() => onDisconnect(channel.id)}
@@ -358,7 +358,7 @@ export function ChannelDetail({
           ) : (
             <ActionButton
               icon={Power}
-              label="Connect"
+              label="Conectar"
               variant="success"
               loading={actionLoading === 'connect'}
               onClick={() => onConnect(channel.id)}
@@ -367,14 +367,14 @@ export function ChannelDetail({
           {/* Logout is always available — clears session so next connect requires re-auth */}
           <ActionButton
             icon={LogOut}
-            label="Logout"
+            label="Encerrar sessão"
             variant="danger"
             loading={actionLoading === 'logout'}
             onClick={() => onLogout(channel.id)}
           />
           <ActionButton
             icon={Trash2}
-            label="Clear Messages"
+            label="Limpar mensagens"
             variant="danger"
             loading={actionLoading === 'clear'}
             onClick={() => onClearMessages(channel.id)}
@@ -385,13 +385,13 @@ export function ChannelDetail({
         {showTestForm && channel.status === 'connected' && (
           <div className="mt-3 p-3 border border-border dark:border-dark-border rounded-lg space-y-2 bg-bg-secondary dark:bg-dark-bg-secondary">
             <p className="text-xs font-medium text-text-primary dark:text-dark-text-primary">
-              Send Test Message
+              Enviar mensagem de teste
             </p>
             {/* Chat ID — hidden for WhatsApp when own number is known, visible for others */}
             {!chatIdAutoResolved ? (
               <div className="space-y-1">
                 <label className="text-[10px] text-text-muted dark:text-dark-text-muted uppercase tracking-wide">
-                  Chat ID
+                  ID da conversa
                 </label>
                 <input
                   type="text"
@@ -560,15 +560,15 @@ export function PairingBanner() {
       setCopiedId(pluginId);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      toast.error('Failed to copy');
+      toast.error('Não foi possível copiar');
     }
   };
 
   const handleRevoke = async (ch: PairingChannel) => {
     const confirmed = await dialog.confirm({
-      title: 'Revoke Ownership',
+      title: 'Revogar acesso de proprietário',
       message: `Remove the owner from "${ch.name}"? A new pairing key will be generated and you'll need to /connect again to reclaim ownership.`,
-      confirmText: 'Revoke',
+      confirmText: 'Revogar',
       cancelText: 'Cancel',
       variant: 'danger',
     });
@@ -576,10 +576,10 @@ export function PairingBanner() {
     setRevokingId(ch.pluginId);
     try {
       await channelsApi.revokeOwner(ch.pluginId);
-      toast.success(`Ownership revoked for ${ch.name}`);
+      toast.success(`Acesso de proprietário revogado para ${ch.name}`);
       load();
     } catch {
-      toast.error('Failed to revoke ownership');
+      toast.error('Não foi possível revogar o acesso');
     } finally {
       setRevokingId(null);
     }
@@ -634,7 +634,7 @@ export function PairingBanner() {
                     <button
                       onClick={() => handleCopy(ch.pluginId, `/connect ${ch.key}`)}
                       className="p-1.5 text-xs border border-border dark:border-dark-border rounded hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
-                      title="Copy command"
+                      title="Copiar comando"
                     >
                       {copiedId === ch.pluginId ? (
                         <CheckCircle2 className="w-3.5 h-3.5 text-success" />
@@ -666,11 +666,11 @@ export function PairingBanner() {
           <button
             onClick={() => handleRevoke(ch)}
             disabled={revokingId === ch.pluginId}
-            title="Revoke ownership"
+            title="Revogar acesso de proprietário"
             className="flex items-center gap-1 text-[11px] text-text-muted dark:text-dark-text-muted hover:text-error transition-colors disabled:opacity-50"
           >
             <Unlock className="w-3.5 h-3.5" />
-            {revokingId === ch.pluginId ? 'Revoking…' : 'Revoke'}
+            {revokingId === ch.pluginId ? 'Revogando…' : 'Revogar'}
           </button>
         </div>
       ))}
