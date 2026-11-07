@@ -444,15 +444,13 @@ export function ChannelsPage() {
                 icon: Inbox,
                 color: 'text-emerald-500 bg-emerald-500/10',
                 title: 'Conversas organizadas',
-                description:
-                  'Acompanhe tudo em um só histórico e não perca mensagens importantes.',
+                description: 'Acompanhe tudo em um só histórico e não perca mensagens importantes.',
               },
               {
                 icon: Bot,
                 color: 'text-violet-500 bg-violet-500/10',
                 title: 'Assistente com IA',
-                description:
-                  'O Astra responde com o modelo Groq selecionado para este ambiente.',
+                description: 'O Astra responde com o modelo Groq selecionado para este ambiente.',
               },
               {
                 icon: Activity,

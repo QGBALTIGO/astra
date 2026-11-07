@@ -131,7 +131,9 @@ describe('ChatInput', () => {
   describe('send button', () => {
     it('is disabled when textarea is empty and no images', () => {
       render(createElement(ChatInput, { onSend: vi.fn() }));
-      const btn = document.querySelector('button[aria-label="Enviar mensagem"]') as HTMLButtonElement;
+      const btn = document.querySelector(
+        'button[aria-label="Enviar mensagem"]'
+      ) as HTMLButtonElement;
       expect(btn).not.toBeNull();
       expect(btn.disabled).toBe(true);
     });
@@ -139,7 +141,9 @@ describe('ChatInput', () => {
     it('is enabled when textarea has text', () => {
       render(createElement(ChatInput, { onSend: vi.fn() }));
       typeText('Hello');
-      const btn = document.querySelector('button[aria-label="Enviar mensagem"]') as HTMLButtonElement;
+      const btn = document.querySelector(
+        'button[aria-label="Enviar mensagem"]'
+      ) as HTMLButtonElement;
       expect(btn.disabled).toBe(false);
     });
 
