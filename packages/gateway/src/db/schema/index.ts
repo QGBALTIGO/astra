@@ -6,6 +6,7 @@
  */
 
 import { getLog } from '../../services/log.js';
+import { EDGE_TABLES_SQL, EDGE_INDEXES_SQL } from './edge.js';
 import { FINANCE_TABLES_SQL, FINANCE_MIGRATIONS_SQL, FINANCE_INDEXES_SQL } from './finance.js';
 
 import { CORE_TABLES_SQL, CORE_MIGRATIONS_SQL, CORE_INDEXES_SQL } from './core.js';
@@ -69,6 +70,7 @@ export const SCHEMA_SQL = [
   CHANNELS_TABLES_SQL,
   CLAW_TABLES_SQL,
   UI_SESSIONS_TABLES_SQL,
+  EDGE_TABLES_SQL,
 ].join('\n');
 
 /**
@@ -108,6 +110,7 @@ export const INDEXES_SQL = [
   CHANNELS_INDEXES_SQL,
   CLAW_INDEXES_SQL,
   UI_SESSIONS_INDEXES_SQL,
+  EDGE_INDEXES_SQL,
 ].join('\n');
 
 /**
