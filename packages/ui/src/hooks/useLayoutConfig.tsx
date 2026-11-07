@@ -482,6 +482,50 @@ function readConfig(): LayoutConfig {
       localStorage.setItem('astra-layout-refresh-v1', '1');
       return next;
     }
+    // Existing Astra sessions may still have the old flat sidebar order.
+    // Upgrade only the exact legacy defaults, preserving intentional custom
+    // arrangements and any extra sections the user pinned manually.
+    if (isAstraUi && raw && localStorage.getItem('astra-orion-nav-v2') !== '1') {
+      localStorage.setItem('astra-orion-nav-v2', '1');
+      const previous = JSON.parse(raw);
+      if (isValidConfig(previous) && previous.version === LAYOUT_CONFIG_VERSION) {
+        const previousSections = [...previous.sidebar.sections].sort(
+          (a, b) => a.order - b.order
+        );
+        const legacyIds = [
+          '/',
+          '/dashboard',
+          'scheduled',
+          '/tasks',
+          '/expenses',
+          '/channels',
+          '/memories',
+          '/triggers',
+          'search',
+          'recents',
+          'customize',
+        ];
+        if (legacyIds.every((id, index) => previousSections[index]?.id === id)) {
+          const orderedIds = new Set(DEFAULT_SIDEBAR_SECTIONS.map((section) => section.id));
+          const defaults = DEFAULT_SIDEBAR_SECTIONS.map((section) =>
+            previousSections.find((previousSection) => previousSection.id === section.id) ?? section
+          );
+          const extraSections = previousSections.filter((section) => !orderedIds.has(section.id));
+          const next = {
+            ...previous,
+            sidebar: {
+              ...previous.sidebar,
+              sections: [...defaults, ...extraSections].map((section, order) => ({
+                ...section,
+                order,
+              })),
+            },
+          };
+          persistConfig(next);
+          return next;
+        }
+      }
+    }
     if (raw) {
       const parsed = JSON.parse(raw);
       if (isValidConfig(parsed) && parsed.version === LAYOUT_CONFIG_VERSION) {
