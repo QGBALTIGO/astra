@@ -260,7 +260,7 @@ function MessageBubble({
           <div
             className={`mt-1 text-[11px] text-text-muted/60 dark:text-dark-text-muted/60 ${isUser ? 'text-right' : ''}`}
           >
-            + context attached
+            + contexto anexado
           </div>
         )}
 
@@ -280,7 +280,7 @@ function MessageBubble({
               className="inline-flex items-center gap-2 px-4 py-2 bg-error/10 hover:bg-error/20 text-error border border-error/30 rounded-lg transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${isRetrying ? 'animate-spin' : ''}`} />
-              {isRetrying ? 'Retrying...' : 'Retry Message'}
+              {isRetrying ? 'Tentando novamente...' : 'Tentar novamente'}
             </button>
           </div>
         )}
@@ -294,7 +294,7 @@ function MessageBubble({
           <button
             onClick={copyToClipboard}
             className="flex items-center gap-1 px-2 py-1 text-xs text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded transition-colors"
-            title={copied ? 'Copied!' : 'Copy message'}
+            title={copied ? 'Copiado!' : 'Copiar mensagem'}
           >
             {copied ? (
               <>
@@ -334,7 +334,7 @@ function MessageBubble({
                 </div>
                 <Brain className="w-3.5 h-3.5 text-text-muted dark:text-dark-text-muted" />
                 <span className="font-medium text-text-secondary dark:text-dark-text-secondary">
-                  Thought Process
+                  Raciocínio da IA
                 </span>
               </button>
               {thinkingExpanded && (
