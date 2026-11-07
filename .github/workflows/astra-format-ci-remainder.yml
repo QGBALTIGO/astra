@@ -1,0 +1,75 @@
+name: One-time Astra format cleanup
+on:
+  push:
+    branches:
+      - fix/astra-edge-ui-regression-20261107
+    paths:
+      - .github/workflows/astra-format-ci-remainder.yml
+permissions:
+  contents: write
+jobs:
+  format-and-remove-self:
+    if: github.repository == 'QGBALTIGO/astra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/astra-edge-ui-regression-20261107
+          persist-credentials: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Format only 18 files reported by CI
+        run: >-
+          pnpm exec prettier --write
+          packages/ui/e2e/astra-route-audit.spec.ts
+          packages/ui/e2e/regression.spec.ts
+          packages/ui/e2e/sidebar.spec.ts
+          packages/ui/src/components/GlobalSearchOverlay.tsx
+          packages/ui/src/components/workflows/ToolPalette.tsx
+          packages/ui/src/pages/ApprovalsPage.tsx
+          packages/ui/src/pages/autonomy/DirectivesSection.tsx
+          packages/ui/src/pages/ChatHistoryPage.tsx
+          packages/ui/src/pages/CodingAgentSettingsPage.tsx
+          packages/ui/src/pages/CostsPage.tsx
+          packages/ui/src/pages/CustomToolsPage.tsx
+          packages/ui/src/pages/DataBrowserPage.tsx
+          packages/ui/src/pages/LayoutConfigPage.tsx
+          packages/ui/src/pages/SecurityDashboardPage.tsx
+          packages/ui/src/pages/TasksPage.tsx
+          packages/ui/src/pages/TriggersPage.tsx
+          packages/ui/src/pages/workflows/MobileWorkflowView.tsx
+          packages/ui/src/pages/workflows/WorkflowEditorToolbar.tsx
+      - name: Commit formatted files and remove the one-time workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add packages/ui/e2e/astra-route-audit.spec.ts \
+            packages/ui/e2e/regression.spec.ts \
+            packages/ui/e2e/sidebar.spec.ts \
+            packages/ui/src/components/GlobalSearchOverlay.tsx \
+            packages/ui/src/components/workflows/ToolPalette.tsx \
+            packages/ui/src/pages/ApprovalsPage.tsx \
+            packages/ui/src/pages/autonomy/DirectivesSection.tsx \
+            packages/ui/src/pages/ChatHistoryPage.tsx \
+            packages/ui/src/pages/CodingAgentSettingsPage.tsx \
+            packages/ui/src/pages/CostsPage.tsx \
+            packages/ui/src/pages/CustomToolsPage.tsx \
+            packages/ui/src/pages/DataBrowserPage.tsx \
+            packages/ui/src/pages/LayoutConfigPage.tsx \
+            packages/ui/src/pages/SecurityDashboardPage.tsx \
+            packages/ui/src/pages/TasksPage.tsx \
+            packages/ui/src/pages/TriggersPage.tsx \
+            packages/ui/src/pages/workflows/MobileWorkflowView.tsx \
+            packages/ui/src/pages/workflows/WorkflowEditorToolbar.tsx
+          git rm -- .github/workflows/astra-format-ci-remainder.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style(astra): normalize remaining CI format warnings"
+          git push origin HEAD:fix/astra-edge-ui-regression-20261107
