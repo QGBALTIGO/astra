@@ -178,7 +178,9 @@ function MessageBubble({
       </div>
 
       {/* Content */}
-      <div className={`group min-w-0 flex-1 max-w-[calc(100%-2.5rem)] sm:max-w-[85%] ${isUser ? 'text-right' : 'text-left'}`}>
+      <div
+        className={`group min-w-0 flex-1 max-w-[calc(100%-2.5rem)] sm:max-w-[85%] ${isUser ? 'text-right' : 'text-left'}`}
+      >
         {/* User attachments */}
         {isUser && message.attachments && message.attachments.length > 0 && (
           <div className={`flex gap-2 mb-2 ${isUser ? 'justify-end' : ''} flex-wrap`}>
@@ -222,9 +224,13 @@ function MessageBubble({
                     : 'bg-bg-secondary dark:bg-dark-bg-secondary text-text-primary dark:text-dark-text-primary rounded-tl-md border border-border dark:border-dark-border'
               }`}
             >
-              {!isUser && !displayContent.trim() && widgets.length === 0 && suggestions.length === 0 ? (
+              {!isUser &&
+              !displayContent.trim() &&
+              widgets.length === 0 &&
+              suggestions.length === 0 ? (
                 <p role="status" className="break-words text-sm leading-relaxed">
-                  O Astra não retornou uma resposta em texto. Consulte os detalhes ou tente novamente.
+                  O Astra não retornou uma resposta em texto. Consulte os detalhes ou tente
+                  novamente.
                 </p>
               ) : (
                 <MarkdownContent content={displayContent} workspaceId={workspaceId} />

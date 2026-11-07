@@ -1786,7 +1786,9 @@ describe('Dashboard Service', () => {
 
       const briefing = generateFallbackBriefing(data);
 
-      expect(briefing.priorities).toContainEqual(expect.stringContaining('5 tarefas previstas para hoje'));
+      expect(briefing.priorities).toContainEqual(
+        expect.stringContaining('5 tarefas previstas para hoje')
+      );
     });
   });
 });

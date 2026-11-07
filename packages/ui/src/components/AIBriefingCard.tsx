@@ -391,7 +391,8 @@ export function AIBriefingCard() {
             )}
           </div>
           <p className="text-xs text-text-muted dark:text-dark-text-muted truncate">
-            Gerado às {formatTime(briefing.generatedAt)} • {briefing.modelUsed === 'fallback' ? 'Resumo automático' : briefing.modelUsed}
+            Gerado às {formatTime(briefing.generatedAt)} •{' '}
+            {briefing.modelUsed === 'fallback' ? 'Resumo automático' : briefing.modelUsed}
           </p>
         </div>
 

@@ -286,7 +286,10 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
 
             {/* Autonomy Checks */}
             {(trace.autonomyChecks?.length ?? 0) > 0 && (
-              <TraceSection title="Verificações de autonomia" icon={<AlertTriangle className="w-4 h-4" />}>
+              <TraceSection
+                title="Verificações de autonomia"
+                icon={<AlertTriangle className="w-4 h-4" />}
+              >
                 <div className="space-y-1">
                   {trace.autonomyChecks.map((check, i) => (
                     <div
@@ -441,7 +444,9 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                     </span>
                   </div>
                   <div className="flex gap-2 px-2 py-1 rounded bg-bg-secondary dark:bg-dark-bg-secondary">
-                    <span className="text-text-muted dark:text-dark-text-muted">Endereço da API:</span>
+                    <span className="text-text-muted dark:text-dark-text-muted">
+                      Endereço da API:
+                    </span>
                     <span className="text-text-primary dark:text-dark-text-primary font-mono">
                       {trace.request.endpoint}
                     </span>
@@ -454,7 +459,9 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
                   </div>
                   {trace.request.tools && trace.request.tools.length > 0 && (
                     <div className="px-2 py-1 rounded bg-bg-secondary dark:bg-dark-bg-secondary">
-                      <span className="text-text-muted dark:text-dark-text-muted">Ferramentas:</span>
+                      <span className="text-text-muted dark:text-dark-text-muted">
+                        Ferramentas:
+                      </span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {trace.request.tools.map((tool, i) => (
                           <span
@@ -511,7 +518,10 @@ export function TraceDisplay({ trace }: TraceDisplayProps) {
 
             {/* Retries */}
             {trace.retries && trace.retries.length > 0 && (
-              <TraceSection title="Novas tentativas" icon={<RefreshCw className="w-4 h-4 text-amber-500" />}>
+              <TraceSection
+                title="Novas tentativas"
+                icon={<RefreshCw className="w-4 h-4 text-amber-500" />}
+              >
                 <div className="space-y-1">
                   {trace.retries.map((retry, i) => (
                     <div

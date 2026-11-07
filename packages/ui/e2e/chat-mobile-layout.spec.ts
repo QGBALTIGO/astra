@@ -26,9 +26,7 @@ for (const width of [320, 375, 390, 430, 768, 1024]) {
       const rect = await control.boundingBox();
       expect(rect, 'chat selector must have measurable bounds').not.toBeNull();
       expect(rect!.x, 'left edge must stay visible').toBeGreaterThanOrEqual(-1);
-      expect(rect!.x + rect!.width, 'right edge must stay visible').toBeLessThanOrEqual(
-        width + 1
-      );
+      expect(rect!.x + rect!.width, 'right edge must stay visible').toBeLessThanOrEqual(width + 1);
       expect(rect!.width).toBeGreaterThan(60);
       boxes.push(rect!);
     }

@@ -252,7 +252,9 @@ export function ClawsWidget({ limit = 6 }: ClawsWidgetProps) {
         </div>
         <div className="text-center py-6">
           <Zap className="w-8 h-8 text-text-muted dark:text-dark-text-muted mx-auto mb-2" />
-          <p className="text-sm text-text-muted dark:text-dark-text-muted">Nenhum agente autônomo cadastrado</p>
+          <p className="text-sm text-text-muted dark:text-dark-text-muted">
+            Nenhum agente autônomo cadastrado
+          </p>
           <Link to="/claws" className="text-xs text-primary hover:underline mt-2 inline-block">
             Criar agente
           </Link>

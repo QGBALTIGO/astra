@@ -525,7 +525,10 @@ export function ChatPage() {
       {/* Main chat area — ConversationSidebar moved to left Sidebar */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Header */}
-        <header data-testid="chat-header" className="relative flex min-w-0 flex-col gap-2 border-b border-border px-3 py-3 dark:border-dark-border sm:px-5 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
+        <header
+          data-testid="chat-header"
+          className="relative flex min-w-0 flex-col gap-2 border-b border-border px-3 py-3 dark:border-dark-border sm:px-5 lg:flex-row lg:items-center lg:justify-between lg:gap-3"
+        >
           <div className="grid w-full min-w-0 grid-cols-2 gap-2 lg:flex lg:flex-1 lg:items-center lg:gap-3">
             <div className="col-span-2 min-w-0 pr-12 lg:col-auto lg:mr-auto lg:pr-0">
               <h2 className="flex min-w-0 items-center gap-2 truncate text-base font-semibold text-text-primary dark:text-dark-text-primary sm:text-lg">
@@ -592,7 +595,9 @@ export function ChatPage() {
                     </span>
                     {/* CLI and bridge providers don't have model selection */}
                     {!provider.startsWith('cli-') && !provider.startsWith('bridge-') && (
-                      <span className="min-w-0 flex-1 truncate text-left text-text-muted dark:text-dark-text-muted">· {model}</span>
+                      <span className="min-w-0 flex-1 truncate text-left text-text-muted dark:text-dark-text-muted">
+                        · {model}
+                      </span>
                     )}
                     {provider.startsWith('bridge-') && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-accent/10 text-accent">
@@ -636,7 +641,10 @@ export function ChatPage() {
                   );
 
                   return (
-                    <div data-testid="chat-model-menu" className="fixed inset-x-3 top-40 z-[80] max-h-[min(58dvh,440px)] overflow-y-auto rounded-xl border border-border bg-bg-primary shadow-2xl dark:border-dark-border dark:bg-dark-bg-primary dark:shadow-black/50 sm:absolute sm:inset-x-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 sm:max-w-[90vw]">
+                    <div
+                      data-testid="chat-model-menu"
+                      className="fixed inset-x-3 top-40 z-[80] max-h-[min(58dvh,440px)] overflow-y-auto rounded-xl border border-border bg-bg-primary shadow-2xl dark:border-dark-border dark:bg-dark-bg-primary dark:shadow-black/50 sm:absolute sm:inset-x-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 sm:max-w-[90vw]"
+                    >
                       {configuredProviders.length === 0 ? (
                         <div className="p-4 text-center">
                           <p className="text-sm text-text-muted dark:text-dark-text-muted mb-2">
@@ -939,7 +947,10 @@ export function ChatPage() {
 
         {/* Messages */}
         {!isChannelMode && (
-          <div data-testid="chat-messages" className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 sm:px-6 sm:py-4">
+          <div
+            data-testid="chat-messages"
+            className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 sm:px-6 sm:py-4"
+          >
             {messages.length === 0 ? (
               <ChatStarterPrompts
                 show
@@ -1036,7 +1047,10 @@ export function ChatPage() {
                 <span>Opções avançadas</span>
                 <span aria-hidden="true">{showAdvancedOptions ? '−' : '+'}</span>
               </button>
-              <div id="chat-advanced-options" className={`${showAdvancedOptions ? 'block' : 'hidden'} sm:block`}>
+              <div
+                id="chat-advanced-options"
+                className={`${showAdvancedOptions ? 'block' : 'hidden'} sm:block`}
+              >
                 <ExecutionSecurityPanel />
                 <ToolCallLimitPanel />
                 <ThinkingToggle />

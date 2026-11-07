@@ -431,16 +431,24 @@ export function generateFallbackBriefing(data: DailyBriefingData): AIBriefing {
   const priorities: string[] = [];
 
   if (data.tasks.counts.overdue > 0) {
-    priorities.push(`Resolva ${data.tasks.counts.overdue} ${data.tasks.counts.overdue === 1 ? 'tarefa em atraso' : 'tarefas em atraso'}.`);
+    priorities.push(
+      `Resolva ${data.tasks.counts.overdue} ${data.tasks.counts.overdue === 1 ? 'tarefa em atraso' : 'tarefas em atraso'}.`
+    );
   }
   if (data.tasks.counts.dueToday > 0) {
-    priorities.push(`Conclua ${data.tasks.counts.dueToday} ${data.tasks.counts.dueToday === 1 ? 'tarefa prevista para hoje' : 'tarefas previstas para hoje'}.`);
+    priorities.push(
+      `Conclua ${data.tasks.counts.dueToday} ${data.tasks.counts.dueToday === 1 ? 'tarefa prevista para hoje' : 'tarefas previstas para hoje'}.`
+    );
   }
   if (data.calendar.counts.today > 0) {
-    priorities.push(`Participe de ${data.calendar.counts.today} ${data.calendar.counts.today === 1 ? 'compromisso agendado' : 'compromissos agendados'}.`);
+    priorities.push(
+      `Participe de ${data.calendar.counts.today} ${data.calendar.counts.today === 1 ? 'compromisso agendado' : 'compromissos agendados'}.`
+    );
   }
   if (data.habits.streaksAtRisk.length > 0) {
-    priorities.push(`Mantenha a sequência de ${data.habits.streaksAtRisk.length} ${data.habits.streaksAtRisk.length === 1 ? 'hábito' : 'hábitos'} em risco.`);
+    priorities.push(
+      `Mantenha a sequência de ${data.habits.streaksAtRisk.length} ${data.habits.streaksAtRisk.length === 1 ? 'hábito' : 'hábitos'} em risco.`
+    );
   }
 
   return {
