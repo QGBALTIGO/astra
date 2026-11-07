@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/astra-ui-route-audit.yml'
+      - 'packages/ui/e2e/astra-route-audit.spec.ts'
   workflow_dispatch:
 permissions:
   contents: read
