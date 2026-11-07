@@ -21,7 +21,9 @@ permissions:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    # Chromium from Playwright 1.58.2 does not support the ubuntu-26.04 runner.
+    # Pin to the same supported image as the isolated Astra UI audit.
+    runs-on: ubuntu-24.04
 
     strategy:
       matrix:
