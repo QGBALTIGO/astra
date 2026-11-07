@@ -89,6 +89,23 @@ describe('FallbackProvider', () => {
   // isReady
   // -------------------------------------------------------------------------
   describe('isReady', () => {
+    it('disables primary retries by default so failover is immediate', () => {
+      createTestProvider();
+      expect(mockCreateProvider).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ maxRetries: 0 })
+      );
+    });
+
+    it('preserves an explicit primary retry budget', () => {
+      const primaryWithRetries = { ...primaryConfig, maxRetries: 2 };
+      createTestProvider({ primary: primaryWithRetries });
+      expect(mockCreateProvider).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ maxRetries: 2 })
+      );
+    });
+
     it('returns true when primary is ready', () => {
       const { provider } = createTestProvider();
       expect(provider.isReady()).toBe(true);
