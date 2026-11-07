@@ -28,7 +28,7 @@ export async function dispatchDueChannelReminders(): Promise<{
       try {
         const id = await getChannelService().send(entry.channelPluginId, {
           platformChatId: entry.platformChatId,
-          text: `⏰ *Lembrete:* ${entry.title}`,
+          text: `⏰ Lembrete: ${entry.title}`,
         });
         await channelRemindersRepo.markDelivered(entry.id, String(id ?? 'enviado'));
         delivered++;
