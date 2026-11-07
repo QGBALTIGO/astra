@@ -199,8 +199,8 @@ export function ContactsPage() {
             { icon: Phone, color: 'text-emerald-500 bg-emerald-500/10' },
             { icon: Mail, color: 'text-violet-500 bg-violet-500/10' },
           ]}
-          title="Your Contact Book"
-          subtitle="Store and manage contacts that your AI can reference — for emails, messages, calendar events, and reminders."
+          title="Meus contatos"
+          subtitle="Organize contatos para usar em mensagens, compromissos e lembretes."
           cta={{
             label: 'Adicionar contato',
             icon: Plus,
@@ -268,7 +268,7 @@ export function ContactsPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted dark:text-dark-text-muted" />
               <input
                 type="text"
-                placeholder="Search contacts..."
+                placeholder="Buscar contatos..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
@@ -298,7 +298,7 @@ export function ContactsPage() {
             ) : error ? (
               <EmptyState
                 icon={AlertTriangle}
-                title="Failed to load contacts"
+                title="Não foi possível carregar os contatos"
                 description={error}
                 variant="card"
                 action={{
@@ -540,7 +540,7 @@ function ContactModal({ contact, onClose, onSave }: ContactModalProps) {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="John Doe"
+                  placeholder="Nome do contato"
                   className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                   autoFocus
                 />
@@ -553,7 +553,7 @@ function ContactModal({ contact, onClose, onSave }: ContactModalProps) {
                   type="text"
                   value={nickname}
                   onChange={(e) => setNickname(e.target.value)}
-                  placeholder="Johnny"
+                  placeholder="Apelido"
                   className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
@@ -580,7 +580,7 @@ function ContactModal({ contact, onClose, onSave }: ContactModalProps) {
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="+1 (555) 000-0000"
+                placeholder="(67) 99999-9999"
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div>
@@ -594,7 +594,7 @@ function ContactModal({ contact, onClose, onSave }: ContactModalProps) {
                   type="text"
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
-                  placeholder="Acme Inc."
+                  placeholder="Nome da empresa"
                   className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
@@ -606,7 +606,7 @@ function ContactModal({ contact, onClose, onSave }: ContactModalProps) {
                   type="text"
                   value={jobTitle}
                   onChange={(e) => setJobTitle(e.target.value)}
-                  placeholder="Software Engineer"
+                  placeholder="Cargo ou profissão"
                   className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
@@ -620,7 +620,7 @@ function ContactModal({ contact, onClose, onSave }: ContactModalProps) {
                 type="text"
                 value={relationship}
                 onChange={(e) => setRelationship(e.target.value)}
-                placeholder="Friend, Family, Colleague..."
+                placeholder="Amigo, família, colega..."
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div>

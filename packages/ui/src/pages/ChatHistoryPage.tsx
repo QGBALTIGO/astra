@@ -126,12 +126,12 @@ type ConvSource = 'telegram' | 'discord' | 'whatsapp' | 'slack' | 'web';
 
 /** Detect conversation source and platform */
 function getSource(conv: Conversation): ConvSource {
-  if (conv.source === 'channel' && conv.channelPlatform) {
+  if (conv.source === 'canal' && conv.channelPlatform) {
     return conv.channelPlatform as ConvSource;
   }
   // Fallback: detect from metadata
   const meta = conv.metadata as Record<string, unknown> | undefined;
-  if (meta?.source === 'channel') {
+  if (meta?.source === 'canal') {
     const platform = meta.platform as string;
     if (platform === 'discord') return 'discord';
     if (platform === 'whatsapp') return 'whatsapp';
@@ -633,8 +633,8 @@ export function ChatHistoryPage() {
               { icon: MessageSquare, color: 'text-emerald-500 bg-emerald-500/10' },
               { icon: Search, color: 'text-violet-500 bg-violet-500/10' },
             ]}
-            title="Your Conversation Archive"
-            subtitle="Browse, search, and revisit past conversations. Every interaction is preserved for context and reference."
+            title="Histórico de conversas"
+            subtitle="Consulte conversas anteriores, encontre informações e retome atendimentos."
             cta={{
               label: 'Browse History',
               icon: History,
@@ -730,7 +730,7 @@ export function ChatHistoryPage() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted dark:text-dark-text-muted" />
                   <input
                     type="text"
-                    placeholder="Search conversations..."
+                    placeholder="Buscar conversas..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-full pl-9 pr-3 py-2 rounded-lg bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border text-sm text-text-primary dark:text-dark-text-primary placeholder:text-text-muted dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-1 focus:ring-primary"
@@ -852,7 +852,7 @@ export function ChatHistoryPage() {
             {!selectedId ? (
               <div className="flex flex-col items-center justify-center h-full text-text-muted dark:text-dark-text-muted">
                 <History className="w-16 h-16 mb-4 opacity-20" />
-                <p>Select a conversation to view</p>
+                <p>Selecione uma conversa para visualizar</p>
                 <p className="text-sm mt-1">
                   All conversations from Web UI and channels are shown here
                 </p>
@@ -913,7 +913,7 @@ export function ChatHistoryPage() {
                       <button
                         onClick={() => handleDelete(selectedConv.id)}
                         className="p-1.5 rounded-lg hover:bg-error/10 text-text-muted dark:text-dark-text-muted hover:text-error"
-                        title="Delete"
+                        title="Excluir"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1057,7 +1057,7 @@ export function ChatHistoryPage() {
                     <div className="max-w-3xl mx-auto flex items-center gap-3">
                       <input
                         type="text"
-                        placeholder={`Reply to ${channelInfo.senderName ?? 'channel'}...`}
+                        placeholder={`Reply to ${channelInfo.senderName ?? 'canal'}...`}
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                         onKeyDown={(e) => {

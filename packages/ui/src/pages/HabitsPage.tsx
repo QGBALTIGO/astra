@@ -276,8 +276,8 @@ export function HabitsPage() {
               { icon: Zap, color: 'text-amber-500 bg-amber-500/10' },
               { icon: TrendingUp, color: 'text-emerald-500 bg-emerald-500/10' },
             ]}
-            title="Build Better Habits"
-            subtitle="Track daily routines, build streaks, and let your AI help you stay consistent with habit tracking."
+            title="Meus hábitos"
+            subtitle="Acompanhe seus hábitos e construa uma rotina mais consistente."
             cta={{
               label: 'Criar hábito',
               icon: Plus,
@@ -430,7 +430,7 @@ export function HabitsPage() {
               ) : error ? (
                 <EmptyState
                   icon={AlertTriangle}
-                  title="Failed to load habits"
+                  title="Não foi possível carregar os hábitos"
                   description={error}
                   variant="card"
                   action={{
@@ -469,7 +469,7 @@ export function HabitsPage() {
                           <button
                             onClick={() => handleLog(habit.id)}
                             className="mt-1 shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 active:scale-95 transition-all"
-                            title="Log completion"
+                            title="Registrar conclusão"
                           >
                             <CheckCircle2 className="w-4 h-4" />
                             Check In
@@ -533,7 +533,7 @@ export function HabitsPage() {
                           <button
                             onClick={() => setEditHabit(habit)}
                             className="p-1.5 rounded hover:bg-primary/10 text-text-muted dark:text-dark-text-muted hover:text-primary transition-colors"
-                            title="Edit"
+                            title="Editar"
                           >
                             <Edit className="w-3.5 h-3.5" />
                           </button>
@@ -541,7 +541,7 @@ export function HabitsPage() {
                             <button
                               onClick={() => handleUnarchive(habit)}
                               className="p-1.5 rounded hover:bg-primary/10 text-text-muted dark:text-dark-text-muted hover:text-primary transition-colors"
-                              title="Restore"
+                              title="Restaurar"
                             >
                               <Archive className="w-3.5 h-3.5" />
                             </button>
@@ -549,7 +549,7 @@ export function HabitsPage() {
                             <button
                               onClick={() => handleArchive(habit)}
                               className="p-1.5 rounded hover:bg-amber-500/10 text-text-muted dark:text-dark-text-muted hover:text-amber-500 transition-colors"
-                              title="Archive"
+                              title="Arquivar"
                             >
                               <Archive className="w-3.5 h-3.5" />
                             </button>
@@ -557,7 +557,7 @@ export function HabitsPage() {
                           <button
                             onClick={() => handleDelete(habit)}
                             className="p-1.5 rounded hover:bg-error/10 text-text-muted dark:text-dark-text-muted hover:text-error transition-colors"
-                            title="Delete"
+                            title="Excluir"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -679,14 +679,14 @@ function HabitDetailPanel({
             <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
               {habit.streakLongest}
             </div>
-            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Best Streak</div>
+            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Melhor sequência</div>
           </div>
           <div className="text-center p-3 rounded-lg bg-primary/10">
             <div className="flex items-center justify-center gap-1 text-primary mb-1">
               <Target className="w-4 h-4" />
             </div>
             <div className="text-xl font-bold text-primary">{habit.totalCompletions}</div>
-            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Total Done</div>
+            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Total concluído</div>
           </div>
           <div className="text-center p-3 rounded-lg bg-violet-500/10">
             <div className="flex items-center justify-center gap-1 text-violet-600 dark:text-violet-400 mb-1">
@@ -733,12 +733,12 @@ function HabitDetailPanel({
         {/* Details */}
         <div className="px-5 pb-4 space-y-2 text-sm">
           <div className="flex justify-between py-1.5 border-t border-border dark:border-dark-border">
-            <span className="text-text-muted dark:text-dark-text-muted">Frequency</span>
+            <span className="text-text-muted dark:text-dark-text-muted">Frequência</span>
             <span className="font-medium capitalize">{habit.frequency}</span>
           </div>
           {habit.targetCount > 1 && (
             <div className="flex justify-between py-1.5">
-              <span className="text-text-muted dark:text-dark-text-muted">Target</span>
+              <span className="text-text-muted dark:text-dark-text-muted">Meta</span>
               <span className="font-medium">
                 {habit.targetCount}x{habit.unit ? ` ${habit.unit}` : ''}
               </span>
@@ -746,12 +746,12 @@ function HabitDetailPanel({
           )}
           {habit.category && (
             <div className="flex justify-between py-1.5">
-              <span className="text-text-muted dark:text-dark-text-muted">Category</span>
+              <span className="text-text-muted dark:text-dark-text-muted">Categoria</span>
               <span className="font-medium">{habit.category}</span>
             </div>
           )}
           <div className="flex justify-between py-1.5">
-            <span className="text-text-muted dark:text-dark-text-muted">Created</span>
+            <span className="text-text-muted dark:text-dark-text-muted">Criado em</span>
             <span className="font-medium">{new Date(habit.createdAt).toLocaleDateString()}</span>
           </div>
         </div>
@@ -848,7 +848,7 @@ function HabitModal({
               className={inputClass}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Morning exercise, Read 30 min, Meditate"
+              placeholder="Ex.: Fazer exercício, Ler 30 min, Meditar"
               autoFocus
             />
           </div>

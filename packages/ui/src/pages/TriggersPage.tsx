@@ -421,17 +421,17 @@ export function TriggersPage() {
           />
           <StatCard
             icon={<CheckCircle2 className="w-4 h-4 text-success" />}
-            label="Enabled"
+            label="Ativados"
             value={stats.enabledTriggers ?? enabledCount}
           />
           <StatCard
             icon={<BarChart className="w-4 h-4 text-info" />}
-            label="Total Fires"
+            label="Total de execuções"
             value={stats.totalFires ?? 0}
           />
           <StatCard
             icon={<Activity className="w-4 h-4 text-warning" />}
-            label="Success Rate"
+            label="Taxa de sucesso"
             value={successRate !== null ? `${successRate}%` : 'N/A'}
           />
         </div>
@@ -465,8 +465,8 @@ export function TriggersPage() {
               { icon: Clock, color: 'text-orange-500 bg-orange-500/10' },
               { icon: Target, color: 'text-violet-500 bg-violet-500/10' },
             ]}
-            title="Automate with Smart Triggers"
-            subtitle="Triggers let your AI react to events automatically — schedules, webhooks, data changes, and custom conditions."
+            title="Lembretes e automações"
+            subtitle="Agende lembretes e ações automáticas para os momentos importantes."
             cta={{ label: 'Criar lembrete', icon: Plus, onClick: () => setShowCreateModal(true) }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
@@ -564,7 +564,7 @@ export function TriggersPage() {
           ) : error ? (
             <EmptyState
               icon={AlertTriangle}
-              title="Failed to load triggers"
+              title="Não foi possível carregar os lembretes"
               description={error}
               variant="card"
               action={{
@@ -576,7 +576,7 @@ export function TriggersPage() {
           ) : triggers.length === 0 ? (
             <EmptyState
               icon={Zap}
-              title="No triggers yet"
+              title="Nenhum lembrete configurado"
               description="Triggers let the AI act proactively based on schedules, events, or conditions. Create your first trigger to automate tasks."
               variant="card"
               iconBgColor="bg-amber-500/10 dark:bg-amber-500/20"
@@ -814,7 +814,7 @@ function ActivityLog({
       ) : history.length === 0 ? (
         <EmptyState
           icon={Activity}
-          title="No activity yet"
+          title="Nenhuma atividade recente"
           description={
             hasFilters
               ? 'No entries match current filters.'
@@ -825,10 +825,10 @@ function ActivityLog({
         <>
           {/* Table header */}
           <div className="grid grid-cols-[1fr_140px_80px_80px_24px] gap-2 px-3 py-2 text-xs font-medium text-text-muted dark:text-dark-text-muted uppercase tracking-wider">
-            <span>Trigger</span>
-            <span>Fired At</span>
+            <span>Lembrete</span>
+            <span>Executado em</span>
             <span>Status</span>
-            <span>Duration</span>
+            <span>Duração</span>
             <span />
           </div>
 
@@ -885,7 +885,7 @@ function ActivityLog({
                   <div className="px-3 pb-3 border-t border-border dark:border-dark-border">
                     {entry.error && (
                       <div className="mt-2">
-                        <p className="text-xs font-medium text-error mb-1">Error</p>
+                        <p className="text-xs font-medium text-error mb-1">Erro</p>
                         <pre className="text-xs text-error/80 bg-error/5 p-2 rounded overflow-x-auto whitespace-pre-wrap">
                           {entry.error}
                         </pre>

@@ -196,8 +196,8 @@ export function ExpensesPage() {
             <button
               onClick={fetchData}
               className="p-2 text-text-muted hover:text-text-primary dark:hover:text-dark-text-primary transition-colors"
-              title="Refresh"
-              aria-label="Refresh expenses"
+              title="Atualizar"
+              aria-label="Atualizar despesas"
             >
               <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
@@ -230,8 +230,8 @@ export function ExpensesPage() {
             { icon: DollarSign, color: 'text-emerald-500 bg-emerald-500/10' },
             { icon: BarChart, color: 'text-violet-500 bg-violet-500/10' },
           ]}
-          title="Track Your Expenses"
-          subtitle="Log expenses, categorize spending, and get AI-powered insights on your financial habits."
+          title="Minhas finanças"
+          subtitle="Registre despesas, acompanhe os gastos e organize seu orçamento com o Astra."
           cta={{
             label: 'Registrar despesa',
             icon: Plus,
@@ -297,7 +297,7 @@ export function ExpensesPage() {
             <button
               onClick={() => setYear((y) => y - 1)}
               className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
-              aria-label="Previous year"
+              aria-label="Ano anterior"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
@@ -308,7 +308,7 @@ export function ExpensesPage() {
               onClick={() => setYear((y) => y + 1)}
               disabled={year >= new Date().getFullYear()}
               className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors disabled:opacity-50"
-              aria-label="Next year"
+              aria-label="Próximo ano"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
@@ -483,7 +483,7 @@ export function ExpensesPage() {
               ) : error ? (
                 <EmptyState
                   icon={AlertTriangle}
-                  title="Failed to load expenses"
+                  title="Não foi possível carregar as despesas"
                   description={error}
                   variant="minimal"
                   size="sm"
@@ -496,7 +496,7 @@ export function ExpensesPage() {
               ) : expenses.length === 0 ? (
                 <EmptyState
                   icon={Receipt}
-                  title="No expenses recorded"
+                  title="Nenhuma despesa registrada"
                   description={
                     selectedMonth
                       ? `No expenses for ${monthlyData?.months.find((m) => m.monthNum === selectedMonth)?.month} ${year}. Add your first expense to start tracking.`
@@ -545,7 +545,7 @@ export function ExpensesPage() {
                     <button
                       onClick={() => setEditingExpense(expense)}
                       className="p-1.5 text-text-muted hover:text-primary transition-colors"
-                      title="Edit"
+                      title="Editar"
                       aria-label="Editar despesa"
                     >
                       <Edit3 className="w-4 h-4" />
@@ -553,7 +553,7 @@ export function ExpensesPage() {
                     <button
                       onClick={() => handleDeleteExpense(expense.id)}
                       className="p-1.5 text-text-muted hover:text-error transition-colors"
-                      title="Delete"
+                      title="Excluir"
                       aria-label="Excluir despesa"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -674,7 +674,7 @@ function ExpenseFormModal({
                   step="0.01"
                   value={formData.amount}
                   onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  placeholder="0.00"
+                  placeholder="0,00"
                   className={`flex-1 ${inputClasses}`}
                   required
                 />

@@ -138,7 +138,7 @@ export function ProfilePage() {
         allergies: profileData.lifestyle?.eatingHabits?.allergies || [],
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load profile');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar o perfil');
     } finally {
       setIsLoading(false);
     }
@@ -157,7 +157,7 @@ export function ProfilePage() {
       setFormErrors({});
       toast.success('Profile saved successfully');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save profile');
+      toast.error(err instanceof Error ? err.message : 'Não foi possível salvar o perfil');
     } finally {
       setIsSaving(false);
     }
@@ -181,7 +181,7 @@ export function ProfilePage() {
       toast.success('Advanced settings saved');
       loadAllData();
     } catch {
-      toast.error('Failed to save advanced settings');
+      toast.error('Não foi possível salvar as configurações avançadas');
     } finally {
       setIsSaving(false);
     }
@@ -209,7 +209,7 @@ export function ProfilePage() {
       toast.success('Instruction added');
       loadAllData();
     } catch {
-      toast.error('Failed to add instruction');
+      toast.error('Não foi possível adicionar a instrução');
     }
   };
 
@@ -221,7 +221,7 @@ export function ProfilePage() {
       toast.success('Boundary added');
       loadAllData();
     } catch {
-      toast.error('Failed to add boundary');
+      toast.error('Não foi possível adicionar o limite');
     }
   };
 
@@ -238,7 +238,7 @@ export function ProfilePage() {
       URL.revokeObjectURL(url);
       toast.success('Profile exported');
     } catch {
-      toast.error('Failed to export profile');
+      toast.error('Não foi possível exportar o perfil');
     }
   };
 
@@ -252,7 +252,7 @@ export function ProfilePage() {
       loadAllData();
       toast.success('Profile imported');
     } catch {
-      toast.error('Failed to import profile');
+      toast.error('Não foi possível importar o perfil');
     }
   };
 
@@ -707,7 +707,7 @@ export function ProfilePage() {
                 onRemove={(tag) =>
                   setEditable({ ...editable, hobbies: editable.hobbies.filter((t) => t !== tag) })
                 }
-                placeholder="Add a hobby and press Enter..."
+                placeholder="Digite um hobby e pressione Enter..."
                 color="primary"
               />
             </SectionCard>
@@ -719,7 +719,7 @@ export function ProfilePage() {
                 onRemove={(tag) =>
                   setEditable({ ...editable, skills: editable.skills.filter((t) => t !== tag) })
                 }
-                placeholder="Add a skill and press Enter..."
+                placeholder="Digite uma habilidade e pressione Enter..."
                 color="success"
               />
             </SectionCard>
@@ -869,7 +869,7 @@ export function ProfilePage() {
                   type="text"
                   value={newInstruction}
                   onChange={(e) => setNewInstruction(e.target.value)}
-                  placeholder="Add a custom instruction..."
+                  placeholder="Adicione uma instrução personalizada..."
                   className="flex-1 px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                   onKeyDown={(e) => e.key === 'Enter' && addInstruction()}
                 />
@@ -906,7 +906,7 @@ export function ProfilePage() {
                   type="text"
                   value={newBoundary}
                   onChange={(e) => setNewBoundary(e.target.value)}
-                  placeholder="Add a boundary..."
+                  placeholder="Adicione uma regra de comportamento..."
                   className="flex-1 px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                   onKeyDown={(e) => e.key === 'Enter' && addBoundary()}
                 />

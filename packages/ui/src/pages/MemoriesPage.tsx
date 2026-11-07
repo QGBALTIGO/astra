@@ -184,8 +184,8 @@ export function MemoriesPage() {
               { icon: Heart, color: 'text-violet-500 bg-violet-500/10' },
               { icon: Search, color: 'text-emerald-500 bg-emerald-500/10' },
             ]}
-            title="Your AI's Long-Term Memory"
-            subtitle="Memories let your AI remember facts, preferences, and context across conversations — so it gets better over time."
+            title="Memórias do Astra"
+            subtitle="Guarde informações, preferências e detalhes importantes para suas conversas."
             cta={{ label: 'Ver memórias', icon: Brain, onClick: () => setActiveTab('memories') }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
@@ -254,7 +254,7 @@ export function MemoriesPage() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search memories..."
+                  placeholder="Buscar memórias..."
                   className="w-full pl-10 pr-4 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
@@ -269,16 +269,16 @@ export function MemoriesPage() {
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-text-muted dark:text-dark-text-muted" />
               <select
-                aria-label="Filter by memory type"
+                aria-label="Filtrar memórias por tipo"
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value as Memory['type'] | 'all')}
                 className="px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
                 <option value="all">All Types</option>
-                <option value="fact">Facts</option>
-                <option value="preference">Preferences</option>
-                <option value="conversation">Conversations</option>
-                <option value="event">Events</option>
+                <option value="fact">Fatos</option>
+                <option value="preference">Preferências</option>
+                <option value="conversation">Conversas</option>
+                <option value="event">Eventos</option>
               </select>
             </div>
           </div>
@@ -290,7 +290,7 @@ export function MemoriesPage() {
             ) : error ? (
               <EmptyState
                 icon={AlertTriangle}
-                title="Failed to load memories"
+                title="Não foi possível carregar as memórias"
                 description={error}
                 variant="card"
                 action={{
@@ -467,7 +467,7 @@ function MemoryModal({ memory, onClose, onSave }: MemoryModalProps) {
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="What should the AI remember?"
+                placeholder="O que o Astra deve lembrar?"
                 rows={4}
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
                 autoFocus
@@ -485,9 +485,9 @@ function MemoryModal({ memory, onClose, onSave }: MemoryModalProps) {
                   className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
                   <option value="fact">Fact</option>
-                  <option value="preference">Preference</option>
-                  <option value="event">Event</option>
-                  <option value="conversation">Conversation</option>
+                  <option value="preference">Preferência</option>
+                  <option value="event">Evento</option>
+                  <option value="conversation">Conversa</option>
                 </select>
               </div>
 

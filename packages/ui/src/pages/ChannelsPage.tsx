@@ -172,7 +172,7 @@ export function ChannelsPage() {
         toast.success('Channel connected');
         await loadChannels();
       } catch {
-        toast.error('Failed to connect channel');
+        toast.error('Não foi possível conectar o canal');
       } finally {
         setActionLoading(null);
       }
@@ -188,7 +188,7 @@ export function ChannelsPage() {
         toast.success('Channel disconnected');
         await loadChannels();
       } catch {
-        toast.error('Failed to disconnect channel');
+        toast.error('Não foi possível desconectar o canal');
       } finally {
         setActionLoading(null);
       }
@@ -212,7 +212,7 @@ export function ChannelsPage() {
         toast.success('Channel logged out (session cleared)');
         await loadChannels();
       } catch {
-        toast.error('Failed to logout channel');
+        toast.error('Não foi possível encerrar a sessão do canal');
       } finally {
         setActionLoading(null);
       }
@@ -228,7 +228,7 @@ export function ChannelsPage() {
         toast.success('Channel reconnected');
         await loadChannels();
       } catch {
-        toast.error('Failed to reconnect channel');
+        toast.error('Não foi possível reconectar o canal');
       } finally {
         setActionLoading(null);
       }
@@ -255,7 +255,7 @@ export function ChannelsPage() {
         toast.success(`Cleared ${resp.deleted} messages`);
         if (selectedId === channelId) loadDetail(channelId);
       } catch {
-        toast.error('Failed to clear messages');
+        toast.error('Não foi possível limpar as mensagens');
       } finally {
         setActionLoading(null);
       }
@@ -277,7 +277,7 @@ export function ChannelsPage() {
         }
         if (selectedId) loadDetail(selectedId);
       } catch {
-        toast.error('Failed to approve user');
+        toast.error('Não foi possível aprovar o usuário');
       }
     },
     [toast, selectedId, loadDetail]
@@ -297,7 +297,7 @@ export function ChannelsPage() {
         toast.success('User blocked');
         if (selectedId) loadDetail(selectedId);
       } catch {
-        toast.error('Failed to block user');
+        toast.error('Não foi possível bloquear o usuário');
       }
     },
     [toast, selectedId, loadDetail]
@@ -310,7 +310,7 @@ export function ChannelsPage() {
         toast.success('User unblocked');
         if (selectedId) loadDetail(selectedId);
       } catch {
-        toast.error('Failed to unblock user');
+        toast.error('Não foi possível desbloquear o usuário');
       }
     },
     [toast, selectedId, loadDetail]
@@ -327,7 +327,7 @@ export function ChannelsPage() {
         toast.success('User deleted');
         if (selectedId) loadDetail(selectedId);
       } catch {
-        toast.error('Failed to delete user');
+        toast.error('Não foi possível excluir o usuário');
       }
     },
     [toast, selectedId, loadDetail]
@@ -351,7 +351,7 @@ export function ChannelsPage() {
         toast.success('User denied');
         if (selectedId) loadDetail(selectedId);
       } catch {
-        toast.error('Failed to deny user');
+        toast.error('Não foi possível recusar o usuário');
       }
     },
     [toast, selectedId, loadDetail, selectedChannel]

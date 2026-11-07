@@ -178,8 +178,8 @@ export function NotesPage() {
             { icon: Edit2, color: 'text-emerald-500 bg-emerald-500/10' },
             { icon: Search, color: 'text-violet-500 bg-violet-500/10' },
           ]}
-          title="Quick Notes & Snippets"
-          subtitle="Capture ideas, save snippets, and jot down notes — all searchable and accessible to your AI for context."
+          title="Minhas anotações"
+          subtitle="Anote ideias, registre informações e consulte tudo com a ajuda do Astra."
           cta={{
             label: 'Criar anotação',
             icon: Plus,
@@ -242,7 +242,7 @@ export function NotesPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search notes..."
+                placeholder="Buscar anotações..."
                 className="w-full pl-10 pr-4 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div>
@@ -255,7 +255,7 @@ export function NotesPage() {
             ) : error ? (
               <EmptyState
                 icon={AlertTriangle}
-                title="Failed to load notes"
+                title="Não foi possível carregar as anotações"
                 description={error}
                 variant="card"
                 action={{
@@ -480,7 +480,7 @@ function NoteModal({ note, onClose, onSave }: NoteModalProps) {
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Note title..."
+              placeholder="Título da anotação..."
               className="w-full text-xl font-semibold text-text-primary dark:text-dark-text-primary bg-transparent border-none focus:outline-none"
               autoFocus
             />
@@ -490,7 +490,7 @@ function NoteModal({ note, onClose, onSave }: NoteModalProps) {
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Write your note..."
+              placeholder="Escreva sua anotação..."
               className="w-full h-full min-h-[300px] bg-transparent text-text-primary dark:text-dark-text-primary focus:outline-none resize-none"
             />
           </div>
@@ -501,7 +501,7 @@ function NoteModal({ note, onClose, onSave }: NoteModalProps) {
                 type="text"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                placeholder="Category..."
+                placeholder="Categoria..."
                 className="px-3 py-1 text-sm bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div>

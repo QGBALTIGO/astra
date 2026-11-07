@@ -195,8 +195,8 @@ export function CalendarPage() {
             { icon: Clock, color: 'text-emerald-500 bg-emerald-500/10' },
             { icon: Bell, color: 'text-violet-500 bg-violet-500/10' },
           ]}
-          title="Your Smart Calendar"
-          subtitle="Manage events, set reminders, and let your AI schedule meetings — all in one intelligent calendar."
+          title="Minha agenda"
+          subtitle="Organize compromissos, horários e lembretes em um só lugar."
           cta={{
             label: 'Criar compromisso',
             icon: Plus,
@@ -285,7 +285,7 @@ export function CalendarPage() {
             ) : error ? (
               <EmptyState
                 icon={AlertTriangle}
-                title="Failed to load events"
+                title="Não foi possível carregar os compromissos"
                 description={error}
                 variant="card"
                 action={{
@@ -297,8 +297,8 @@ export function CalendarPage() {
             ) : events.length === 0 ? (
               <EmptyState
                 icon={Calendar}
-                title="No events scheduled"
-                description="Your calendar is empty. Add your first event to start tracking your schedule."
+                title="Nenhum compromisso agendado"
+                description="Sua agenda está vazia. Adicione o primeiro compromisso para começar."
                 variant="card"
                 iconBgColor="bg-violet-500/10 dark:bg-violet-500/20"
                 iconColor="text-violet-500"

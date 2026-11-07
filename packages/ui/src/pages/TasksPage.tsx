@@ -200,8 +200,8 @@ export function TasksPage() {
             { icon: Clock, color: 'text-emerald-500 bg-emerald-500/10' },
             { icon: CheckCircle2, color: 'text-violet-500 bg-violet-500/10' },
           ]}
-          title="Manage Your Tasks"
-          subtitle="Track to-dos, prioritize work, and let your AI help you stay productive with smart task management."
+          title="Organize suas tarefas"
+          subtitle="Organize suas tarefas e prioridades com a ajuda do Astra."
           cta={{
             label: 'Adicionar tarefa',
             icon: Plus,
@@ -528,7 +528,7 @@ function TaskModal({ task, onClose, onSave }: TaskModalProps) {
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="What needs to be done?"
+                placeholder="O que precisa ser feito?"
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                 autoFocus
               />
@@ -572,7 +572,7 @@ function TaskModal({ task, onClose, onSave }: TaskModalProps) {
                   type="text"
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  placeholder="e.g., Work, Personal"
+                  placeholder="Ex.: Trabalho, Pessoal"
                   className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>

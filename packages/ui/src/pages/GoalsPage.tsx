@@ -195,7 +195,7 @@ export function GoalsPage() {
               { icon: CheckCircle2, color: 'text-emerald-500 bg-emerald-500/10' },
               { icon: Star, color: 'text-violet-500 bg-violet-500/10' },
             ]}
-            title="Set and Track Goals"
+            title="Meus objetivos"
             subtitle="Define personal or professional goals, track milestones, and let your AI help you stay on track with reminders and suggestions."
             cta={{ label: 'Ver objetivos', icon: Target, onClick: () => setActiveTab('goals') }}
             skipHomeChecked={skipHome}
@@ -276,7 +276,7 @@ export function GoalsPage() {
             ) : error ? (
               <EmptyState
                 icon={AlertTriangle}
-                title="Failed to load goals"
+                title="Não foi possível carregar os objetivos"
                 description={error}
                 variant="card"
                 action={{
@@ -455,7 +455,7 @@ function GoalItem({ goal, isExpanded, onToggle, onEdit, onDelete, onStatusChange
             <button
               onClick={() => onStatusChange('completed')}
               className="p-1 text-text-muted dark:text-dark-text-muted hover:text-success transition-colors"
-              title="Mark complete"
+              title="Marcar como concluído"
               aria-label="Concluir objetivo"
             >
               <CheckCircle2 className="w-4 h-4" />
@@ -465,8 +465,8 @@ function GoalItem({ goal, isExpanded, onToggle, onEdit, onDelete, onStatusChange
             <button
               onClick={() => onStatusChange('paused')}
               className="p-1 text-text-muted dark:text-dark-text-muted hover:text-warning transition-colors"
-              title="Pause"
-              aria-label="Pause goal"
+              title="Pausar"
+              aria-label="Pausar objetivo"
             >
               <Pause className="w-4 h-4" />
             </button>
@@ -475,8 +475,8 @@ function GoalItem({ goal, isExpanded, onToggle, onEdit, onDelete, onStatusChange
             <button
               onClick={() => onStatusChange('active')}
               className="p-1 text-text-muted dark:text-dark-text-muted hover:text-primary transition-colors"
-              title="Resume"
-              aria-label="Resume goal"
+              title="Retomar"
+              aria-label="Retomar objetivo"
             >
               <Target className="w-4 h-4" />
             </button>
@@ -608,7 +608,7 @@ function GoalModal({ goal, onClose, onSave }: GoalModalProps) {
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="What do you want to achieve?"
+                placeholder="Qual objetivo deseja alcançar?"
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                 autoFocus
               />
