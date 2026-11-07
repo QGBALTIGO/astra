@@ -93,6 +93,24 @@ import {
 
 const log = getLog('AgentService');
 
+/**
+ * Frequent personal-assistant intents can call these tools directly, avoiding
+ * extra model round trips for search_tools + get_tool_help + use_tool.
+ * Everything else remains available through meta-tool discovery.
+ */
+const FAST_CHANNEL_TOOLS = [
+  'core.schedule_channel_reminder',
+  'core.list_channel_reminders',
+  'core.cancel_channel_reminder',
+  'core.add_expense',
+  'core.query_expenses',
+  'core.expense_summary',
+  'core.add_calendar_event',
+  'core.list_calendar_events',
+  'core.add_task',
+  'core.list_tasks',
+] as const;
+
 // =============================================================================
 // CLI Provider Correlation (links MCP tool calls to chat SSE streams)
 // =============================================================================
@@ -584,7 +602,10 @@ async function createChatAgentInstance(
   // Extension sections are now injected per-request by the context-injection middleware
   // based on routing decisions from the request-preprocessor middleware.
 
-  const chatMetaToolFilter = AI_META_TOOL_NAMES.map((n) => unsafeToolId(n));
+  const chatMetaToolFilter = [
+    ...AI_META_TOOL_NAMES,
+    ...(channelMode ? FAST_CHANNEL_TOOLS : []),
+  ].map((name) => unsafeToolId(name));
 
   const router = getLLMRouter();
   const ctxWindow = router.getContextWindow(provider, model);
