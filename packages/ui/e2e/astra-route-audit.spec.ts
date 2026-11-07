@@ -68,7 +68,7 @@ const widths = [
   { device: 'desktop', width: 1440, height: 900 },
 ];
 const english =
-  /^(Welcome|Getting Started|New Chat|Settings|Tools|Search|Save|Cancel|Add|Delete|Loading|Refresh|For you|Examples|No results|Try again|Coming soon|Sign In|Dashboard|Overview|Next|Previous|Configure API Keys|Select a.*|Choose a.*|Create [A-Z].*|No [A-Z].*|Your [A-Z].*)$/i;
+  /^(Welcome|Getting Started|New Chat|Settings|Tools|Search|Save|Cancel|Add|Delete|Loading|Refresh|For you|Examples|No results|Try again|Coming soon|Sign In|Dashboard|Overview|Next|Previous|Configure API Keys|Select a.*|Choose a.*|Create [A-Z].*|No [A-Z].*|Your [A-Z].*|AI Daily Briefing|AI Briefing Unavailable|Suggested Focus Areas|Today.s Priorities|No claws|Create one|Code Execution|Tool Calls|Generated at.*|Today you have.*|AI briefing generation is.*|Complete your most urgent tasks.*)$/i;
 
 test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
   test.setTimeout(25 * 60 * 1000);
@@ -157,7 +157,7 @@ test('Auditoria integral de rotas Astra em 3 tamanhos', async () => {
           };
           const labels = Array.from(
             document.querySelectorAll(
-              '#root h1,#root h2,#root h3,#root button,#root label,#root [role=tab],#root nav a'
+              '#root h1,#root h2,#root h3,#root button,#root label,#root [role=tab],#root nav a,#main-content p,#main-content li'
             )
           )
             .filter(isVisible)
