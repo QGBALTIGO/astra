@@ -159,7 +159,7 @@ export function DashboardPage() {
         {
           label: 'Tarefas pendentes',
           value: summary.tasks.pending,
-          sub: summary.tasks.overdue > 0 ? `${summary.tasks.overdue} overdue` : undefined,
+          sub: summary.tasks.overdue > 0 ? `${summary.tasks.overdue} em atraso` : undefined,
           icon: CheckCircle2,
           color: 'text-primary',
           bgColor: 'bg-primary/10',
@@ -224,7 +224,7 @@ export function DashboardPage() {
                   habits.totalToday > 0
                     ? `${habits.completedToday}/${habits.totalToday} hoje`
                     : habits.bestStreak > 0
-                      ? `${habits.bestStreak}d streak`
+                      ? `${habits.bestStreak} dias de sequência`
                       : undefined,
                 icon: Repeat,
                 color: 'text-emerald-500',
@@ -240,7 +240,7 @@ export function DashboardPage() {
                 label: 'Despesas',
                 value: expenses.total,
                 sub:
-                  expenses.thisMonth > 0 ? `${expenses.thisMonth.toFixed(0)} neste mês` : undefined,
+                  expenses.thisMonth > 0 ? `${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(expenses.thisMonth)} neste mês` : undefined,
                 icon: Receipt,
                 color: 'text-orange-500',
                 bgColor: 'bg-orange-500/10',
@@ -261,7 +261,7 @@ export function DashboardPage() {
           "Welcome" tile pointing to changelog. */}
       <Link
         to="/mission-control"
-        className="block p-4 rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 to-purple-500/10 hover:border-primary/60 transition-colors group"
+        className="group block rounded-2xl border border-primary/20 bg-primary/5 p-4 transition-colors hover:border-primary/50 dark:bg-primary/10"
       >
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
@@ -288,12 +288,12 @@ export function DashboardPage() {
       <AIBriefingCard />
 
       {/* Stats Grid — 5 cards, responsive */}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {stats.map((stat) => (
           <Link
             key={stat.label}
             to={stat.link}
-            className={`card-elevated card-hover p-4 bg-bg-secondary dark:bg-dark-bg-secondary border rounded-xl transition-colors ${
+            className={`astra-stat-card card-elevated card-hover border bg-bg-secondary p-4 transition-colors dark:bg-dark-bg-secondary sm:p-5 ${
               stat.alert
                 ? 'border-error/40 hover:border-error'
                 : 'border-border dark:border-dark-border hover:border-primary'
@@ -306,7 +306,7 @@ export function DashboardPage() {
                 <stat.icon className={`w-5 h-5 ${stat.color}`} />
               </div>
               <div className="min-w-0">
-                <p className="text-xl font-bold text-text-primary dark:text-dark-text-primary leading-tight">
+                <p className="text-2xl font-bold leading-tight tracking-tight text-text-primary dark:text-dark-text-primary">
                   {stat.value}
                 </p>
                 <p className="text-xs text-text-muted dark:text-dark-text-muted truncate">
@@ -436,8 +436,7 @@ export function DashboardPage() {
                 </Link>
               </div>
               <p className="text-sm text-text-muted dark:text-dark-text-muted">
-                {summary.calendar.upcoming} event{summary.calendar.upcoming !== 1 ? 's' : ''} coming
-                up this week
+                {summary.calendar.upcoming} {summary.calendar.upcoming === 1 ? 'compromisso previsto' : 'compromissos previstos'} para esta semana
               </p>
             </div>
           )}
@@ -451,17 +450,17 @@ export function DashboardPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-                    Capture a thought
+                    Registrar uma ideia
                   </p>
                   <p className="text-xs text-text-muted dark:text-dark-text-muted">
-                    Quickly save ideas, snippets, or reminders
+                    Guarde ideias, anotações ou lembretes em poucos segundos.
                   </p>
                 </div>
                 <button
                   onClick={() => setQuickAddType('capture')}
                   className="ml-auto px-3 py-1.5 text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-500/20 transition-colors"
                 >
-                  Capture
+                  Registrar
                 </button>
               </div>
             </div>
