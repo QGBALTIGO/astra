@@ -105,13 +105,13 @@ export function WorkspaceSelector({
       >
         {isLoading ? (
           <span className="text-text-muted dark:text-dark-text-muted animate-pulse">
-            Loading...
+            Carregando...
           </span>
         ) : (
           <>
             <HardDrive className="w-4 h-4 text-text-muted dark:text-dark-text-muted" />
             <span className="font-medium text-text-primary dark:text-dark-text-primary max-w-[120px] truncate">
-              {selectedWorkspace?.name ?? 'No Workspace'}
+              {selectedWorkspace?.name ?? 'Sem espaço selecionado'}
             </span>
             {selectedWorkspace?.storageUsage && (
               <span className="text-text-muted dark:text-dark-text-muted text-xs">
@@ -134,7 +134,7 @@ export function WorkspaceSelector({
       {showMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-          <div className="absolute top-full left-0 mt-1 w-80 bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
+          <div className="fixed inset-x-3 top-16 z-50 max-h-96 overflow-y-auto rounded-lg border border-border bg-bg-primary shadow-lg dark:border-dark-border dark:bg-dark-bg-primary sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1 sm:w-80">
             {/* Header */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-border dark:border-dark-border">
               <span className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
@@ -284,7 +284,7 @@ export function WorkspaceSelector({
             className="fixed inset-0 bg-black/50 z-50"
             onClick={() => setShowCreateModal(false)}
           />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg shadow-xl z-50 p-4">
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-sm bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg shadow-xl z-50 p-4">
             <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-4">
               Create New Workspace
             </h3>
