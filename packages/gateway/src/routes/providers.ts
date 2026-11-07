@@ -280,7 +280,8 @@ app.get('/', async (c) => {
     vllm: '#f97316',
     custom: '#666666',
   };
-  const dbLocalProviders = await localProvidersRepo.listProviders();
+  const dbLocalProviders =
+    process.env.ASTRA_ONLY_GROQ === 'true' ? [] : await localProvidersRepo.listProviders();
   for (const lp of dbLocalProviders) {
     if (!lp.isEnabled) continue;
     const localModels = await localProvidersRepo.listModels(undefined, lp.id);
@@ -312,7 +313,7 @@ app.get('/', async (c) => {
   }
 
   // Include CLI chat providers (Claude CLI, Codex CLI, Gemini CLI)
-  const cliChatProviders = detectCliChatProviders();
+  const cliChatProviders = process.env.ASTRA_ONLY_GROQ === 'true' ? [] : detectCliChatProviders();
   const cliProviderColors: Record<string, string> = {
     'cli-claude': '#d4a27f',
     'cli-codex': '#10a37f',
@@ -349,7 +350,7 @@ app.get('/', async (c) => {
 
   return apiResponse(c, {
     providers,
-    categories: PROVIDER_CATEGORIES,
+    categories: process.env.ASTRA_ONLY_GROQ === 'true' ? { Popular: ['groq'] } : PROVIDER_CATEGORIES,
     total: providers.length,
   });
 });

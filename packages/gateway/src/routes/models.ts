@@ -121,7 +121,7 @@ app.get('/', async (c) => {
 
   const allModels: ModelInfo[] = [];
   const configuredProviders: string[] = [];
-  const availableProviders = getAvailableProviders();
+  const availableProviders = process.env.ASTRA_ONLY_GROQ === 'true' ? ['groq'] : getAvailableProviders();
 
   // Get disabled models for filtering
   const disabledModels = enabledOnly
@@ -144,7 +144,8 @@ app.get('/', async (c) => {
   }
 
   // Include models from local providers (LM Studio, Ollama, bridge-*, etc.)
-  const localProviders = await localProvidersRepo.listProviders();
+  const localProviders =
+    process.env.ASTRA_ONLY_GROQ === 'true' ? [] : await localProvidersRepo.listProviders();
   for (const lp of localProviders) {
     if (!lp.isEnabled) continue;
     configuredProviders.push(lp.id);
@@ -191,7 +192,7 @@ app.get('/', async (c) => {
   // Include CLI chat providers (Claude CLI, Codex CLI, Gemini CLI)
   // CLI providers don't expose model selection — they use their own default model.
   // We only register them as configured providers so they appear in the provider dropdown.
-  const cliChatProviders = detectCliChatProviders();
+  const cliChatProviders = process.env.ASTRA_ONLY_GROQ === 'true' ? [] : detectCliChatProviders();
   for (const cli of cliChatProviders) {
     if (!cli.installed) continue;
     configuredProviders.push(cli.id);
