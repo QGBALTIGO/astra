@@ -212,6 +212,7 @@ vi.mock('../../tools/agent-tool-registry.js', () => ({
   EVENT_TOOLS: [],
   SOUL_COMMUNICATION_TOOLS: [],
   DYNAMIC_TOOL_DEFINITIONS: [],
+  CHANNEL_REMINDER_TOOLS: [],
 }));
 
 // Cache maps that we control from tests
@@ -1343,8 +1344,15 @@ describe('getOrCreateChatAgent', () => {
     );
 
     const config = mockCreateAgent.mock.calls.at(-1)?.[0] as
-      { model: { maxTokens: number }; systemPrompt: string } | undefined;
+      { model: { maxTokens: number }; systemPrompt: string; tools: string[] } | undefined;
     expect(config?.model.maxTokens).toBe(768);
+    expect(mockInjectMemoryIntoPrompt).toHaveBeenCalledWith(
+      expect.stringContaining('português do Brasil'),
+      expect.objectContaining({ includeToolDescriptions: false })
+    );
+    expect(config?.tools).toEqual(
+      expect.arrayContaining(['core.schedule_channel_reminder', 'core.add_expense'])
+    );
     expect(config?.systemPrompt).toContain('Astra');
     expect(config?.systemPrompt).toContain('português do Brasil');
     expect(
