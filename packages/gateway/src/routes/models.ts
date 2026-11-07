@@ -121,7 +121,8 @@ app.get('/', async (c) => {
 
   const allModels: ModelInfo[] = [];
   const configuredProviders: string[] = [];
-  const availableProviders = process.env.ASTRA_ONLY_GROQ === 'true' ? ['groq'] : getAvailableProviders();
+  const availableProviders =
+    process.env.ASTRA_ONLY_GROQ === 'true' ? ['groq'] : getAvailableProviders();
 
   // Get disabled models for filtering
   const disabledModels = enabledOnly

@@ -350,7 +350,8 @@ app.get('/', async (c) => {
 
   return apiResponse(c, {
     providers,
-    categories: process.env.ASTRA_ONLY_GROQ === 'true' ? { Popular: ['groq'] } : PROVIDER_CATEGORIES,
+    categories:
+      process.env.ASTRA_ONLY_GROQ === 'true' ? { Popular: ['groq'] } : PROVIDER_CATEGORIES,
     total: providers.length,
   });
 });
