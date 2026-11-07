@@ -679,14 +679,18 @@ function HabitDetailPanel({
             <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
               {habit.streakLongest}
             </div>
-            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Melhor sequência</div>
+            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">
+              Melhor sequência
+            </div>
           </div>
           <div className="text-center p-3 rounded-lg bg-primary/10">
             <div className="flex items-center justify-center gap-1 text-primary mb-1">
               <Target className="w-4 h-4" />
             </div>
             <div className="text-xl font-bold text-primary">{habit.totalCompletions}</div>
-            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Total concluído</div>
+            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">
+              Total concluído
+            </div>
           </div>
           <div className="text-center p-3 rounded-lg bg-violet-500/10">
             <div className="flex items-center justify-center gap-1 text-violet-600 dark:text-violet-400 mb-1">
