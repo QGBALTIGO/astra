@@ -1,0 +1,65 @@
+name: Format Astra review branch once
+on:
+  push:
+    branches:
+      - fix/astra-edge-ui-regression-20261107
+    paths:
+      - .github/workflows/astra-pr-format-once.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    # Run only from the explicit branch in this repository, never a fork.
+    if: github.repository == 'QGBALTIGO/astra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/astra-edge-ui-regression-20261107
+          persist-credentials: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Normalize files identified by the CI formatter
+        run: >-
+          pnpm exec prettier --write
+          docs/ASTRA_OPEN_SOURCE_BRAZIL_2026-11-07.md
+          packages/core/src/agent/retry.test.ts
+          packages/core/src/agent/retry.ts
+          packages/core/src/agent/tools/file-security.ts
+          packages/core/src/agent/tools/file-security.test.ts
+          packages/ui/src/components/DeviceCard.tsx
+          packages/ui/src/components/DeviceDetailDrawer.tsx
+          packages/ui/src/components/EdgeDevicesOnboarding.tsx
+          packages/ui/src/components/RegisterDeviceModal.tsx
+          packages/ui/src/pages/DashboardPage.tsx
+          packages/ui/src/pages/EdgeDevicesPage.tsx
+          packages/ui/src/pages/GoalsPage.tsx
+          packages/ui/src/pages/NotesPage.tsx
+      - name: Commit deterministic formatting
+        run: |
+          git add docs/ASTRA_OPEN_SOURCE_BRAZIL_2026-11-07.md \
+            packages/core/src/agent/retry.test.ts \
+            packages/core/src/agent/retry.ts \
+            packages/core/src/agent/tools/file-security.ts \
+            packages/core/src/agent/tools/file-security.test.ts \
+            packages/ui/src/components/DeviceCard.tsx \
+            packages/ui/src/components/DeviceDetailDrawer.tsx \
+            packages/ui/src/components/EdgeDevicesOnboarding.tsx \
+            packages/ui/src/components/RegisterDeviceModal.tsx \
+            packages/ui/src/pages/DashboardPage.tsx \
+            packages/ui/src/pages/EdgeDevicesPage.tsx \
+            packages/ui/src/pages/GoalsPage.tsx \
+            packages/ui/src/pages/NotesPage.tsx
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "style(astra): normalize formatting identified by CI"
+            git push origin HEAD:fix/astra-edge-ui-regression-20261107
+          fi
