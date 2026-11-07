@@ -1,0 +1,55 @@
+name: Import OwnPilot upstream into Astra
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/import-ownpilot.yml"
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Astra
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Import exact upstream revision
+        shell: bash
+        env:
+          UPSTREAM_SHA: eb4c27f29d4d12778621a83e49cd673cd8b62239
+        run: |
+          set -euo pipefail
+          src="$(mktemp -d)"
+          git -C "$src" init -q
+          git -C "$src" remote add origin https://github.com/ownpilot/OwnPilot.git
+          git -C "$src" fetch --depth=1 origin "$UPSTREAM_SHA"
+          git -C "$src" checkout --detach -q FETCH_HEAD
+          actual="$(git -C "$src" rev-parse HEAD)"
+          test "$actual" = "$UPSTREAM_SHA"
+          rsync -a --delete --exclude=.git "$src/" ./
+          cat > ASTRA_UPSTREAM.md <<EOF
+          # Astra — upstream OwnPilot
+
+          Este repositório importa o código-fonte original de [OwnPilot](https://github.com/ownpilot/OwnPilot) para avaliação e testes independentes.
+
+          - Upstream: `ownpilot/OwnPilot`
+          - Revisão importada: `$UPSTREAM_SHA`
+          - Licença original: MIT (ver `LICENSE`)
+          - Alterações no código do upstream durante a importação: nenhuma.
+
+          Para uso, siga o README e a documentação originais. Não publique credenciais, arquivos `.env`, sessões WhatsApp ou dados pessoais neste repositório.
+          EOF
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nada a importar."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: import OwnPilot upstream at ${UPSTREAM_SHA:0:12}"
+          git push origin HEAD:main
