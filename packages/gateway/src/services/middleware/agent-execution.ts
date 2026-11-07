@@ -20,14 +20,7 @@ const log = getLog('Middleware:AgentExecution');
  */
 function userFacingAgentError(message: NormalizedMessage, details: string): string {
   const source = message.metadata?.source;
-  const isChannel =
-    source === 'channel' ||
-    source === 'telegram' ||
-    source === 'whatsapp' ||
-    source === 'discord' ||
-    source === 'slack' ||
-    source === 'matrix' ||
-    source === 'sms';
+  const isChannel = source === 'channel';
   return isChannel
     ? 'Não consegui processar sua mensagem agora. Tente novamente em instantes.'
     : `Error: ${details}`;
