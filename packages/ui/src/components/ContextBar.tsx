@@ -25,9 +25,9 @@ function getFillTextColor(percent: number): string {
 }
 
 function getContextStatus(percent: number): string {
-  if (percent >= 85) return 'Near limit';
-  if (percent >= 65) return 'Getting full';
-  return 'Healthy';
+  if (percent >= 85) return 'Próximo do limite';
+  if (percent >= 65) return 'Uso elevado';
+  return 'Normal';
 }
 
 export function ContextBar({
@@ -56,28 +56,28 @@ export function ContextBar({
   const remainingTokens = Math.max(0, maxContextTokens - estimatedTokens);
   const cachedTokens = sessionInfo?.cachedTokens;
   const status = getContextStatus(contextFillPercent);
-  const detailTitle = `${status}: ${formatNumber(estimatedTokens)} used, ${formatNumber(
+  const detailTitle = `${status}: ${formatNumber(estimatedTokens)} usados, ${formatNumber(
     remainingTokens
-  )} remaining of ${formatNumber(maxContextTokens)} tokens`;
+  )} disponíveis de ${formatNumber(maxContextTokens)} tokens`;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-1.5 bg-bg-secondary dark:bg-dark-bg-secondary border-b border-border dark:border-dark-border text-xs">
+    <div className="flex min-w-0 items-center gap-2 border-b border-border bg-bg-secondary px-3 py-2 text-xs dark:border-dark-border dark:bg-dark-bg-secondary sm:gap-3 sm:px-4 sm:py-1.5">
       {/* Message count */}
       <span className="text-text-secondary dark:text-dark-text-secondary whitespace-nowrap">
-        {messageCount} msgs
+        {messageCount} mensagens
       </span>
 
       {/* Token progress bar — clickable for detail */}
       <button
         onClick={onShowDetail}
-        className="flex items-center gap-2 flex-1 min-w-0 group"
+        className="group flex min-w-0 flex-1 items-center gap-2"
         title={detailTitle}
-        aria-label={`Open context breakdown. ${detailTitle}`}
+        aria-label={`Mostrar detalhes do contexto. ${detailTitle}`}
       >
         <div
           className="flex-1 h-1.5 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-full overflow-hidden group-hover:h-2 transition-all"
           role="progressbar"
-          aria-label="Context window usage"
+          aria-label="Uso do contexto"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={contextFillPercent}
@@ -87,7 +87,7 @@ export function ContextBar({
             style={{ width: `${contextFillPercent}%` }}
           />
         </div>
-        <span className="text-text-secondary dark:text-dark-text-secondary whitespace-nowrap group-hover:text-text-primary dark:group-hover:text-dark-text-primary transition-colors">
+        <span className="hidden whitespace-nowrap text-text-secondary transition-colors group-hover:text-text-primary dark:text-dark-text-secondary dark:group-hover:text-dark-text-primary sm:inline">
           {formatNumber(estimatedTokens)} / {formatNumber(maxContextTokens)}
         </span>
       </button>
@@ -102,14 +102,14 @@ export function ContextBar({
         {contextFillPercent}%
       </span>
       <span className="hidden lg:inline text-text-tertiary dark:text-dark-text-tertiary whitespace-nowrap">
-        {formatNumber(remainingTokens)} left
+        {formatNumber(remainingTokens)} restantes
       </span>
       {cachedTokens != null && cachedTokens > 0 && (
         <span
-          className="text-text-tertiary dark:text-dark-text-tertiary whitespace-nowrap"
+          className="hidden whitespace-nowrap text-text-tertiary dark:text-dark-text-tertiary sm:inline"
           title={`${formatNumber(cachedTokens)} tokens served from prompt cache (≈10% of normal cost)`}
         >
-          {formatNumber(cachedTokens)} cached
+          {formatNumber(cachedTokens)} em cache
           {estimatedTokens > 0 && (
             <span className="ml-1 opacity-70">
               ({Math.min(100, Math.round((cachedTokens / estimatedTokens) * 100))}%)
@@ -120,22 +120,22 @@ export function ContextBar({
       {isCompacting && (
         <span
           className="flex items-center gap-1 text-text-secondary dark:text-dark-text-secondary whitespace-nowrap"
-          title="Compacting older messages into a summary"
+          title="Resumindo mensagens anteriores"
         >
           <RefreshCw className="w-3 h-3 animate-spin" />
-          Compacting…
+          Resumindo…
         </span>
       )}
 
       {/* New Session button */}
       <button
         onClick={onNewSession}
-        className="flex items-center gap-1 px-2 py-1 text-text-secondary dark:text-dark-text-secondary hover:text-primary dark:hover:text-primary rounded transition-colors"
-        title="Start new session"
-        aria-label="Start new chat session"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-primary dark:text-dark-text-secondary dark:hover:bg-dark-bg-tertiary sm:h-auto sm:w-auto sm:px-2 sm:py-1"
+        title="Nova conversa"
+        aria-label="Iniciar nova conversa"
       >
         <Plus className="w-3 h-3" />
-        <span className="hidden sm:inline">New</span>
+        <span className="hidden sm:inline">Nova</span>
       </button>
     </div>
   );
