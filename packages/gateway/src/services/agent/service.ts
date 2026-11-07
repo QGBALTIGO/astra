@@ -56,6 +56,7 @@ import {
   EVENT_TOOLS,
   SOUL_COMMUNICATION_TOOLS,
   DYNAMIC_TOOL_DEFINITIONS,
+  CHANNEL_REMINDER_TOOLS,
 } from '../../tools/agent-tool-registry.js';
 import {
   NATIVE_PROVIDERS,
@@ -193,6 +194,7 @@ async function createAgentFromRecord(record: AgentRecord): Promise<Agent> {
   // These tools ALWAYS bypass toolGroup filtering:
   const alwaysIncludedToolDefs = [
     ...DYNAMIC_TOOL_DEFINITIONS,
+    ...CHANNEL_REMINDER_TOOLS,
     ...activeCustomToolDefs,
     ...pluginToolDefs,
     ...extensionToolDefs,
@@ -546,6 +548,7 @@ async function createChatAgentInstance(
   ];
   const chatAlwaysIncluded = [
     ...DYNAMIC_TOOL_DEFINITIONS,
+    ...CHANNEL_REMINDER_TOOLS,
     ...activeCustomToolDefs,
     ...pluginToolDefs,
     ...extensionToolDefs,
@@ -573,7 +576,9 @@ async function createChatAgentInstance(
     includeProfile: true,
     includeInstructions: true,
     includeTimeContext: true,
-    includeToolDescriptions: !isCliProvider, // CLI doesn't need tool descriptions in prompt
+    // Channel models discover tools through the four meta functions; injecting
+    // every full tool schema burns thousands of Groq TPM on each short message.
+    includeToolDescriptions: !isCliProvider && !channelMode,
   });
 
   // Extension sections are now injected per-request by the context-injection middleware
