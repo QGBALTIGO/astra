@@ -36,6 +36,9 @@ import {
   DEFAULT_PROVIDER_KEY,
   DEFAULT_MODEL_KEY,
   TOOL_GROUPS_KEY,
+  getConfiguredProviderIds,
+  getDefaultProvider,
+  getDefaultModel,
   getAllowedDirs,
   setAllowedDirs,
   getSandboxSettings,
@@ -68,7 +71,6 @@ export {
  * Get current settings (without exposing actual keys)
  */
 settingsRoutes.get('/', async (c) => {
-  const apiKeySettings = await settingsRepo.getByPrefix(API_KEY_PREFIX);
   const configuredProviders = [...(await getConfiguredProviderIds())];
 
   const localProviders = await localProvidersRepo.listProviders();
