@@ -34,6 +34,9 @@ const CRITICAL_TABLES = [
   'triggers',
   'custom_table_schemas',
   'user_extensions',
+  // Financial tables must exist on fresh installs and after upgrades.
+  'expenses',
+  'usage_records',
 ];
 
 async function main(): Promise<void> {

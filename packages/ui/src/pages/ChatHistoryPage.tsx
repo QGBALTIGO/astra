@@ -358,7 +358,7 @@ export function ChatHistoryPage() {
     async (id: string) => {
       const ok = await confirm({
         title: 'Excluir conversa',
-        message: 'This conversation will be permanently deleted. This action cannot be undone.',
+        message: 'Esta conversa será excluída permanentemente. Esta ação não pode ser desfeita.',
         confirmText: 'Excluir',
         variant: 'danger',
       });
@@ -489,7 +489,7 @@ export function ChatHistoryPage() {
     setShowCleanupMenu(false);
     const ok = await confirm({
       title: 'Excluir todas as conversas',
-      message: 'Delete ALL conversations? This cannot be undone.',
+      message: 'Excluir todas as conversas? Essa ação não pode ser desfeita.',
       confirmText: 'Excluir todas',
       variant: 'danger',
     });
@@ -648,7 +648,7 @@ export function ChatHistoryPage() {
                 icon: History,
                 color: 'text-primary bg-primary/10',
                 title: 'Full History',
-                description: 'Complete archive of all your conversations.',
+                description: 'Acesse o histórico completo das suas conversas.',
               },
               {
                 icon: Search,

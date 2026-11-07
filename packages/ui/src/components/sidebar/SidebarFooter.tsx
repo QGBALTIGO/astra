@@ -10,10 +10,10 @@ const CONNECTION_STYLES: Record<
   ConnectionStatus,
   { color: string; pulse: boolean; label: string }
 > = {
-  connected: { color: 'bg-success', pulse: false, label: 'Connected' },
-  connecting: { color: 'bg-warning', pulse: true, label: 'Connecting...' },
-  disconnected: { color: 'bg-error', pulse: false, label: 'Disconnected' },
-  error: { color: 'bg-error', pulse: false, label: 'Connection Error' },
+  connected: { color: 'bg-success', pulse: false, label: 'Conectado' },
+  connecting: { color: 'bg-warning', pulse: true, label: 'Conectando...' },
+  disconnected: { color: 'bg-error', pulse: false, label: 'Desconectado' },
+  error: { color: 'bg-error', pulse: false, label: 'Erro de conexão' },
 };
 
 function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
@@ -44,7 +44,7 @@ export function SidebarFooter({ wsStatus }: SidebarFooterProps) {
         <button
           onClick={() => logout()}
           className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs text-text-muted dark:text-dark-text-muted hover:bg-error/10 hover:text-error transition-colors"
-          title="Log out"
+          title="Sair da conta"
         >
           <LogOut className="w-3.5 h-3.5 shrink-0" />
           <span className="flex-1 text-left">Sair</span>

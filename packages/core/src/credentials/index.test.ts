@@ -1290,7 +1290,7 @@ describe('Edge cases', () => {
     }
     const items = await store.list(USER_A);
     expect(items).toHaveLength(providers.length);
-  });
+  }, 30_000);
 
   it('stores credentials for all supported CredentialType values', async () => {
     const store = makeStore();

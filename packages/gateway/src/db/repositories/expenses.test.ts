@@ -82,7 +82,7 @@ describe('ExpensesRepository', () => {
         'user-1',
         '2026-01-15',
         12.5,
-        'TRY', // default currency
+        'BRL', // default currency
         'other', // default category
         'Lunch',
         null, // paymentMethod default
