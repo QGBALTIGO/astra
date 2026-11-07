@@ -280,6 +280,27 @@ describe('createAgentExecutionMiddleware', () => {
       expect(result.warnings).toEqual(['Agent error: Rate limit exceeded']);
     });
 
+    it('does not expose an over-128-tools provider error to WhatsApp or Telegram users', async () => {
+      const rawError =
+        'OpenAI API error: 400 - {"error":{"message":"tools: maximum number of items is 128"}}';
+      const agent = createAgent();
+      agent.chat.mockResolvedValue({ ok: false, error: { message: rawError } });
+      const ctx = createContext({ store: { agent, provider: 'groq', model: 'model' } });
+      const next = vi.fn().mockResolvedValue(createNextResult());
+
+      for (const source of ['channel', 'telegram', 'whatsapp']) {
+        const msg = createMessage({ metadata: { source } });
+        const result = await middleware(msg, ctx, next);
+        expect(result.response.content).toBe(
+          'Não consegui processar sua mensagem agora. Tente novamente em instantes.'
+        );
+        expect(result.response.content).not.toContain('OpenAI');
+        expect(result.response.content).not.toContain('128');
+        // Raw error is retained for internal diagnostics, never the outgoing text.
+        expect(result.response.metadata.error).toBe(rawError);
+      }
+    });
+
     it('should set error in context', async () => {
       const errObj = { message: 'Server error', stack: 'stack...' };
       const agent = createAgent();
@@ -338,6 +359,19 @@ describe('createAgentExecutionMiddleware', () => {
       expect(result.response.sessionId).toBe('sess-throw');
       expect(result.stages).toEqual(['agent-execution']);
       expect(result.warnings).toEqual(['Agent execution error: Network timeout']);
+    });
+
+    it('hides thrown provider errors from Telegram messages', async () => {
+      const agent = createAgent();
+      agent.chat.mockRejectedValue(new Error('Authorization: secret provider error'));
+      const ctx = createContext({ store: { agent } });
+      const msg = createMessage({ metadata: { source: 'telegram' } });
+      const result = await middleware(msg, ctx, vi.fn());
+
+      expect(result.response.content).toBe(
+        'Não consegui processar sua mensagem agora. Tente novamente em instantes.'
+      );
+      expect(result.response.metadata.error).toBe('Authorization: secret provider error');
     });
 
     it('should log the error', async () => {
