@@ -80,7 +80,9 @@ settingsRoutes.get('/', async (c) => {
   const localProviderIds = enabledLocalProviders.map((lp) => lp.id);
 
   const allConfiguredProviders =
-    process.env.ASTRA_ONLY_GROQ === 'true' ? configuredProviders : [...configuredProviders, ...localProviderIds];
+    process.env.ASTRA_ONLY_GROQ === 'true'
+      ? configuredProviders
+      : [...configuredProviders, ...localProviderIds];
 
   const defaultProvider = await getDefaultProvider();
   const defaultModel = await getDefaultModel(defaultProvider ?? undefined);
@@ -128,7 +130,14 @@ settingsRoutes.post('/default-provider', async (c) => {
     const body = validateBody(setDefaultProviderSchema, await c.req.json());
 
     if (process.env.ASTRA_ONLY_GROQ === 'true' && body.provider !== 'groq') {
-      return apiError(c, { code: ERROR_CODES.VALIDATION_ERROR, message: 'Astra permite somente Groq neste ambiente.' }, 400);
+      return apiError(
+        c,
+        {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: 'Astra permite somente Groq neste ambiente.',
+        },
+        400
+      );
     }
     await settingsRepo.set(DEFAULT_PROVIDER_KEY, body.provider);
 
@@ -169,7 +178,14 @@ settingsRoutes.post('/api-keys', async (c) => {
     const body = validateBody(setApiKeySchema, await c.req.json());
 
     if (process.env.ASTRA_ONLY_GROQ === 'true' && body.provider !== 'groq') {
-      return apiError(c, { code: ERROR_CODES.VALIDATION_ERROR, message: 'Astra permite somente Groq neste ambiente.' }, 400);
+      return apiError(
+        c,
+        {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: 'Astra permite somente Groq neste ambiente.',
+        },
+        400
+      );
     }
     const key = `${API_KEY_PREFIX}${body.provider}`;
     await settingsRepo.set(key, body.apiKey);

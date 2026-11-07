@@ -99,7 +99,9 @@ export async function loadApiKeysToEnvironment(): Promise<void> {
  * Get the source of an API key.
  * Returns 'database' if key exists, null otherwise.
  */
-export async function getApiKeySource(provider: string): Promise<'database' | 'environment' | null> {
+export async function getApiKeySource(
+  provider: string
+): Promise<'database' | 'environment' | null> {
   if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return null;
   if (provider === 'groq' && process.env.GROQ_API_KEY) return 'environment';
   const key = `${API_KEY_PREFIX}${provider}`;

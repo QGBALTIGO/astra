@@ -240,9 +240,7 @@ export function DashboardPage() {
                 label: 'Despesas',
                 value: expenses.total,
                 sub:
-                  expenses.thisMonth > 0
-                    ? `${expenses.thisMonth.toFixed(0)} neste mês`
-                    : undefined,
+                  expenses.thisMonth > 0 ? `${expenses.thisMonth.toFixed(0)} neste mês` : undefined,
                 icon: Receipt,
                 color: 'text-orange-500',
                 bgColor: 'bg-orange-500/10',
