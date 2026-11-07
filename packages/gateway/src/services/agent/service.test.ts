@@ -2604,6 +2604,17 @@ describe('extended branch coverage', () => {
       model: 'claude-3',
     });
     expect(result).toBe(agent);
+
+    const core = await import('@ownpilot/core');
+    expect(core.createFallbackProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fallbacks: [
+          expect.objectContaining({
+            defaultModel: { model: 'claude-3' },
+          }),
+        ],
+      })
+    );
   });
 
   it('skips fallback provider when fallback API key is not configured', async () => {
