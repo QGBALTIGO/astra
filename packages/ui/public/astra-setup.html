@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Primeiro acesso — Astra</title>
+  <link rel="stylesheet" href="/astra-setup.css" />
+  <script src="/astra-setup.js" defer></script>
+</head>
+<body>
+  <main class="panel">
+    <div class="mark" aria-hidden="true">A</div>
+    <p class="eyebrow">CONFIGURAÇÃO INICIAL</p>
+    <h1>Proteja seu Astra</h1>
+    <p class="intro">Crie a senha do painel antes de configurar a inteligência artificial, as finanças e o WhatsApp.</p>
+    <div class="hint">No projeto <strong>astra-ownpilot</strong> da Railway, abra <strong>astra-gateway → Variables</strong> e copie o valor de <code>BOOTSTRAP_TOKEN</code>. Ele não é sua senha.</div>
+    <form id="setup-form" autocomplete="off">
+      <label for="token">Token de inicialização</label>
+      <input id="token" name="token" type="password" autocomplete="off" spellcheck="false" minlength="64" required placeholder="Cole o token da Railway" />
+      <label for="password">Nova senha administrativa</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" required placeholder="Mínimo de 12 caracteres" />
+      <label for="confirm">Confirme a senha</label>
+      <input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="12" required placeholder="Repita sua senha" />
+      <button id="submit" type="submit">Criar senha e acessar</button>
+      <p id="message" role="status" aria-live="polite"></p>
+    </form>
+    <a href="/login" id="login-link">Já configurei minha senha</a>
+    <p class="footer">O token não é salvo neste navegador. Após concluir, remova BOOTSTRAP_TOKEN das variáveis para finalizar o procedimento de segurança.</p>
+  </main>
+</body>
+</html>
