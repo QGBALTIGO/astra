@@ -147,7 +147,7 @@ describe('CalendarPage view ranges (America/New_York)', () => {
 
   it('fetches the full calendar month 2026-09-01 .. 2026-09-30', async () => {
     await mount('2026-09-13T13:00:00Z');
-    await click('Month');
+    await click('Mês');
     // Buggy basis yields 2026-09-02 .. 2026-10-01: Sep 1 events never load and
     // Oct 1 events wrongly do.
     expect(lastRange()).toEqual({ startAfter: '2026-09-01', startBefore: '2026-09-30' });
@@ -157,7 +157,7 @@ describe('CalendarPage view ranges (America/New_York)', () => {
     // Day-1 fixture on purpose: from mid-month navigateDate self-cancels, so a
     // mid-month date would not exercise this helper at all.
     await mount('2026-10-01T13:00:00Z');
-    await click('Month');
+    await click('Mês');
     await click('Próximo');
     // Buggy: navigateDate('2026-10-01',...,+1) -> '2026-10-31' (UTC midnight of
     // Oct 1 is Sep 30 evening local, so getMonth() is still September), leaving
@@ -167,7 +167,7 @@ describe('CalendarPage view ranges (America/New_York)', () => {
 
   it('Previous from October 1 goes to September 2026, not August', async () => {
     await mount('2026-10-01T13:00:00Z');
-    await click('Month');
+    await click('Mês');
     await click('Anterior');
     expect(lastRange()).toEqual({ startAfter: '2026-09-01', startBefore: '2026-09-30' });
   });
@@ -177,7 +177,7 @@ describe('CalendarPage view ranges (America/New_York)', () => {
     // AFTER the fix. It is a regression guard against a localization change that
     // over-reaches into the one branch that was already correct — not a bug demo.
     await mount('2026-09-13T13:00:00Z');
-    await click('Day');
+    await click('Dia');
     expect(lastRange()).toEqual({ startAfter: '2026-09-13', startBefore: '2026-09-13' });
   });
 });

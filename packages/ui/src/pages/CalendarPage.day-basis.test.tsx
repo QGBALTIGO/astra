@@ -86,12 +86,12 @@ async function renderPage(events: CalendarEvent[]): Promise<HTMLElement> {
   });
   // Anti-false-pass guard: the counters must be present before we read them,
   // otherwise "0" could just mean "nothing rendered".
-  expect(container.textContent).toMatch(/\d+ event[s]? today, \d+ upcoming/);
+  expect(container.textContent).toMatch(/\d+ hoje, \d+ futuros/);
   return container;
 }
 
 function counters(container: HTMLElement): string | null {
-  return container.textContent?.match(/\d+ events? today, \d+ upcoming/)?.[0] ?? null;
+  return container.textContent?.match(/\d+ hoje, \d+ futuros/)?.[0] ?? null;
 }
 
 const INSTANT = Date.parse('2026-09-05T22:30:00.000Z');
@@ -124,12 +124,12 @@ describe('CalendarPage today/upcoming day-basis', () => {
   it("counts an event starting local-today as today's, not upcoming", async () => {
     const container = await renderPage([event(localDay(INSTANT), 'Standup')]);
     // Local today is 2026-09-06. The buggy UTC basis puts this in "upcoming".
-    expect(counters(container)).toBe('1 event today, 0 upcoming');
+    expect(counters(container)).toBe('1 hoje, 0 futuros');
   });
 
   it('does not count yesterdays event as todays', async () => {
     const container = await renderPage([event('2026-09-05', 'Old planning')]);
-    expect(counters(container)).toBe('0 events today, 0 upcoming');
+    expect(counters(container)).toBe('0 hoje, 0 futuros');
   });
 
   it('splits a mixed list correctly', async () => {
@@ -138,7 +138,7 @@ describe('CalendarPage today/upcoming day-basis', () => {
       event('2026-09-05', 'Old planning'),
       event('2026-09-20', 'Review'),
     ]);
-    expect(counters(container)).toBe('1 event today, 1 upcoming');
+    expect(counters(container)).toBe('1 hoje, 1 futuros');
   });
 
   // NOTE: the selectedDate default (:51) and the "Today" button (:259) are the
