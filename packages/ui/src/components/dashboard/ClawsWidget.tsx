@@ -60,6 +60,16 @@ function getStateIcon(state: string) {
   }
 }
 
+const STATE_LABELS: Record<string, string> = {
+  running: 'Em execução',
+  starting: 'Iniciando',
+  paused: 'Pausado',
+  waiting: 'Aguardando',
+  escalation_pending: 'Pendente',
+  failed: 'Falhou',
+  stopped: 'Parado',
+};
+
 interface ClawsWidgetProps {
   limit?: number;
 }
@@ -341,7 +351,7 @@ export function ClawsWidget({ limit = 6 }: ClawsWidgetProps) {
                               : 'bg-text-muted/10 text-text-muted dark:bg-dark-text-muted/10 dark:text-dark-text-muted'
                     }`}
                   >
-                    {{ running: 'Em execução', starting: 'Iniciando', paused: 'Pausado', waiting: 'Aguardando', escalation_pending: 'Pendente', failed: 'Falhou', stopped: 'Parado' }[state] ?? state}
+                    {STATE_LABELS[state] ?? state}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-text-muted dark:text-dark-text-muted flex-wrap">
