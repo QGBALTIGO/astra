@@ -1,0 +1,58 @@
+name: One-time Astra branch formatter
+on:
+  push:
+    branches:
+      - fix/astra-edge-ui-regression-20261107
+    paths:
+      - .github/workflows/astra-pr-format-once.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    if: github.repository == 'QGBALTIGO/astra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/astra-edge-ui-regression-20261107
+          persist-credentials: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Format only reviewed Astra files
+        run: >-
+          pnpm exec prettier --write
+          packages/ui/src/pages/CustomizePage.tsx
+          packages/ui/src/components/LocalFilesTab.tsx
+          packages/ui/src/constants/nav-descriptions.ts
+          packages/ui/src/hooks/usePinnedItems.tsx
+          packages/ui/e2e/detail-panel.spec.ts
+          packages/ui/e2e/local-files.spec.ts
+          packages/ui/e2e/customize.spec.ts
+          packages/ui/e2e/contextual-chat.spec.ts
+          packages/ui/e2e/contextual-chat-v2.spec.ts
+          packages/ui/e2e/regression.spec.ts
+      - name: Commit deterministic formatting on review branch
+        run: |
+          git add packages/ui/src/pages/CustomizePage.tsx \
+            packages/ui/src/components/LocalFilesTab.tsx \
+            packages/ui/src/constants/nav-descriptions.ts \
+            packages/ui/src/hooks/usePinnedItems.tsx \
+            packages/ui/e2e/detail-panel.spec.ts \
+            packages/ui/e2e/local-files.spec.ts \
+            packages/ui/e2e/customize.spec.ts \
+            packages/ui/e2e/contextual-chat.spec.ts \
+            packages/ui/e2e/contextual-chat-v2.spec.ts \
+            packages/ui/e2e/regression.spec.ts
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "style(astra): format customization and E2E review files"
+            git push origin HEAD:fix/astra-edge-ui-regression-20261107
+          fi
