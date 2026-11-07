@@ -9,6 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { pricingByExactKey } from '@ownpilot/core/costs';
+import { runInExecContext } from '@ownpilot/core/agent';
 import type { ChannelIncomingMessage, ChannelPluginAPI } from '@ownpilot/core/channels';
 import type { IMessageBus, NormalizedMessage } from '@ownpilot/core/services';
 import type { StreamCallbacks } from '@ownpilot/core/services';
@@ -182,7 +183,13 @@ export async function processViaBus(
 
   // Process through the pipeline with context.
   try {
-    const result = await bus.process(normalized, {
+    const result = await runInExecContext(
+      {
+        channelPluginId: message.channelPluginId,
+        platformChatId: message.platformChatId,
+        channelMessageId: message.id,
+      },
+      () => bus.process(normalized, {
       stream: streamCallbacks,
       context: {
         agent,
@@ -193,7 +200,8 @@ export async function processViaBus(
         conversationId: activeConversationId,
         directToolMode: useDirectTools,
       },
-    });
+    })
+    );
 
     // Normalize outgoing response via channel normalizer
     // (strips internal tags, decodes entities, splits if needed — markdown→HTML is done by sender)
@@ -253,7 +261,10 @@ export async function processDirectAgent(message: ChannelIncomingMessage): Promi
     undefined,
     true
   );
-  const result = await agent.chat(message.text);
+  const result = await runInExecContext(
+    { channelPluginId: message.channelPluginId, platformChatId: message.platformChatId, channelMessageId: message.id },
+    () => agent.chat(message.text)
+  );
 
   if (result.ok) {
     // Strip internal tags so channel users never see prompt-control markup.
