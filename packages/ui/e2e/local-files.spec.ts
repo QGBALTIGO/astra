@@ -74,17 +74,16 @@ test.describe('Personalizar — ambientes e dispositivos reais', () => {
     const name = `Teste IoT automatizado ${Date.now()}`;
     let deviceId = '';
     try {
-      const created = await page.request.post('/api/v1/edge', {
-        data: { name, type: 'custom' },
-        // Browser fetch sends Origin on unsafe requests; APIRequestContext does not.
-        // Match the real browser without weakening the gateway's CSRF protection.
-        headers: { Origin: 'http://localhost:8199' },
-      });
-      expect(
-        created.ok(),
-        `API deve cadastrar dispositivo no ambiente isolado (HTTP ${created.status()})`
-      ).toBe(true);
-      const body = (await created.json()) as {
+      const created = await page.evaluate(async (deviceName) => {
+        const response = await fetch('/api/v1/edge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: deviceName, type: 'custom' }),
+        });
+        return { ok: response.ok, status: response.status, body: await response.json() };
+      }, name);
+      expect(created.ok, `cadastro IoT via navegador: HTTP ${created.status}`).toBe(true);
+      const body = created.body as {
         success?: boolean;
         data?: { id?: string };
       };
@@ -100,10 +99,13 @@ test.describe('Personalizar — ambientes e dispositivos reais', () => {
       await expect(detail).toContainText('Desconectado');
     } finally {
       if (deviceId) {
-        const removed = await page.request.delete(`/api/v1/edge/${deviceId}`, {
-          headers: { Origin: 'http://localhost:8199' },
-        });
-        expect(removed.ok(), 'dispositivo de teste deve ser excluído').toBe(true);
+        const removed = await page.evaluate(async (id) => {
+          const response = await fetch(`/api/v1/edge/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+          });
+          return { ok: response.ok, status: response.status };
+        }, deviceId);
+        expect(removed.ok, `exclusão via navegador: HTTP ${removed.status}`).toBe(true);
       }
     }
   });
