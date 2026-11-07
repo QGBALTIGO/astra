@@ -9,6 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { pricingByExactKey } from '@ownpilot/core/costs';
+import { runInExecContext } from '@ownpilot/core/agent';
 import type { ChannelIncomingMessage, ChannelPluginAPI } from '@ownpilot/core/channels';
 import type { IMessageBus, NormalizedMessage } from '@ownpilot/core/services';
 import type { StreamCallbacks } from '@ownpilot/core/services';
@@ -19,6 +20,72 @@ import { stripInternalTags } from './normalizers/base.js';
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
   return `[Demo Mode] I received your message: "${truncate(text, 100)}"\n\nTo get real AI responses, configure an API key in OwnPilot settings.`;
+}
+
+/**
+ * Fixed, zero-token response for a bare greeting. More complex or contextual
+ * messages still go through the AI, so we do not guess user intentions.
+ */
+export function deterministicChannelReply(text: string): string | null {
+  const normalized = text.trim().toLocaleLowerCase('pt-BR');
+  if (/^(?:oi|olá|ola|bom dia|boa tarde|boa noite)[\s!?.,]*$/u.test(normalized)) {
+    return 'Oi! Como posso ajudar você hoje?';
+  }
+  return null;
+}
+
+/**
+ * Zero-token path for fully specified relative reminders.
+ * Ambiguous requests still go to the assistant instead of creating a wrong task.
+ */
+export async function tryScheduleRelativeChannelReminder(
+  message: Pick<ChannelIncomingMessage, 'text' | 'id' | 'channelPluginId' | 'platformChatId'>,
+  userId: string
+): Promise<string | null> {
+  const match = message.text
+    .trim()
+    .match(
+      /^(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar)\s+(?:em|daqui\s+a)\s+(\d{1,5})\s*(minutos?|min|horas?|h)\s+(?:para|pra|de|que)\s+(.+)$/iu
+    );
+  if (!match) return null;
+
+  const title = match[3]!.trim().replace(/[.!?]+$/, '');
+  const amount = Number(match[1]);
+  const isHours = /^(?:h|hora)/i.test(match[2]!);
+  const delayMinutes = isHours ? amount * 60 : amount;
+  if (!title || delayMinutes < 1 || delayMinutes > 366 * 24 * 60) {
+    return 'Informe o que deseja lembrar e um prazo válido.';
+  }
+
+  const { executeChannelReminderTool } = await import('../tools/channel-reminder-tools.js');
+  return runInExecContext(
+    {
+      channelPluginId: message.channelPluginId,
+      platformChatId: message.platformChatId,
+      channelMessageId: message.id,
+    },
+    async () => {
+      const result = await executeChannelReminderTool(
+        'schedule_channel_reminder',
+        { title, delay_minutes: delayMinutes },
+        userId
+      );
+      if (!result.success) {
+        return 'Não consegui agendar esse lembrete. Nenhum aviso foi confirmado.';
+      }
+      const saved = result.result as { status?: string };
+      if (saved.status !== 'pending') {
+        return 'Esse lembrete já estava registrado nesta conversa.';
+      }
+      const timeLabel =
+        delayMinutes >= 60 && delayMinutes % 60 === 0
+          ? String(delayMinutes / 60) + (delayMinutes === 60 ? ' hora' : ' horas')
+          : String(delayMinutes) + (delayMinutes === 1 ? ' minuto' : ' minutos');
+      return (
+        '⏰ Vou lembrar você de "' + title + '" daqui a ' + timeLabel + ' aqui nesta conversa.'
+      );
+    }
+  );
 }
 
 interface ApprovalChannelApi extends ChannelPluginAPI {
@@ -53,6 +120,14 @@ export async function processViaBus(
   },
   progress?: { update(text: string): void }
 ): Promise<string> {
+  const reminderReply = message.attachments?.length
+    ? null
+    : await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId);
+  if (reminderReply) return reminderReply;
+
+  const freeReply = deterministicChannelReply(message.text);
+  if (freeReply && !message.attachments?.length) return freeReply;
+
   const { getOrCreateChatAgent, isDemoMode } = await import('../services/agent/service.js');
   const { resolveForChannel, inferProviderForModel } =
     await import('../services/llm/model-routing.js');
@@ -182,18 +257,26 @@ export async function processViaBus(
 
   // Process through the pipeline with context.
   try {
-    const result = await bus.process(normalized, {
-      stream: streamCallbacks,
-      context: {
-        agent,
-        userId: channelUser.ownpilotUserId,
-        agentId: 'default',
-        provider: effectiveProvider,
-        model: effectiveModel,
-        conversationId: activeConversationId,
-        directToolMode: useDirectTools,
+    const result = await runInExecContext(
+      {
+        channelPluginId: message.channelPluginId,
+        platformChatId: message.platformChatId,
+        channelMessageId: message.id,
       },
-    });
+      () =>
+        bus.process(normalized, {
+          stream: streamCallbacks,
+          context: {
+            agent,
+            userId: channelUser.ownpilotUserId,
+            agentId: 'default',
+            provider: effectiveProvider,
+            model: effectiveModel,
+            conversationId: activeConversationId,
+            directToolMode: useDirectTools,
+          },
+        })
+    );
 
     // Normalize outgoing response via channel normalizer
     // (strips internal tags, decodes entities, splits if needed — markdown→HTML is done by sender)
@@ -230,6 +313,9 @@ export async function processViaBus(
  * Legacy fallback: process directly via agent.chat() without the bus.
  */
 export async function processDirectAgent(message: ChannelIncomingMessage): Promise<string> {
+  const freeReply = deterministicChannelReply(message.text);
+  if (freeReply && !message.attachments?.length) return freeReply;
+
   const { getOrCreateChatAgent, isDemoMode } = await import('../services/agent/service.js');
   const { resolveForChannel } = await import('../services/llm/model-routing.js');
 
@@ -253,7 +339,14 @@ export async function processDirectAgent(message: ChannelIncomingMessage): Promi
     undefined,
     true
   );
-  const result = await agent.chat(message.text);
+  const result = await runInExecContext(
+    {
+      channelPluginId: message.channelPluginId,
+      platformChatId: message.platformChatId,
+      channelMessageId: message.id,
+    },
+    () => agent.chat(message.text)
+  );
 
   if (result.ok) {
     // Strip internal tags so channel users never see prompt-control markup.

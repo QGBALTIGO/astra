@@ -527,10 +527,10 @@ export function ChatPage() {
         {/* Header */}
         <header
           data-testid="chat-header"
-          className="relative flex min-w-0 flex-col gap-2 border-b border-border px-3 py-3 dark:border-dark-border sm:px-5 lg:flex-row lg:items-center lg:justify-between lg:gap-3"
+          className="relative flex min-w-0 flex-col gap-2 border-b border-border px-3 py-3 dark:border-dark-border sm:px-5 xl:flex-row xl:items-center xl:justify-between xl:gap-3"
         >
-          <div className="grid w-full min-w-0 grid-cols-2 gap-2 lg:flex lg:flex-1 lg:items-center lg:gap-3">
-            <div className="col-span-2 min-w-0 pr-12 lg:col-auto lg:mr-auto lg:pr-0">
+          <div className="grid w-full min-w-0 grid-cols-2 gap-2 xl:flex xl:flex-1 xl:items-center xl:gap-3">
+            <div className="col-span-2 min-w-0 pr-12 xl:col-auto xl:mr-auto xl:pr-0">
               <h2 className="flex min-w-0 items-center gap-2 truncate text-base font-semibold text-text-primary dark:text-dark-text-primary sm:text-lg">
                 {isChannelMode ? (
                   <>
@@ -582,7 +582,7 @@ export function ChatPage() {
                 title={`${currentProviderName} · ${model}`}
                 onClick={() => setShowProviderMenu(!showProviderMenu)}
                 disabled={isLoadingModels}
-                className="flex h-10 w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-xl border border-border bg-bg-tertiary px-2.5 text-xs transition-colors hover:bg-bg-secondary disabled:opacity-50 dark:border-dark-border dark:bg-dark-bg-tertiary dark:hover:bg-dark-bg-secondary sm:text-sm lg:w-auto lg:max-w-[260px]"
+                className="flex h-10 w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-xl border border-border bg-bg-tertiary px-2.5 text-xs transition-colors hover:bg-bg-secondary disabled:opacity-50 dark:border-dark-border dark:bg-dark-bg-tertiary dark:hover:bg-dark-bg-secondary sm:text-sm xl:w-auto xl:max-w-[260px]"
               >
                 {isLoadingModels ? (
                   <span className="text-text-muted dark:text-dark-text-muted animate-pulse">

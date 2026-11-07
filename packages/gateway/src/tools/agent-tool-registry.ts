@@ -32,6 +32,7 @@ import {
   SOUL_COMMUNICATION_TOOLS,
 } from './index.js';
 import { CONFIG_TOOLS } from './config-tools.js';
+import { CHANNEL_REMINDER_TOOLS } from './channel-reminder-tools.js';
 
 export { safeStringArray } from './registry/utils.js';
 export { registerGatewayTools, registerDynamicTools } from './registry/core-registration.js';
@@ -57,6 +58,7 @@ export {
   CUSTOM_DATA_TOOLS,
   PERSONAL_DATA_TOOLS,
   DYNAMIC_TOOL_DEFINITIONS,
+  CHANNEL_REMINDER_TOOLS,
   EXTENSION_TOOLS,
   CONFIG_TOOLS,
   TRIGGER_TOOLS,

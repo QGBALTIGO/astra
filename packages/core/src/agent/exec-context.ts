@@ -26,6 +26,10 @@ export interface ExecContext {
   /** Absolute path used by file-system tools when neither call-site nor
    *  registry-default workspace is set. */
   readonly workspaceDir?: string;
+  /** Authenticated incoming conversation for reminder delivery. */
+  readonly channelPluginId?: string;
+  readonly platformChatId?: string;
+  readonly channelMessageId?: string;
 }
 
 const storage = new AsyncLocalStorage<ExecContext>();

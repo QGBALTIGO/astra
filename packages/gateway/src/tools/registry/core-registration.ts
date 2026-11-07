@@ -26,6 +26,7 @@ import { executeMemoryTool } from '../memory-tools.js';
 import { executeGoalTool } from '../goal-tools.js';
 import { executeCustomDataTool } from '../custom-data-tools.js';
 import { executePersonalDataTool } from '../personal-data-tools.js';
+import { CHANNEL_REMINDER_TOOLS, executeChannelReminderTool } from '../channel-reminder-tools.js';
 import {
   executeCustomToolTool,
   executeActiveCustomTool,
@@ -208,6 +209,19 @@ export function registerGatewayTools(tools: ToolRegistry, userId: string, trace:
         return toToolResult(result);
       });
     }
+  }
+
+  // Persistent reminders bound to the authenticated conversation.
+  for (const toolDef of CHANNEL_REMINDER_TOOLS) {
+    const qName = qualifyToolName(toolDef.name, 'core');
+    tools.register({ ...toolDef, name: qName }, async (args): Promise<CoreToolResult> => {
+      const result = await executeChannelReminderTool(
+        toolDef.name,
+        args as Record<string, unknown>,
+        userId
+      );
+      return toToolResult(result);
+    });
   }
 
   // Artifact tools (need conversationId from context, registered separately)

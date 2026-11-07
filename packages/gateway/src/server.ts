@@ -463,6 +463,12 @@ async function main() {
   installService(Services.Channel, channelService, setChannelService);
   log.info('Channel Service initialized.');
 
+  // Dedicated, database-backed reminder worker. Delivery uses the recorded
+  // conversation recipient, never an LLM request or user ID as a chat ID.
+  const { startChannelReminderWorker, stopChannelReminderWorker } =
+    await import('./services/channel-reminder-worker.js');
+  startChannelReminderWorker();
+
   // Wire cross-channel bridges into the live pipeline (forwards inbound
   // messages between the owner's channels per configured bridges).
   try {
@@ -877,6 +883,9 @@ async function main() {
     } catch (e) {
       log.warn('Autonomy engine stop error', { error: String(e) });
     }
+
+    // Stop scheduled channel notifications before disconnecting database.
+    stopChannelReminderWorker();
 
     // 5.2. Stop scheduler
     try {
