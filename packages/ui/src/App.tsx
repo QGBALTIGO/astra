@@ -1,0 +1,324 @@
+import { lazy, Suspense, type ReactNode } from 'react';
+import { Routes, Route, Navigate } from 'react-router';
+import { Layout } from './components/Layout';
+import { PageErrorBoundary } from './components/PageErrorBoundary';
+import { useAuth } from './hooks/useAuth';
+
+// Lazy-load ChatPage like all other pages — keeps main bundle under 500 KB
+const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })));
+
+// Lazy-load all other pages for code splitting
+// InboxPage removed — /inbox redirects to /history (unified conversations)
+const ChatHistoryPage = lazy(() =>
+  import('./pages/ChatHistoryPage').then((m) => ({ default: m.ChatHistoryPage }))
+);
+const AgentsPage = lazy(() =>
+  import('./pages/AgentsPage').then((m) => ({ default: m.AgentsPage }))
+);
+const ToolsPage = lazy(() => import('./pages/tools').then((m) => ({ default: m.ToolsPage })));
+const CostsPage = lazy(() => import('./pages/CostsPage').then((m) => ({ default: m.CostsPage })));
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
+const ProfilePage = lazy(() =>
+  import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage }))
+);
+const DashboardPage = lazy(() =>
+  import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage }))
+);
+const AnalyticsPage = lazy(() =>
+  import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage }))
+);
+const TasksPage = lazy(() => import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })));
+const NotesPage = lazy(() => import('./pages/NotesPage').then((m) => ({ default: m.NotesPage })));
+const CalendarPage = lazy(() =>
+  import('./pages/CalendarPage').then((m) => ({ default: m.CalendarPage }))
+);
+const ContactsPage = lazy(() =>
+  import('./pages/ContactsPage').then((m) => ({ default: m.ContactsPage }))
+);
+const BookmarksPage = lazy(() =>
+  import('./pages/BookmarksPage').then((m) => ({ default: m.BookmarksPage }))
+);
+const CustomDataPage = lazy(() =>
+  import('./pages/CustomDataPage').then((m) => ({ default: m.CustomDataPage }))
+);
+const DataBrowserPage = lazy(() =>
+  import('./pages/DataBrowserPage').then((m) => ({ default: m.DataBrowserPage }))
+);
+const MemoriesPage = lazy(() =>
+  import('./pages/MemoriesPage').then((m) => ({ default: m.MemoriesPage }))
+);
+const GoalsPage = lazy(() => import('./pages/GoalsPage').then((m) => ({ default: m.GoalsPage })));
+const TriggersPage = lazy(() =>
+  import('./pages/TriggersPage').then((m) => ({ default: m.TriggersPage }))
+);
+const PlansPage = lazy(() => import('./pages/PlansPage').then((m) => ({ default: m.PlansPage })));
+const AutonomyPage = lazy(() =>
+  import('./pages/AutonomyPage').then((m) => ({ default: m.AutonomyPage }))
+);
+const PluginsPage = lazy(() =>
+  import('./pages/PluginsPage').then((m) => ({ default: m.PluginsPage }))
+);
+const SkillsHubPage = lazy(() =>
+  import('./pages/skills/SkillsHubPage').then((m) => ({ default: m.SkillsHubPage }))
+);
+const SkillEditorPage = lazy(() =>
+  import('./pages/skills/SkillEditorPage').then((m) => ({ default: m.SkillEditorPage }))
+);
+const WorkspacesPage = lazy(() =>
+  import('./pages/WorkspacesPage').then((m) => ({ default: m.WorkspacesPage }))
+);
+const LogsPage = lazy(() => import('./pages/LogsPage').then((m) => ({ default: m.LogsPage })));
+const CustomToolsPage = lazy(() =>
+  import('./pages/CustomToolsPage').then((m) => ({ default: m.CustomToolsPage }))
+);
+const ExpensesPage = lazy(() =>
+  import('./pages/ExpensesPage').then((m) => ({ default: m.ExpensesPage }))
+);
+const HabitsPage = lazy(() =>
+  import('./pages/HabitsPage').then((m) => ({ default: m.HabitsPage }))
+);
+const PomodoroPage = lazy(() =>
+  import('./pages/PomodoroPage').then((m) => ({ default: m.PomodoroPage }))
+);
+const ConfigCenterPage = lazy(() =>
+  import('./pages/ConfigCenterPage').then((m) => ({ default: m.ConfigCenterPage }))
+);
+const ApiKeysPage = lazy(() =>
+  import('./pages/ApiKeysPage').then((m) => ({ default: m.ApiKeysPage }))
+);
+const ProvidersPage = lazy(() =>
+  import('./pages/ProvidersPage').then((m) => ({ default: m.ProvidersPage }))
+);
+const AIModelsPage = lazy(() =>
+  import('./pages/AIModelsPage').then((m) => ({ default: m.AIModelsPage }))
+);
+const ModelRoutingPage = lazy(() =>
+  import('./pages/ModelRoutingPage').then((m) => ({ default: m.ModelRoutingPage }))
+);
+const McpServersPage = lazy(() =>
+  import('./pages/McpServersPage').then((m) => ({ default: m.McpServersPage }))
+);
+const ConnectedAppsPage = lazy(() =>
+  import('./pages/ConnectedAppsPage').then((m) => ({ default: m.ConnectedAppsPage }))
+);
+
+const ChannelsPage = lazy(() =>
+  import('./pages/ChannelsPage').then((m) => ({ default: m.ChannelsPage }))
+);
+const WorkflowsPage = lazy(() =>
+  import('./pages/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage }))
+);
+const WorkflowEditorPage = lazy(() =>
+  import('./pages/WorkflowEditorPage').then((m) => ({ default: m.WorkflowEditorPage }))
+);
+const WorkflowLogViewerPage = lazy(() =>
+  import('./pages/WorkflowLogViewerPage').then((m) => ({ default: m.WorkflowLogViewerPage }))
+);
+const ToolGroupsPage = lazy(() =>
+  import('./pages/ToolGroupsPage').then((m) => ({ default: m.ToolGroupsPage }))
+);
+const WizardsPage = lazy(() =>
+  import('./pages/WizardsPage').then((m) => ({ default: m.WizardsPage }))
+);
+const WizardRouter = lazy(() =>
+  import('./pages/wizards/WizardRouter').then((m) => ({ default: m.WizardRouter }))
+);
+const WorkflowToolSettingsPage = lazy(() =>
+  import('./pages/WorkflowToolSettingsPage').then((m) => ({ default: m.WorkflowToolSettingsPage }))
+);
+const SystemPage = lazy(() =>
+  import('./pages/SystemPage').then((m) => ({ default: m.SystemPage }))
+);
+const LayoutConfigPage = lazy(() =>
+  import('./pages/LayoutConfigPage').then((m) => ({ default: m.LayoutConfigPage }))
+);
+const CodingAgentsPage = lazy(() =>
+  import('./pages/CodingAgentsPage').then((m) => ({ default: m.CodingAgentsPage }))
+);
+const CodingAgentSettingsPage = lazy(() =>
+  import('./pages/CodingAgentSettingsPage').then((m) => ({ default: m.CodingAgentSettingsPage }))
+);
+const CliToolsSettingsPage = lazy(() =>
+  import('./pages/CliToolsSettingsPage').then((m) => ({ default: m.CliToolsSettingsPage }))
+);
+const ApprovalsPage = lazy(() =>
+  import('./pages/ApprovalsPage').then((m) => ({ default: m.ApprovalsPage }))
+);
+const AboutPage = lazy(() => import('./pages/AboutPage').then((m) => ({ default: m.AboutPage })));
+const LoginPage = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })));
+const SecurityPage = lazy(() =>
+  import('./pages/SecurityPage').then((m) => ({ default: m.SecurityPage }))
+);
+const SecurityDashboardPage = lazy(() =>
+  import('./pages/SecurityDashboardPage').then((m) => ({ default: m.SecurityDashboardPage }))
+);
+const AutonomousHubPage = lazy(() =>
+  import('./pages/autonomous/AutonomousHubPage').then((m) => ({
+    default: m.AutonomousHubPage,
+  }))
+);
+const AgentProfilePage = lazy(() =>
+  import('./pages/autonomous/AgentProfilePage').then((m) => ({
+    default: m.AgentProfilePage,
+  }))
+);
+const EventMonitorPage = lazy(() =>
+  import('./pages/EventMonitorPage').then((m) => ({ default: m.EventMonitorPage }))
+);
+const ArtifactsPage = lazy(() =>
+  import('./pages/ArtifactsPage').then((m) => ({ default: m.ArtifactsPage }))
+);
+const CanvasPage = lazy(() =>
+  import('./pages/CanvasPage').then((m) => ({ default: m.CanvasPage }))
+);
+const EdgeDevicesPage = lazy(() =>
+  import('./pages/EdgeDevicesPage').then((m) => ({ default: m.EdgeDevicesPage }))
+);
+const ClawsPage = lazy(() => import('./pages/ClawsPage').then((m) => ({ default: m.ClawsPage })));
+const AgenticPage = lazy(() =>
+  import('./pages/AgenticPage').then((m) => ({ default: m.AgenticPage }))
+);
+const MissionControlPage = lazy(() =>
+  import('./pages/MissionControlPage').then((m) => ({ default: m.MissionControlPage }))
+);
+const AgentsObservabilityPage = lazy(() =>
+  import('./pages/AgentsObservabilityPage').then((m) => ({ default: m.AgentsObservabilityPage }))
+);
+const TunnelPage = lazy(() =>
+  import('./pages/TunnelPage').then((m) => ({ default: m.TunnelPage }))
+);
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center py-12">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
+  );
+}
+
+/** Wraps a lazy page with Suspense + PageErrorBoundary */
+function page(children: ReactNode) {
+  return (
+    <PageErrorBoundary>
+      <Suspense fallback={<PageLoader />}>{children}</Suspense>
+    </PageErrorBoundary>
+  );
+}
+
+/** Redirects to /login if password is configured but user is not authenticated */
+function AuthGuard({ children }: { children: ReactNode }) {
+  const { isAuthenticated, passwordConfigured, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <PageLoader />;
+  }
+
+  if (passwordConfigured && !isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+export function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={page(<LoginPage />)} />
+      <Route
+        path="/"
+        element={
+          <AuthGuard>
+            <Layout />
+          </AuthGuard>
+        }
+      >
+        <Route index element={page(<ChatPage />)} />
+        <Route path="dashboard" element={page(<DashboardPage />)} />
+        <Route path="analytics" element={page(<AnalyticsPage />)} />
+        <Route path="wizards" element={page(<WizardsPage />)} />
+        <Route path="wizards/:wizardId" element={page(<WizardRouter />)} />
+        <Route path="memories" element={page(<MemoriesPage />)} />
+        <Route path="goals" element={page(<GoalsPage />)} />
+        <Route path="triggers" element={page(<TriggersPage />)} />
+        <Route path="plans" element={page(<PlansPage />)} />
+        <Route path="autonomy" element={page(<AutonomyPage />)} />
+        <Route path="workflows" element={page(<WorkflowsPage />)} />
+        <Route path="workflows/:id" element={page(<WorkflowEditorPage />)} />
+        <Route path="workflows/logs/:logId" element={page(<WorkflowLogViewerPage />)} />
+        <Route path="approvals" element={page(<ApprovalsPage />)} />
+        <Route path="tasks" element={page(<TasksPage />)} />
+        <Route path="notes" element={page(<NotesPage />)} />
+        <Route path="calendar" element={page(<CalendarPage />)} />
+        <Route path="contacts" element={page(<ContactsPage />)} />
+        <Route path="bookmarks" element={page(<BookmarksPage />)} />
+        <Route path="expenses" element={page(<ExpensesPage />)} />
+        <Route path="habits" element={page(<HabitsPage />)} />
+        <Route path="pomodoro" element={page(<PomodoroPage />)} />
+        <Route path="custom-data" element={page(<CustomDataPage />)} />
+        <Route path="data-browser" element={page(<DataBrowserPage />)} />
+        <Route path="coding-agents" element={page(<CodingAgentsPage />)} />
+        <Route
+          path="orchestration"
+          element={<Navigate to="/coding-agents?tab=pipelines" replace />}
+        />
+        <Route path="autonomous" element={page(<AutonomousHubPage />)} />
+        <Route path="autonomous/agent/:id" element={page(<AgentProfilePage />)} />
+        <Route path="artifacts" element={page(<ArtifactsPage />)} />
+        <Route path="canvas" element={page(<CanvasPage />)} />
+        <Route path="edge-devices" element={page(<EdgeDevicesPage />)} />
+        <Route path="claws" element={page(<ClawsPage />)} />
+        <Route path="agentic" element={page(<AgenticPage />)} />
+        <Route path="mission-control" element={page(<MissionControlPage />)} />
+        <Route path="agent-observability" element={page(<AgentsObservabilityPage />)} />
+        {/* /customize removed — CustomizePage is now a persistent panel in Layout */}
+        {/* Old autonomous routes → redirect to unified hub */}
+        <Route path="background-agents" element={<Navigate to="/autonomous" replace />} />
+        <Route path="crews" element={<Navigate to="/autonomous?tab=crews" replace />} />
+        <Route path="souls" element={<Navigate to="/autonomous" replace />} />
+        <Route path="agent-comms" element={<Navigate to="/autonomous?tab=messages" replace />} />
+        <Route path="heartbeat-logs" element={<Navigate to="/autonomous?tab=activity" replace />} />
+        <Route path="event-monitor" element={page(<EventMonitorPage />)} />
+        <Route path="channels" element={page(<ChannelsPage />)} />
+        <Route path="inbox" element={<Navigate to="/history" replace />} />
+        <Route path="history" element={page(<ChatHistoryPage />)} />
+        <Route path="agents" element={page(<AgentsPage />)} />
+        <Route path="tools" element={page(<ToolsPage />)} />
+        <Route path="custom-tools" element={page(<CustomToolsPage />)} />
+        <Route path="plugins" element={page(<PluginsPage />)} />
+        <Route
+          path="extensions"
+          element={<Navigate to="/skills?tab=installed&format=ownpilot" replace />}
+        />
+        <Route path="skills" element={page(<SkillsHubPage />)} />
+        <Route path="skills/:id/edit" element={page(<SkillEditorPage />)} />
+        <Route path="workspaces" element={page(<WorkspacesPage />)} />
+        <Route path="models" element={<Navigate to="/settings/ai-models" replace />} />
+        <Route path="costs" element={page(<CostsPage />)} />
+        <Route path="logs" element={page(<LogsPage />)} />
+        <Route path="settings" element={page(<SettingsPage />)} />
+        <Route path="settings/config-center" element={page(<ConfigCenterPage />)} />
+        <Route path="settings/api-keys" element={page(<ApiKeysPage />)} />
+        <Route path="settings/providers" element={page(<ProvidersPage />)} />
+        <Route path="settings/ai-models" element={page(<AIModelsPage />)} />
+        <Route path="settings/coding-agents" element={page(<CodingAgentSettingsPage />)} />
+        <Route path="settings/cli-tools" element={page(<CliToolsSettingsPage />)} />
+        <Route path="settings/model-routing" element={page(<ModelRoutingPage />)} />
+        <Route path="settings/mcp-servers" element={page(<McpServersPage />)} />
+        <Route path="settings/connected-apps" element={page(<ConnectedAppsPage />)} />
+        <Route path="settings/tool-groups" element={page(<ToolGroupsPage />)} />
+        <Route path="settings/workflow-tools" element={page(<WorkflowToolSettingsPage />)} />
+        <Route path="settings/security" element={page(<SecurityPage />)} />
+        <Route path="settings/security-scanner" element={page(<SecurityDashboardPage />)} />
+        <Route path="settings/system" element={page(<SystemPage />)} />
+        <Route path="settings/layout" element={page(<LayoutConfigPage />)} />
+        <Route path="about" element={page(<AboutPage />)} />
+        <Route path="tunnel" element={page(<TunnelPage />)} />
+        <Route path="profile" element={page(<ProfilePage />)} />
+        {/* Catch-all route - redirect unknown paths to home */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}

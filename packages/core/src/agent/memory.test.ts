@@ -1,0 +1,541 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { ConversationMemory, createMemory } from './memory.js';
+
+describe('ConversationMemory', () => {
+  let memory: ConversationMemory;
+
+  beforeEach(() => {
+    memory = new ConversationMemory();
+  });
+
+  describe('create', () => {
+    it('creates a new conversation', () => {
+      const conversation = memory.create('You are a helpful assistant.');
+
+      expect(conversation.id).toBeDefined();
+      expect(conversation.systemPrompt).toBe('You are a helpful assistant.');
+      expect(conversation.messages).toHaveLength(0);
+      expect(conversation.createdAt).toBeInstanceOf(Date);
+      expect(conversation.updatedAt).toBeInstanceOf(Date);
+    });
+
+    it('creates conversation without system prompt', () => {
+      const conversation = memory.create();
+
+      expect(conversation.systemPrompt).toBeUndefined();
+      expect(conversation.messages).toHaveLength(0);
+    });
+
+    it('creates conversation with metadata', () => {
+      const conversation = memory.create('System', { userId: 'user-1' });
+
+      expect(conversation.metadata).toEqual({ userId: 'user-1' });
+    });
+  });
+
+  describe('get', () => {
+    it('retrieves existing conversation', () => {
+      const created = memory.create('System prompt');
+      const retrieved = memory.get(created.id);
+
+      expect(retrieved).toBeDefined();
+      expect(retrieved?.id).toBe(created.id);
+    });
+
+    it('returns undefined for non-existent conversation', () => {
+      const retrieved = memory.get('nonexistent-id');
+      expect(retrieved).toBeUndefined();
+    });
+  });
+
+  describe('has', () => {
+    it('returns true for existing conversation', () => {
+      const conversation = memory.create();
+      expect(memory.has(conversation.id)).toBe(true);
+    });
+
+    it('returns false for non-existent conversation', () => {
+      expect(memory.has('nonexistent')).toBe(false);
+    });
+  });
+
+  describe('getAllIds', () => {
+    it('lists all conversation IDs', () => {
+      memory.create('Prompt 1');
+      memory.create('Prompt 2');
+      memory.create('Prompt 3');
+
+      const ids = memory.getAllIds();
+      expect(ids).toHaveLength(3);
+    });
+
+    it('returns empty array when no conversations', () => {
+      const ids = memory.getAllIds();
+      expect(ids).toHaveLength(0);
+    });
+  });
+
+  describe('delete', () => {
+    it('deletes existing conversation', () => {
+      const conversation = memory.create('Test');
+      const deleted = memory.delete(conversation.id);
+
+      expect(deleted).toBe(true);
+      expect(memory.get(conversation.id)).toBeUndefined();
+    });
+
+    it('returns false for non-existent conversation', () => {
+      const deleted = memory.delete('nonexistent');
+      expect(deleted).toBe(false);
+    });
+  });
+
+  describe('message management', () => {
+    it('adds user message', () => {
+      const conversation = memory.create();
+      memory.addUserMessage(conversation.id, 'Hello!');
+
+      const updated = memory.get(conversation.id);
+      expect(updated?.messages).toHaveLength(1);
+      expect(updated?.messages[0].role).toBe('user');
+      expect(updated?.messages[0].content).toBe('Hello!');
+    });
+
+    it('adds assistant message', () => {
+      const conversation = memory.create();
+      memory.addAssistantMessage(conversation.id, 'Hi there!');
+
+      const updated = memory.get(conversation.id);
+      expect(updated?.messages).toHaveLength(1);
+      expect(updated?.messages[0].role).toBe('assistant');
+      expect(updated?.messages[0].content).toBe('Hi there!');
+    });
+
+    it('adds assistant message with tool calls', () => {
+      const conversation = memory.create();
+      memory.addAssistantMessage(conversation.id, '', [
+        { id: 'call1', name: 'get_time', arguments: '{}' },
+      ]);
+
+      const updated = memory.get(conversation.id);
+      expect(updated?.messages[0].toolCalls).toHaveLength(1);
+      expect(updated?.messages[0].toolCalls?.[0].name).toBe('get_time');
+    });
+
+    it('adds tool results', () => {
+      const conversation = memory.create();
+      memory.addToolResults(conversation.id, [
+        { toolCallId: 'call1', content: '{"time": "12:00"}' },
+        { toolCallId: 'call2', content: '{"data": "test"}' },
+      ]);
+
+      const updated = memory.get(conversation.id);
+      expect(updated?.messages).toHaveLength(1);
+      expect(updated?.messages[0].role).toBe('tool');
+      expect(updated?.messages[0].toolResults).toHaveLength(2);
+    });
+
+    it('updates system prompt', () => {
+      const conversation = memory.create('Original prompt');
+      memory.updateSystemPrompt(conversation.id, 'New prompt');
+
+      const updated = memory.get(conversation.id);
+      expect(updated?.systemPrompt).toBe('New prompt');
+    });
+
+    it('adds system prompt if none exists', () => {
+      const conversation = memory.create();
+      memory.updateSystemPrompt(conversation.id, 'New prompt');
+
+      const updated = memory.get(conversation.id);
+      expect(updated?.systemPrompt).toBe('New prompt');
+    });
+  });
+
+  describe('getContextMessages', () => {
+    it('returns messages for conversation', () => {
+      const conversation = memory.create();
+      memory.addUserMessage(conversation.id, 'User message');
+      memory.addAssistantMessage(conversation.id, 'Assistant message');
+
+      const messages = memory.getContextMessages(conversation.id);
+      expect(messages).toHaveLength(2);
+    });
+
+    it('returns empty array for non-existent conversation', () => {
+      const messages = memory.getContextMessages('nonexistent');
+      expect(messages).toHaveLength(0);
+    });
+
+    it('truncates tool results in messages older than the last 4', () => {
+      const conversation = memory.create();
+      const longContent = 'x'.repeat(3000); // exceeds 2000 char limit
+
+      // Add 5 messages so the first one is outside the 4-message safe zone
+      memory.addUserMessage(conversation.id, 'msg 1');
+      memory.addToolResults(conversation.id, [{ toolCallId: 'tc1', content: longContent }]);
+      memory.addUserMessage(conversation.id, 'msg 2');
+      memory.addUserMessage(conversation.id, 'msg 3');
+      memory.addUserMessage(conversation.id, 'msg 4');
+      memory.addUserMessage(conversation.id, 'msg 5');
+
+      const messages = memory.getContextMessages(conversation.id);
+      const toolMsg = messages.find((m) => m.role === 'tool');
+      expect(toolMsg).toBeDefined();
+      expect(toolMsg!.toolResults![0]!.content).toContain('[...truncated]');
+      expect(toolMsg!.toolResults![0]!.content.length).toBeLessThan(longContent.length);
+    });
+
+    it('does NOT truncate tool results in the last 4 messages', () => {
+      const conversation = memory.create();
+      const longContent = 'y'.repeat(3000);
+
+      // Add exactly 4 messages — all within safe zone
+      memory.addUserMessage(conversation.id, 'msg 1');
+      memory.addToolResults(conversation.id, [{ toolCallId: 'tc1', content: longContent }]);
+      memory.addUserMessage(conversation.id, 'msg 2');
+      memory.addUserMessage(conversation.id, 'msg 3');
+
+      const messages = memory.getContextMessages(conversation.id);
+      const toolMsg = messages.find((m) => m.role === 'tool');
+      expect(toolMsg).toBeDefined();
+      expect(toolMsg!.toolResults![0]!.content).toBe(longContent); // intact
+    });
+
+    it('caps an oversized recent tool result that would overflow the budget', () => {
+      // Small budget so we can exceed it without multi-MB strings.
+      const tiny = new ConversationMemory({ maxTokens: 1000 });
+      const conversation = tiny.create('sys');
+      // recentLimit = max(2000, floor(1000/2)*4) = 2000 chars.
+      const huge = 'x'.repeat(50000); // ~12.5K tokens — dwarfs the 1000-tok budget
+      tiny.addUserMessage(conversation.id, 'do the thing');
+      tiny.addToolResults(conversation.id, [{ toolCallId: 'tc1', content: huge }]);
+
+      const messages = tiny.getContextMessages(conversation.id);
+      const toolMsg = messages.find((m) => m.role === 'tool');
+      expect(toolMsg).toBeDefined();
+      // Recent result is truncated despite being in the safe zone — otherwise a
+      // single giant tool output overflows the model's context (ZAI 1261).
+      expect(toolMsg!.toolResults![0]!.content.length).toBeLessThan(huge.length);
+      expect(toolMsg!.toolResults![0]!.content).toContain('[...truncated]');
+      // The user turn is still present so the request is structurally valid.
+      expect(messages.some((m) => m.role === 'user')).toBe(true);
+    });
+
+    it('does NOT truncate tool results within 2000 chars', () => {
+      const conversation = memory.create();
+      const shortContent = 'z'.repeat(100);
+
+      // Add 6 messages so first tool result is outside safe zone
+      for (let i = 0; i < 4; i++) memory.addUserMessage(conversation.id, `msg ${i}`);
+      memory.addToolResults(conversation.id, [{ toolCallId: 'tc1', content: shortContent }]);
+      memory.addUserMessage(conversation.id, 'msg 5');
+      memory.addUserMessage(conversation.id, 'msg 6');
+
+      const messages = memory.getContextMessages(conversation.id);
+      const toolMsg = messages.find((m) => m.role === 'tool');
+      expect(toolMsg!.toolResults![0]!.content).toBe(shortContent); // not truncated
+    });
+  });
+
+  describe('getFullContext', () => {
+    it('includes system message first', () => {
+      const conversation = memory.create('System prompt');
+      memory.addUserMessage(conversation.id, 'Hello');
+      memory.addAssistantMessage(conversation.id, 'Hi there');
+
+      const context = memory.getFullContext(conversation.id);
+      expect(context.length).toBe(3);
+      expect(context[0].role).toBe('system');
+      expect(context[0].content).toBe('System prompt');
+    });
+
+    it('returns only messages when no system prompt', () => {
+      const conversation = memory.create();
+      memory.addUserMessage(conversation.id, 'Hello');
+
+      const context = memory.getFullContext(conversation.id);
+      expect(context.length).toBe(1);
+      expect(context[0].role).toBe('user');
+    });
+
+    it('never drops the most recent message even if it alone exceeds maxTokens', () => {
+      // Regression: a single over-budget turn (e.g. a large Claw cycle prompt)
+      // must still be sent. Otherwise getFullContext returns a system-only
+      // request and strict providers reject it ("chat content is empty (2013)"
+      // on MiniMax, "messages parameter is illegal (1214)" on GLM/ZAI) — the
+      // Claw crashed every cycle because of this.
+      const tight = new ConversationMemory({ maxTokens: 1000 });
+      const conversation = tight.create('System prompt');
+      tight.addUserMessage(conversation.id, 'x'.repeat(20000)); // ~5000 tokens >> 1000
+
+      const context = tight.getFullContext(conversation.id);
+
+      expect(context.some((m) => m.role === 'user')).toBe(true);
+      expect(context[0].role).toBe('system');
+      expect(context.length).toBe(2);
+    });
+
+    it('backs up to the user turn instead of leaving a [system, tool] window', () => {
+      // Regression: after tool turns, a huge tool result pushed the cycle's
+      // user message out of the token budget; the trim kept only the trailing
+      // tool result, producing a [system, tool] request that GLM/ZAI reject
+      // with "messages parameter is illegal (1214)". The window must back up to
+      // include the user turn.
+      const tight = new ConversationMemory({ maxTokens: 500 });
+      const conv = tight.create('System prompt');
+      tight.addUserMessage(conv.id, 'do the mission');
+      tight.addAssistantMessage(conv.id, '', [{ id: 'c1', name: 'fetch', arguments: '{}' }]);
+      tight.addToolResults(conv.id, [{ toolCallId: 'c1', content: 'X'.repeat(8000) }]); // huge >> 500
+
+      const context = tight.getFullContext(conv.id);
+      const roles = context.map((m) => m.role);
+
+      expect(roles[0]).toBe('system');
+      expect(roles).toContain('user'); // never a system+tool-only window
+      // first non-system message is the user turn (clean boundary)
+      expect(roles[1]).toBe('user');
+    });
+
+    it('truncates the over-budget kept message to fit rather than shipping it whole', () => {
+      const tight = new ConversationMemory({ maxTokens: 1000 });
+      const conversation = tight.create('System prompt');
+      const huge = 'x'.repeat(200000); // ~50k tokens, would overflow a real ctx window
+      tight.addUserMessage(conversation.id, huge);
+
+      const context = tight.getFullContext(conversation.id);
+      const userMsg = context.find((m) => m.role === 'user');
+
+      expect(userMsg).toBeDefined();
+      const content = userMsg!.content as string;
+      // Truncated to ~maxTokens*4 chars, far below the original 200k
+      expect(content.length).toBeLessThan(20000);
+      expect(content).toContain('[...truncated to fit context budget]');
+    });
+  });
+
+  describe('fork', () => {
+    it('creates a copy of conversation', () => {
+      const original = memory.create('System');
+      memory.addUserMessage(original.id, 'Hello');
+      memory.addAssistantMessage(original.id, 'Hi');
+
+      const forked = memory.fork(original.id);
+
+      expect(forked).toBeDefined();
+      expect(forked?.id).not.toBe(original.id);
+      expect(forked?.messages).toHaveLength(2);
+      expect(forked?.messages[0].content).toBe('Hello');
+      expect(forked?.metadata?.forkedFrom).toBe(original.id);
+    });
+
+    it('forked conversation is independent', () => {
+      const original = memory.create('System');
+      memory.addUserMessage(original.id, 'Hello');
+
+      const forked = memory.fork(original.id);
+      memory.addUserMessage(forked!.id, 'New message');
+
+      const originalConv = memory.get(original.id);
+      const forkedConv = memory.get(forked!.id);
+
+      expect(originalConv?.messages).toHaveLength(1);
+      expect(forkedConv?.messages).toHaveLength(2);
+    });
+
+    it('returns undefined for non-existent conversation', () => {
+      const forked = memory.fork('nonexistent');
+      expect(forked).toBeUndefined();
+    });
+  });
+
+  describe('clearMessages', () => {
+    it('clears all messages', () => {
+      const conversation = memory.create('System prompt');
+      memory.addUserMessage(conversation.id, 'Hello');
+      memory.addAssistantMessage(conversation.id, 'Hi');
+
+      memory.clearMessages(conversation.id);
+
+      const updated = memory.get(conversation.id);
+      expect(updated?.messages).toHaveLength(0);
+      expect(updated?.systemPrompt).toBe('System prompt'); // System prompt preserved
+    });
+
+    it('returns false for non-existent conversation', () => {
+      const result = memory.clearMessages('nonexistent');
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('updateMetadata', () => {
+    it('updates metadata', () => {
+      const conversation = memory.create('System', { key1: 'value1' });
+      memory.updateMetadata(conversation.id, { key2: 'value2' });
+
+      const updated = memory.get(conversation.id);
+      expect(updated?.metadata).toEqual({ key1: 'value1', key2: 'value2' });
+    });
+  });
+
+  describe('getStats', () => {
+    it('returns conversation statistics', () => {
+      const conversation = memory.create('System');
+      memory.addUserMessage(conversation.id, 'Hello world');
+      memory.addAssistantMessage(conversation.id, 'Hi there');
+
+      const stats = memory.getStats(conversation.id);
+      expect(stats).toBeDefined();
+      expect(stats?.messageCount).toBe(2);
+      expect(stats?.estimatedTokens).toBeGreaterThan(0);
+    });
+
+    it('returns undefined for non-existent conversation', () => {
+      const stats = memory.getStats('nonexistent');
+      expect(stats).toBeUndefined();
+    });
+  });
+
+  describe('export/import', () => {
+    it('exports conversation to JSON', () => {
+      const conversation = memory.create('System');
+      memory.addUserMessage(conversation.id, 'Hello');
+
+      const json = memory.export(conversation.id);
+      expect(json).toBeDefined();
+
+      const parsed = JSON.parse(json!);
+      expect(parsed.id).toBe(conversation.id);
+      expect(parsed.systemPrompt).toBe('System');
+    });
+
+    it('imports conversation from JSON', () => {
+      const conversation = memory.create('System');
+      memory.addUserMessage(conversation.id, 'Hello');
+
+      const json = memory.export(conversation.id);
+      memory.delete(conversation.id);
+
+      const imported = memory.import(json!);
+      expect(imported).toBeDefined();
+      expect(imported?.id).toBe(conversation.id);
+    });
+
+    it('returns undefined for invalid JSON', () => {
+      const imported = memory.import('invalid json');
+      expect(imported).toBeUndefined();
+    });
+  });
+
+  describe('clear', () => {
+    it('clears all conversations', () => {
+      memory.create('Test 1');
+      memory.create('Test 2');
+
+      memory.clear();
+
+      expect(memory.getCount()).toBe(0);
+    });
+  });
+});
+
+describe('compaction support', () => {
+  let memory: ConversationMemory;
+
+  beforeEach(() => {
+    memory = new ConversationMemory({ maxTokens: 1000 });
+  });
+
+  describe('getMaxTokens', () => {
+    it('returns the configured token budget', () => {
+      expect(memory.getMaxTokens()).toBe(1000);
+    });
+
+    it('returns 0 when unlimited', () => {
+      const unlimited = new ConversationMemory({ maxTokens: 0 });
+      expect(unlimited.getMaxTokens()).toBe(0);
+    });
+  });
+
+  describe('estimateContextTokens', () => {
+    it('returns 0 for unknown conversation', () => {
+      expect(memory.estimateContextTokens('nope')).toBe(0);
+    });
+
+    it('grows as messages are added', () => {
+      const conv = memory.create();
+      const before = memory.estimateContextTokens(conv.id);
+      memory.addUserMessage(conv.id, 'a'.repeat(400));
+      const after = memory.estimateContextTokens(conv.id);
+      expect(after).toBeGreaterThan(before);
+    });
+  });
+
+  describe('compactOlderIntoSummary', () => {
+    it('returns false when at or below keepRecent', () => {
+      const conv = memory.create();
+      memory.addUserMessage(conv.id, 'one');
+      memory.addAssistantMessage(conv.id, 'two');
+      expect(memory.compactOlderIntoSummary(conv.id, 6, 'summary')).toBe(false);
+    });
+
+    it('returns false for unknown conversation', () => {
+      expect(memory.compactOlderIntoSummary('nope', 2, 'summary')).toBe(false);
+    });
+
+    it('replaces older messages with a single user summary, keeping recent intact', () => {
+      const conv = memory.create();
+      // 8 messages: u/a/u/a/u/a/u/a
+      for (let i = 0; i < 4; i++) {
+        memory.addUserMessage(conv.id, `user ${i}`);
+        memory.addAssistantMessage(conv.id, `assistant ${i}`);
+      }
+      const ok = memory.compactOlderIntoSummary(conv.id, 4, 'CONDENSED');
+      expect(ok).toBe(true);
+
+      const msgs = memory.get(conv.id)!.messages;
+      // 1 summary + last 4 kept (cut advances to a 'user' boundary)
+      expect(msgs[0]?.role).toBe('user');
+      expect(msgs[0]?.content).toContain('CONDENSED');
+      expect(msgs[0]?.content).toContain('Conversation summary from compaction');
+      expect(msgs[0]?.metadata?.compactionSummary).toBe(true);
+      // tail begins at a user boundary
+      expect(msgs[1]?.role).toBe('user');
+      // total = summary + 4 recent
+      expect(msgs.length).toBe(5);
+    });
+
+    it('advances the cut to a user boundary so tool roundtrips are not split', () => {
+      const conv = memory.create();
+      memory.addUserMessage(conv.id, 'first');
+      memory.addAssistantMessage(conv.id, '', [{ id: 't1', name: 'tool', arguments: '{}' }]);
+      memory.addToolResults(conv.id, [{ toolCallId: 't1', content: 'result', isError: false }]);
+      memory.addAssistantMessage(conv.id, 'done');
+      memory.addUserMessage(conv.id, 'second');
+      memory.addAssistantMessage(conv.id, 'reply');
+
+      // keepRecent=3 lands the initial cut inside the tool roundtrip; it must
+      // advance forward to the 'second' user message.
+      const ok = memory.compactOlderIntoSummary(conv.id, 3, 'SUM');
+      expect(ok).toBe(true);
+      const msgs = memory.get(conv.id)!.messages;
+      expect(msgs[0]?.role).toBe('user'); // summary
+      expect(msgs[1]?.role).toBe('user'); // 'second'
+      expect(msgs[1]?.content).toBe('second');
+      // no orphaned tool result remains
+      expect(msgs.some((m) => m.role === 'tool')).toBe(false);
+    });
+  });
+});
+
+describe('createMemory', () => {
+  it('creates memory with default config', () => {
+    const memory = createMemory();
+    expect(memory).toBeInstanceOf(ConversationMemory);
+  });
+
+  it('creates memory with custom config', () => {
+    const memory = createMemory({ maxTokens: 1000, maxMessages: 50 });
+    expect(memory).toBeInstanceOf(ConversationMemory);
+  });
+});

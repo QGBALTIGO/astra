@@ -1,0 +1,413 @@
+/**
+ * npm Skill Installer
+ *
+ * Downloads OwnPilot skills from the npm registry, validates them,
+ * runs security audit, and installs via the existing ExtensionService.
+ */
+
+import { mkdtempSync, rmSync, existsSync, readdirSync, readlinkSync } from 'node:fs';
+import { join, resolve, sep, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { get as httpsGet } from 'node:https';
+import { createWriteStream } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { getLog } from '../log.js';
+import { getErrorMessage } from '@ownpilot/core/services';
+
+const execFileAsync = promisify(execFile);
+const log = getLog('NpmInstaller');
+
+const NPM_REGISTRY = 'https://registry.npmjs.org';
+const NPM_SEARCH = 'https://registry.npmjs.org/-/v1/search';
+const SKILL_KEYWORD = 'ownpilot-skill';
+/** Max HTTP redirects to follow for registry/tarball requests (loop guard). */
+const MAX_DOWNLOAD_REDIRECTS = 5;
+
+// =============================================================================
+// Types
+// =============================================================================
+
+interface NpmPackageInfo {
+  name: string;
+  version: string;
+  description: string;
+  author?: string;
+  license?: string;
+  homepage?: string;
+  repository?: string;
+  keywords?: string[];
+  dist?: {
+    tarball: string;
+    shasum: string;
+    integrity?: string;
+  };
+}
+
+interface NpmSearchResult {
+  packages: NpmSearchPackage[];
+  total: number;
+}
+
+interface NpmSearchPackage {
+  name: string;
+  version: string;
+  description: string;
+  author?: string;
+  keywords: string[];
+  date: string;
+  links?: { npm?: string; homepage?: string; repository?: string };
+}
+
+interface NpmInstallResult {
+  success: boolean;
+  extensionId?: string;
+  error?: string;
+  packageName?: string;
+  packageVersion?: string;
+}
+
+// =============================================================================
+// Service
+// =============================================================================
+
+export class NpmSkillInstaller {
+  /**
+   * Search npm registry for OwnPilot skills.
+   */
+  async search(query: string, limit = 20, offset = 0): Promise<NpmSearchResult> {
+    const params = new URLSearchParams({
+      text: `keywords:${SKILL_KEYWORD} ${query}`,
+      size: String(limit),
+      from: String(offset),
+    });
+    const url = `${NPM_SEARCH}?${params.toString()}`;
+
+    const data = await this.fetchJson(url);
+    const objects = (data as { objects?: unknown[] }).objects ?? [];
+
+    const packages: NpmSearchPackage[] = objects.map((obj: unknown) => {
+      const o = obj as { package: Record<string, unknown> };
+      const pkg = o.package ?? {};
+      return {
+        name: String(pkg.name ?? ''),
+        version: String(pkg.version ?? ''),
+        description: String(pkg.description ?? ''),
+        author: pkg.author
+          ? typeof pkg.author === 'string'
+            ? pkg.author
+            : String((pkg.author as Record<string, unknown>).name ?? '')
+          : undefined,
+        keywords: Array.isArray(pkg.keywords) ? pkg.keywords.map(String) : [],
+        date: String(pkg.date ?? ''),
+        links: pkg.links as NpmSearchPackage['links'],
+      };
+    });
+
+    return {
+      packages,
+      total: (data as { total?: number }).total ?? packages.length,
+    };
+  }
+
+  /**
+   * Get full package metadata from npm.
+   */
+  async getPackageInfo(packageName: string): Promise<NpmPackageInfo> {
+    const url = `${NPM_REGISTRY}/${encodeURIComponent(packageName)}`;
+    const data = (await this.fetchJson(url)) as Record<string, unknown>;
+
+    const distTags = (data['dist-tags'] ?? {}) as Record<string, string>;
+    const latestVersion = distTags.latest ?? '';
+
+    const versions = (data.versions ?? {}) as Record<string, Record<string, unknown>>;
+    const latest = versions[latestVersion] ?? data;
+
+    return {
+      name: String(data.name ?? packageName),
+      version: latestVersion || String(latest.version ?? ''),
+      description: String(data.description ?? ''),
+      author: data.author
+        ? typeof data.author === 'string'
+          ? data.author
+          : String((data.author as Record<string, unknown>).name ?? '')
+        : undefined,
+      license: data.license ? String(data.license) : undefined,
+      homepage: data.homepage ? String(data.homepage) : undefined,
+      repository: data.repository
+        ? typeof data.repository === 'string'
+          ? data.repository
+          : String((data.repository as Record<string, unknown>).url ?? '')
+        : undefined,
+      keywords: Array.isArray(data.keywords) ? data.keywords.map(String) : undefined,
+      dist: latest.dist as NpmPackageInfo['dist'],
+    };
+  }
+
+  /**
+   * Download and install a skill from npm.
+   * Returns the extension ID on success.
+   */
+  async install(
+    packageName: string,
+    userId: string,
+    extensionService: { install: (path: string, userId: string) => Promise<{ id: string }> }
+  ): Promise<NpmInstallResult> {
+    const tempDir = mkdtempSync(join(tmpdir(), 'ownpilot-skill-'));
+
+    try {
+      // 1. Get package info
+      log.info(`Fetching package info for ${packageName}`);
+      const info = await this.getPackageInfo(packageName);
+
+      if (!info.dist?.tarball) {
+        return { success: false, error: `No tarball URL found for ${packageName}` };
+      }
+
+      // 2. Download tarball
+      const tarballPath = join(tempDir, 'package.tgz');
+      log.info(`Downloading tarball from ${info.dist.tarball}`);
+      await this.downloadFile(info.dist.tarball, tarballPath);
+
+      // 3. Extract tarball — execFile with array args (no shell interpolation),
+      // then validate that nothing escaped the temp directory (path traversal
+      // or symlink members in a malicious package).
+      const extractDir = join(tempDir, 'extracted');
+      try {
+        await execFileAsync('tar', ['xzf', tarballPath, '-C', tempDir]);
+        // npm tarballs extract to a "package/" subdirectory
+      } catch {
+        return { success: false, error: 'Failed to extract tarball (tar not available)' };
+      }
+      const escaped = this.findEscapingEntry(tempDir);
+      if (escaped) {
+        return {
+          success: false,
+          error: `Package rejected: extracted entry escapes install directory (${escaped})`,
+        };
+      }
+
+      // 4. Find the manifest file
+      const packageDir = join(tempDir, 'package');
+      const manifestPath = this.findManifest(
+        existsSync(packageDir) ? packageDir : existsSync(extractDir) ? extractDir : tempDir
+      );
+
+      if (!manifestPath) {
+        return {
+          success: false,
+          error: 'No SKILL.md, extension.json, or extension.md found in package',
+        };
+      }
+
+      // 5. Install via ExtensionService
+      log.info(`Installing from manifest: ${manifestPath}`);
+      const record = await extensionService.install(manifestPath, userId);
+
+      return {
+        success: true,
+        extensionId: record.id,
+        packageName: info.name,
+        packageVersion: info.version,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: `npm install failed: ${getErrorMessage(err)}`,
+        packageName,
+      };
+    } finally {
+      // Cleanup temp directory
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Best effort cleanup
+      }
+    }
+  }
+
+  /**
+   * Check if an npm package has a newer version than the installed one.
+   */
+  async checkForUpdate(
+    packageName: string,
+    installedVersion: string
+  ): Promise<{ hasUpdate: boolean; latestVersion: string }> {
+    try {
+      const info = await this.getPackageInfo(packageName);
+      return {
+        hasUpdate: info.version !== installedVersion,
+        latestVersion: info.version,
+      };
+    } catch {
+      return { hasUpdate: false, latestVersion: installedVersion };
+    }
+  }
+
+  // ===========================================================================
+  // Internal helpers
+  // ===========================================================================
+
+  /**
+   * Walk an extraction directory (without following symlinks) and return the
+   * relative path of the first entry that escapes `root` — either a symlink
+   * whose target resolves outside the root, or a hardlink/path that normalizes
+   * out of it. Returns null when everything is contained.
+   */
+  private findEscapingEntry(root: string): string | null {
+    const rootResolved = resolve(root);
+    const prefix = rootResolved + sep;
+    const stack: string[] = [rootResolved];
+
+    while (stack.length > 0) {
+      const dir = stack.pop()!;
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const fullPath = join(dir, entry.name);
+        const resolved = resolve(fullPath);
+        if (resolved !== rootResolved && !resolved.startsWith(prefix)) {
+          return fullPath;
+        }
+        if (entry.isSymbolicLink()) {
+          let target: string;
+          try {
+            target = resolve(dirname(fullPath), readlinkSync(fullPath));
+          } catch {
+            // Unreadable symlink — treat as suspicious and reject.
+            return fullPath;
+          }
+          if (target !== rootResolved && !target.startsWith(prefix)) {
+            return fullPath;
+          }
+        } else if (entry.isDirectory()) {
+          stack.push(fullPath);
+        }
+      }
+    }
+    return null;
+  }
+
+  private findManifest(dir: string): string | null {
+    if (!existsSync(dir)) return null;
+
+    const candidates = ['SKILL.md', 'extension.json', 'extension.md'];
+    for (const name of candidates) {
+      const path = join(dir, name);
+      if (existsSync(path)) return path;
+    }
+
+    // Check one level deep (package/ subdirectory)
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          for (const name of candidates) {
+            const path = join(dir, entry.name, name);
+            if (existsSync(path)) return path;
+          }
+        }
+      }
+    } catch {
+      // Ignore
+    }
+
+    return null;
+  }
+
+  private fetchJson(url: string, redirectsLeft = MAX_DOWNLOAD_REDIRECTS): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      httpsGet(url, { headers: { Accept: 'application/json' } }, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          const redirectUrl = res.headers.location;
+          if (redirectUrl) {
+            // Bound the redirect chain — a server (or registry misconfig)
+            // returning a redirect loop would otherwise recurse forever.
+            if (redirectsLeft <= 0) {
+              reject(new Error(`Too many redirects fetching ${url}`));
+              return;
+            }
+            this.fetchJson(redirectUrl, redirectsLeft - 1).then(resolve, reject);
+            return;
+          }
+        }
+
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8')));
+          } catch (e) {
+            reject(new Error(`Invalid JSON from ${url}: ${getErrorMessage(e)}`));
+          }
+        });
+        res.on('error', reject);
+      }).on('error', reject);
+    });
+  }
+
+  private downloadFile(
+    url: string,
+    destPath: string,
+    redirectsLeft = MAX_DOWNLOAD_REDIRECTS
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      httpsGet(url, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          const redirectUrl = res.headers.location;
+          if (redirectUrl) {
+            // Bound the redirect chain so a redirect loop can't recurse forever.
+            if (redirectsLeft <= 0) {
+              reject(new Error(`Too many redirects downloading ${url}`));
+              return;
+            }
+            this.downloadFile(redirectUrl, destPath, redirectsLeft - 1).then(resolve, reject);
+            return;
+          }
+        }
+
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode} downloading ${url}`));
+          return;
+        }
+
+        const file = createWriteStream(destPath);
+        res.pipe(file);
+        file.on('finish', () => {
+          file.close();
+          resolve();
+        });
+        file.on('error', reject);
+      }).on('error', reject);
+    });
+  }
+}
+
+// =============================================================================
+// Singleton
+// =============================================================================
+
+let instance: NpmSkillInstaller | null = null;
+
+export function getNpmInstaller(): NpmSkillInstaller {
+  if (!instance) {
+    instance = new NpmSkillInstaller();
+  }
+  return instance;
+}
+
+/**
+ * Reset the singleton (for testing or shutdown).
+ */
+export function resetNpmInstaller(): void {
+  instance = null;
+}

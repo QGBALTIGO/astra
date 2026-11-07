@@ -1,0 +1,738 @@
+/**
+ * Tests for Tunnel Commands
+ *
+ * The main tunnelStart* functions block forever waiting for SIGINT/SIGTERM.
+ * Tests that exercise those code paths let the promise float (not awaited)
+ * and check side-effects via mocks. A short delay gives the async init time
+ * to complete before assertions run.
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// ---------------------------------------------------------------------------
+// Hoisted mocks
+// ---------------------------------------------------------------------------
+
+const mockListener = vi.hoisted(() => ({
+  url: vi.fn(() => 'https://abc123.ngrok-free.app'),
+  close: vi.fn(async () => undefined),
+}));
+
+const mockNgrok = vi.hoisted(() => ({
+  authtoken: vi.fn(async () => undefined),
+  forward: vi.fn(async () => mockListener),
+  disconnect: vi.fn(async () => undefined),
+}));
+
+vi.mock('@ngrok/ngrok', () => mockNgrok);
+
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(),
+}));
+
+// Mock fetch globally
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
+// ---------------------------------------------------------------------------
+// Import after mocks
+// ---------------------------------------------------------------------------
+
+import { tunnelStartNgrok, tunnelStartCloudflare, tunnelStop, tunnelStatus } from './tunnel.js';
+import { spawn } from 'node:child_process';
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('tunnel commands', () => {
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+  let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+
+  // Collect floating promises for cleanup
+  const floatingPromises: Promise<unknown>[] = [];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    // Default: fetch returns OK for all gateway calls. The CLI now
+    // verifies a gateway fingerprint at /api/v1/health before sending
+    // any webhook material, so every test path needs that endpoint
+    // to respond with a recognizable shape.
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/health')) {
+        return { ok: true, json: async () => ({ version: '0.5.1' }) };
+      }
+      if (url.includes('/config-services/telegram_bot') && !url.includes('/entries/')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              entries: [{ id: 'entry-1', isDefault: true, data: { bot_token: 'tok' } }],
+            },
+          }),
+        };
+      }
+      if (url.includes('/entries/')) {
+        return { ok: true, json: async () => ({ data: {} }) };
+      }
+      if (url.includes('/reconnect')) {
+        return { ok: true, json: async () => ({}) };
+      }
+      return { ok: false };
+    });
+  });
+
+  afterEach(async () => {
+    // Clean up module state
+    await tunnelStop();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
+    floatingPromises.length = 0;
+  });
+
+  // ==========================================================================
+  // tunnelStatus
+  // ==========================================================================
+
+  describe('tunnelStatus()', () => {
+    it('should show "No active tunnel" when no tunnel running', () => {
+      tunnelStatus();
+      expect(consoleSpy).toHaveBeenCalledWith('No active tunnel.');
+    });
+  });
+
+  // ==========================================================================
+  // tunnelStop
+  // ==========================================================================
+
+  describe('tunnelStop()', () => {
+    it('should show "No active tunnel" when no tunnel running', async () => {
+      await tunnelStop();
+      expect(consoleSpy).toHaveBeenCalledWith('No active tunnel.');
+    });
+  });
+
+  // ==========================================================================
+  // tunnelStartNgrok
+  // ==========================================================================
+
+  describe('tunnelStartNgrok()', () => {
+    it('should call ngrok.authtoken when token provided', async () => {
+      // Start tunnel — do not await (it blocks forever on signal wait)
+      const p = tunnelStartNgrok({ token: 'my-ngrok-token', port: '3000' });
+      floatingPromises.push(p.catch(() => {}));
+
+      // Wait for async init
+      await vi.waitFor(() => {
+        expect(mockNgrok.authtoken).toHaveBeenCalledWith('my-ngrok-token');
+      });
+
+      expect(mockNgrok.forward).toHaveBeenCalledWith({
+        addr: 3000,
+        authtoken_from_env: true,
+      });
+    });
+
+    it('should use port 8080 by default', async () => {
+      const p = tunnelStartNgrok({});
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(mockNgrok.forward).toHaveBeenCalled();
+      });
+
+      expect(mockNgrok.forward).toHaveBeenCalledWith({
+        addr: 8080,
+        authtoken_from_env: true,
+      });
+    });
+
+    it('should register webhook URL with gateway', async () => {
+      const p = tunnelStartNgrok({ port: '4000' });
+      floatingPromises.push(p.catch(() => {}));
+
+      // Wait for the full registerWebhookUrl flow to complete
+      await vi.waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/channels/channel.telegram/reconnect'),
+          expect.objectContaining({ method: 'POST' })
+        );
+      });
+
+      // Verify gateway calls. The CLI now hits /api/v1/health first to
+      // fingerprint the gateway before sending any webhook material.
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/health'),
+        expect.anything()
+      );
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/config-services/telegram_bot'),
+        expect.anything()
+      );
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/entries/entry-1'),
+        expect.objectContaining({ method: 'PUT' })
+      );
+    });
+
+    it('should exit(1) if tunnel already running', async () => {
+      // Start first tunnel
+      const p1 = tunnelStartNgrok({});
+      floatingPromises.push(p1.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(mockNgrok.forward).toHaveBeenCalled();
+      });
+
+      // Try to start second — this calls process.exit(1) synchronously
+      tunnelStartNgrok({});
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
+    });
+
+    it('should exit(1) if ngrok URL is null', async () => {
+      mockListener.url.mockReturnValueOnce(undefined as unknown as string);
+
+      // Don't await — function may block at signal wait if the error path is somehow
+      // not taken; use vi.waitFor to assert side-effects instead.
+      const p = tunnelStartNgrok({});
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      });
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('ngrok tunnel failed'));
+    });
+
+    it('should warn when gateway is unreachable', async () => {
+      mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const p = tunnelStartNgrok({ port: '9000' });
+      floatingPromises.push(p.catch(() => {}));
+
+      // The fingerprint preflight (/api/v1/health) is the first call and
+      // throws, so registerWebhookUrl now emits the "did not respond as an
+      // OwnPilot gateway" warning instead of the legacy "Could not reach
+      // gateway" message from the catch block at the end of the function.
+      await vi.waitFor(() => {
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('did not respond as an OwnPilot gateway')
+        );
+      });
+    });
+  });
+
+  // ==========================================================================
+  // tunnelStartCloudflare
+  // ==========================================================================
+
+  describe('tunnelStartCloudflare()', () => {
+    function createMockChild(opts?: { emitUrl?: string; emitError?: Error }) {
+      const handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+      const child = {
+        stdout: {
+          on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            handlers[`stdout.${event}`] ??= [];
+            handlers[`stdout.${event}`]!.push(handler);
+          }),
+        },
+        stderr: {
+          on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            handlers[`stderr.${event}`] ??= [];
+            handlers[`stderr.${event}`]!.push(handler);
+            if (event === 'data' && opts?.emitUrl) {
+              setTimeout(() => handler(Buffer.from(opts.emitUrl!)), 10);
+            }
+          }),
+        },
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+          handlers[event] ??= [];
+          handlers[event]!.push(handler);
+          if (event === 'error' && opts?.emitError) {
+            setTimeout(() => handler(opts.emitError!), 10);
+          }
+        }),
+        kill: vi.fn(),
+      };
+      vi.mocked(spawn).mockReturnValue(child as never);
+      return child;
+    }
+
+    it('should spawn cloudflared with correct args', async () => {
+      createMockChild({ emitUrl: 'https://test-tunnel-abc.trycloudflare.com' });
+
+      const p = tunnelStartCloudflare({ port: '5000' });
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(spawn).toHaveBeenCalled();
+      });
+
+      // Spawn now receives a sanitized env to keep provider API keys and
+      // bot tokens out of the cloudflared child process. Match on the
+      // stdio shape and assert that `env` is an object that does NOT
+      // contain known-sensitive keys.
+      expect(spawn).toHaveBeenCalledWith(
+        'cloudflared',
+        ['tunnel', '--url', 'http://localhost:5000'],
+        expect.objectContaining({
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: expect.any(Object),
+        })
+      );
+      const callArgs = vi.mocked(spawn).mock.calls[0]!;
+      const opts = callArgs[2] as { env?: Record<string, string> };
+      expect(opts.env).toBeDefined();
+      expect(opts.env).not.toHaveProperty('OPENAI_API_KEY');
+      expect(opts.env).not.toHaveProperty('ANTHROPIC_API_KEY');
+      expect(opts.env).not.toHaveProperty('JWT_SECRET');
+      expect(opts.env).not.toHaveProperty('TELEGRAM_BOT_TOKEN');
+    });
+
+    it('should include --hostname when domain provided', async () => {
+      createMockChild({ emitUrl: 'https://my-tunnel-xyz.trycloudflare.com' });
+
+      const p = tunnelStartCloudflare({ domain: 'my.tunnel.dev', port: '8080' });
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(spawn).toHaveBeenCalled();
+      });
+
+      expect(spawn).toHaveBeenCalledWith(
+        'cloudflared',
+        ['tunnel', '--url', 'http://localhost:8080', '--hostname', 'my.tunnel.dev'],
+        expect.any(Object)
+      );
+    });
+
+    it('should exit(1) if cloudflared is not found', async () => {
+      createMockChild({
+        emitError: Object.assign(new Error('spawn cloudflared ENOENT'), { code: 'ENOENT' }),
+      });
+
+      await tunnelStartCloudflare({});
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('cloudflared binary not found')
+      );
+    });
+
+    it('should use port 8080 by default', async () => {
+      createMockChild({ emitUrl: 'https://xyz.trycloudflare.com' });
+
+      const p = tunnelStartCloudflare({});
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(spawn).toHaveBeenCalled();
+      });
+
+      expect(spawn).toHaveBeenCalledWith(
+        'cloudflared',
+        ['tunnel', '--url', 'http://localhost:8080'],
+        expect.any(Object)
+      );
+    });
+
+    it('should exit(1) if tunnel already running (cloudflare)', async () => {
+      // Start first tunnel (ngrok) to set activeTunnel
+      const p1 = tunnelStartNgrok({});
+      floatingPromises.push(p1.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(mockNgrok.forward).toHaveBeenCalled();
+      });
+
+      // Try to start cloudflare tunnel — should exit(1)
+      tunnelStartCloudflare({});
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
+    });
+
+    it('should exit(1) if cloudflared exits before URL found', async () => {
+      // Create a mock child that emits an exit event
+      const handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+      const child = {
+        stdout: {
+          on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            handlers[`stdout.${event}`] ??= [];
+            handlers[`stdout.${event}`]!.push(handler);
+          }),
+        },
+        stderr: {
+          on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            handlers[`stderr.${event}`] ??= [];
+            handlers[`stderr.${event}`]!.push(handler);
+          }),
+        },
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+          handlers[event] ??= [];
+          handlers[event]!.push(handler);
+          if (event === 'exit') {
+            setTimeout(() => handler(1), 10);
+          }
+        }),
+        kill: vi.fn(),
+      };
+      vi.mocked(spawn).mockReturnValue(child as never);
+
+      await tunnelStartCloudflare({});
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Cloudflare tunnel failed')
+      );
+    });
+
+    it('should show generic error for non-ENOENT cloudflare failures', async () => {
+      // Create a mock child that emits a non-ENOENT error
+      const handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+      const child = {
+        stdout: {
+          on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            handlers[`stdout.${event}`] ??= [];
+            handlers[`stdout.${event}`]!.push(handler);
+          }),
+        },
+        stderr: {
+          on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            handlers[`stderr.${event}`] ??= [];
+            handlers[`stderr.${event}`]!.push(handler);
+          }),
+        },
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+          handlers[event] ??= [];
+          handlers[event]!.push(handler);
+          if (event === 'error') {
+            setTimeout(() => handler(new Error('Connection refused')), 10);
+          }
+        }),
+        kill: vi.fn(),
+      };
+      vi.mocked(spawn).mockReturnValue(child as never);
+
+      await tunnelStartCloudflare({});
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Cloudflare tunnel failed: Connection refused')
+      );
+    });
+  });
+
+  // ==========================================================================
+  // tunnelStatus with active tunnel (lines 201-204)
+  // ==========================================================================
+
+  describe('tunnelStatus() with active tunnel', () => {
+    it('should show tunnel details when a tunnel is running', async () => {
+      // Start a tunnel to populate activeTunnel
+      const p = tunnelStartNgrok({});
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(mockNgrok.forward).toHaveBeenCalled();
+      });
+
+      tunnelStatus();
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('ngrok'));
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('https://abc123.ngrok-free.app')
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('running'));
+    });
+  });
+
+  // ==========================================================================
+  // tunnelStop with active tunnel (ngrokListener.close error — line 220)
+  // ==========================================================================
+
+  describe('tunnelStop() with active ngrok tunnel', () => {
+    it('should stop tunnel and log message', async () => {
+      const p = tunnelStartNgrok({});
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(mockNgrok.forward).toHaveBeenCalled();
+      });
+
+      await tunnelStop();
+
+      expect(consoleSpy).toHaveBeenCalledWith('Tunnel stopped.');
+      expect(mockListener.close).toHaveBeenCalled();
+    });
+
+    it('should handle ngrokListener.close() throwing (best effort)', async () => {
+      mockListener.close.mockRejectedValueOnce(new Error('close failed'));
+
+      const p = tunnelStartNgrok({});
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(mockNgrok.forward).toHaveBeenCalled();
+      });
+
+      // Should not throw despite close() failing
+      await tunnelStop();
+
+      expect(consoleSpy).toHaveBeenCalledWith('Tunnel stopped.');
+    });
+  });
+
+  // ==========================================================================
+  // ngrok SIGINT/SIGTERM shutdown handler (lines 74-77)
+  // ==========================================================================
+
+  describe('ngrok shutdown via signal', () => {
+    it('should stop tunnel on SIGINT', async () => {
+      const p = tunnelStartNgrok({});
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(mockNgrok.forward).toHaveBeenCalled();
+      });
+
+      // Emit SIGINT to trigger the shutdown handler
+      process.emit('SIGINT', 'SIGINT');
+
+      await vi.waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Stopping tunnel'));
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Cloudflare SIGINT/SIGTERM shutdown handler (lines 161-164)
+  // ==========================================================================
+
+  describe('cloudflare shutdown via signal', () => {
+    it('should stop tunnel on SIGINT', async () => {
+      // Create a mock child that emits a URL from stderr
+      const handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+      const child = {
+        stdout: {
+          on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            handlers[`stdout.${event}`] ??= [];
+            handlers[`stdout.${event}`]!.push(handler);
+          }),
+        },
+        stderr: {
+          on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            handlers[`stderr.${event}`] ??= [];
+            handlers[`stderr.${event}`]!.push(handler);
+            if (event === 'data') {
+              setTimeout(() => handler(Buffer.from('https://cf-tunnel-xyz.trycloudflare.com')), 10);
+            }
+          }),
+        },
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+          handlers[event] ??= [];
+          handlers[event]!.push(handler);
+        }),
+        kill: vi.fn(),
+      };
+      vi.mocked(spawn).mockReturnValue(child as never);
+
+      const p = tunnelStartCloudflare({ port: '3000' });
+      floatingPromises.push(p.catch(() => {}));
+
+      // Wait for the tunnel to be active
+      await vi.waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Tunnel active'));
+      });
+
+      // Trigger SIGINT to invoke the shutdown handler
+      process.emit('SIGINT', 'SIGINT');
+
+      await vi.waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Stopping tunnel'));
+      });
+
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    });
+  });
+
+  // ==========================================================================
+  // ngrok error with authtoken hint (lines 85-88)
+  // ==========================================================================
+
+  describe('ngrok authtoken error hint', () => {
+    it('should show authtoken hint when ngrok error contains "authtoken"', async () => {
+      mockNgrok.forward.mockRejectedValueOnce(new Error('invalid authtoken provided'));
+
+      await tunnelStartNgrok({});
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('ngrok tunnel failed'));
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('You may need to provide an ngrok auth token')
+      );
+    });
+  });
+
+  // ==========================================================================
+  // registerWebhookUrl edge cases (lines 241-294)
+  // ==========================================================================
+
+  describe('registerWebhookUrl edge cases', () => {
+    it('should warn when telegram_bot service not found', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/health')) {
+          return { ok: true, json: async () => ({ version: '0.5.1' }) };
+        }
+        if (url.includes('/config-services/telegram_bot') && !url.includes('/entries/')) {
+          return { ok: false };
+        }
+        return { ok: true, json: async () => ({}) };
+      });
+
+      const p = tunnelStartNgrok({ port: '4000' });
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Could not find telegram_bot service')
+        );
+      });
+    });
+
+    it('should warn when no config entries found', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/health')) {
+          return { ok: true, json: async () => ({ version: '0.5.1' }) };
+        }
+        if (url.includes('/config-services/telegram_bot') && !url.includes('/entries/')) {
+          return {
+            ok: true,
+            json: async () => ({ data: { entries: [] } }),
+          };
+        }
+        return { ok: true, json: async () => ({}) };
+      });
+
+      const p = tunnelStartNgrok({ port: '4000' });
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('No telegram_bot config entry found')
+        );
+      });
+    });
+
+    it('should warn when webhook config update fails', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/health')) {
+          return { ok: true, json: async () => ({ version: '0.5.1' }) };
+        }
+        if (url.includes('/config-services/telegram_bot') && !url.includes('/entries/')) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: {
+                entries: [{ id: 'entry-1', isDefault: true, data: { bot_token: 'tok' } }],
+              },
+            }),
+          };
+        }
+        if (url.includes('/entries/')) {
+          return { ok: false };
+        }
+        return { ok: true, json: async () => ({}) };
+      });
+
+      const p = tunnelStartNgrok({ port: '4000' });
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Failed to update webhook config')
+        );
+      });
+    });
+
+    it('should warn when channel reconnect fails', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/health')) {
+          return { ok: true, json: async () => ({ version: '0.5.1' }) };
+        }
+        if (url.includes('/config-services/telegram_bot') && !url.includes('/entries/')) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: {
+                entries: [{ id: 'entry-1', isDefault: true, data: { bot_token: 'tok' } }],
+              },
+            }),
+          };
+        }
+        if (url.includes('/entries/')) {
+          return { ok: true, json: async () => ({ data: {} }) };
+        }
+        if (url.includes('/reconnect')) {
+          return { ok: false };
+        }
+        return { ok: true, json: async () => ({}) };
+      });
+
+      const p = tunnelStartNgrok({ port: '4000' });
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Channel reconnect failed')
+        );
+      });
+    });
+
+    it('should use non-default entry when no default is marked', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/health')) {
+          return { ok: true, json: async () => ({ version: '0.5.1' }) };
+        }
+        if (url.includes('/config-services/telegram_bot') && !url.includes('/entries/')) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: {
+                entries: [{ id: 'fallback-entry', isDefault: false, data: { bot_token: 'tok' } }],
+              },
+            }),
+          };
+        }
+        if (url.includes('/entries/fallback-entry')) {
+          return { ok: true, json: async () => ({ data: {} }) };
+        }
+        if (url.includes('/reconnect')) {
+          return { ok: true, json: async () => ({}) };
+        }
+        return { ok: false };
+      });
+
+      const p = tunnelStartNgrok({ port: '4000' });
+      floatingPromises.push(p.catch(() => {}));
+
+      await vi.waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/entries/fallback-entry'),
+          expect.objectContaining({ method: 'PUT' })
+        );
+      });
+    });
+  });
+});

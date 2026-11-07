@@ -1,0 +1,514 @@
+/**
+ * Meta-Tool Executors
+ *
+ * Tools that operate on the registry itself. These are the LLM's "discovery"
+ * and "indirection" layer: instead of exposing every tool natively, the model
+ * uses these to find/inspect/invoke any tool by name.
+ *
+ *  - executeUseTool          — single-tool dispatch w/ alias resolution + perm check
+ *  - executeBatchUseTool     — parallel multi-tool dispatch
+ *  - executeSearchTools      — keyword/category search across the registry
+ *  - executeInspectToolSource — return source code for custom / built-in tools
+ *  - executeGetToolHelp      — one-or-many tool parameter help
+ */
+
+import type { ToolDefinition, ToolRegistry } from '@ownpilot/core/tools';
+import {
+  applyToolLimits,
+  formatFullToolHelp,
+  buildToolHelpText,
+  validateRequiredParams,
+  getBaseName,
+  TOOL_SEARCH_TAGS,
+  type ToolExecutionResult as CoreToolResult,
+  type ToolContext,
+} from '@ownpilot/core/tools';
+import { semanticSearchTools } from './semantic-search.js';
+import { createCustomToolsRepo } from '../../db/repositories/custom/tools.js';
+import { getToolSource } from '../../services/tool/source.js';
+import { getErrorMessage, truncate } from '../../utils/common.js';
+import {
+  TOOL_ARGS_MAX_SIZE,
+  MAX_BATCH_TOOL_CALLS,
+  AI_META_TOOL_NAMES,
+} from '../../config/defaults.js';
+import { getLog } from '../../services/log.js';
+import { checkToolPermission } from '../../services/tool/permission.js';
+import type { ToolExecContext } from '../../services/permission/utils.js';
+import { resolveToolAlias } from './aliases.js';
+import { findSimilarTools } from './utils.js';
+
+const log = getLog('AgentTools');
+
+/**
+ * Shared use_tool executor — validates, caps, executes a single tool by name.
+ * Used by both agent and chat tool registration paths.
+ */
+export async function executeUseTool(
+  tools: ToolRegistry,
+  args: Record<string, unknown>,
+  context: ToolContext,
+  /**
+   * Execution-context source for the permission check. Defaults to 'chat'
+   * (interactive) so the chat/agent registration path is unchanged; the MCP
+   * entry points pass 'mcp' (non-interactive) so approval-required tools are
+   * blocked rather than auto-passed for an external client with no UI.
+   */
+  execSource: ToolExecContext['source'] = 'chat'
+): Promise<CoreToolResult> {
+  const { arguments: toolArgs } = args as {
+    tool_name: string;
+    arguments: Record<string, unknown>;
+  };
+  let tool_name = (args as { tool_name: string }).tool_name;
+
+  // Alias resolution — auto-fix common LLM hallucinations
+  if (!tools.has(tool_name)) {
+    const resolved = resolveToolAlias(tool_name);
+    if (resolved && tools.has(resolved)) {
+      log.info(`Tool alias resolved: ${tool_name} → ${resolved}`);
+      tool_name = resolved;
+    }
+  }
+
+  // Check if tool exists — suggest similar names if not
+  if (!tools.has(tool_name)) {
+    const similar = findSimilarTools(tools, tool_name);
+    const hint =
+      similar.length > 0
+        ? `\n\nDid you mean one of these?\n${similar.map((s) => `  • ${s}`).join('\n')}\n\nCall get_tool_help("tool_name") to see parameters, then retry with the correct name.`
+        : '\n\nUse search_tools("keyword") to find the correct tool name.';
+    return { content: `Tool '${tool_name}' not found.${hint}`, isError: true };
+  }
+
+  // Centralized permission check — enforces tool groups, exec perms, CLI policies, skill restrictions
+  const perm = await checkToolPermission(context.userId ?? 'default', tool_name, {
+    source: execSource,
+    executionPermissions: context.executionPermissions,
+  });
+  if (!perm.allowed) {
+    return { content: `Tool '${tool_name}' is not available: ${perm.reason}`, isError: true };
+  }
+
+  // Pre-validate required parameters before execution
+  const missingError = validateRequiredParams(tools, tool_name, toolArgs || {});
+  if (missingError) {
+    return { content: `${missingError}${buildToolHelpText(tools, tool_name)}`, isError: true };
+  }
+
+  try {
+    // Validate tool arguments payload size
+    const argsStr = JSON.stringify(toolArgs ?? {});
+    if (argsStr.length > TOOL_ARGS_MAX_SIZE) {
+      return { content: 'Tool arguments payload too large (max 100KB)', isError: true };
+    }
+
+    // Apply max limits for list-returning tools (e.g. cap list_emails limit to 50)
+    const cappedArgs = applyToolLimits(tool_name, toolArgs);
+    // Forward the parent context so inner tools inherit executionPermissions, requestApproval, etc.
+    const result = await tools.execute(tool_name, cappedArgs, context);
+    if (result.ok) {
+      return result.value;
+    }
+    // Include parameter help on execution error so LLM can retry correctly
+    return { content: result.error.message + buildToolHelpText(tools, tool_name), isError: true };
+  } catch (error) {
+    const msg = getErrorMessage(error, 'Tool execution failed');
+    return { content: msg + buildToolHelpText(tools, tool_name), isError: true };
+  }
+}
+
+/**
+ * Shared batch_use_tool executor — validates and executes multiple tools in parallel.
+ * Used by both agent and chat tool registration paths.
+ */
+export async function executeBatchUseTool(
+  tools: ToolRegistry,
+  args: Record<string, unknown>,
+  context: ToolContext,
+  /** See executeUseTool — defaults to 'chat'; MCP entry points pass 'mcp'. */
+  execSource: ToolExecContext['source'] = 'chat'
+): Promise<CoreToolResult> {
+  const { calls } = args as {
+    calls: Array<{ tool_name: string; arguments: Record<string, unknown> }>;
+  };
+
+  if (!calls?.length) {
+    return { content: 'Provide a "calls" array with at least one tool call.', isError: true };
+  }
+
+  if (calls.length > MAX_BATCH_TOOL_CALLS) {
+    return {
+      content: `Batch size ${calls.length} exceeds maximum of ${MAX_BATCH_TOOL_CALLS}. Split into smaller batches.`,
+      isError: true,
+    };
+  }
+
+  // Execute all tool calls in parallel
+  const results = await Promise.allSettled(
+    calls.map(async (call, idx) => {
+      const { arguments: toolArgs } = call;
+      let tool_name = call.tool_name;
+
+      // Alias resolution
+      if (!tools.has(tool_name)) {
+        const resolved = resolveToolAlias(tool_name);
+        if (resolved && tools.has(resolved)) {
+          log.info(`Tool alias resolved: ${tool_name} → ${resolved}`);
+          tool_name = resolved;
+        }
+      }
+
+      // Check tool exists
+      if (!tools.has(tool_name)) {
+        const similar = findSimilarTools(tools, tool_name);
+        const hint = similar.length > 0 ? ` Did you mean: ${similar.join(', ')}?` : '';
+        return { idx, tool_name, ok: false, content: `Tool '${tool_name}' not found.${hint}` };
+      }
+
+      // Validate required params
+      const missingError = validateRequiredParams(tools, tool_name, toolArgs || {});
+      if (missingError) {
+        return { idx, tool_name, ok: false, content: missingError };
+      }
+
+      // Permission check — parity with single use_tool. The batch path
+      // previously skipped checkToolPermission entirely, so a caller could
+      // invoke a tool via batch_use_tool that single use_tool would block
+      // (group/exec/CLI/skill gating). Enforce the same check per call, with
+      // the caller's execution source (non-interactive over MCP).
+      const perm = await checkToolPermission(context.userId ?? 'default', tool_name, {
+        source: execSource,
+        executionPermissions: context.executionPermissions,
+      });
+      if (!perm.allowed) {
+        return {
+          idx,
+          tool_name,
+          ok: false,
+          content: `Tool '${tool_name}' is not available: ${perm.reason}`,
+        };
+      }
+
+      try {
+        // Validate tool arguments payload size
+        const argsStr = JSON.stringify(toolArgs ?? {});
+        if (argsStr.length > TOOL_ARGS_MAX_SIZE) {
+          return {
+            idx,
+            tool_name,
+            ok: false,
+            content: 'Tool arguments payload too large (max 100KB)',
+          };
+        }
+
+        const cappedArgs = applyToolLimits(tool_name, toolArgs);
+        // Forward the parent context so inner tools inherit executionPermissions, etc.
+        const result = await tools.execute(tool_name, cappedArgs, context);
+        if (result.ok) {
+          return {
+            idx,
+            tool_name,
+            ok: true,
+            content:
+              typeof result.value.content === 'string'
+                ? result.value.content
+                : JSON.stringify(result.value.content, null, 2),
+          };
+        }
+        return { idx, tool_name, ok: false, content: result.error.message };
+      } catch (error) {
+        const msg = getErrorMessage(error, 'Execution failed');
+        return { idx, tool_name, ok: false, content: msg };
+      }
+    })
+  );
+
+  // Format combined results
+  const sections = results.map((r, i) => {
+    const call = calls[i]!;
+    if (r.status === 'fulfilled') {
+      const v = r.value;
+      const status = v.ok ? '✓' : '✗';
+      return `### ${i + 1}. ${call.tool_name} ${status}\n${v.content}`;
+    }
+    return `### ${i + 1}. ${call.tool_name} ✗\nUnexpected error: ${r.reason}`;
+  });
+
+  const hasErrors = results.some(
+    (r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.ok)
+  );
+
+  return {
+    content: `[Batch: ${calls.length} tool calls]\n\n${sections.join('\n\n---\n\n')}`,
+    isError:
+      hasErrors &&
+      results.every((r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.ok)),
+  };
+}
+
+/**
+ * Shared handler for search_tools meta-tool
+ *
+ * Three modes:
+ *  - keyword (default): AND match against name + description + tags + category.
+ *  - semantic: embedding cosine similarity of query vs per-tool search text.
+ *  - hybrid:  union of keyword hits + top semantic hits, semantic re-ranks
+ *             everything (best when caller is unsure which phrasing fits).
+ *
+ * Semantic + hybrid silently fall back to keyword if the embedding service
+ * isn't registered or the query embedding call fails — never block discovery
+ * because a side-channel is down.
+ */
+type SearchMode = 'keyword' | 'semantic' | 'hybrid';
+
+export async function executeSearchTools(
+  tools: ToolRegistry,
+  args: Record<string, unknown>
+): Promise<CoreToolResult> {
+  const {
+    query,
+    category: filterCategory,
+    include_params,
+    mode: rawMode,
+    limit: rawLimit,
+  } = args as {
+    query: string;
+    category?: string;
+    include_params?: boolean;
+    mode?: string;
+    limit?: number;
+  };
+
+  const mode: SearchMode = rawMode === 'semantic' || rawMode === 'hybrid' ? rawMode : 'keyword';
+
+  const allDefs = tools.getDefinitions();
+  const q = query.trim().toLowerCase();
+  const showAll = q === 'all' || q === '*';
+  const queryWords = q.split(/\s+/).filter(Boolean);
+
+  const candidates = allDefs.filter((d) => {
+    if (AI_META_TOOL_NAMES.includes(d.name as (typeof AI_META_TOOL_NAMES)[number])) return false;
+    if (filterCategory && d.category?.toLowerCase() !== filterCategory.toLowerCase()) return false;
+    return true;
+  });
+
+  const keywordMatches = candidates.filter((d) => {
+    if (showAll) return true;
+    const baseName = getBaseName(d.name);
+    const tags = TOOL_SEARCH_TAGS[baseName] ?? d.tags ?? [];
+    const searchBlob = [
+      baseName.toLowerCase().replace(/[_\-]/g, ' '),
+      d.name.toLowerCase().replace(/[_.]/g, ' '),
+      d.name.toLowerCase(),
+      d.description.toLowerCase(),
+      (d.category ?? '').toLowerCase(),
+      ...tags.map((tag) => tag.toLowerCase()),
+    ].join(' ');
+    return queryWords.every((word) => searchBlob.includes(word));
+  });
+
+  let matches = keywordMatches;
+  let usedMode: SearchMode = 'keyword';
+  const defaultSemanticLimit = 20;
+  const limit =
+    typeof rawLimit === 'number' && Number.isFinite(rawLimit) && rawLimit > 0
+      ? Math.min(rawLimit, 100)
+      : undefined;
+
+  if (!showAll && (mode === 'semantic' || mode === 'hybrid')) {
+    const semantic = await semanticSearchTools(query, candidates);
+    if (semantic) {
+      const semCap = limit ?? defaultSemanticLimit;
+      const topSemantic = semantic.matches.slice(0, semCap);
+      if (mode === 'semantic') {
+        matches = topSemantic.map((m) => m.def);
+        usedMode = 'semantic';
+      } else {
+        // hybrid: union, with semantic order driving ranking; keyword hits not
+        // surfaced by the top semantic slice are appended at the end so they
+        // are not lost when the model intent is well-phrased.
+        const seenNames = new Set<string>();
+        const merged: ToolDefinition[] = [];
+        for (const m of topSemantic) {
+          if (!seenNames.has(m.def.name)) {
+            seenNames.add(m.def.name);
+            merged.push(m.def);
+          }
+        }
+        for (const d of keywordMatches) {
+          if (!seenNames.has(d.name)) {
+            seenNames.add(d.name);
+            merged.push(d);
+          }
+        }
+        matches = merged;
+        usedMode = 'hybrid';
+      }
+    } else {
+      log.warn(
+        `Semantic search requested but embedding service unavailable; falling back to keyword`
+      );
+    }
+  }
+
+  if (matches.length === 0) {
+    return {
+      content: `No tools found for "${query}". Tips:\n- Try mode:"semantic" with a natural-language intent ("I need to remind a teammate")\n- Search by individual keywords: "email" or "send"\n- Use multiple words for AND search: "email send" finds send_email\n- Use "all" to list every available tool\n- Try broad keywords: "task", "file", "web", "memory", "note", "calendar"`,
+    };
+  }
+
+  if (limit !== undefined && matches.length > limit) {
+    matches = matches.slice(0, limit);
+  }
+
+  const headerMode = usedMode === 'keyword' ? '' : ` [mode=${usedMode}]`;
+
+  if (include_params !== false) {
+    const sections = matches.map((d) => formatFullToolHelp(tools, d.name));
+    return {
+      content: [
+        `Found ${matches.length} tool(s) for "${query}"${headerMode} (with parameters):`,
+        '',
+        ...sections.join('\n\n---\n\n').split('\n'),
+      ].join('\n'),
+    };
+  }
+
+  const lines = matches.map((d) => `- **${d.name}**: ${truncate(d.description, 100)}`);
+  return {
+    content: [`Found ${matches.length} tool(s) for "${query}"${headerMode}:`, '', ...lines].join(
+      '\n'
+    ),
+  };
+}
+
+/**
+ * Shared handler for inspect_tool_source meta-tool
+ */
+export async function executeInspectToolSource(
+  tools: ToolRegistry,
+  userId: string,
+  args: Record<string, unknown>
+): Promise<CoreToolResult> {
+  const { tool_name } = args as { tool_name: string };
+  if (!tool_name || typeof tool_name !== 'string') {
+    return { content: 'Provide a "tool_name" parameter.', isError: true };
+  }
+
+  const customToolsRepo = createCustomToolsRepo(userId);
+  const baseName = getBaseName(tool_name);
+
+  // 1. Check if it's a custom tool (DB stores base names)
+  const customTool = await customToolsRepo.getByName(baseName);
+  if (customTool) {
+    const sections: string[] = [
+      `## Tool: ${customTool.name}`,
+      `**Category:** ${customTool.category ?? 'Custom'}`,
+      `**Type:** custom (v${customTool.version}, created by ${customTool.createdBy})`,
+      `**Status:** ${customTool.status}`,
+      '',
+      '### Description',
+      customTool.description,
+      '',
+      '### Parameters',
+      '```json',
+      JSON.stringify(customTool.parameters, null, 2),
+      '```',
+      '',
+      '### Source Code',
+      '```javascript',
+      customTool.code,
+      '```',
+    ];
+    if (customTool.permissions?.length) {
+      sections.push('', `**Permissions:** ${customTool.permissions.join(', ')}`);
+    }
+    sections.push(
+      '',
+      '### Improvement Tips',
+      '- You can update this tool directly with `update_custom_tool`.'
+    );
+    return { content: sections.join('\n') };
+  }
+
+  // 2. Check if it's a built-in tool
+  const def = tools.getDefinition(tool_name);
+  if (def) {
+    const source = getToolSource(tool_name);
+    const sections: string[] = [
+      `## Tool: ${def.name}`,
+      `**Category:** ${def.category ?? 'Unknown'}`,
+      `**Type:** built-in`,
+      '',
+      '### Description',
+      def.description,
+      '',
+      '### Parameters',
+      '```json',
+      JSON.stringify(def.parameters, null, 2),
+      '```',
+    ];
+    if (source) {
+      sections.push('', '### Source Code', '```typescript', source, '```');
+    } else {
+      sections.push('', '*Source code not available for this tool.*');
+    }
+    sections.push(
+      '',
+      '### Improvement Tips',
+      '- Built-in tools cannot be modified directly. Use `create_tool` to create an improved custom version that overrides or extends this tool.'
+    );
+    return { content: sections.join('\n') };
+  }
+
+  // 3. Not found — suggest similar tools
+  const similar = findSimilarTools(tools, tool_name);
+  const hint =
+    similar.length > 0
+      ? `\n\nDid you mean one of these?\n${similar.map((s) => `  - ${s}`).join('\n')}`
+      : '\n\nUse search_tools("keyword") to find the correct tool name.';
+  return { content: `Tool '${tool_name}' not found.${hint}`, isError: true };
+}
+
+/**
+ * Shared handler for get_tool_help meta-tool
+ */
+export async function executeGetToolHelp(
+  tools: ToolRegistry,
+  args: Record<string, unknown>
+): Promise<CoreToolResult> {
+  const { tool_name, tool_names } = args as { tool_name?: string; tool_names?: string[] };
+
+  const names: string[] = tool_names?.length ? tool_names : tool_name ? [tool_name] : [];
+  if (names.length === 0) {
+    return {
+      content: 'Provide either "tool_name" (string) or "tool_names" (array) parameter.',
+      isError: true,
+    };
+  }
+
+  const results: string[] = [];
+  const notFound: string[] = [];
+  for (const name of names) {
+    if (!tools.getDefinition(name)) {
+      notFound.push(name);
+      continue;
+    }
+    results.push(formatFullToolHelp(tools, name));
+  }
+
+  if (notFound.length > 0) {
+    const similar = notFound.flatMap((n) => findSimilarTools(tools, n));
+    const hintText =
+      similar.length > 0
+        ? `\nDid you mean one of these?\n${[...new Set(similar)].map((s) => `  • ${s}`).join('\n')}\n\nUse search_tools("keyword") to find the correct tool name.`
+        : '\nUse search_tools("keyword") to discover available tools.';
+    results.push(`Tools not found: ${notFound.join(', ')}${hintText}`);
+  }
+
+  return {
+    content: results.join('\n\n---\n\n'),
+    isError: notFound.length > 0 && notFound.length === names.length,
+  };
+}

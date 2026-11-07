@@ -1,0 +1,377 @@
+/**
+ * ArtifactDetailModal
+ *
+ * Full-screen modal for viewing a single artifact in detail.
+ * Provides larger preview area especially for HTML/SVG artifacts.
+ */
+
+import { useCallback, useState } from 'react';
+import {
+  X,
+  Pin,
+  PinOff,
+  RefreshCw,
+  Trash2,
+  Download,
+  Code2,
+  FileText,
+  PenTool,
+  FormInput,
+  BarChart3,
+  Component,
+  ExternalLink,
+} from './icons';
+import { ArtifactRenderer } from './ArtifactRenderer';
+import { useDialog } from './ConfirmDialog';
+import { useToast } from './ToastProvider';
+import type { Artifact, ArtifactType } from '../api/endpoints/artifacts';
+import { artifactsApi } from '../api/endpoints/artifacts';
+
+/**
+ * Sanitize an HTML/SVG artifact before it is opened in a new tab.
+ *
+ * "Open in new tab" creates a same-origin `blob:` document, so any `<script>`
+ * or event-handler in the (LLM/tool-generated) artifact would otherwise run in
+ * the app's own origin with the session cookie. We strip active content while
+ * preserving structure and styling — unlike the inline HtmlWidget allow-list,
+ * which would gut a standalone document — so the rendered artifact still looks
+ * right but cannot execute script.
+ *
+ * Implemented with the parse-once → remove dangerous nodes → serialize pattern
+ * via DOMParser (which never executes scripts during parsing). This is
+ * deterministic across environments, unlike DOMPurify, whose `isSupported`
+ * check makes it a no-op passthrough under non-browser DOMs (e.g. happy-dom).
+ * Returns '' when no DOMParser is available, so callers refuse rather than open
+ * active content unsanitized.
+ */
+export function sanitizeArtifactForNewTab(content: string, type: 'html' | 'svg'): string {
+  if (typeof DOMParser === 'undefined') return '';
+  const doc = new DOMParser().parseFromString(
+    content,
+    type === 'svg' ? 'image/svg+xml' : 'text/html'
+  );
+
+  // Remove script and foreignObject (the latter can smuggle HTML/script into an
+  // otherwise-SVG document) anywhere in the tree. <animate>/<set> are removed
+  // too: SMIL re-targets attributes at RUNTIME — inside an <a>,
+  // <animate attributeName="href" values="javascript:…"/> rewrites the link to
+  // a scripting URL after static attribute stripping, so clicking executes
+  // script with the app's origin (round 61). <meta http-equiv=refresh> is
+  // removed as well: it force-navigates the blob document to any URL the
+  // instant it opens — a phishing primitive from a trusted-looking context,
+  // and body-position metas survive the body.innerHTML export (round 62).
+  doc
+    .querySelectorAll('script, foreignObject, animate, set, meta[http-equiv]')
+    .forEach((node) => node.remove());
+
+  // Browsers strip TAB/LF/CR from URLs before scheme parsing, so a value like
+  // "java\tscript:alert(1)" executes even though it never matches a naive
+  // prefix test — detect the scheme on the stripped form (round 60).
+  const isDangerousUrl = (value: string): boolean =>
+    /^\s*(?:javascript|data):/i.test(value.replace(/[\t\n\r]/g, ''));
+
+  // Attributes a browser resolves as URLs and which can carry a scripting
+  // scheme. action/formaction/data/poster/background were previously missed —
+  // <form action="javascript:…"> executed on submit (round 60).
+  const URL_ATTRS = new Set([
+    'href',
+    'src',
+    'xlink:href',
+    'action',
+    'formaction',
+    'data',
+    'poster',
+    'background',
+  ]);
+
+  // Strip event-handler attributes and dangerous URLs from every node.
+  doc.querySelectorAll('*').forEach((el) => {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith('on')) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (URL_ATTRS.has(name) && isDangerousUrl(attr.value)) {
+        el.removeAttribute(attr.name);
+      }
+    }
+    // An <iframe> (with or without srcdoc) renders a same-origin nested
+    // document whose <script> would run with the app's origin — force the
+    // sandbox attribute to its most restrictive form so the preview stays
+    // but scripts are inert (round 60).
+    if (el.tagName.toLowerCase() === 'iframe') {
+      el.setAttribute('sandbox', '');
+    }
+  });
+
+  if (type === 'svg') {
+    return doc.documentElement?.outerHTML ?? '';
+  }
+  return doc.body?.innerHTML ?? '';
+}
+
+// =============================================================================
+// Type Config
+// =============================================================================
+
+const TYPE_CONFIG: Record<ArtifactType, { icon: typeof Code2; label: string; color: string }> = {
+  html: { icon: Code2, label: 'HTML', color: 'text-blue-500' },
+  svg: { icon: PenTool, label: 'SVG', color: 'text-purple-500' },
+  markdown: { icon: FileText, label: 'Markdown', color: 'text-green-500' },
+  form: { icon: FormInput, label: 'Form', color: 'text-orange-500' },
+  chart: { icon: BarChart3, label: 'Chart', color: 'text-cyan-500' },
+  react: { icon: Component, label: 'React', color: 'text-sky-500' },
+};
+
+// =============================================================================
+// Props
+// =============================================================================
+
+interface ArtifactDetailModalProps {
+  artifact: Artifact;
+  onClose: () => void;
+  onDelete?: (id: string) => void;
+  onUpdate?: (artifact: Artifact) => void;
+}
+
+// =============================================================================
+// Component
+// =============================================================================
+
+export function ArtifactDetailModal({
+  artifact,
+  onClose,
+  onDelete,
+  onUpdate,
+}: ArtifactDetailModalProps) {
+  const [currentArtifact, setCurrentArtifact] = useState(artifact);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showSource, setShowSource] = useState(false);
+  const { confirm } = useDialog();
+  const toast = useToast();
+
+  const cfg = TYPE_CONFIG[currentArtifact.type] ?? TYPE_CONFIG.html;
+  const TypeIcon = cfg.icon;
+
+  const handleTogglePin = useCallback(async () => {
+    try {
+      const updated = await artifactsApi.togglePin(currentArtifact.id);
+      setCurrentArtifact(updated);
+      onUpdate?.(updated);
+      toast.success(updated.pinned ? 'Artifact pinned' : 'Artifact unpinned');
+    } catch {
+      // silent
+    }
+  }, [currentArtifact.id, onUpdate, toast]);
+
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const updated = await artifactsApi.refresh(currentArtifact.id);
+      setCurrentArtifact(updated);
+      onUpdate?.(updated);
+      toast.success('Artifact refreshed');
+    } catch {
+      // silent
+    } finally {
+      setRefreshing(false);
+    }
+  }, [currentArtifact.id, refreshing, onUpdate, toast]);
+
+  const handleDelete = useCallback(async () => {
+    const confirmed = await confirm({
+      title: 'Delete Artifact?',
+      message: `"${currentArtifact.title}" will be permanently deleted.`,
+      variant: 'danger',
+      confirmText: 'Delete',
+    });
+    if (confirmed) {
+      try {
+        await artifactsApi.delete(currentArtifact.id);
+        onDelete?.(currentArtifact.id);
+        onClose();
+        toast.success('Artifact deleted');
+      } catch {
+        // silent
+      }
+    }
+  }, [currentArtifact.id, currentArtifact.title, confirm, onDelete, onClose, toast]);
+
+  const handleDownload = useCallback(() => {
+    const blob = new Blob([currentArtifact.content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentArtifact.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${currentArtifact.type === 'markdown' ? 'md' : currentArtifact.type}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Artifact downloaded');
+  }, [currentArtifact]);
+
+  const handleOpenInNewTab = useCallback(() => {
+    if (!currentArtifact) return;
+    if (currentArtifact.type === 'html' || currentArtifact.type === 'svg') {
+      const sanitized = sanitizeArtifactForNewTab(currentArtifact.content, currentArtifact.type);
+      if (!sanitized) {
+        toast.info('Unable to safely open this artifact');
+        return;
+      }
+      const mime = currentArtifact.type === 'svg' ? 'image/svg+xml' : 'text/html';
+      const blob = new Blob([sanitized], { type: mime });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } else {
+      toast.info('Open in new tab only available for HTML and SVG artifacts');
+    }
+  }, [currentArtifact, toast]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-black/60 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-7xl h-full max-h-[90vh] bg-bg-primary dark:bg-dark-bg-primary rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex items-center gap-4 px-6 py-4 border-b border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-bg-tertiary dark:bg-dark-bg-tertiary">
+            <TypeIcon className={`w-5 h-5 ${cfg.color}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary truncate">
+              {currentArtifact.title}
+            </h2>
+            <div className="flex items-center gap-3 text-sm text-text-muted dark:text-dark-text-muted">
+              <span className={`font-medium ${cfg.color}`}>{cfg.label}</span>
+              <span>v{currentArtifact.version}</span>
+              {currentArtifact.tags.length > 0 && (
+                <span className="truncate">{currentArtifact.tags.join(', ')}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            {/* Source toggle */}
+            <button
+              onClick={() => setShowSource(!showSource)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                showSource
+                  ? 'bg-primary text-white'
+                  : 'border border-border dark:border-dark-border hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
+              }`}
+            >
+              <Code2 className="w-3.5 h-3.5" />
+              {showSource ? 'Preview' : 'Source'}
+            </button>
+
+            {/* Open in new tab */}
+            {(currentArtifact.type === 'html' || currentArtifact.type === 'svg') && (
+              <button
+                onClick={handleOpenInNewTab}
+                className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
+                title="Open in new tab"
+              >
+                <ExternalLink className="w-4 h-4 text-text-muted" />
+              </button>
+            )}
+
+            {/* Refresh */}
+            {currentArtifact.dataBindings.length > 0 && (
+              <button
+                onClick={handleRefresh}
+                className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
+                title="Refresh data bindings"
+              >
+                <RefreshCw
+                  className={`w-4 h-4 text-text-muted ${refreshing ? 'animate-spin' : ''}`}
+                />
+              </button>
+            )}
+
+            {/* Pin */}
+            <button
+              onClick={handleTogglePin}
+              className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
+              title={currentArtifact.pinned ? 'Unpin from dashboard' : 'Pin to dashboard'}
+            >
+              {currentArtifact.pinned ? (
+                <PinOff className="w-4 h-4 text-primary" />
+              ) : (
+                <Pin className="w-4 h-4 text-text-muted" />
+              )}
+            </button>
+
+            {/* Download */}
+            <button
+              onClick={handleDownload}
+              className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
+              title="Download artifact"
+            >
+              <Download className="w-4 h-4 text-text-muted" />
+            </button>
+
+            {/* Delete */}
+            <button
+              onClick={handleDelete}
+              className="p-2 rounded-lg hover:bg-error/10 transition-colors"
+              title="Delete artifact"
+            >
+              <Trash2 className="w-4 h-4 text-text-muted hover:text-error" />
+            </button>
+
+            {/* Close */}
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors ml-2"
+              title="Close"
+            >
+              <X className="w-5 h-5 text-text-muted" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-6 bg-bg-primary dark:bg-dark-bg-primary min-h-0">
+          {showSource ? (
+            <pre className="w-full p-4 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg overflow-auto text-sm font-mono text-text-primary dark:text-dark-text-primary border border-border dark:border-dark-border">
+              {currentArtifact.content}
+            </pre>
+          ) : (
+            <div className="flex flex-col h-full min-h-0">
+              <ArtifactRenderer
+                type={currentArtifact.type}
+                content={currentArtifact.content}
+                dataBindings={currentArtifact.dataBindings}
+                fullWidth
+                autoHeight
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary text-xs text-text-muted dark:text-dark-text-muted flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <span>Created {new Date(currentArtifact.createdAt).toLocaleString()}</span>
+            {currentArtifact.updatedAt !== currentArtifact.createdAt && (
+              <span>Updated {new Date(currentArtifact.updatedAt).toLocaleString()}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span>{currentArtifact.content.length.toLocaleString()} characters</span>
+            {currentArtifact.dataBindings.length > 0 && (
+              <span>• {currentArtifact.dataBindings.length} data binding(s)</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

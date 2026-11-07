@@ -1,0 +1,1050 @@
+import { useRef, useEffect, useState, useCallback, lazy, Suspense } from 'react';
+import { useSearchParams } from 'react-router';
+import { ChatInput, type ChatInputHandle } from '../components/ChatInput';
+import { MessageList } from '../components/MessageList';
+import { SuggestionChips } from '../components/SuggestionChips';
+import { MemoryCards } from '../components/MemoryCards';
+import { ContextBar } from '../components/ContextBar';
+import { ContextDetailModal } from '../components/ContextDetailModal';
+import { WorkspaceSelector } from '../components/WorkspaceSelector';
+import { useChatStore } from '../hooks/useChatStore';
+import { ExecutionSecurityPanel } from '../components/ExecutionSecurityPanel';
+import { ToolCallLimitPanel } from '../components/ToolCallLimitPanel';
+import { ThinkingToggle } from '../components/ThinkingToggle';
+import { ChatStarterPrompts } from '../components/ChatStarterPrompts';
+import { useGateway } from '../hooks/useWebSocket';
+import { ChatTimeline } from '../components/ChatTimeline';
+import { StreamingResponseArea } from '../components/StreamingResponseArea';
+import { ChannelMessageList } from '../components/ChannelMessageList';
+import type { Conversation, ChannelInfo } from '../api';
+
+// Lazy-load rarely-used components
+const ExecutionApprovalDialog = lazy(() =>
+  import('../components/ExecutionApprovalDialog').then((m) => ({
+    default: m.ExecutionApprovalDialog,
+  }))
+);
+import { Settings, Bot, Telegram, WhatsApp, MessageSquare } from '../components/icons';
+import { modelsApi, providersApi, settingsApi, agentsApi, chatApi } from '../api';
+import { ignoreError } from '../utils/ignore-error';
+import type { ModelInfo, AgentDetail } from '../types';
+
+export function ChatPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    messages,
+    isLoading,
+    error,
+    lastFailedMessage,
+    provider,
+    model,
+    workspaceId,
+    streamingContent,
+    progressEvents,
+    setProvider,
+    setModel,
+    setAgentId,
+    setWorkspaceId,
+    suggestions,
+    extractedMemories,
+    pendingApproval,
+    sessionId,
+    sessionInfo,
+    autoCompactPrompt,
+    isCompacting,
+    compactSession,
+    dismissAutoCompactPrompt,
+    disableAutoCompactPrompt,
+    lastCompactionSummary,
+    clearLastCompactionSummary,
+    sendMessage,
+    retryLastMessage,
+    loadConversation,
+    cancelRequest,
+    clearSuggestions,
+    acceptMemory,
+    rejectMemory,
+    resolveApproval,
+    isThinking,
+    thinkingContent,
+    activeSessionId,
+    sessionTabs,
+    createSession,
+    switchSession,
+    closeSession,
+  } = useChatStore();
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<ChatInputHandle>(null);
+  const [showProviderMenu, setShowProviderMenu] = useState(false);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [configuredProviders, setConfiguredProviders] = useState<string[]>([]);
+  const [providerNames, setProviderNames] = useState<Record<string, string>>({});
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
+  const [currentAgent, setCurrentAgent] = useState<AgentDetail | null>(null);
+  const [showContextDetail, setShowContextDetail] = useState(false);
+  const [timelineMode, setTimelineMode] = useState(false);
+
+  // Channel mode state
+  const [activeConv, setActiveConv] = useState<Conversation | null>(null);
+  const [channelMessages, setChannelMessages] = useState<
+    Array<{
+      id: string;
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp: string;
+      direction: 'inbound' | 'outbound';
+      senderName?: string;
+    }>
+  >([]);
+  const [channelInfo, setChannelInfo] = useState<ChannelInfo | null>(null);
+  const [isChannelMode, setIsChannelMode] = useState(false);
+  const { subscribe } = useGateway();
+
+  // Personal starters moved to ChatStarterPrompts
+
+  // Close dropdowns on Escape key
+  useEffect(() => {
+    if (!showProviderMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowProviderMenu(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showProviderMenu]);
+
+  // WS subscription for real-time channel message updates in channel mode
+  useEffect(() => {
+    if (!isChannelMode || !channelInfo) return;
+    return subscribe<{
+      id: string;
+      channelId: string;
+      sender: string;
+      content: string;
+      timestamp: string;
+      direction: 'incoming' | 'outgoing';
+    }>('channel:message', (data) => {
+      if (data.channelId !== channelInfo.channelPluginId) return;
+      const role = data.direction === 'incoming' ? 'user' : 'assistant';
+      setChannelMessages((prev) => {
+        // Deduplicate by content+role+approximate time (optimistic messages)
+        const isOptimistic =
+          role === 'user' &&
+          prev.some(
+            (m) => m.id.startsWith('optimistic:') && m.content === data.content && m.role === 'user'
+          );
+        if (isOptimistic) {
+          // Replace the optimistic message with the real one
+          return prev.map((m) =>
+            m.id.startsWith('optimistic:') && m.content === data.content && m.role === 'user'
+              ? { ...m, id: data.id }
+              : m
+          );
+        }
+        // Avoid adding duplicates
+        if (prev.some((m) => m.id === data.id)) return prev;
+        return [
+          ...prev,
+          {
+            id: data.id,
+            role,
+            content: data.content,
+            timestamp: data.timestamp,
+            direction: data.direction === 'incoming' ? 'inbound' : 'outbound',
+            senderName: data.sender,
+          },
+        ];
+      });
+    });
+  }, [isChannelMode, channelInfo, subscribe]);
+
+  // Fetch data on mount (only if provider not set - preserves state on navigation)
+  useEffect(() => {
+    if (!provider) {
+      fetchData();
+    } else {
+      // Provider already set, just load models list for dropdown
+      fetchModelsOnly();
+    }
+  }, []);
+
+  // Fetch only models list (for dropdown) without changing provider/model
+  const fetchModelsOnly = async () => {
+    try {
+      const [modelsData, providersData] = await Promise.all([
+        modelsApi.list(),
+        providersApi.list(),
+      ]);
+
+      const namesMap: Record<string, string> = {};
+      for (const p of providersData.providers) {
+        namesMap[p.id] = p.name;
+      }
+      setProviderNames(namesMap);
+      // Persist for useChatStore bridge detection (provider ID → name lookup)
+      try {
+        localStorage.setItem('ownpilot-provider-names', JSON.stringify(namesMap));
+      } catch {
+        /* ignore */
+      }
+      setModels(modelsData.models);
+      setConfiguredProviders(modelsData.configuredProviders);
+    } catch {
+      // API client handles error reporting
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
+  const fetchData = async () => {
+    try {
+      // Fetch models, providers, and settings in parallel
+      const [modelsData, providersData, settingsData] = await Promise.all([
+        modelsApi.list(),
+        providersApi.list(),
+        settingsApi.get(),
+      ]);
+
+      // Build provider names lookup
+      const namesMap: Record<string, string> = {};
+      for (const p of providersData.providers) {
+        namesMap[p.id] = p.name;
+      }
+      setProviderNames(namesMap);
+      // Persist for useChatStore bridge detection (provider ID → name lookup)
+      try {
+        localStorage.setItem('ownpilot-provider-names', JSON.stringify(namesMap));
+      } catch {
+        /* ignore */
+      }
+
+      setModels(modelsData.models);
+      setConfiguredProviders(modelsData.configuredProviders);
+
+      // Check URL params for agent/provider/model
+      const agentId = searchParams.get('agent');
+      const urlProvider = searchParams.get('provider');
+      const urlModel = searchParams.get('model');
+
+      // If agent is specified, fetch agent details
+      if (agentId) {
+        try {
+          const agentData = await agentsApi.get(agentId);
+          setCurrentAgent(agentData);
+          setAgentId(agentData.id); // Set agentId for chat requests
+
+          // Resolve "default" provider/model to actual values
+          let agentProvider = agentData.provider;
+          let agentModel = agentData.model;
+
+          // If provider is "default", use settings default or first configured
+          if (agentProvider === 'default') {
+            if (
+              settingsData.defaultProvider &&
+              modelsData.configuredProviders.includes(settingsData.defaultProvider)
+            ) {
+              agentProvider = settingsData.defaultProvider;
+            } else if (modelsData.configuredProviders.length > 0) {
+              agentProvider = modelsData.configuredProviders[0]!;
+            }
+          }
+
+          // If model is "default", use settings default or first model of provider
+          if (agentModel === 'default') {
+            if (settingsData.defaultModel) {
+              agentModel = settingsData.defaultModel;
+            } else {
+              const firstModel = modelsData.models.find((m) => m.provider === agentProvider);
+              if (firstModel) agentModel = firstModel.id;
+            }
+          }
+
+          setProvider(agentProvider);
+          setModel(agentModel);
+          return; // Agent takes priority
+        } catch {
+          // Agent not found, continue with URL params or defaults
+        }
+      }
+
+      // Use URL params if provided
+      if (urlProvider && modelsData.configuredProviders.includes(urlProvider)) {
+        setProvider(urlProvider);
+        if (urlModel) {
+          setModel(urlModel);
+        } else {
+          // Set first model of provider
+          const firstModel = modelsData.models.find((m) => m.provider === urlProvider);
+          if (firstModel) setModel(firstModel.id);
+        }
+        return;
+      }
+
+      // Use settings default if available
+      if (
+        settingsData.defaultProvider &&
+        modelsData.configuredProviders.includes(settingsData.defaultProvider)
+      ) {
+        setProvider(settingsData.defaultProvider);
+        if (settingsData.defaultModel) {
+          setModel(settingsData.defaultModel);
+        } else {
+          const firstModel = modelsData.models.find(
+            (m) => m.provider === settingsData.defaultProvider
+          );
+          if (firstModel) setModel(firstModel.id);
+        }
+        return;
+      }
+
+      // Fallback to first configured provider (fetchData only runs when provider is empty)
+      if (modelsData.configuredProviders.length > 0) {
+        const firstProvider = modelsData.configuredProviders[0]!;
+        const firstModel = modelsData.models.find((m) => m.provider === firstProvider);
+        if (firstModel) {
+          setProvider(firstProvider);
+          setModel(firstModel.id);
+        }
+      }
+    } catch {
+      // API client handles error reporting
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
+  // Load conversation from URL ?conversationId= param (e.g. from Sidebar Recent click)
+  useEffect(() => {
+    const convId = searchParams.get('conversationId');
+    if (convId) {
+      handleLoadConversation(convId);
+    }
+  }, [searchParams]); // handleLoadConversation stable ref from closure
+
+  // Auto-scroll to bottom when new messages or streaming content arrives
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streamingContent, progressEvents, suggestions, extractedMemories, channelMessages]);
+
+  // Group models by provider (only configured providers)
+  const modelsByProvider = models.reduce<Record<string, ModelInfo[]>>((acc, m) => {
+    // Only include models from configured providers
+    if (!configuredProviders.includes(m.provider)) return acc;
+    if (!acc[m.provider]) acc[m.provider] = [];
+    acc[m.provider]!.push(m);
+    return acc;
+  }, {});
+  // Ensure CLI providers appear in dropdown even without model entries
+  for (const pid of configuredProviders) {
+    if (pid.startsWith('cli-') && !modelsByProvider[pid]) {
+      modelsByProvider[pid] = [];
+    }
+  }
+
+  // Update model when provider changes
+  const handleProviderChange = (newProvider: string) => {
+    setProvider(newProvider);
+    // CLI and bridge providers don't have model selection — set empty model
+    if (newProvider.startsWith('cli-') || newProvider.startsWith('bridge-')) {
+      setModel('default');
+    } else {
+      const providerModels = modelsByProvider[newProvider];
+      if (providerModels && providerModels.length > 0) {
+        const recommended = providerModels.find((m) => m.recommended);
+        setModel(recommended?.id ?? providerModels[0]!.id);
+      }
+    }
+    setShowProviderMenu(false);
+  };
+
+  const handleNewChat = () => {
+    // Create a new session — saves current conversation to session map
+    createSession();
+    setCurrentAgent(null);
+    setAgentId(null);
+    setSearchParams({});
+    // Reset channel mode
+    setIsChannelMode(false);
+    setActiveConv(null);
+    setChannelInfo(null);
+    setChannelMessages([]);
+    // Reset backend agent context so the new session uses the current provider/model.
+    // Without this, the first message in a new chat may use stale agent config
+    // because the UI shows the correct provider/model but the backend agent
+    // hasn't been re-initialized with it.
+    ignoreError(chatApi.resetContext(provider, model), 'chatpage:resetContext');
+    // Auto-focus chat input so user can start typing immediately
+    chatInputRef.current?.focus();
+  };
+
+  const handleLoadConversation = async (id: string) => {
+    try {
+      const {
+        conversation: conv,
+        messages: unified,
+        channelInfo: chInfo,
+      } = await chatApi.getUnifiedHistory(id);
+
+      if (conv.source === 'channel') {
+        // Channel mode: show unified history in separate state, not useChatStore
+        setActiveConv({ ...conv, id, source: 'channel' } as Conversation);
+        setChannelInfo(chInfo ?? null);
+        setIsChannelMode(true);
+        setChannelMessages(
+          unified
+            .filter((m) => m.role === 'user' || m.role === 'assistant')
+            .map((m) => ({
+              id: m.id,
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              timestamp: m.createdAt,
+              direction: m.direction,
+              senderName: m.senderName,
+            }))
+        );
+        // Also set the session so the sidebar highlights correctly
+        loadConversation(id, []);
+        // v7.2: Restore provider/model from conversation metadata
+        if (conv.provider) {
+          setProvider(conv.provider);
+          if (conv.model) {
+            setModel(conv.model);
+          }
+        }
+        setSearchParams({});
+      } else {
+        // Web mode: load into useChatStore as usual
+        setIsChannelMode(false);
+        setActiveConv(null);
+        setChannelInfo(null);
+        setChannelMessages([]);
+        const msgs = unified
+          .filter((m) => m.role === 'user' || m.role === 'assistant')
+          .map((m) => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            timestamp: m.createdAt,
+            toolCalls: (m.toolCalls ?? undefined) as
+              Array<{ id: string; name: string; arguments: Record<string, unknown> }> | undefined,
+            provider: m.provider ?? undefined,
+            model: m.model ?? undefined,
+            isError: m.isError,
+            attachments: m.attachments ?? undefined,
+          }));
+        if (msgs.length > 0) {
+          loadConversation(id, msgs);
+        } else {
+          // DB has no messages (early persist only) — try in-memory session
+          switchSession(id);
+        }
+        // v7.2: Restore provider/model from conversation metadata
+        if (conv.provider) {
+          setProvider(conv.provider);
+          if (conv.model) {
+            setModel(conv.model);
+          }
+        }
+        setSearchParams({});
+      }
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'instant' }), 50);
+    } catch {
+      // Fallback — just set the session ID so next message continues correctly
+      setIsChannelMode(false);
+      setActiveConv(null);
+      loadConversation(id, []);
+    }
+  };
+
+  const handleSendChannelMessage = useCallback(
+    async (text: string) => {
+      if (!activeConv) return;
+      // Optimistically append the user message
+      const optimisticId = `optimistic:${Date.now()}`;
+      setChannelMessages((prev) => [
+        ...prev,
+        {
+          id: optimisticId,
+          role: 'user',
+          content: text,
+          timestamp: new Date().toISOString(),
+          direction: 'inbound' as const,
+        },
+      ]);
+      try {
+        await chatApi.sendChannelMessage(activeConv.id, text);
+      } catch {
+        // Remove optimistic message on failure
+        setChannelMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      }
+    },
+    [activeConv]
+  );
+
+  const handleCompactContext = async () => {
+    const res = await compactSession();
+    if (!res.compacted) {
+      // Map server reasons to human-friendly messages so the modal can show
+      // why the compaction did nothing instead of a generic "Failed".
+      const reasonText: Record<string, string> = {
+        too_few_messages: 'Need a few more messages before compacting is worthwhile.',
+        no_api_key:
+          'This provider has no API key configured. Add one in Settings to enable compacting.',
+        summary_failed:
+          'The summarization model returned an error. Try again in a moment, or pick a different model.',
+        no_agent: 'No active chat session yet — send a message first.',
+        concurrent_modification:
+          'A reply came in while compacting. Try again now that the message has finished.',
+        exception: 'Something went wrong while compacting. Check the server logs.',
+      };
+      const message = res.reason
+        ? (reasonText[res.reason] ?? `Could not compact: ${res.reason}`)
+        : 'Could not compact this conversation.';
+      throw new Error(message);
+    }
+  };
+
+  const handleAcceptAutoCompact = async () => {
+    try {
+      await compactSession();
+    } catch {
+      /* swallow — the bar reflects whatever the server returned */
+    }
+  };
+
+  const currentProviderName = providerNames[provider] ?? provider;
+  const isProviderConfigured = configuredProviders.includes(provider);
+
+  // Extract agent display name (remove emoji if present)
+  const agentDisplayName =
+    currentAgent?.name?.match(/^(\p{Emoji})\s*(.+)$/u)?.[2] ?? currentAgent?.name;
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {/* Main chat area — ConversationSidebar moved to left Sidebar */}
+      <div className="flex flex-col flex-1 min-w-0">
+        {/* Header */}
+        <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+          <div className="flex items-center gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary flex items-center gap-2">
+                {isChannelMode ? (
+                  <>
+                    {activeConv?.channelPlatform === 'telegram' ? (
+                      <Telegram className="w-5 h-5 text-primary" />
+                    ) : activeConv?.channelPlatform === 'whatsapp' ? (
+                      <WhatsApp className="w-5 h-5 text-primary" />
+                    ) : (
+                      <MessageSquare className="w-5 h-5 text-primary" />
+                    )}
+                    {activeConv?.title ?? activeConv?.channelSenderName ?? 'Channel Chat'}
+                    <span className="px-1.5 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded-full capitalize">
+                      {activeConv?.channelPlatform ?? 'channel'}
+                    </span>
+                  </>
+                ) : currentAgent ? (
+                  <>
+                    <Bot className="w-5 h-5 text-primary" />
+                    {agentDisplayName}
+                  </>
+                ) : (
+                  'Chat'
+                )}
+              </h2>
+              <p className="text-sm text-text-muted dark:text-dark-text-muted">
+                {isChannelMode ? (
+                  `${activeConv?.channelSenderName ? `with ${activeConv.channelSenderName} · ` : ''}Messages go to ${activeConv?.channelPlatform ?? 'channel'}`
+                ) : currentAgent ? (
+                  `Using ${currentProviderName} / ${model}`
+                ) : !isLoadingModels && configuredProviders.length > 0 && !isProviderConfigured ? (
+                  <span className="text-warning">Provider not configured</span>
+                ) : (
+                  'Talk to your AI assistant'
+                )}
+              </p>
+            </div>
+
+            {/* Workspace Selector */}
+            <WorkspaceSelector
+              selectedWorkspaceId={workspaceId}
+              onWorkspaceChange={setWorkspaceId}
+            />
+
+            {/* Provider/Model Selector */}
+            <div className="relative">
+              <button
+                onClick={() => setShowProviderMenu(!showProviderMenu)}
+                disabled={isLoadingModels}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary transition-colors disabled:opacity-50"
+              >
+                {isLoadingModels ? (
+                  <span className="text-text-muted dark:text-dark-text-muted animate-pulse">
+                    Loading...
+                  </span>
+                ) : (
+                  <>
+                    <span className="font-medium text-text-primary dark:text-dark-text-primary">
+                      {currentProviderName}
+                    </span>
+                    {/* CLI and bridge providers don't have model selection */}
+                    {!provider.startsWith('cli-') && !provider.startsWith('bridge-') && (
+                      <span className="text-text-muted dark:text-dark-text-muted">/ {model}</span>
+                    )}
+                    {provider.startsWith('bridge-') && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-accent/10 text-accent">
+                        <Bot className="w-3 h-3" />
+                        {provider.replace('bridge-', '').toUpperCase()}
+                      </span>
+                    )}
+                  </>
+                )}
+                <svg
+                  className={`w-4 h-4 text-text-muted transition-transform ${showProviderMenu ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+
+              {/* Dropdown Menu — API / Bridge grouped */}
+              {showProviderMenu &&
+                (() => {
+                  const isBridgeProv = (pid: string) => {
+                    const name = providerNames[pid] ?? pid;
+                    return (
+                      pid.startsWith('bridge-') ||
+                      pid.startsWith('cli-') ||
+                      name.toLowerCase().startsWith('bridge-')
+                    );
+                  };
+                  const apiEntries = Object.entries(modelsByProvider).filter(
+                    ([pid]) => !isBridgeProv(pid)
+                  );
+                  const bridgeEntries = Object.entries(modelsByProvider).filter(([pid]) =>
+                    isBridgeProv(pid)
+                  );
+
+                  return (
+                    <div className="absolute top-full left-0 mt-1 w-full sm:w-80 max-w-[90vw] bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg shadow-lg dark:shadow-black/50 z-50 max-h-96 overflow-y-auto">
+                      {configuredProviders.length === 0 ? (
+                        <div className="p-4 text-center">
+                          <p className="text-sm text-text-muted dark:text-dark-text-muted mb-2">
+                            No providers configured
+                          </p>
+                          <a
+                            href="/settings"
+                            className="text-sm text-primary hover:underline flex items-center justify-center gap-1"
+                          >
+                            <Settings className="w-4 h-4" /> Configure API Keys
+                          </a>
+                        </div>
+                      ) : (
+                        <>
+                          {/* API Section */}
+                          <div className="border-b border-border dark:border-dark-border">
+                            <div className="px-3 py-1.5 text-[10px] font-semibold text-text-muted dark:text-dark-text-muted uppercase tracking-wider bg-bg-secondary/50 dark:bg-dark-bg-secondary/50">
+                              API — Context Inject
+                            </div>
+                            {apiEntries.length > 0 ? (
+                              apiEntries.map(([providerId, providerModels]) => (
+                                <div key={providerId}>
+                                  <div
+                                    className={`px-3 py-2 text-sm font-medium cursor-pointer hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary ${
+                                      provider === providerId
+                                        ? 'bg-primary/10 text-primary'
+                                        : 'text-text-primary dark:text-dark-text-primary'
+                                    }`}
+                                    onClick={() => handleProviderChange(providerId)}
+                                  >
+                                    {providerNames[providerId] ?? providerId}
+                                  </div>
+                                  {provider === providerId && providerModels.length > 0 && (
+                                    <div className="px-2 pb-2">
+                                      {providerModels.map((m) => (
+                                        <button
+                                          key={m.id}
+                                          onClick={() => {
+                                            setModel(m.id);
+                                            setShowProviderMenu(false);
+                                          }}
+                                          className={`w-full text-left px-2 py-1.5 text-xs rounded ${
+                                            model === m.id
+                                              ? 'bg-primary text-white'
+                                              : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
+                                          }`}
+                                        >
+                                          <div className="flex items-center justify-between">
+                                            <span>{m.name}</span>
+                                            {m.recommended && (
+                                              <span className="text-[10px] opacity-70">
+                                                Recommended
+                                              </span>
+                                            )}
+                                          </div>
+                                          {m.description && (
+                                            <p className="text-[10px] opacity-60 mt-0.5 line-clamp-1">
+                                              {m.description}
+                                            </p>
+                                          )}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))
+                            ) : (
+                              <div className="px-3 py-2.5 text-xs text-text-muted dark:text-dark-text-muted">
+                                No API providers configured —{' '}
+                                <a
+                                  href="/models?tab=models"
+                                  className="text-primary hover:underline not-italic font-medium"
+                                  onClick={() => setShowProviderMenu(false)}
+                                >
+                                  add in Settings
+                                </a>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Bridge Section */}
+                          {bridgeEntries.length > 0 && (
+                            <div>
+                              <div className="px-3 py-1.5 text-[10px] font-semibold text-text-muted dark:text-dark-text-muted uppercase tracking-wider bg-bg-secondary/50 dark:bg-dark-bg-secondary/50">
+                                Bridge — CLI Spawn
+                              </div>
+                              {bridgeEntries.map(([providerId, providerModels]) => (
+                                <div key={providerId}>
+                                  <div
+                                    className={`px-3 py-2 text-sm font-medium cursor-pointer hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary ${
+                                      provider === providerId
+                                        ? 'bg-primary/10 text-primary'
+                                        : 'text-text-primary dark:text-dark-text-primary'
+                                    }`}
+                                    onClick={() => handleProviderChange(providerId)}
+                                  >
+                                    {providerNames[providerId] ?? providerId}
+                                  </div>
+                                  {provider === providerId && providerModels.length > 0 && (
+                                    <div className="px-2 pb-2">
+                                      {providerModels.map((m) => (
+                                        <button
+                                          key={m.id}
+                                          onClick={() => {
+                                            setModel(m.id);
+                                            setShowProviderMenu(false);
+                                          }}
+                                          className={`w-full text-left px-2 py-1.5 text-xs rounded ${
+                                            model === m.id
+                                              ? 'bg-primary text-white'
+                                              : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
+                                          }`}
+                                        >
+                                          <div className="flex items-center justify-between">
+                                            <span>{m.name}</span>
+                                          </div>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+            </div>
+          </div>
+
+          {/* Right-side actions */}
+          <div className="flex items-center gap-2">
+            {/* Timeline toggle */}
+            <button
+              onClick={() => setTimelineMode(!timelineMode)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors ${
+                timelineMode
+                  ? 'bg-primary/10 border-primary/30 text-primary'
+                  : 'border-border dark:border-dark-border text-text-muted dark:text-dark-text-muted hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
+              }"
+              title="Toggle timeline view"
+            >
+              <span
+                className={`w-8 h-4 rounded-full relative transition-colors ${
+                  timelineMode ? 'bg-primary' : 'bg-bg-tertiary dark:bg-dark-bg-tertiary'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 w-3 h-3 rounded-full bg-white dark:bg-dark-text-secondary shadow transition-transform ${
+                    timelineMode ? 'left-4' : 'left-0.5'
+                  }`}
+                />
+              </span>
+              <span>Timeline</span>
+            </button>
+
+            {/* New Chat button */}
+            <button
+              onClick={handleNewChat}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-primary hover:bg-primary-dark rounded-lg transition-colors"
+              title="Start a new chat"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+              New Chat
+            </button>
+          </div>
+        </header>
+
+        {/* Session tabs — visible when multiple sessions are open */}
+        {sessionTabs.length > 0 && (
+          <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border dark:border-dark-border bg-bg-secondary/50 dark:bg-dark-bg-secondary/50 overflow-x-auto">
+            {sessionTabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => switchSession(tab.id)}
+                className={`group flex items-center gap-1.5 px-3 py-1 rounded-md text-xs transition-colors whitespace-nowrap ${
+                  tab.id === activeSessionId
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
+                }`}
+              >
+                <span className="max-w-[140px] truncate">{tab.title}</span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeSession(tab.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.stopPropagation();
+                      closeSession(tab.id);
+                    }
+                  }}
+                  className="opacity-0 group-hover:opacity-100 ml-0.5 hover:text-red-500 transition-opacity"
+                >
+                  ×
+                </span>
+              </button>
+            ))}
+            <button
+              onClick={handleNewChat}
+              className="px-2 py-1 text-xs text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded-md transition-colors"
+              title="New session"
+            >
+              +
+            </button>
+          </div>
+        )}
+
+        {/* Session context bar — visible only in web mode */}
+        {!isChannelMode && (
+          <ContextBar
+            sessionInfo={sessionInfo}
+            defaultMaxTokens={
+              models.find((m) => m.id === model && m.provider === provider)?.contextWindow
+            }
+            isCompacting={isCompacting}
+            onNewSession={handleNewChat}
+            onShowDetail={() => setShowContextDetail(true)}
+          />
+        )}
+
+        {/* Auto-compact suggestion — appears once when context crosses 85% */}
+        {!isChannelMode && autoCompactPrompt && (
+          <div className="flex items-center gap-3 px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800/40 text-xs">
+            <span className="text-yellow-800 dark:text-yellow-200 font-medium">
+              Context {autoCompactPrompt.fillPercent}% full
+            </span>
+            <span className="text-yellow-700 dark:text-yellow-300/80 truncate">
+              Compact older messages into a summary to free up room without losing the thread?
+            </span>
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleAcceptAutoCompact}
+                disabled={isCompacting}
+                className="px-2.5 py-1 rounded-md bg-yellow-600 text-white text-xs hover:bg-yellow-700 disabled:opacity-50"
+              >
+                {isCompacting ? 'Compacting…' : 'Compact now'}
+              </button>
+              <button
+                onClick={dismissAutoCompactPrompt}
+                className="px-2 py-1 rounded-md text-yellow-800 dark:text-yellow-200 hover:bg-yellow-100 dark:hover:bg-yellow-900/40"
+              >
+                Not now
+              </button>
+              <button
+                onClick={disableAutoCompactPrompt}
+                className="px-2 py-1 rounded-md text-yellow-700/80 dark:text-yellow-300/70 hover:bg-yellow-100 dark:hover:bg-yellow-900/40"
+                title="Stop showing this banner. You can still compact manually from the context bar."
+              >
+                Don't ask again
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Context detail modal */}
+        {!isChannelMode && showContextDetail && (
+          <ContextDetailModal
+            sessionInfo={
+              sessionInfo ?? {
+                sessionId: '',
+                messageCount: 0,
+                estimatedTokens: 0,
+                maxContextTokens:
+                  models.find((m) => m.id === model && m.provider === provider)?.contextWindow ??
+                  128_000,
+                contextFillPercent: 0,
+              }
+            }
+            provider={provider}
+            model={model}
+            onClose={() => setShowContextDetail(false)}
+            onCompact={handleCompactContext}
+            onClear={handleNewChat}
+            lastCompactionSummary={lastCompactionSummary}
+            onDismissSummary={clearLastCompactionSummary}
+          />
+        )}
+
+        {/* Click outside to close menu */}
+        {showProviderMenu && (
+          <div className="fixed inset-0 z-40" onClick={() => setShowProviderMenu(false)} />
+        )}
+
+        {/* Channel mode message list */}
+        {isChannelMode && <ChannelMessageList messages={channelMessages} ref={messagesEndRef} />}
+
+        {/* Messages */}
+        {!isChannelMode && (
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            {messages.length === 0 ? (
+              <ChatStarterPrompts
+                show
+                onSend={sendMessage}
+                onDraftQuestions={(text) => chatInputRef.current?.setValue(text)}
+                isLoadingModels={isLoadingModels}
+                configuredProviders={configuredProviders}
+                currentProviderName={currentProviderName}
+                model={model}
+              />
+            ) : (
+              <>
+                <MessageList
+                  messages={messages}
+                  onRetry={retryLastMessage}
+                  canRetry={!!lastFailedMessage && !isLoading}
+                  workspaceId={workspaceId || sessionId}
+                  onSuggestionSelect={(_title, detail) => {
+                    clearSuggestions();
+                    chatInputRef.current?.setValue(detail);
+                  }}
+                />
+
+                {/* Streaming content and progress */}
+                {!timelineMode && (
+                  <StreamingResponseArea
+                    isLoading={isLoading}
+                    streamingContent={streamingContent}
+                    thinkingContent={thinkingContent}
+                    isThinking={isThinking}
+                    progressEvents={progressEvents}
+                  />
+                )}
+
+                {/* Timeline mode — full chronological event stream */}
+                {timelineMode && isLoading && (
+                  <div className="mt-4 p-4 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg border border-border dark:border-dark-border">
+                    <ChatTimeline
+                      events={progressEvents}
+                      isLoading={isLoading}
+                      streamingContent={streamingContent}
+                      isThinking={isThinking}
+                      thinkingContent={thinkingContent}
+                    />
+                  </div>
+                )}
+
+                {!isLoading && extractedMemories.length > 0 && messages.length > 0 && (
+                  <div className="px-4">
+                    <MemoryCards
+                      memories={extractedMemories}
+                      onAccept={acceptMemory}
+                      onReject={rejectMemory}
+                    />
+                  </div>
+                )}
+
+                {!isLoading && suggestions.length > 0 && messages.length > 0 && (
+                  <div className="px-4">
+                    <SuggestionChips
+                      suggestions={suggestions}
+                      onSelect={(s) => {
+                        clearSuggestions();
+                        chatInputRef.current?.setValue(s.detail);
+                      }}
+                    />
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Error display (web mode only) */}
+        {!isChannelMode && error && (
+          <div className="mx-6 mb-4 px-4 py-2 bg-error/10 border border-error/20 rounded-lg text-error text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* Input */}
+        <div className="px-6 py-4 border-t border-border dark:border-dark-border">
+          {!isChannelMode && (
+            <>
+              <ExecutionSecurityPanel />
+              <ToolCallLimitPanel />
+              <ThinkingToggle />
+            </>
+          )}
+          <ChatInput
+            ref={chatInputRef}
+            onSend={isChannelMode ? handleSendChannelMessage : sendMessage}
+            onStop={cancelRequest}
+            isLoading={isLoading}
+            placeholder={
+              isChannelMode ? `Message ${activeConv?.channelPlatform ?? 'channel'}…` : undefined
+            }
+          />
+        </div>
+
+        {/* Execution Approval Dialog */}
+        {pendingApproval && (
+          <Suspense fallback={null}>
+            <ExecutionApprovalDialog approval={pendingApproval} onResolve={resolveApproval} />
+          </Suspense>
+        )}
+      </div>{' '}
+      {/* end main chat area */}
+    </div>
+  );
+}

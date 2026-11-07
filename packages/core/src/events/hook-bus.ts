@@ -1,0 +1,194 @@
+/**
+ * HookBus - Sequential Interceptable Hook System
+ *
+ * Unlike events (fire-and-forget), hooks are:
+ * - Sequential: handlers run in priority order, each awaited
+ * - Interceptable: handlers can modify data and cancel operations
+ * - Awaited: call() always returns a Promise with the final context
+ *
+ * Naming convention: colon-delimited (e.g. 'tool:before-execute')
+ * to visually distinguish from dot-delimited events.
+ */
+
+import type { HookType, HookPayload } from './hook-map.js';
+import type { HookContext, HookHandler, Unsubscribe } from './types.js';
+import { getLog } from '../services/get-log.js';
+
+const log = getLog('HookBus');
+
+// ============================================================================
+// Interface
+// ============================================================================
+
+export interface IHookBus {
+  /**
+   * Register a hook handler. Lower priority numbers run first.
+   * Default priority is 10. Returns an unsubscribe function.
+   */
+  tap<K extends HookType>(
+    hook: K,
+    handler: HookHandler<HookPayload<K>>,
+    priority?: number
+  ): Unsubscribe;
+
+  /**
+   * Run all handlers for a hook sequentially in priority order.
+   * Returns the (possibly modified) context after all handlers have run.
+   */
+  call<K extends HookType>(hook: K, data: HookPayload<K>): Promise<HookContext<HookPayload<K>>>;
+
+  /**
+   * Register a handler for a dynamic/untyped hook name (escape hatch).
+   */
+  tapAny(hook: string, handler: HookHandler, priority?: number): Unsubscribe;
+
+  /**
+   * Call a dynamic/untyped hook.
+   */
+  callAny(hook: string, data: unknown): Promise<HookContext>;
+
+  /**
+   * Remove all hook handlers.
+   */
+  clear(): void;
+}
+
+// ============================================================================
+// Internal Types
+// ============================================================================
+
+interface TapEntry {
+  handler: HookHandler;
+  priority: number;
+}
+
+// ============================================================================
+// Implementation
+// ============================================================================
+
+const DEFAULT_PRIORITY = 10;
+
+/** Maximum number of tap entries allowed per hook type. */
+const MAX_TAPS_PER_HOOK = 100;
+
+/**
+ * Per-handler timeout in milliseconds. A hook handler that never resolves
+ * (third-party plugin bug, prompt-injection-driven stuck handler, or just a
+ * forgotten `await`) would otherwise block the entire hook chain — and any
+ * caller awaiting it (e.g. `tool:before-execute` blocks every tool call).
+ * After this many ms a handler is logged + skipped; the chain continues.
+ */
+const HANDLER_TIMEOUT_MS = 5000;
+
+/** Sentinel rejection used by the per-handler timeout. */
+const HANDLER_TIMED_OUT = Symbol('hook-handler-timeout');
+
+export class HookBus implements IHookBus {
+  private hooks = new Map<string, TapEntry[]>();
+
+  tap<K extends HookType>(
+    hook: K,
+    handler: HookHandler<HookPayload<K>>,
+    priority: number = DEFAULT_PRIORITY
+  ): Unsubscribe {
+    return this.addTap(hook, handler as HookHandler, priority);
+  }
+
+  async call<K extends HookType>(
+    hook: K,
+    data: HookPayload<K>
+  ): Promise<HookContext<HookPayload<K>>> {
+    return this.execute(hook, data) as Promise<HookContext<HookPayload<K>>>;
+  }
+
+  tapAny(hook: string, handler: HookHandler, priority: number = DEFAULT_PRIORITY): Unsubscribe {
+    return this.addTap(hook, handler, priority);
+  }
+
+  async callAny(hook: string, data: unknown): Promise<HookContext> {
+    return this.execute(hook, data);
+  }
+
+  clear(): void {
+    this.hooks.clear();
+  }
+
+  // --- Internal ---
+
+  private addTap(hook: string, handler: HookHandler, priority: number): Unsubscribe {
+    if (!this.hooks.has(hook)) {
+      this.hooks.set(hook, []);
+    }
+
+    const entries = this.hooks.get(hook)!;
+    if (entries.length >= MAX_TAPS_PER_HOOK) {
+      log.warn(
+        `Max taps (${MAX_TAPS_PER_HOOK}) reached for "${hook}". ` +
+          `Handler not added. Possible memory leak.`
+      );
+      return () => {};
+    }
+
+    const entry: TapEntry = { handler, priority };
+    entries.push(entry);
+
+    // Sort by priority (lower runs first)
+    entries.sort((a, b) => a.priority - b.priority);
+
+    return () => {
+      const arr = this.hooks.get(hook);
+      if (arr) {
+        const idx = arr.indexOf(entry);
+        if (idx !== -1) arr.splice(idx, 1);
+        if (arr.length === 0) this.hooks.delete(hook);
+      }
+    };
+  }
+
+  /**
+   * Execute all handlers for a hook sequentially.
+   * Each handler can modify context.data and set context.cancelled.
+   * Errors are caught and logged; remaining handlers still execute.
+   */
+  private async execute(hook: string, data: unknown): Promise<HookContext> {
+    const context: HookContext = {
+      type: hook,
+      data,
+      cancelled: false,
+      metadata: {},
+    };
+
+    const entries = this.hooks.get(hook);
+    if (!entries || entries.length === 0) {
+      return context;
+    }
+
+    // Snapshot entries to prevent concurrent modification if a handler
+    // adds/removes taps during execution.
+    for (const entry of [...entries]) {
+      if (context.cancelled) break;
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        // Race handler against a hard timeout. A handler that never resolves
+        // would otherwise block the chain (and every awaiting caller) forever.
+        const timeout = new Promise<typeof HANDLER_TIMED_OUT>((resolve) => {
+          timer = setTimeout(() => resolve(HANDLER_TIMED_OUT), HANDLER_TIMEOUT_MS);
+          timer.unref?.();
+        });
+        const result = await Promise.race([
+          Promise.resolve(entry.handler(context)).then(() => undefined as unknown),
+          timeout,
+        ]);
+        if (result === HANDLER_TIMED_OUT) {
+          log.error(`Handler for "${hook}" timed out after ${HANDLER_TIMEOUT_MS}ms; skipping`);
+        }
+      } catch (err) {
+        log.error(`Handler error for "${hook}":`, err);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+
+    return context;
+  }
+}

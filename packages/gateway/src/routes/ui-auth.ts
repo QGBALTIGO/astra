@@ -1,0 +1,354 @@
+/**
+ * UI Authentication Routes
+ *
+ * Password-based authentication for the web dashboard.
+ * Endpoints: status, login, logout, password set/change/remove.
+ */
+
+import { Hono } from 'hono';
+import { apiResponse, apiError, ERROR_CODES, parseJsonBody, safeKeyCompare } from './helpers.js';
+import {
+  hashPassword,
+  verifyPassword,
+  createSession,
+  invalidateSession,
+  invalidateAllSessions,
+  isPasswordConfigured,
+  getPasswordHash,
+  setPasswordHash,
+  removePassword,
+  validateSession,
+  getActiveSessionCount,
+} from '../services/ui-session.js';
+import { createLoginThrottle } from '../utils/login-throttle.js';
+import {
+  clearUiSessionCookie,
+  getUiSessionToken,
+  setUiSessionCookie,
+} from '../utils/ui-session-cookie.js';
+import { getEventSystem } from '@ownpilot/core/events';
+import { MS_PER_MINUTE } from '../config/defaults.js';
+
+const MIN_PASSWORD_LENGTH = 8;
+// H-S13: minimum entropy for BOOTSTRAP_TOKEN. Plan 02 / Plan 15 raise the
+// floor from 32 to 64 chars (≥256 bits if truly random) so short tokens are
+// not brute-forceable in the first-time setup window. We refuse to honor any
+// BOOTSTRAP_TOKEN shorter than this.
+const MIN_BOOTSTRAP_TOKEN_LENGTH = 64;
+
+import { getClientIp as getClientIpShared } from '../utils/client-ip.js';
+
+/**
+ * Resolve the client IP for login throttle bucketing. RATE-003 mitigation:
+ * proxy-trust requires both TRUSTED_PROXY=true and TRUSTED_PROXY_IPS to be
+ * configured; absence of either falls back to a single 'direct' bucket.
+ */
+function getClientIpHttp(c: { req: { header: (name: string) => string | undefined } }): string {
+  return getClientIpShared(c.req);
+}
+
+const loginThrottle = createLoginThrottle({
+  maxAttempts: 5,
+  windowMs: 5 * MS_PER_MINUTE,
+  lockoutMs: 15 * MS_PER_MINUTE,
+});
+
+/** Periodic cleanup of stale throttle entries — unref so it doesn't block process exit */
+const loginThrottleCleanup = setInterval(() => {
+  loginThrottle.cleanup();
+}, 2 * 60_000);
+if (typeof loginThrottleCleanup === 'object' && 'unref' in loginThrottleCleanup) {
+  loginThrottleCleanup.unref();
+}
+
+export const uiAuthRoutes = new Hono();
+
+/**
+ * GET /auth/status — Public
+ * Returns whether a password is configured and whether the current request is authenticated.
+ */
+uiAuthRoutes.get('/status', async (c) => {
+  const passwordConfigured = isPasswordConfigured();
+
+  // Check if the request has a valid session token
+  const token = getUiSessionToken(c);
+  const authenticated = token ? await validateSession(token) : false;
+
+  return apiResponse(c, {
+    passwordConfigured,
+    authenticated,
+  });
+});
+
+/**
+ * POST /auth/login — Public
+ * Authenticate with password and set a HttpOnly session cookie.
+ */
+uiAuthRoutes.post('/login', async (c) => {
+  const clientIp = getClientIpHttp(c);
+  const throttleResult = loginThrottle.check(clientIp);
+  if (!throttleResult.allowed) {
+    c.header('Retry-After', String(Math.ceil(throttleResult.retryAfterMs / 1000)));
+    return apiError(
+      c,
+      {
+        code: ERROR_CODES.ACCESS_DENIED,
+        message: 'Too many login attempts. Please try again later.',
+      },
+      429
+    );
+  }
+
+  const body = ((await parseJsonBody(c)) ?? {}) as { password?: string };
+  const { password } = body;
+
+  if (!password || typeof password !== 'string') {
+    return apiError(c, { code: ERROR_CODES.INVALID_INPUT, message: 'Password is required' }, 400);
+  }
+
+  const storedHash = getPasswordHash();
+  if (!storedHash) {
+    loginThrottle.recordFailure(clientIp);
+    return apiError(c, { code: ERROR_CODES.INVALID_INPUT, message: 'No password configured' }, 400);
+  }
+
+  if (!verifyPassword(password, storedHash)) {
+    loginThrottle.recordFailure(clientIp);
+    getEventSystem().emit('audit.auth.loginFailed', 'ui-auth', {
+      ip: clientIp,
+      attempts: 1,
+      lockedOut: loginThrottle.isLockedOut(clientIp),
+    });
+    return apiError(c, { code: ERROR_CODES.ACCESS_DENIED, message: 'Invalid password' }, 403);
+  }
+
+  loginThrottle.recordSuccess(clientIp);
+  const session = await createSession();
+  setUiSessionCookie(c, session.token, session.expiresAt);
+  // Audit successful logins as well as failures — without this, the
+  // audit log shows only attacker noise (failed attempts) and never
+  // the legitimate "who actually got in" signal. Knowing baseline
+  // login behavior is what makes anomaly detection possible.
+  getEventSystem().emit('audit.auth.loginSucceeded', 'ui-auth', {
+    ip: clientIp,
+  });
+  return apiResponse(c, {
+    expiresAt: session.expiresAt.toISOString(),
+  });
+});
+
+/**
+ * POST /auth/logout — Requires session
+ * Invalidate the current session.
+ */
+uiAuthRoutes.post('/logout', async (c) => {
+  const token = getUiSessionToken(c);
+  if (!token || !(await validateSession(token))) {
+    return apiError(c, { code: ERROR_CODES.UNAUTHORIZED, message: 'Not authenticated' }, 401);
+  }
+
+  await invalidateSession(token);
+  clearUiSessionCookie(c);
+  getEventSystem().emit('audit.auth.logout', 'ui-auth', {
+    ip: getClientIpHttp(c),
+  });
+  return apiResponse(c, { message: 'Logged out' });
+});
+
+/**
+ * POST /auth/password — Conditional auth
+ * Set (first time) or change (requires current password) the UI password.
+ *
+ * SECURITY: First-time setup requires BOOTSTRAP_TOKEN env var to prevent
+ * unauthenticated race condition (PRIVESC-001). The bootstrap token must
+ * be supplied in the X-Bootstrap-Token header.
+ */
+uiAuthRoutes.post('/password', async (c) => {
+  const body = ((await parseJsonBody(c)) ?? {}) as {
+    password?: string;
+    currentPassword?: string;
+  };
+  const { password, currentPassword } = body;
+
+  if (!password || typeof password !== 'string') {
+    return apiError(c, { code: ERROR_CODES.INVALID_INPUT, message: 'Password is required' }, 400);
+  }
+
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return apiError(
+      c,
+      {
+        code: ERROR_CODES.INVALID_INPUT,
+        message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      },
+      400
+    );
+  }
+
+  const existingHash = getPasswordHash();
+
+  if (existingHash) {
+    // Changing password — require valid session + current password
+    const token = getUiSessionToken(c);
+    if (!token || !(await validateSession(token))) {
+      return apiError(
+        c,
+        { code: ERROR_CODES.UNAUTHORIZED, message: 'Authentication required' },
+        401
+      );
+    }
+
+    if (!currentPassword || typeof currentPassword !== 'string') {
+      return apiError(
+        c,
+        {
+          code: ERROR_CODES.INVALID_INPUT,
+          message: 'Current password is required to change password',
+        },
+        400
+      );
+    }
+
+    if (!verifyPassword(currentPassword, existingHash)) {
+      return apiError(
+        c,
+        { code: ERROR_CODES.ACCESS_DENIED, message: 'Current password is incorrect' },
+        403
+      );
+    }
+  } else {
+    // First-time setup — require bootstrap token to prevent race condition (PRIVESC-001)
+    const bootstrapToken = process.env.BOOTSTRAP_TOKEN;
+    if (!bootstrapToken) {
+      getEventSystem().emit('audit.security.privesc_blocked', 'ui-auth', {
+        reason: 'first_password_setup_no_bootstrap_token',
+        ip: getClientIpHttp(c),
+      });
+      return apiError(
+        c,
+        {
+          code: ERROR_CODES.SERVICE_UNAVAILABLE,
+          message:
+            'Initial password setup is disabled. Set BOOTSTRAP_TOKEN environment variable to enable first-time setup.',
+        },
+        503
+      );
+    }
+
+    // H-S13: refuse weak bootstrap tokens. The operator's token is unauthenticated
+    // input from the network — a short/predictable one is brute-forceable, and
+    // the throttle (5/15min) on /auth/password gives ~480 attempts/day per IP.
+    if (bootstrapToken.length < MIN_BOOTSTRAP_TOKEN_LENGTH) {
+      getEventSystem().emit('audit.security.privesc_blocked', 'ui-auth', {
+        reason: 'first_password_setup_weak_bootstrap_token',
+        ip: getClientIpHttp(c),
+      });
+      return apiError(
+        c,
+        {
+          code: ERROR_CODES.SERVICE_UNAVAILABLE,
+          message: `BOOTSTRAP_TOKEN must be at least ${MIN_BOOTSTRAP_TOKEN_LENGTH} characters of high-entropy randomness.`,
+        },
+        503
+      );
+    }
+
+    // H-S13: rate-limit first-time setup attempts by IP. Without this, an
+    // attacker who reaches the gateway before the operator can guess the token
+    // unboundedly.
+    const setupIp = getClientIpHttp(c);
+    const setupThrottle = loginThrottle.check(setupIp);
+    if (!setupThrottle.allowed) {
+      c.header('Retry-After', String(Math.ceil(setupThrottle.retryAfterMs / 1000)));
+      return apiError(
+        c,
+        {
+          code: ERROR_CODES.ACCESS_DENIED,
+          message: 'Too many setup attempts. Please try again later.',
+        },
+        429
+      );
+    }
+
+    const providedToken = c.req.header('X-Bootstrap-Token') ?? '';
+    if (!providedToken || !safeKeyCompare(providedToken, bootstrapToken)) {
+      loginThrottle.recordFailure(setupIp);
+      getEventSystem().emit('audit.security.privesc_blocked', 'ui-auth', {
+        reason: 'first_password_setup_invalid_token',
+        ip: setupIp,
+      });
+      return apiError(
+        c,
+        { code: ERROR_CODES.ACCESS_DENIED, message: 'Invalid bootstrap token' },
+        403
+      );
+    }
+    loginThrottle.recordSuccess(setupIp);
+  }
+
+  // Hash and store the new password
+  const hash = hashPassword(password);
+  await setPasswordHash(hash);
+
+  // Invalidate all existing sessions
+  await invalidateAllSessions();
+
+  // Create a fresh session for the user who just set/changed the password
+  const session = await createSession();
+  setUiSessionCookie(c, session.token, session.expiresAt);
+
+  // Audit password set/change. This is the highest-value sensitive
+  // operation in the auth surface — without it we have no trail of
+  // who acquired credential access and when.
+  if (existingHash) {
+    getEventSystem().emit('audit.auth.passwordChanged', 'ui-auth', {
+      ip: getClientIpHttp(c),
+    });
+  } else {
+    getEventSystem().emit('audit.auth.passwordSet', 'ui-auth', {
+      ip: getClientIpHttp(c),
+    });
+  }
+
+  return apiResponse(c, {
+    message: existingHash ? 'Password changed' : 'Password set',
+    expiresAt: session.expiresAt.toISOString(),
+  });
+});
+
+/**
+ * DELETE /auth/password — Requires session
+ * Remove the UI password (disables UI authentication).
+ */
+uiAuthRoutes.delete('/password', async (c) => {
+  const token = getUiSessionToken(c);
+  if (!token || !(await validateSession(token))) {
+    return apiError(c, { code: ERROR_CODES.UNAUTHORIZED, message: 'Authentication required' }, 401);
+  }
+
+  if (!isPasswordConfigured()) {
+    return apiError(c, { code: ERROR_CODES.INVALID_INPUT, message: 'No password configured' }, 400);
+  }
+
+  await removePassword();
+  clearUiSessionCookie(c);
+  // Audit password removal — disabling UI auth is a privilege-relevant
+  // change that should be visible in incident response.
+  getEventSystem().emit('audit.auth.passwordRemoved', 'ui-auth', {
+    ip: getClientIpHttp(c),
+  });
+  return apiResponse(c, { message: 'Password removed' });
+});
+
+/**
+ * GET /auth/sessions — Requires session
+ * Returns count of active sessions (for Security settings page).
+ */
+uiAuthRoutes.get('/sessions', async (c) => {
+  const token = getUiSessionToken(c);
+  if (!token || !(await validateSession(token))) {
+    return apiError(c, { code: ERROR_CODES.UNAUTHORIZED, message: 'Authentication required' }, 401);
+  }
+
+  return apiResponse(c, { activeSessions: await getActiveSessionCount() });
+});

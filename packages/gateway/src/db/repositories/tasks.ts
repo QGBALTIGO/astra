@@ -1,0 +1,410 @@
+/**
+ * Tasks Repository (PostgreSQL)
+ *
+ * CRUD operations for personal tasks/todos
+ */
+
+import { BaseRepository, parseJsonField } from './base.js';
+import { buildUpdateStatement, type RawSetClause } from './query-helpers.js';
+import { MS_PER_DAY } from '../../config/defaults.js';
+import type { StandardQuery } from './interfaces.js';
+import { getEventSystem } from '@ownpilot/core/events';
+
+export interface Task {
+  id: string;
+  userId: string;
+  title: string;
+  description?: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  dueDate?: string;
+  dueTime?: string;
+  reminderAt?: string;
+  category?: string;
+  tags: string[];
+  parentId?: string;
+  projectId?: string;
+  recurrence?: string;
+  completedAt?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface CreateTaskInput {
+  title: string;
+  description?: string;
+  priority?: Task['priority'];
+  dueDate?: string;
+  dueTime?: string;
+  reminderAt?: string;
+  category?: string;
+  tags?: string[];
+  parentId?: string;
+  projectId?: string;
+  recurrence?: string;
+}
+
+interface UpdateTaskInput {
+  title?: string;
+  description?: string;
+  status?: Task['status'];
+  priority?: Task['priority'];
+  dueDate?: string;
+  dueTime?: string;
+  reminderAt?: string;
+  category?: string;
+  tags?: string[];
+  parentId?: string;
+  projectId?: string;
+  recurrence?: string;
+}
+
+export interface TaskQuery extends StandardQuery {
+  status?: Task['status'] | Task['status'][];
+  priority?: Task['priority'] | Task['priority'][];
+  category?: string;
+  projectId?: string;
+  parentId?: string | null;
+  dueBefore?: string;
+  dueAfter?: string;
+}
+
+interface TaskRow {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  due_date: string | null;
+  due_time: string | null;
+  reminder_at: string | null;
+  category: string | null;
+  tags: string;
+  parent_id: string | null;
+  project_id: string | null;
+  recurrence: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function rowToTask(row: TaskRow): Task {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title,
+    description: row.description ?? undefined,
+    status: row.status as Task['status'],
+    priority: row.priority as Task['priority'],
+    dueDate: row.due_date ?? undefined,
+    dueTime: row.due_time ?? undefined,
+    reminderAt: row.reminder_at ?? undefined,
+    category: row.category ?? undefined,
+    tags: parseJsonField(row.tags, []),
+    parentId: row.parent_id ?? undefined,
+    projectId: row.project_id ?? undefined,
+    recurrence: row.recurrence ?? undefined,
+    completedAt: row.completed_at ?? undefined,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+export class TasksRepository extends BaseRepository {
+  private userId: string;
+
+  constructor(userId = 'default') {
+    super();
+    this.userId = userId;
+  }
+
+  async queryAggregate<T extends object>(sql: string, params: unknown[] = []): Promise<T[]> {
+    return this.query<T>(sql, params);
+  }
+
+  /**
+   * Get a task by ID (standard interface alias)
+   */
+  async getById(id: string): Promise<Task | null> {
+    return this.get(id);
+  }
+
+  async create(input: CreateTaskInput): Promise<Task> {
+    const id = crypto.randomUUID();
+
+    await this.execute(
+      `INSERT INTO tasks (id, user_id, title, description, priority, due_date, due_time,
+        reminder_at, category, tags, parent_id, project_id, recurrence)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [
+        id,
+        this.userId,
+        input.title,
+        input.description ?? null,
+        input.priority ?? 'normal',
+        input.dueDate ?? null,
+        input.dueTime ?? null,
+        input.reminderAt ?? null,
+        input.category ?? null,
+        JSON.stringify(input.tags ?? []),
+        input.parentId ?? null,
+        input.projectId ?? null,
+        input.recurrence ?? null,
+      ]
+    );
+
+    const task = await this.get(id);
+    if (!task) throw new Error('Failed to create task');
+
+    getEventSystem().emit('resource.created', 'tasks-repository', {
+      resourceType: 'task',
+      id,
+    });
+
+    return task;
+  }
+
+  async get(id: string): Promise<Task | null> {
+    const row = await this.queryOne<TaskRow>(`SELECT * FROM tasks WHERE id = $1 AND user_id = $2`, [
+      id,
+      this.userId,
+    ]);
+    return row ? rowToTask(row) : null;
+  }
+
+  async update(id: string, input: UpdateTaskInput): Promise<Task | null> {
+    const existing = await this.get(id);
+    if (!existing) return null;
+
+    const fields = [
+      { column: 'title', value: input.title },
+      { column: 'description', value: input.description },
+      { column: 'status', value: input.status },
+      { column: 'priority', value: input.priority },
+      { column: 'due_date', value: input.dueDate },
+      { column: 'due_time', value: input.dueTime },
+      { column: 'reminder_at', value: input.reminderAt },
+      { column: 'category', value: input.category },
+      { column: 'tags', value: input.tags !== undefined ? JSON.stringify(input.tags) : undefined },
+      { column: 'parent_id', value: input.parentId },
+      { column: 'project_id', value: input.projectId },
+      { column: 'recurrence', value: input.recurrence },
+    ];
+
+    const hasChanges = fields.some((f) => f.value !== undefined);
+    if (!hasChanges) return existing;
+
+    // Build raw clauses for completed_at and updated_at
+    const rawClauses: RawSetClause[] = [];
+    if (input.status !== undefined) {
+      if (input.status === 'completed' && existing.status !== 'completed') {
+        rawClauses.push({ sql: 'completed_at = NOW()' });
+      } else if (input.status !== 'completed') {
+        rawClauses.push({ sql: 'completed_at = NULL' });
+      }
+    }
+    rawClauses.push({ sql: 'updated_at = NOW()' });
+
+    const stmt = buildUpdateStatement(
+      'tasks',
+      fields,
+      [
+        { column: 'id', value: id },
+        { column: 'user_id', value: this.userId },
+      ],
+      1,
+      rawClauses
+    );
+
+    if (!stmt) return existing;
+
+    await this.execute(stmt.sql, stmt.params);
+
+    const updated = await this.get(id);
+
+    if (updated) {
+      getEventSystem().emit('resource.updated', 'tasks-repository', {
+        resourceType: 'task',
+        id,
+        changes: input,
+      });
+    }
+
+    return updated;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const result = await this.execute(`DELETE FROM tasks WHERE id = $1 AND user_id = $2`, [
+      id,
+      this.userId,
+    ]);
+    const deleted = result.changes > 0;
+
+    if (deleted) {
+      getEventSystem().emit('resource.deleted', 'tasks-repository', {
+        resourceType: 'task',
+        id,
+      });
+    }
+
+    return deleted;
+  }
+
+  async complete(id: string): Promise<Task | null> {
+    return this.update(id, { status: 'completed' });
+  }
+
+  async list(query: TaskQuery = {}): Promise<Task[]> {
+    let sql = `SELECT * FROM tasks WHERE user_id = $1`;
+    const params: unknown[] = [this.userId];
+    let paramIndex = 2;
+
+    if (query.status) {
+      const statuses = Array.isArray(query.status) ? query.status : [query.status];
+      sql += ` AND status IN (${statuses.map(() => `$${paramIndex++}`).join(',')})`;
+      params.push(...statuses);
+    }
+
+    if (query.priority) {
+      const priorities = Array.isArray(query.priority) ? query.priority : [query.priority];
+      sql += ` AND priority IN (${priorities.map(() => `$${paramIndex++}`).join(',')})`;
+      params.push(...priorities);
+    }
+
+    if (query.category) {
+      sql += ` AND category = $${paramIndex++}`;
+      params.push(query.category);
+    }
+
+    if (query.projectId) {
+      sql += ` AND project_id = $${paramIndex++}`;
+      params.push(query.projectId);
+    }
+
+    if (query.parentId === null) {
+      sql += ` AND parent_id IS NULL`;
+    } else if (query.parentId) {
+      sql += ` AND parent_id = $${paramIndex++}`;
+      params.push(query.parentId);
+    }
+
+    if (query.dueBefore) {
+      sql += ` AND due_date <= $${paramIndex++}`;
+      params.push(query.dueBefore);
+    }
+
+    if (query.dueAfter) {
+      sql += ` AND due_date >= $${paramIndex++}`;
+      params.push(query.dueAfter);
+    }
+
+    if (query.search) {
+      sql += ` AND (title ILIKE $${paramIndex} OR description ILIKE $${paramIndex})`;
+      params.push(`%${this.escapeLike(query.search)}%`);
+      paramIndex++;
+    }
+
+    sql += ` ORDER BY
+      CASE priority
+        WHEN 'urgent' THEN 1
+        WHEN 'high' THEN 2
+        WHEN 'normal' THEN 3
+        WHEN 'low' THEN 4
+      END,
+      due_date ASC NULLS LAST,
+      created_at DESC`;
+
+    if (query.limit) {
+      sql += ` LIMIT $${paramIndex++}`;
+      params.push(query.limit);
+    }
+
+    if (query.offset) {
+      sql += ` OFFSET $${paramIndex++}`;
+      params.push(query.offset);
+    }
+
+    const rows = await this.query<TaskRow>(sql, params);
+    return rows.map(rowToTask);
+  }
+
+  async getSubtasks(parentId: string): Promise<Task[]> {
+    return this.list({ parentId });
+  }
+
+  async getByProject(projectId: string): Promise<Task[]> {
+    return this.list({ projectId });
+  }
+
+  /** Local-day 'YYYY-MM-DD' — task due_date values are user-local day
+   * strings, so every window helper must derive its bounds on the local day
+   * (round 30: the UTC clock admitted yesterday's tasks into "due today",
+   * marked TODAY's dues overdue for most of the local day, and shifted the
+   * upcoming window by one day in UTC+ timezones). */
+  private localDayString(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+      date.getDate()
+    ).padStart(2, '0')}`;
+  }
+
+  async getDueToday(): Promise<Task[]> {
+    const today = this.localDayString(new Date());
+    return this.list({ dueAfter: today, dueBefore: today, status: ['pending', 'in_progress'] });
+  }
+
+  async getOverdue(): Promise<Task[]> {
+    // Overdue = due strictly BEFORE the local today — the day is not over yet,
+    // so today's dues are "due today", never "overdue" (the inclusive `<=`
+    // bound must therefore be yesterday, not today).
+    const yesterday = this.localDayString(new Date(Date.now() - MS_PER_DAY));
+    return this.list({ dueBefore: yesterday, status: ['pending', 'in_progress'] });
+  }
+
+  async getUpcoming(days = 7): Promise<Task[]> {
+    const today = new Date();
+    const futureDate = new Date(today.getTime() + days * MS_PER_DAY);
+    return this.list({
+      dueAfter: this.localDayString(today),
+      dueBefore: this.localDayString(futureDate),
+      status: ['pending', 'in_progress'],
+    });
+  }
+
+  async count(query: TaskQuery = {}): Promise<number> {
+    let sql = `SELECT COUNT(*) as count FROM tasks WHERE user_id = $1`;
+    const params: unknown[] = [this.userId];
+    let paramIndex = 2;
+
+    if (query.status) {
+      const statuses = Array.isArray(query.status) ? query.status : [query.status];
+      sql += ` AND status IN (${statuses.map(() => `$${paramIndex++}`).join(',')})`;
+      params.push(...statuses);
+    }
+
+    if (query.projectId) {
+      sql += ` AND project_id = $${paramIndex++}`;
+      params.push(query.projectId);
+    }
+
+    const row = await this.queryOne<{ count: string }>(sql, params);
+    return parseInt(row?.count ?? '0', 10);
+  }
+
+  async getCategories(): Promise<string[]> {
+    const rows = await this.query<{ category: string }>(
+      `SELECT DISTINCT category FROM tasks WHERE user_id = $1 AND category IS NOT NULL ORDER BY category`,
+      [this.userId]
+    );
+    return rows.map((r) => r.category);
+  }
+
+  async search(searchQuery: string, limit = 20): Promise<Task[]> {
+    return this.list({ search: searchQuery, limit });
+  }
+}
+
+// Factory function
+export function createTasksRepository(userId = 'default'): TasksRepository {
+  return new TasksRepository(userId);
+}

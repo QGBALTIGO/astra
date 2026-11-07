@@ -1,0 +1,807 @@
+/**
+ * Chat streaming — SSE streaming types, callbacks, and processing.
+ *
+ * Extracted from chat.ts — contains StreamingConfig, StreamState,
+ * createStreamCallbacks, recordStreamUsage, processStreamingViaBus,
+ * wireStreamApproval, and extractToolDisplay.
+ */
+
+import type { streamSSE } from 'hono/streaming';
+import type { StreamChunkResponse, SessionInfo } from '../../types/index.js';
+import type { StreamChunk } from '@ownpilot/core/agent';
+import type { ToolCall } from '@ownpilot/core/tools';
+import type { AIProvider } from '@ownpilot/core/costs';
+import type { StreamCallbacks, ToolEndResult } from '@ownpilot/core/services';
+import type { NormalizedMessage, IMessageBus } from '@ownpilot/core/services';
+import { checkToolCallApproval } from '../../assistant/index.js';
+import { getSessionInfo } from '../agent/service.js';
+import { usageTracker } from '../usage-tracking.js';
+import {
+  extractSuggestions,
+  extractMemoriesFromResponse,
+  normalizeChatWidgets,
+} from '../../utils/index.js';
+import { generateApprovalId, createApprovalRequest } from '../permission/execution-approval.js';
+import type { getAgent } from '../agent/service.js';
+import {
+  ConversationService,
+  runPostChatProcessing,
+  toAttachmentMeta,
+} from '../conversation-service.js';
+/**
+ * Extract display-friendly tool name and args from a ToolCall.
+ * For use_tool calls, unwraps the inner tool_name and arguments.
+ */
+export function extractToolDisplay(toolCall: ToolCall): {
+  displayName: string;
+  displayArgs?: Record<string, unknown>;
+  reason?: string;
+} {
+  let parsedArgs: Record<string, unknown> | undefined;
+  try {
+    parsedArgs = toolCall.arguments ? JSON.parse(toolCall.arguments) : undefined;
+  } catch {
+    /* malformed */
+  }
+  const displayName =
+    toolCall.name === 'use_tool' && parsedArgs?.tool_name
+      ? String(parsedArgs.tool_name)
+      : toolCall.name;
+  const displayArgs =
+    toolCall.name === 'use_tool' && parsedArgs?.arguments
+      ? (parsedArgs.arguments as Record<string, unknown>)
+      : parsedArgs;
+  const reason = displayArgs?._reason as string | undefined;
+  const cleanArgs =
+    displayArgs && reason !== undefined
+      ? Object.fromEntries(Object.entries(displayArgs).filter(([k]) => k !== '_reason'))
+      : displayArgs;
+  return { displayName, displayArgs: cleanArgs, reason };
+}
+
+/**
+ * Wire real-time execution approval via SSE stream.
+ * Sends approval_required event and returns a pending ApprovalRequest.
+ */
+type ApprovalFn =
+  | ((
+      category: string,
+      actionType: string,
+      description: string,
+      params: Record<string, unknown>
+    ) => Promise<boolean>)
+  | undefined;
+export function wireStreamApproval(
+  agent: { setRequestApproval: (fn: ApprovalFn) => void },
+  stream: { writeSSE: (data: { data: string; event: string }) => Promise<void> },
+  userId: string
+) {
+  agent.setRequestApproval(
+    async (
+      _category: string,
+      actionType: string,
+      description: string,
+      params: Record<string, unknown>
+    ) => {
+      const approvalId = generateApprovalId();
+      await stream.writeSSE({
+        data: JSON.stringify({
+          type: 'approval_required',
+          approvalId,
+          category: actionType,
+          description,
+          code: params.code,
+          riskAnalysis: params.riskAnalysis,
+        }),
+        event: 'approval',
+      });
+      return createApprovalRequest(approvalId, userId);
+    }
+  );
+}
+
+/** Shared configuration for creating stream callbacks. */
+// StreamingConfig and StreamState moved to services/streaming-types.ts so
+// conversation-service and persistence can consume them without reaching
+// back into the routes/ layer. Re-exported here for legacy route callers.
+export type { StreamingConfig, StreamState } from '../streaming-types.js';
+import type { StreamingConfig, StreamState } from '../streaming-types.js';
+
+// Matches both <think>...</think> and <thinking>...</thinking> blocks (completed)
+const THINK_TAG_REGEX = /<(?:think|thinking)>[\s\S]*?<\/(?:think|thinking)>\s*/g;
+// Detects unclosed <think> or <thinking> tag
+const UNCLOSED_THINK_REGEX = /<(?:think|thinking)>(?![\s\S]*<\/(?:think|thinking)>)/;
+// Captures the inner text of think blocks. Used to recover an assistant
+// message when the model put its entire answer inside a <think> block
+// (observed with MiniMax-M2 and other reasoning models after tool calls —
+// stripping the tags would otherwise leave us with an empty message and
+// silently drop the model's output).
+const THINK_INNER_REGEX = /<(?:think|thinking)>([\s\S]*?)<\/(?:think|thinking)>/g;
+
+/**
+ * Strip <think> tags. If stripping yields an empty result but the raw text
+ * had think blocks with content, recover by joining the inner think text —
+ * the model bundled its final answer inside the reasoning, so dropping it
+ * would lose the message entirely.
+ */
+export function stripThinkOrRecover(raw: string): string {
+  const stripped = raw.replace(THINK_TAG_REGEX, '').trim();
+  if (stripped) return stripped;
+  const inner: string[] = [];
+  for (const match of raw.matchAll(THINK_INNER_REGEX)) {
+    const part = match[1]?.trim();
+    if (part) inner.push(part);
+  }
+  return inner.join('\n\n').trim();
+}
+
+/**
+ * Create shared StreamCallbacks for SSE streaming.
+ * Used by both the MessageBus and Legacy streaming paths to eliminate duplication.
+ */
+export function createStreamCallbacks(config: StreamingConfig): {
+  callbacks: StreamCallbacks;
+  state: StreamState;
+} {
+  const { sseStream, conversationId, userId, agentId, provider, model, historyLength } = config;
+
+  const state: StreamState = {
+    streamedContent: '',
+    lastUsage: undefined,
+    traceToolCalls: [],
+    startTime: performance.now(),
+    rawContent: '',
+    sentContentLength: 0,
+    sentThinkLength: 0,
+    isThinking: false,
+    thinkingContent: '',
+    mcpToolEvents: [],
+  };
+
+  const callbacks: StreamCallbacks = {
+    onChunk(chunk: StreamChunk) {
+      const metaType = chunk.metadata?.type;
+
+      if (metaType === 'tool_bridge_status') {
+        const phase = String(chunk.metadata?.phase ?? '');
+        if (phase === 'round_start') {
+          sseStream.writeSSE({
+            data: JSON.stringify({
+              type: 'status',
+              message: `ToolBridge round ${String(chunk.metadata?.round ?? '?')} in progress`,
+              data: { round: chunk.metadata?.round },
+              timestamp: new Date().toISOString(),
+            }),
+            event: 'progress',
+          });
+        }
+
+        if (!chunk.content && !chunk.toolCalls?.length) return;
+      }
+
+      if (metaType === 'tool_bridge_progress') {
+        const phase = String(chunk.metadata?.phase ?? '');
+        const rawTool = (chunk.metadata?.toolCall ?? {}) as Record<string, unknown>;
+        const toolCall: ToolCall = {
+          id: String(rawTool.id ?? 'tool-bridge'),
+          name: String(rawTool.name ?? 'tool'),
+          arguments:
+            typeof rawTool.arguments === 'string'
+              ? rawTool.arguments
+              : JSON.stringify(rawTool.arguments ?? {}),
+        };
+
+        if (phase === 'tool_start') {
+          const { displayName, displayArgs, reason } = extractToolDisplay(toolCall);
+          state.traceToolCalls.push({
+            name: displayName,
+            arguments: displayArgs,
+            success: true,
+            startTime: performance.now(),
+            reason,
+          });
+
+          sseStream.writeSSE({
+            data: JSON.stringify({
+              type: 'tool_start',
+              tool: { id: toolCall.id, name: displayName, arguments: displayArgs, reason },
+              timestamp: new Date().toISOString(),
+            }),
+            event: 'progress',
+          });
+        }
+
+        if (phase === 'tool_end') {
+          const { displayName } = extractToolDisplay(toolCall);
+          const result = (chunk.metadata?.result ?? {}) as Record<string, unknown>;
+          const traceEntry = state.traceToolCalls.find(
+            (tc) => tc.name === displayName && tc.result === undefined
+          );
+
+          if (traceEntry) {
+            traceEntry.result = String(result.preview ?? '');
+            traceEntry.success = result.success !== false;
+            traceEntry.duration =
+              typeof result.durationMs === 'number'
+                ? result.durationMs
+                : traceEntry.startTime
+                  ? Math.round(performance.now() - traceEntry.startTime)
+                  : undefined;
+            delete traceEntry.startTime;
+          }
+
+          sseStream.writeSSE({
+            data: JSON.stringify({
+              type: 'tool_end',
+              tool: { id: toolCall.id, name: displayName, reason: traceEntry?.reason },
+              result: {
+                success: result.success !== false,
+                preview: String(result.preview ?? ''),
+                durationMs: typeof result.durationMs === 'number' ? result.durationMs : undefined,
+              },
+              timestamp: new Date().toISOString(),
+            }),
+            event: 'progress',
+          });
+        }
+
+        if (!chunk.content && !chunk.toolCalls?.length) return;
+      }
+
+      // Handle extended thinking chunks (Anthropic) AND reasoning chunks
+      // (DeepSeek R1, QwQ, MiniMax-M2 via reasoning_content) — both flow to
+      // the thinking panel as thinkingDelta so they show up in the UI without
+      // polluting the main answer text.
+      const chunkType = chunk.metadata?.type;
+      const isThinkingChunk = chunkType === 'thinking' || chunkType === 'reasoning';
+      if (isThinkingChunk && chunk.content) {
+        state.thinkingContent += chunk.content;
+        state.isThinking = true;
+        // Emit thinking delta as a separate SSE event
+        try {
+          sseStream.writeSSE({
+            data: JSON.stringify({
+              id: chunk.id,
+              conversationId,
+              thinkingDelta: chunk.content,
+              thinking: true,
+              done: false,
+            }),
+            event: 'chunk',
+          });
+        } catch {
+          // Client disconnected
+        }
+        return;
+      }
+
+      // If we were in extended thinking and now got a non-thinking chunk, mark transition
+      if (state.thinkingContent && state.isThinking && !isThinkingChunk) {
+        state.isThinking = false;
+      }
+
+      // Accumulate raw content. cleanContent strips CLOSED <think>...</think>
+      // blocks (DeepSeek/Google/MiniMax inline-tag style). We also trim any
+      // UNCLOSED <think> from the visible delta so the UI never sees raw
+      // "<think>..." mid-stream — the inner text is surfaced as thinkingDelta
+      // below.
+      if (chunk.content) state.rawContent += chunk.content;
+      let cleanContent = state.rawContent.replace(THINK_TAG_REGEX, '');
+      const openIdx = cleanContent.search(UNCLOSED_THINK_REGEX);
+      const openInner =
+        openIdx >= 0 ? cleanContent.slice(openIdx).replace(/^<(?:think|thinking)>/, '') : '';
+      if (openIdx >= 0) cleanContent = cleanContent.slice(0, openIdx);
+      const cleanDelta = cleanContent.slice(state.sentContentLength) || undefined;
+      state.sentContentLength = cleanContent.length;
+      // For non-extended-thinking models, detect <think> tags
+      if (!state.thinkingContent) {
+        state.isThinking = UNCLOSED_THINK_REGEX.test(state.rawContent);
+      }
+
+      // Surface inline <think>...</think> inner text as thinkingDelta so the
+      // user sees the reasoning in the thinking panel rather than the message
+      // body. Tracked via sentThinkLength to avoid re-emitting the same text.
+      const allThinkInner: string[] = [];
+      for (const match of state.rawContent.matchAll(THINK_INNER_REGEX)) {
+        if (match[1]) allThinkInner.push(match[1]);
+      }
+      if (openInner) allThinkInner.push(openInner);
+      const newThinkText = allThinkInner.join('\n\n');
+      if (newThinkText.length > state.sentThinkLength) {
+        const thinkDelta = newThinkText.slice(state.sentThinkLength);
+        state.sentThinkLength = newThinkText.length;
+        state.thinkingContent = newThinkText;
+        try {
+          sseStream.writeSSE({
+            data: JSON.stringify({
+              id: chunk.id,
+              conversationId,
+              thinkingDelta: thinkDelta,
+              thinking: true,
+              done: false,
+            }),
+            event: 'chunk',
+          });
+        } catch {
+          /* client disconnected */
+        }
+      }
+
+      // streamedContent stores the CLEAN version (used for memory/suggestion extraction + persistence)
+      state.streamedContent = cleanContent;
+
+      const data: StreamChunkResponse & {
+        trace?: Record<string, unknown>;
+        session?: SessionInfo;
+        thinkingContent?: string;
+      } = {
+        id: chunk.id,
+        conversationId,
+        delta: cleanDelta,
+        thinking: state.isThinking || undefined,
+        // StreamChunk.toolCalls is Partial<ToolCall>[] — id/name may not be
+        // present on partial deltas (args can stream before the header).
+        // Skip those: UI dedupes on id, and emitting id:null would collapse
+        // every in-flight partial into one bogus entry.
+        toolCalls: chunk.toolCalls
+          ?.filter(
+            (tc): tc is { id: string; name: string; arguments?: string } =>
+              typeof tc.id === 'string' && typeof tc.name === 'string'
+          )
+          .map((tc) => {
+            let args: Record<string, unknown> | undefined;
+            try {
+              args = tc.arguments ? JSON.parse(tc.arguments) : undefined;
+            } catch {
+              args = undefined;
+            }
+            return { id: tc.id, name: tc.name, arguments: args };
+          }),
+        done: chunk.done,
+        finishReason: chunk.finishReason,
+        usage: chunk.usage
+          ? {
+              promptTokens: chunk.usage.promptTokens,
+              completionTokens: chunk.usage.completionTokens,
+              totalTokens: chunk.usage.totalTokens,
+              ...(chunk.usage.cachedTokens != null && { cachedTokens: chunk.usage.cachedTokens }),
+            }
+          : undefined,
+      };
+
+      if (chunk.done) {
+        // Recovery: some reasoning models (e.g. MiniMax-M2) emit their entire
+        // final answer wrapped in <think>...</think>. THINK_TAG_REGEX strips
+        // it, leaving cleanContent empty and no delta ever reaches the UI —
+        // the user sees tool calls fire but no message. If that happened,
+        // lift the inner think text into the final delta + streamedContent.
+        if (!state.streamedContent && state.rawContent) {
+          const recovered = stripThinkOrRecover(state.rawContent);
+          if (recovered) {
+            data.delta = (data.delta ?? '') + recovered;
+            state.streamedContent = recovered;
+          }
+        }
+        const { content: memStripped, memories } = extractMemoriesFromResponse(
+          state.streamedContent
+        );
+        const { suggestions } = extractSuggestions(memStripped);
+        if (suggestions.length > 0) data.suggestions = suggestions;
+        if (memories.length > 0) data.memories = memories;
+        // Include accumulated thinking content in done event for UI persistence
+        if (state.thinkingContent) {
+          data.thinkingContent = state.thinkingContent;
+        }
+        const streamDuration = Math.round(performance.now() - state.startTime);
+        data.trace = {
+          duration: streamDuration,
+          toolCalls: state.traceToolCalls.map((tc) => ({
+            name: tc.name,
+            arguments: tc.arguments,
+            result: tc.result,
+            success: tc.success,
+            duration: tc.duration,
+          })),
+          modelCalls: state.lastUsage
+            ? [
+                {
+                  provider,
+                  model,
+                  inputTokens: state.lastUsage.promptTokens,
+                  outputTokens: state.lastUsage.completionTokens,
+                  tokens: state.lastUsage.totalTokens,
+                  duration: streamDuration,
+                },
+              ]
+            : [],
+          autonomyChecks: [],
+          dbOperations: { reads: 0, writes: 0 },
+          memoryOps: { adds: 0, recalls: 0 },
+          triggersFired: [],
+          errors: [],
+          mcpToolEvents: state.mcpToolEvents,
+          events: [
+            ...state.traceToolCalls.map((tc) => ({
+              type: 'tool_call',
+              name: tc.name,
+              duration: tc.duration,
+              success: tc.success,
+            })),
+            ...state.mcpToolEvents.map((event) => ({
+              type: event.type,
+              name: event.toolName,
+              arguments: event.arguments,
+              result: event.result,
+              timestamp: event.timestamp,
+            })),
+          ],
+          request: {
+            provider,
+            model,
+            endpoint: `/api/v1/chat`,
+            messageCount: historyLength + 1,
+          },
+          response: {
+            status: 'success' as const,
+            finishReason: chunk.finishReason,
+          },
+        };
+        // Prefer the provider's reported prompt-token count over the char/4
+        // estimate so the UI's context chip reflects reality. Fall back to the
+        // accumulator (`state.lastUsage`) if this final chunk omits usage.
+        const promptTokensTruth =
+          chunk.usage?.promptTokens ?? state.lastUsage?.promptTokens ?? undefined;
+        data.session = {
+          ...getSessionInfo(
+            config.agent,
+            config.provider,
+            config.model,
+            config.contextWindowOverride,
+            promptTokensTruth
+          ),
+          ...(chunk.usage?.cachedTokens != null && { cachedTokens: chunk.usage.cachedTokens }),
+        };
+      }
+
+      if (chunk.usage) {
+        state.lastUsage = {
+          promptTokens: chunk.usage.promptTokens,
+          completionTokens: chunk.usage.completionTokens,
+          totalTokens: chunk.usage.totalTokens,
+          cachedTokens: chunk.usage.cachedTokens,
+        };
+      }
+
+      try {
+        sseStream.writeSSE({
+          data: JSON.stringify(data),
+          event: chunk.done ? 'done' : 'chunk',
+        });
+      } catch {
+        // Client disconnected — stream closed
+      }
+    },
+
+    async onBeforeToolCall(toolCall: ToolCall) {
+      const approval = await checkToolCallApproval(userId, toolCall, {
+        agentId,
+        conversationId,
+        provider,
+        model,
+      });
+
+      if (!approval.approved) {
+        await sseStream.writeSSE({
+          data: JSON.stringify({
+            type: 'tool_blocked',
+            toolCall: { id: toolCall.id, name: toolCall.name },
+            reason: approval.reason,
+          }),
+          event: 'autonomy',
+        });
+      }
+
+      return { approved: approval.approved, reason: approval.reason };
+    },
+
+    onToolStart(toolCall: ToolCall) {
+      const { displayName, displayArgs, reason } = extractToolDisplay(toolCall);
+
+      state.traceToolCalls.push({
+        name: displayName,
+        arguments: displayArgs,
+        success: true,
+        startTime: performance.now(),
+        reason,
+      });
+
+      sseStream.writeSSE({
+        data: JSON.stringify({
+          type: 'tool_start',
+          tool: {
+            id: toolCall.id,
+            name: displayName,
+            arguments: displayArgs,
+            reason,
+          },
+          timestamp: new Date().toISOString(),
+        }),
+        event: 'progress',
+      });
+    },
+
+    onToolEnd(toolCall: ToolCall, result: ToolEndResult) {
+      const { displayName } = extractToolDisplay(toolCall);
+
+      const traceEntry = state.traceToolCalls.find(
+        (tc) => tc.name === displayName && tc.result === undefined
+      );
+      if (traceEntry) {
+        traceEntry.result = result.content;
+        traceEntry.success = !(result.isError ?? false);
+        traceEntry.duration =
+          result.durationMs ??
+          (traceEntry.startTime ? Math.round(performance.now() - traceEntry.startTime) : undefined);
+        delete traceEntry.startTime;
+      }
+
+      let sandboxed: boolean | undefined;
+      let executionMode: string | undefined;
+      try {
+        const parsed = JSON.parse(result.content);
+        if (typeof parsed === 'object' && parsed !== null && 'sandboxed' in parsed) {
+          sandboxed = parsed.sandboxed;
+          executionMode = parsed.executionMode;
+        }
+      } catch {
+        /* not JSON or no sandbox info */
+      }
+
+      sseStream.writeSSE({
+        data: JSON.stringify({
+          type: 'tool_end',
+          tool: {
+            id: toolCall.id,
+            name: displayName,
+            reason: traceEntry?.reason,
+          },
+          result: {
+            success: !(result.isError ?? false),
+            preview: result.content.substring(0, 500),
+            durationMs: result.durationMs,
+            ...(sandboxed !== undefined && { sandboxed }),
+            ...(executionMode && { executionMode }),
+          },
+          timestamp: new Date().toISOString(),
+        }),
+        event: 'progress',
+      });
+    },
+
+    onProgress(message: string, data?: Record<string, unknown>) {
+      sseStream.writeSSE({
+        data: JSON.stringify({
+          type: 'status',
+          message,
+          data,
+          timestamp: new Date().toISOString(),
+        }),
+        event: 'progress',
+      });
+    },
+
+    onError(error: Error) {
+      sseStream.writeSSE({
+        data: JSON.stringify({ error: error.message }),
+        event: 'error',
+      });
+    },
+  };
+
+  return { callbacks, state };
+}
+
+/**
+ * Record streaming usage/cost metrics.
+ */
+export async function recordStreamUsage(
+  state: StreamState,
+  params: {
+    userId: string;
+    conversationId: string;
+    provider: string;
+    model: string;
+    error?: string;
+  }
+): Promise<void> {
+  const latencyMs = Math.round(performance.now() - state.startTime);
+  if (state.lastUsage) {
+    try {
+      await usageTracker.record({
+        userId: params.userId,
+        sessionId: params.conversationId,
+        provider: params.provider as AIProvider,
+        model: params.model,
+        inputTokens: state.lastUsage.promptTokens,
+        outputTokens: state.lastUsage.completionTokens,
+        totalTokens: state.lastUsage.totalTokens,
+        latencyMs,
+        requestType: 'chat',
+      });
+    } catch {
+      /* Ignore tracking errors */
+    }
+  } else if (params.error) {
+    try {
+      await usageTracker.record({
+        userId: params.userId,
+        provider: params.provider as AIProvider,
+        model: params.model,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        latencyMs,
+        requestType: 'chat',
+        error: params.error,
+      });
+    } catch {
+      /* Ignore */
+    }
+  }
+}
+
+/**
+ * Process a streaming request through the MessageBus pipeline.
+ */
+export async function processStreamingViaBus(
+  bus: IMessageBus,
+  sseStream: Parameters<Parameters<typeof streamSSE>[1]>[0],
+  params: {
+    agent: NonNullable<Awaited<ReturnType<typeof getAgent>>>;
+    chatMessage: string;
+    body: {
+      historyLength?: number;
+      directTools?: string[];
+      provider?: string;
+      model?: string;
+      workspaceId?: string;
+      attachments?: Array<{ type: string; data: string; mimeType: string; filename?: string }>;
+      thinking?: {
+        type: 'enabled' | 'adaptive';
+        budgetTokens?: number;
+        effort?: 'low' | 'medium' | 'high' | 'max';
+      };
+      pageContext?: {
+        pageType: string;
+        entityId?: string;
+        path?: string;
+        contextData?: Record<string, unknown>;
+        systemPromptHint?: string;
+      };
+    };
+    provider: string;
+    model: string;
+    userId: string;
+    agentId: string;
+    conversationId: string;
+    contextWindowOverride?: number;
+    onStateReady?: (state: StreamState) => void;
+  }
+): Promise<void> {
+  const {
+    agent,
+    chatMessage,
+    body,
+    provider,
+    model,
+    userId,
+    agentId,
+    conversationId,
+    contextWindowOverride,
+  } = params;
+
+  const { callbacks, state } = createStreamCallbacks({
+    sseStream,
+    agent,
+    conversationId,
+    userId,
+    agentId,
+    provider,
+    model,
+    historyLength: body.historyLength ?? 0,
+    contextWindowOverride,
+  });
+  params.onStateReady?.(state);
+
+  // Normalize into NormalizedMessage
+  const normalized: NormalizedMessage = {
+    id: crypto.randomUUID(),
+    sessionId: conversationId,
+    role: 'user',
+    content: chatMessage,
+    ...(body.attachments?.length && {
+      attachments: body.attachments.map((a) => ({
+        type: a.type as 'image' | 'file',
+        data: a.data,
+        mimeType: a.mimeType,
+        filename: a.filename,
+      })),
+    }),
+    metadata: {
+      source: 'web',
+      provider,
+      model,
+      conversationId,
+      agentId,
+      stream: true,
+    },
+    timestamp: new Date(),
+  };
+
+  // Process through the pipeline.
+  // Set skipPersistenceMessages so the persistence middleware does NOT save messages
+  // here — saveStreamingChat (below) is the sole persistence path for web streaming.
+  // This prevents the double-write bug: middleware + saveStreamingChat both saving
+  // user+assistant messages to the same conversation.
+  const result = await bus.process(normalized, {
+    stream: callbacks,
+    context: {
+      agent,
+      userId,
+      agentId,
+      provider,
+      model,
+      conversationId,
+      directTools: body.directTools,
+      thinking: body.thinking,
+      pageContext: body.pageContext,
+      skipPersistenceMessages: true,
+    },
+  });
+
+  // Send routing debug info as supplementary SSE event (after main stream completes)
+  const routing = result.response.metadata.routing;
+  if (routing) {
+    try {
+      await sseStream.writeSSE({ data: JSON.stringify({ routing }), event: 'routing' });
+    } catch {
+      /* stream may have closed */
+    }
+  }
+
+  // Usage recording: the audit middleware's exit phase already records this
+  // request — ctx 'usage'/'agentResult' are set by the agent-execution stage
+  // from the same agent.chat() result. Calling recordStreamUsage here as well
+  // double-counted every bus-path chat's tokens/cost into budgets and /costs
+  // (round 33). Non-bus callers (the direct route path) still use
+  // recordStreamUsage directly.
+
+  // Save both messages AND logs here. The persistence middleware is unreliable
+  // when resetContext changes the agent's conversationId mid-stream (race condition).
+  // The conversation-service dedup check prevents duplicate user messages.
+  const rawAssistantContent = stripThinkOrRecover(result.response.content || state.streamedContent);
+  const { content: memStripped } = extractMemoriesFromResponse(rawAssistantContent);
+  const { content: suggestionsStripped } = extractSuggestions(memStripped);
+  const assistantContent =
+    normalizeChatWidgets(suggestionsStripped).trim() ||
+    (/<(?:memories|suggestions)>/.test(rawAssistantContent) ? '' : rawAssistantContent);
+  if (assistantContent) {
+    const toolCalls = result.response.metadata.toolCalls as unknown[] | undefined;
+    await new ConversationService(userId).saveStreamingChat(state, {
+      conversationId,
+      agentId,
+      provider,
+      model,
+      userMessage: chatMessage,
+      assistantContent,
+      toolCalls,
+      finishReason: result.response.metadata.finishReason as string | undefined,
+      historyLength: body.historyLength,
+      attachments: toAttachmentMeta(body.attachments),
+    });
+
+    // Post-processing middleware skips web UI memory extraction.
+    // Run it here so web chat messages also generate memories.
+    runPostChatProcessing(userId, chatMessage, assistantContent, toolCalls as never);
+  }
+}

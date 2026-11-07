@@ -1,0 +1,139 @@
+/**
+ * Base Channel Normalizer
+ *
+ * Default normalizer for platforms without a specific implementation.
+ * Pass-through with basic internal tag stripping.
+ * Auto-transcribes audio attachments via VoiceService when available.
+ */
+
+import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
+import type { NormalizedAttachment } from '@ownpilot/core/services';
+import type { ChannelNormalizer, NormalizedIncoming } from './types.js';
+import { flattenChatWidgetsToText } from '../../utils/chat-widgets.js';
+import { splitMessage } from '../utils/message-utils.js';
+
+/** Internal tags that should never leak to channel users */
+const INTERNAL_TAG_PATTERNS = [
+  /<(?:think|thinking)>[\s\S]*?<\/(?:think|thinking)>/gi,
+  /<(?:think|thinking)>[\s\S]*$/gi,
+  /<memories>[\s\S]*?<\/memories>/gi,
+  /<memories>[\s\S]*$/gi,
+  /<suggestions>[\s\S]*?<\/suggestions>/gi,
+  /<suggestions>[\s\S]*$/gi,
+  /<system>[\s\S]*?<\/system>/gi,
+  /<system>[\s\S]*$/gi,
+  /<context>[\s\S]*?<\/context>/gi,
+  /<context>[\s\S]*$/gi,
+];
+
+/**
+ * Strip all internal tags from a response string.
+ */
+export function stripInternalTags(text: string): string {
+  let result = text;
+  for (const pattern of INTERNAL_TAG_PATTERNS) {
+    result = result.replace(pattern, '');
+  }
+  return result.trim();
+}
+
+/** MIME type → file extension mapping for audio */
+const AUDIO_MIME_EXT: Record<string, string> = {
+  'audio/ogg': 'ogg',
+  'audio/oga': 'ogg',
+  'audio/opus': 'ogg',
+  'audio/mpeg': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/wav': 'wav',
+  'audio/wave': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/webm': 'webm',
+  'audio/flac': 'flac',
+  'audio/x-m4a': 'm4a',
+};
+
+/**
+ * Attempt to transcribe an audio attachment via VoiceService.
+ * Returns the transcription text, or null on any error.
+ */
+export async function transcribeAudioAttachment(
+  data: Uint8Array,
+  mimeType: string
+): Promise<string | null> {
+  try {
+    const { getVoiceService } = await import('../../services/voice-service.js');
+    const service = getVoiceService();
+    const config = await service.getConfig();
+    if (!config.available || !(config.sttSupported || config.sttAvailable)) return null;
+
+    const ext = AUDIO_MIME_EXT[mimeType] || 'ogg';
+    const result = await service.transcribe(Buffer.from(data), `voice.${ext}`);
+    return result.text?.trim() || null;
+  } catch {
+    // Voice service not configured or transcription failed — silent
+    return null;
+  }
+}
+
+/**
+ * Build a pass-through normalizer for a platform that has no bespoke
+ * implementation. Optionally splits the outgoing response so it fits within
+ * the platform's per-message length limit (e.g. SMS ~1600 chars). When
+ * `maxLength` is omitted the response is never split — correct for platforms
+ * with effectively no limit (email, web UI), where splitting one reply into
+ * several messages would be worse than a long single one.
+ */
+export function createBaseNormalizer(platform: string, maxLength?: number): ChannelNormalizer {
+  return {
+    platform,
+
+    async normalizeIncoming(msg: ChannelIncomingMessage): Promise<NormalizedIncoming> {
+      // Convert attachments to base64 data URIs
+      const attachments: NormalizedAttachment[] | undefined = msg.attachments
+        ?.filter((a) => a.data)
+        .map((a) => ({
+          type: a.type,
+          data: `data:${a.mimeType};base64,${Buffer.from(a.data!).toString('base64')}`,
+          mimeType: a.mimeType,
+          filename: a.filename,
+          size: a.size,
+        }));
+
+      // Auto-transcribe audio attachments
+      const transcriptions: string[] = [];
+      const audioAttachments = msg.attachments?.filter((a) => a.type === 'audio' && a.data);
+      if (audioAttachments?.length) {
+        for (const att of audioAttachments) {
+          const text = await transcribeAudioAttachment(att.data!, att.mimeType);
+          if (text) transcriptions.push(text);
+        }
+      }
+
+      // Build final text: transcription prefix + original text
+      let text = msg.text || '';
+      if (transcriptions.length > 0) {
+        const prefix = transcriptions.map((t) => `[Voice message]: ${t}`).join('\n');
+        text = text ? `${prefix}\n\n${text}` : prefix;
+      } else if (!text && attachments?.length) {
+        text = '[Attachment]';
+      }
+
+      return {
+        text,
+        attachments: attachments?.length ? attachments : undefined,
+      };
+    },
+
+    normalizeOutgoing(response: string): string[] {
+      const cleaned = stripInternalTags(response);
+      if (!cleaned) return [];
+      // Flatten <widget> tags — only the web UI can render them as visual blocks;
+      // every other channel sees raw XML otherwise.
+      const flattened = flattenChatWidgetsToText(cleaned);
+      return maxLength ? splitMessage(flattened, maxLength) : [flattened];
+    },
+  };
+}
+
+/** Default pass-through normalizer (no length splitting). */
+export const baseNormalizer: ChannelNormalizer = createBaseNormalizer('default');

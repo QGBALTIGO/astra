@@ -1,0 +1,211 @@
+{
+  "id": "clarifai",
+  "name": "Clarifai",
+  "type": "openai-compatible",
+  "apiKeyEnv": "CLARIFAI_PAT",
+  "features": {
+    "streaming": true,
+    "toolUse": true,
+    "vision": true,
+    "jsonMode": true,
+    "systemMessage": true
+  },
+  "models": [
+    {
+      "id": "moonshotai/chat-completion/models/Kimi-K2_6",
+      "name": "Kimi K2.6",
+      "contextWindow": 262144,
+      "maxOutput": 262144,
+      "inputPrice": 0.95,
+      "outputPrice": 4,
+      "capabilities": [
+        "chat",
+        "vision",
+        "function_calling",
+        "json_mode",
+        "reasoning",
+        "streaming"
+      ],
+      "default": true,
+      "releaseDate": "2026-04-21"
+    },
+    {
+      "id": "minimaxai/chat-completion/models/MiniMax-M2_5-high-throughput",
+      "name": "MiniMax-M2.5 High Throughput",
+      "contextWindow": 204800,
+      "maxOutput": 131072,
+      "inputPrice": 0.3,
+      "outputPrice": 1.2,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "reasoning",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2026-02-12"
+    },
+    {
+      "id": "arcee_ai/AFM/models/trinity-mini",
+      "name": "Trinity Mini",
+      "contextWindow": 131072,
+      "maxOutput": 131072,
+      "inputPrice": 0.045,
+      "outputPrice": 0.15,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "reasoning",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2025-12-01"
+    },
+    {
+      "id": "mistralai/completion/models/Ministral-3-14B-Reasoning-2512",
+      "name": "Ministral 3 14B Reasoning 2512",
+      "contextWindow": 262144,
+      "maxOutput": 262144,
+      "inputPrice": 2.5,
+      "outputPrice": 1.7,
+      "capabilities": [
+        "chat",
+        "vision",
+        "function_calling",
+        "reasoning",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2025-12-01"
+    },
+    {
+      "id": "mistralai/completion/models/Ministral-3-3B-Reasoning-2512",
+      "name": "Ministral 3 3B Reasoning 2512",
+      "contextWindow": 262144,
+      "maxOutput": 262144,
+      "inputPrice": 1.039,
+      "outputPrice": 0.54825,
+      "capabilities": [
+        "chat",
+        "vision",
+        "function_calling",
+        "reasoning",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2025-12"
+    },
+    {
+      "id": "deepseek-ai/deepseek-ocr/models/DeepSeek-OCR",
+      "name": "DeepSeek OCR",
+      "contextWindow": 8192,
+      "maxOutput": 8192,
+      "inputPrice": 0.2,
+      "outputPrice": 0.7,
+      "capabilities": [
+        "chat",
+        "vision",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2025-10-20"
+    },
+    {
+      "id": "openai/chat-completion/models/gpt-oss-120b-high-throughput",
+      "name": "GPT OSS 120B High Throughput",
+      "contextWindow": 131072,
+      "maxOutput": 16384,
+      "inputPrice": 0.09,
+      "outputPrice": 0.36,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "reasoning",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2025-08-05"
+    },
+    {
+      "id": "openai/chat-completion/models/gpt-oss-20b",
+      "name": "GPT OSS 20B",
+      "contextWindow": 131072,
+      "maxOutput": 16384,
+      "inputPrice": 0.045,
+      "outputPrice": 0.18,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "reasoning",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2025-08-05"
+    },
+    {
+      "id": "qwen/qwenCoder/models/Qwen3-Coder-30B-A3B-Instruct",
+      "name": "Qwen3 Coder 30B A3B Instruct",
+      "contextWindow": 262144,
+      "maxOutput": 65536,
+      "inputPrice": 0.11458,
+      "outputPrice": 0.74812,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2025-07-31"
+    },
+    {
+      "id": "qwen/qwenLM/models/Qwen3-30B-A3B-Thinking-2507",
+      "name": "Qwen3 30B A3B Thinking 2507",
+      "contextWindow": 262144,
+      "maxOutput": 131072,
+      "inputPrice": 0.36,
+      "outputPrice": 1.3,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "json_mode",
+        "reasoning",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2025-07-31"
+    },
+    {
+      "id": "qwen/qwenLM/models/Qwen3-30B-A3B-Instruct-2507",
+      "name": "Qwen3 30B A3B Instruct 2507",
+      "contextWindow": 262144,
+      "maxOutput": 262144,
+      "inputPrice": 0.3,
+      "outputPrice": 0.5,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "json_mode",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2025-07-30"
+    },
+    {
+      "id": "clarifai/main/models/mm-poly-8b",
+      "name": "MM Poly 8B",
+      "contextWindow": 32768,
+      "maxOutput": 4096,
+      "inputPrice": 0.658,
+      "outputPrice": 1.11,
+      "capabilities": [
+        "chat",
+        "vision",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2025-06"
+    }
+  ],
+  "baseUrl": "https://api.clarifai.com/v2/ext/openai/v1",
+  "docsUrl": "https://docs.clarifai.com/compute/inference/"
+}

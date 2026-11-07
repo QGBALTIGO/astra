@@ -1,0 +1,756 @@
+/**
+ * Shared Tool Executor Service
+ *
+ * Provides a reusable tool execution capability for triggers, plans,
+ * and any other system that needs to run tools outside of a chat session.
+ * Creates and caches a ToolRegistry with ALL tools registered:
+ *   - Core tools (file system, code exec, web fetch, etc.)
+ *   - Gateway providers (memory, goals, custom data, etc.)
+ *   - Plugin tools (weather, expense, etc.)
+ *   - Custom tools (user/LLM-created, sandboxed)
+ *
+ * All tools go through the same ToolRegistry with middleware support.
+ */
+
+import {
+  ToolRegistry,
+  registerAllTools,
+  registerCoreTools,
+  createPluginSecurityMiddleware,
+  qualifyToolName,
+  isCallToolHardBlocked,
+  type ToolDefinition,
+  type ToolContext,
+  type DynamicToolDefinition,
+  type ExecutionPermissions,
+} from '@ownpilot/core/tools';
+import { createPluginId } from '@ownpilot/core/types';
+import { registerToolConfigRequirements } from '../api-service-registrar.js';
+import { registerAllGatewayProviders } from '../../tools/provider-manifest.js';
+import { createCustomToolsRepo } from '../../db/repositories/custom/tools.js';
+import {
+  getCustomToolDynamicRegistry,
+  setSharedRegistryForCustomTools,
+} from '../custom/tool-registry.js';
+import { getErrorMessage, stableStringify } from '../../utils/common.js';
+import { getLog } from '../log.js';
+import { registerImageOverrides } from '../../tools/overrides/image.js';
+import { registerEmailOverrides } from '../../tools/overrides/email.js';
+import { registerAudioOverrides } from '../../tools/overrides/audio.js';
+import { registerExpenseOverrides } from '../../tools/overrides/expense.js';
+import {
+  getConfigCenter,
+  getPluginService,
+  hasPluginService,
+  hasExtensionService,
+  getAuditService,
+  hasAuditService,
+} from '@ownpilot/core/services';
+import { getEventSystem } from '@ownpilot/core/events';
+import { checkToolPermission } from './permission.js';
+import type { ToolExecContext } from '../permission/utils.js';
+import { getGatewayExtensionService } from '../extension/accessor.js';
+import { getExtensionSandbox } from '../extension/sandbox.js';
+import type { SkillPermission } from '../extension/types.js';
+import { extensionsRepo } from '../../db/repositories/extensions.js';
+import {
+  checkPermission,
+  getRequiredPermission,
+  logPermissionDenied,
+} from '../extension/permissions.js';
+import { createHash } from 'node:crypto';
+import { getIdempotencyKeysRepository } from '../../db/repositories/idempotency-keys.js';
+
+const log = getLog('ToolExecutor');
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface ToolExecutionResult {
+  success: boolean;
+  result?: unknown;
+  error?: string;
+}
+
+// ============================================================================
+// Shared ToolRegistry
+// ============================================================================
+
+let sharedRegistry: ToolRegistry | null = null;
+
+/** Stored unsubscribe functions for event listeners so we can clean up on reset. */
+let eventUnsubscribers: Array<() => void> = [];
+
+/**
+ * Get or create a shared ToolRegistry with ALL tools registered.
+ * This is the single registry used by routes, triggers, plans, agents, etc.
+ *
+ * Tool sources registered:
+ * 1. Core tools (source: 'core')
+ * 2. Gateway providers (source: 'gateway')
+ * 3. Plugin tools (source: 'plugin') — brought in from PluginRegistry
+ * 4. Custom tools are registered on-demand via registerCustomTool()
+ */
+export function getSharedToolRegistry(userId = 'default'): ToolRegistry {
+  if (sharedRegistry) return sharedRegistry;
+
+  const tools = new ToolRegistry();
+
+  // Wire config auto-registration handler
+  tools.setConfigRegistrationHandler(registerToolConfigRequirements);
+
+  // Security middleware for plugin/custom tools (rate limiting, arg validation, output sanitization)
+  tools.use(createPluginSecurityMiddleware());
+
+  // Register all modular tools (file system, code exec, web fetch, etc.)
+  registerAllTools(tools);
+
+  // Override tool placeholders with real implementations
+  registerImageOverrides(tools).catch((err) =>
+    log.warn('registerImageOverrides failed:', String(err))
+  );
+  registerEmailOverrides(tools).catch((err) =>
+    log.warn('registerEmailOverrides failed:', String(err))
+  );
+  registerAudioOverrides(tools).catch((err) =>
+    log.warn('registerAudioOverrides failed:', String(err))
+  );
+  registerExpenseOverrides(tools, userId);
+
+  // Register legacy core tools (get_current_time, calculate, etc.)
+  // Duplicates are safely ignored by ToolRegistry
+  registerCoreTools(tools);
+
+  tools.setConfigCenter(getConfigCenter());
+
+  // Register all gateway tool providers from declarative manifest (source: 'gateway')
+  registerAllGatewayProviders(tools, userId);
+
+  // Register plugin tools into the shared registry (source: 'plugin')
+  initPluginToolsIntoRegistry(tools);
+
+  // Sync active custom tools from DB into the shared registry (source: 'custom')
+  syncCustomToolsIntoRegistry(tools, userId);
+
+  // Sync enabled extension tools into the shared registry (source: 'dynamic', ext.*/skill.*)
+  syncExtensionToolsIntoRegistry(tools);
+
+  // Wire the shared registry reference so custom-tools CRUD operations keep it in sync
+  setSharedRegistryForCustomTools(tools);
+
+  // Update dynamic registry's callable tools with the full set (core + gateway providers).
+  // Without this, custom tools calling utils.callTool() can only reach core tools,
+  // not gateway-provided tools like custom data, memory, goals, etc.
+  getCustomToolDynamicRegistry().setCallableTools(tools.getAllTools());
+
+  sharedRegistry = tools;
+  return tools;
+}
+
+/**
+ * Bring plugin tools into the shared ToolRegistry.
+ * Also listens for plugin enable/disable events to add/remove tools dynamically.
+ */
+function initPluginToolsIntoRegistry(registry: ToolRegistry): void {
+  if (!hasPluginService()) return;
+
+  try {
+    const pluginService = getPluginService();
+    const eventSystem = getEventSystem();
+
+    // Register tools from all currently enabled plugins
+    // Skip core-category plugins — their tools are registered synchronously
+    // by registerAllTools() + registerCoreTools() above.
+    for (const plugin of pluginService.getEnabled()) {
+      if (plugin.tools.size > 0 && plugin.manifest.category !== 'core') {
+        registry.registerPluginTools(createPluginId(plugin.manifest.id), plugin.tools);
+      }
+    }
+
+    // Listen for future plugin state changes via EventSystem
+    const unsub = eventSystem.onAny('plugin.status', (e) => {
+      try {
+        const event = e.data as { pluginId?: string; newStatus?: string };
+        if (!event?.pluginId || !event?.newStatus) return;
+        const pluginId = createPluginId(event.pluginId);
+        if (event.newStatus === 'enabled') {
+          const plugin = pluginService.get(event.pluginId);
+          if (plugin && plugin.tools.size > 0 && plugin.manifest.category !== 'core') {
+            registry.registerPluginTools(createPluginId(plugin.manifest.id), plugin.tools);
+          }
+        } else if (event.newStatus === 'disabled') {
+          registry.unregisterPluginTools(pluginId);
+        }
+        // Keep dynamic registry's callable tools in sync
+        getCustomToolDynamicRegistry().setCallableTools(registry.getAllTools());
+      } catch (err) {
+        log.warn('[tool-executor] Plugin status event handler failed', { error: err });
+      }
+    });
+    eventUnsubscribers.push(unsub);
+  } catch {
+    // Plugin or Event service not initialized yet — plugins will register later
+  }
+}
+
+/**
+ * Sync active custom tools from DB into the shared ToolRegistry.
+ * Each custom tool gets a sandboxed executor that delegates to the DynamicToolRegistry.
+ * The sync runs async so getSharedToolRegistry() stays synchronous.
+ * The returned promise is stored so callers can await completion via waitForToolSync().
+ */
+let toolSyncPromise: Promise<void> | null = null;
+
+function syncCustomToolsIntoRegistry(registry: ToolRegistry, userId: string): void {
+  const repo = createCustomToolsRepo(userId);
+
+  toolSyncPromise = repo
+    .getActiveTools()
+    .then((tools) => {
+      const dynamicRegistry = getCustomToolDynamicRegistry();
+
+      for (const tool of tools) {
+        // Ensure the tool is also registered in the dynamic registry (for sandbox execution)
+        dynamicRegistry.register({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters as DynamicToolDefinition['parameters'],
+          code: tool.code,
+          category: tool.category,
+          permissions: tool.permissions as DynamicToolDefinition['permissions'],
+          requiresApproval: tool.requiresApproval,
+        });
+
+        // Register in shared registry with sandboxed executor
+        const def: ToolDefinition = {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters as ToolDefinition['parameters'],
+          category: tool.category ?? 'Custom',
+          configRequirements: tool.requiredApiKeys?.map((k) => ({
+            name: k.name,
+            displayName: k.displayName,
+            description: k.description,
+            category: k.category,
+            docsUrl: k.docsUrl,
+          })),
+          workflowUsable:
+            tool.metadata?.workflowUsable !== undefined
+              ? Boolean(tool.metadata.workflowUsable)
+              : undefined,
+        };
+
+        // Executor delegates to dynamic registry which handles sandboxing
+        const executor = (args: Record<string, unknown>, context: ToolContext) =>
+          dynamicRegistry.execute(tool.name, args, context);
+
+        registry.registerCustomTool(def, executor, tool.id);
+      }
+
+      if (tools.length > 0) {
+        log.info(`[tool-executor] Synced ${tools.length} custom tool(s) into shared registry`);
+        // Refresh callable tools so newly synced tools are available via utils.callTool()
+        dynamicRegistry.setCallableTools(registry.getAllTools());
+      }
+    })
+    .catch((err) => {
+      log.warn('[tool-executor] Custom tools sync deferred — DB may not be ready yet', {
+        error: err,
+      });
+    });
+}
+
+/**
+ * Register a single extension tool into the shared ToolRegistry.
+ * Shared by initial sync and event-driven re-sync to eliminate duplication.
+ */
+function registerSingleExtensionTool(
+  def: import('../extension/service.js').ToolDefinitionForRegistry,
+  registry: ToolRegistry,
+  dynamicRegistry: ReturnType<typeof getCustomToolDynamicRegistry>
+): boolean {
+  // Register in DynamicToolRegistry for sandbox execution
+  if (!dynamicRegistry.has(def.name)) {
+    try {
+      dynamicRegistry.register({
+        name: def.name,
+        description: def.description,
+        parameters: def.extensionTool.parameters as never,
+        code: def.extensionTool.code,
+        permissions: def.extensionTool.permissions as never,
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  const nsPrefix = def.format === 'agentskills' ? 'skill' : 'ext';
+  const qName = qualifyToolName(def.name, nsPrefix, def.extensionId);
+
+  // Skip if already registered (for re-sync)
+  if (registry.has(qName)) return false;
+
+  const extRecord = extensionsRepo.getById(def.extensionId);
+  if (!extRecord) {
+    log.debug('[tool-executor] Extension record not found during registration, skipping', {
+      extensionId: def.extensionId,
+      toolName: def.name,
+    });
+    return false;
+  }
+
+  // SECURITY (EXT-HOST-ACCESS): a manifest-supplied `runtime.sandbox: 'none'`
+  // routes this extension's code to the legacy vm executor, which injects host
+  // `fs`/`exec` (createScopedFs / createScopedExec) for tools declaring
+  // local+filesystem / local+shell — i.e. host command execution inside the
+  // gateway process. A manifest field alone must NOT opt out of isolation: the
+  // marketplace/scan-dir install path has no consent prompt (unlike custom
+  // tools, which gate local/shell behind approval), so a malicious extension
+  // could silently self-grant host shell. Require an explicit operator opt-in,
+  // mirroring OWNPILOT_ENABLE_SKILL_SCRIPTS. Default fail-closed: force the
+  // isolated worker sandbox.
+  const wantsHostAccess = extRecord.manifest?.runtime?.sandbox === 'none';
+  const hostAccessAllowed = process.env.OWNPILOT_ENABLE_EXTENSION_HOST_ACCESS === 'true';
+  if (wantsHostAccess && !hostAccessAllowed) {
+    log.warn(
+      '[tool-executor] Extension requested sandbox:"none" (host fs/exec) but OWNPILOT_ENABLE_EXTENSION_HOST_ACCESS is not set — forcing the isolated worker sandbox',
+      { extensionId: def.extensionId, toolName: def.name }
+    );
+  }
+  const useSandbox = !(wantsHostAccess && hostAccessAllowed);
+  const grantedPermissions = (extRecord.grantedPermissions ?? []) as SkillPermission[];
+
+  const toolDef: ToolDefinition = {
+    name: qName,
+    description: def.description,
+    parameters: def.parameters as ToolDefinition['parameters'],
+    category: def.category,
+  };
+
+  registry.register(
+    toolDef,
+    async (args, context) => {
+      if (useSandbox) {
+        const sandbox = getExtensionSandbox();
+        const sandboxResult = await sandbox.execute({
+          extensionId: def.extensionId,
+          toolName: def.name,
+          code: def.extensionTool.code,
+          args: args as Record<string, unknown>,
+          grantedPermissions: grantedPermissions.map(String),
+          ownerUserId: extRecord.userId,
+          maxMemory: extRecord.manifest?.runtime?.maxMemory,
+          maxExecutionTime: extRecord.manifest?.runtime?.maxExecutionTime,
+        });
+        return {
+          content: sandboxResult.success
+            ? JSON.stringify(sandboxResult.result)
+            : String(sandboxResult.error ?? 'Sandbox execution failed'),
+          isError: !sandboxResult.success,
+        };
+      }
+
+      const execResult = await dynamicRegistry.execute(
+        def.name,
+        args as Record<string, unknown>,
+        context
+      );
+      return {
+        content: execResult.isError
+          ? String(execResult.content)
+          : JSON.stringify(execResult.content),
+        isError: execResult.isError,
+      };
+    },
+    {
+      source: 'dynamic',
+      pluginId: `${nsPrefix}:${def.extensionId}` as import('@ownpilot/core').PluginId,
+      trustLevel: 'sandboxed',
+      providerName: `${nsPrefix}:${def.extensionId}`,
+    }
+  );
+
+  return true;
+}
+
+/**
+ * Sync enabled extension tools into the shared ToolRegistry.
+ * Extension tools get namespaced as ext.{id}.{name} or skill.{id}.{name}.
+ * Also listens for extension install/enable/disable events to stay in sync.
+ */
+function syncExtensionToolsIntoRegistry(registry: ToolRegistry): void {
+  if (!hasExtensionService()) return;
+
+  try {
+    const service = getGatewayExtensionService();
+    const dynamicRegistry = getCustomToolDynamicRegistry();
+    const extToolDefs = service.getToolDefinitions();
+
+    // Set up sandbox callTool handler with permission checking
+    setupSandboxCallToolHandler(registry);
+
+    for (const def of extToolDefs) {
+      registerSingleExtensionTool(def, registry, dynamicRegistry);
+    }
+
+    if (extToolDefs.length > 0) {
+      log.info(
+        `[tool-executor] Synced ${extToolDefs.length} extension tool(s) into shared registry`
+      );
+    }
+
+    // Listen for extension enable/disable/install events to keep in sync
+    try {
+      const eventSystem = getEventSystem();
+
+      const unregisterExtensionTools = (extensionId?: string) => {
+        if (!extensionId) return 0;
+        return (
+          registry.unregisterExtTools(extensionId) + registry.unregisterSkillTools(extensionId)
+        );
+      };
+
+      const getExtensionIdFromEvent = (e: unknown) =>
+        (e as { data?: { extensionId?: string } } | undefined)?.data?.extensionId;
+
+      const resyncExtensionTools = (e?: unknown) => {
+        try {
+          unregisterExtensionTools(getExtensionIdFromEvent(e));
+          const freshDefs = service.getToolDefinitions();
+          for (const d of freshDefs) {
+            registerSingleExtensionTool(d, registry, dynamicRegistry);
+          }
+          dynamicRegistry.setCallableTools(registry.getAllTools());
+        } catch (err) {
+          log.warn('[tool-executor] Extension re-sync failed', { error: err });
+        }
+      };
+
+      const removeExtensionTools = (e?: unknown) => {
+        try {
+          unregisterExtensionTools(getExtensionIdFromEvent(e));
+          dynamicRegistry.setCallableTools(registry.getAllTools());
+        } catch (err) {
+          log.warn('[tool-executor] Extension tool removal failed', { error: err });
+        }
+      };
+
+      eventUnsubscribers.push(eventSystem.onAny('extension.installed', resyncExtensionTools));
+      eventUnsubscribers.push(eventSystem.onAny('extension.enabled', resyncExtensionTools));
+      eventUnsubscribers.push(eventSystem.onAny('extension.disabled', removeExtensionTools));
+      eventUnsubscribers.push(eventSystem.onAny('extension.uninstalled', removeExtensionTools));
+    } catch {
+      // EventSystem not available yet
+    }
+  } catch {
+    // Extension service not initialized yet
+  }
+}
+
+/**
+ * Set up the sandbox callTool handler with permission checking.
+ * When sandboxed extension code calls utils.callTool(), permissions are verified
+ * before the tool is executed in the main thread.
+ */
+function setupSandboxCallToolHandler(registry: ToolRegistry): void {
+  const sandbox = getExtensionSandbox();
+
+  sandbox.setCallToolHandler(async (toolName, args, extensionIdentity) => {
+    // Special internal command: list tools
+    if (toolName === '__list_tools__') {
+      const allTools = registry.getAllTools();
+      return {
+        success: true,
+        result: allTools.map((t) => ({
+          name: t.definition.name,
+          description: t.definition.description,
+        })),
+      };
+    }
+
+    const { extensionId, ownerUserId, grantedPermissions } = extensionIdentity;
+
+    // Hard block: shell, file mutation, email, git, code-exec, calculate, etc.
+    // Enforced regardless of granted permissions, mirroring custom-tool sandbox.
+    if (isCallToolHardBlocked(toolName)) {
+      logPermissionDenied(extensionId, toolName, 'network');
+      if (hasAuditService()) {
+        try {
+          getAuditService().logAudit({
+            userId: ownerUserId,
+            action: 'extension.callTool',
+            resource: 'extension',
+            resourceId: extensionId,
+            details: {
+              tool: toolName,
+              allowed: false,
+              reason: 'hard_blocked',
+              callerKind: 'extension',
+            },
+          });
+        } catch {
+          /* audit failure should not affect tool execution */
+        }
+      }
+      return {
+        success: false,
+        error: `permission_denied: tool "${toolName}" is blocked from extension callTool — code execution, file mutation, email, and git tools cannot be invoked from sandboxed extension code`,
+      };
+    }
+
+    const allowed = checkPermission(toolName, grantedPermissions as SkillPermission[]);
+    const requiredPermission = getRequiredPermission(toolName);
+
+    if (!allowed) {
+      logPermissionDenied(extensionId, toolName, requiredPermission ?? 'network');
+      // Emit audit event for denied call
+      if (hasAuditService()) {
+        try {
+          getAuditService().logAudit({
+            userId: ownerUserId,
+            action: 'extension.callTool',
+            resource: 'extension',
+            resourceId: extensionId,
+            details: {
+              tool: toolName,
+              allowed: false,
+              reason: 'permission_denied',
+              requiredPermission: requiredPermission ?? null,
+              callerKind: 'extension',
+            },
+          });
+        } catch {
+          /* audit failure should not affect tool execution */
+        }
+      }
+      return {
+        success: false,
+        error: `permission_denied: tool "${toolName}" requires "${requiredPermission}" permission`,
+      };
+    }
+
+    // Execute the tool via the shared registry under the extension owner's identity
+    const result = await registry.execute(toolName, args, {
+      userId: ownerUserId,
+      conversationId: 'sandbox',
+    });
+
+    // Emit audit event for all calls (both allowed and denied above)
+    if (hasAuditService()) {
+      try {
+        getAuditService().logAudit({
+          userId: ownerUserId,
+          action: 'extension.callTool',
+          resource: 'extension',
+          resourceId: extensionId,
+          details: {
+            tool: toolName,
+            allowed: true,
+            callerKind: 'extension',
+            success: result.ok,
+          },
+        });
+      } catch {
+        /* audit failure should not affect tool execution */
+      }
+    }
+
+    if (result.ok) {
+      return {
+        success: !result.value.isError,
+        result: result.value.content,
+        error: result.value.isError ? String(result.value.content) : undefined,
+      };
+    }
+
+    return { success: false, error: result.error.message };
+  });
+}
+
+/**
+ * Wait for the initial custom tool sync to complete.
+ * Useful for ensuring all custom tools are registered before first trigger execution.
+ */
+export async function waitForToolSync(): Promise<void> {
+  if (toolSyncPromise) await toolSyncPromise;
+}
+
+/**
+ * Execute a tool by name with arguments.
+ * First checks the shared ToolRegistry, then falls back to PluginRegistry
+ * (in case plugin tools haven't been synced yet due to async initialization).
+ * Returns a standardized result object.
+ *
+ * @param execContext - Execution context identifying the caller (trigger, plan, workflow, etc.).
+ *                      When provided, the ToolPermissionService enforces tool group checks,
+ *                      execution permissions, CLI policies, and custom tool approval requirements.
+ */
+export async function executeTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  userId = 'default',
+  executionPermissions?: ExecutionPermissions,
+  execContext?: ToolExecContext
+): Promise<ToolExecutionResult> {
+  if (execContext) {
+    const perm = await checkToolPermission(userId, toolName, {
+      ...execContext,
+      executionPermissions: execContext.executionPermissions ?? executionPermissions,
+    });
+    if (!perm.allowed) {
+      return { success: false, error: `Tool '${toolName}' blocked: ${perm.reason}` };
+    }
+  }
+
+  // Check for cached result. The key is hashed over a *canonical* JSON form
+  // (stableStringify) so permuted argument keys collapse to the same hash:
+  // `{a:1,b:2}` and `{b:2,a:1}` are the same invocation for cache purposes
+  // (Plan 11 IDEMP-001).
+  const idempotencyKey = `tool:${createHash('sha256')
+    .update(`${userId}:${toolName}:${stableStringify(args)}`)
+    .digest('hex')}`;
+  try {
+    const idempotencyRepo = getIdempotencyKeysRepository();
+    const cached = await idempotencyRepo.getRecord(userId, idempotencyKey);
+    if (cached) {
+      log.debug(`Idempotency hit for ${toolName}`);
+      return cached.result as ToolExecutionResult;
+    }
+  } catch {
+    // Idempotency failures should not block tool execution
+  }
+
+  const start = Date.now();
+  const result = await executeToolInternal(toolName, args, userId, executionPermissions);
+
+  // Store result
+  try {
+    const idempotencyRepo = getIdempotencyKeysRepository();
+    idempotencyRepo.setRecord(userId, idempotencyKey, result).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`[executor] idempotency record failed: ${msg}`);
+    });
+  } catch {
+    // Idempotency store failures should not affect tool result
+  }
+
+  // Fire-and-forget audit log
+  if (hasAuditService()) {
+    try {
+      getAuditService().logAudit({
+        userId,
+        action: 'tool_execute',
+        resource: 'tool',
+        resourceId: toolName,
+        details: {
+          tool: toolName,
+          success: result.success,
+          durationMs: Date.now() - start,
+          error: result.error,
+        },
+      });
+    } catch {
+      /* audit failure should not affect tool execution */
+    }
+  }
+
+  return result;
+}
+
+async function executeToolInternal(
+  toolName: string,
+  args: Record<string, unknown>,
+  userId: string,
+  executionPermissions?: ExecutionPermissions
+): Promise<ToolExecutionResult> {
+  const tools = getSharedToolRegistry(userId);
+
+  // Try shared registry first
+  if (tools.has(toolName)) {
+    try {
+      const result = await tools.execute(toolName, args, {
+        conversationId: 'system-execution',
+        userId,
+        executionPermissions,
+      });
+
+      if (result.ok) {
+        const value = result.value;
+        return {
+          success: !value.isError,
+          result: value.content,
+          error: value.isError ? String(value.content) : undefined,
+        };
+      }
+
+      return {
+        success: false,
+        error: result.error.message,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: getErrorMessage(error, 'Tool execution failed'),
+      };
+    }
+  }
+
+  // Fallback: check plugin service (covers the sync race window)
+  try {
+    const pluginService = getPluginService();
+    const pluginTool = pluginService.getTool(toolName);
+    if (pluginTool != null) {
+      try {
+        const pluginResult = await pluginTool.executor(args, {
+          callId: 'fallback',
+          conversationId: 'system-execution',
+        });
+        const content =
+          typeof pluginResult.content === 'string'
+            ? pluginResult.content
+            : String(pluginResult.content);
+        return {
+          success: !pluginResult.isError,
+          result: content,
+          error: pluginResult.isError ? content : undefined,
+        };
+      } catch (execError) {
+        return {
+          success: false,
+          error: getErrorMessage(execError, 'Plugin tool execution failed'),
+        };
+      }
+    }
+  } catch {
+    // Ignore plugin service lookup errors — fall through to not-found
+  }
+
+  return {
+    success: false,
+    error: `Tool '${toolName}' not found in shared registry or plugins`,
+  };
+}
+
+export async function hasTool(toolName: string): Promise<boolean> {
+  const tools = getSharedToolRegistry();
+  if (tools.has(toolName)) return true;
+
+  // Fallback: check plugin service
+  try {
+    const pluginService = getPluginService();
+    return pluginService.getTool(toolName) != null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reset the shared registry (for testing or reinitialization).
+ */
+export function resetSharedToolRegistry(): void {
+  for (const unsub of eventUnsubscribers) unsub();
+  eventUnsubscribers = [];
+  sharedRegistry = null;
+  toolSyncPromise = null;
+}

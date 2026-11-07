@@ -1,0 +1,1087 @@
+/**
+ * Chat History Page
+ *
+ * Unified view of all conversation history — web UI and Telegram channels.
+ * Lists conversations with search/filter, and shows full message threads.
+ */
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  History,
+  Search,
+  Archive,
+  Trash2,
+  ChevronLeft,
+  ChevronDown,
+  Telegram,
+  Globe,
+  Bot,
+  User,
+  Clock,
+  MessageSquare,
+  RefreshCw,
+  Check,
+  X,
+  Home,
+  Download,
+  Brain,
+  FileText,
+  Image,
+} from '../components/icons';
+import { PageHomeTab } from '../components/PageHomeTab';
+import { chatApi } from '../api';
+import type { Conversation, HistoryMessage, UnifiedMessage, ChannelInfo } from '../api';
+import { useGateway } from '../hooks/useWebSocket';
+import { useDialog } from '../components/ConfirmDialog';
+import { useToast } from '../components/ToastProvider';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+import { MarkdownContent } from '../components/MarkdownContent';
+import { TraceDisplay } from '../components/TraceDisplay';
+import type { MessageAttachment, TraceInfo } from '../types';
+import { stripChatInternalTags } from '../utils/chat-content';
+import { useSkipHome } from '../hooks/useSkipHome';
+
+function formatAttachmentSize(size: number | undefined): string | null {
+  if (!size || size <= 0) return null;
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isTraceInfo(value: unknown): value is TraceInfo {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.duration === 'number' &&
+    Array.isArray(value.toolCalls) &&
+    Array.isArray(value.modelCalls) &&
+    Array.isArray(value.autonomyChecks) &&
+    isRecord(value.dbOperations) &&
+    isRecord(value.memoryOps) &&
+    Array.isArray(value.triggersFired) &&
+    Array.isArray(value.errors) &&
+    Array.isArray(value.events)
+  );
+}
+
+function HistoryAttachmentChip({
+  attachment,
+  inverted,
+}: {
+  attachment: MessageAttachment;
+  inverted: boolean;
+}) {
+  const label =
+    attachment.filename || (attachment.type === 'image' ? 'Attached image' : 'Attached file');
+  const size = formatAttachmentSize(attachment.size);
+  const Icon = attachment.type === 'image' ? Image : FileText;
+
+  return (
+    <div
+      className={`inline-flex max-w-[220px] items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] ${
+        inverted
+          ? 'border-white/25 bg-white/15 text-white/90'
+          : 'border-border bg-bg-secondary text-text-secondary dark:border-dark-border dark:bg-dark-bg-secondary dark:text-dark-text-secondary'
+      }`}
+    >
+      <Icon className="h-3 w-3 flex-shrink-0" />
+      <span className="truncate">{label}</span>
+      {size && (
+        <span
+          className={`flex-shrink-0 ${inverted ? 'text-white/60' : 'text-text-muted dark:text-dark-text-muted'}`}
+        >
+          {size}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function formatFullDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+type ConvSource = 'telegram' | 'discord' | 'whatsapp' | 'slack' | 'web';
+
+/** Detect conversation source and platform */
+function getSource(conv: Conversation): ConvSource {
+  if (conv.source === 'channel' && conv.channelPlatform) {
+    return conv.channelPlatform as ConvSource;
+  }
+  // Fallback: detect from metadata
+  const meta = conv.metadata as Record<string, unknown> | undefined;
+  if (meta?.source === 'channel') {
+    const platform = meta.platform as string;
+    if (platform === 'discord') return 'discord';
+    if (platform === 'whatsapp') return 'whatsapp';
+    if (platform === 'slack') return 'slack';
+    return 'telegram';
+  }
+  return 'web';
+}
+
+const platformConfig: Record<ConvSource, { label: string; color: string; bg: string }> = {
+  telegram: { label: 'Telegram', color: 'text-[#229ED9]', bg: 'bg-[#229ED9]/10' },
+  discord: { label: 'Discord', color: 'text-[#5865F2]', bg: 'bg-[#5865F2]/10' },
+  whatsapp: { label: 'WhatsApp', color: 'text-[#25D366]', bg: 'bg-[#25D366]/10' },
+  slack: { label: 'Slack', color: 'text-[#4A154B]', bg: 'bg-[#4A154B]/10' },
+  web: { label: 'Web', color: 'text-primary', bg: 'bg-primary/10' },
+};
+
+function SourceBadge({ source }: { source: ConvSource }) {
+  const cfg = platformConfig[source] ?? platformConfig.web;
+  const Icon = source === 'web' ? Globe : Telegram; // Telegram icon as fallback for all channels
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${cfg.bg} ${cfg.color}`}
+    >
+      <Icon className="w-3 h-3" />
+      {cfg.label}
+    </span>
+  );
+}
+
+type TabId = 'home' | 'history';
+
+const TAB_LABELS: Record<TabId, string> = {
+  home: 'Home',
+  history: 'History',
+};
+
+export function ChatHistoryPage() {
+  const [activeTab, setActiveTab] = useState<TabId>('home');
+
+  const { skipHome, onSkipHomeChange } = useSkipHome({
+    pageName: 'chathistory',
+    defaultTab: 'history',
+  });
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<(HistoryMessage | UnifiedMessage)[]>([]);
+  const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
+  const [channelInfo, setChannelInfo] = useState<ChannelInfo | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [isSendingReply, setIsSendingReply] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [search, setSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showCleanupMenu, setShowCleanupMenu] = useState(false);
+  const cleanupMenuRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  const { subscribe, status: wsStatus } = useGateway();
+  const { confirm } = useDialog();
+  const toast = useToast();
+
+  // Keep ref in sync for WS callback
+  selectedIdRef.current = selectedId;
+
+  // Close cleanup menu on outside click
+  useEffect(() => {
+    if (!showCleanupMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (cleanupMenuRef.current && !cleanupMenuRef.current.contains(e.target as Node)) {
+        setShowCleanupMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showCleanupMenu]);
+
+  // Fetch conversations
+  const fetchConversations = useCallback(
+    async (searchQuery?: string) => {
+      try {
+        const data = await chatApi.listHistory({
+          limit: 100,
+          search: searchQuery || undefined,
+          archived: showArchived,
+        });
+        setConversations(data.conversations);
+      } catch {
+        toast.error('Failed to load conversations');
+      }
+    },
+    [showArchived, toast]
+  );
+
+  // Reload currently selected conversation messages (unified for channel conversations)
+  const refreshSelectedMessages = useCallback(async (convId: string) => {
+    try {
+      const data = await chatApi.getUnifiedHistory(convId);
+      setSelectedConv(data.conversation);
+      setMessages(data.messages);
+      setChannelInfo(data.channelInfo ?? null);
+    } catch {
+      // Non-critical — list already updated
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    setIsLoading(true);
+    fetchConversations().finally(() => setIsLoading(false));
+  }, [fetchConversations]);
+
+  // Real-time: subscribe to chat:history:updated
+  useEffect(() => {
+    const unsub = subscribe<{ conversationId: string }>('chat:history:updated', (data) => {
+      // Refresh conversation list
+      fetchConversations(search || undefined);
+
+      // If the updated conversation is currently selected, refresh messages too
+      if (selectedIdRef.current === data.conversationId) {
+        refreshSelectedMessages(data.conversationId);
+      }
+    });
+    return unsub;
+  }, [subscribe, fetchConversations, refreshSelectedMessages, search]);
+
+  // Real-time: subscribe to channel:message (Telegram messages)
+  useEffect(() => {
+    const unsub = subscribe('channel:message', () => {
+      // Channel messages trigger conversation updates — refresh list
+      // (small delay to let persistence middleware finish saving)
+      setTimeout(() => fetchConversations(search || undefined), 500);
+    });
+    return unsub;
+  }, [subscribe, fetchConversations, search]);
+
+  // Debounced search
+  useEffect(() => {
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => {
+      fetchConversations(search);
+    }, 300);
+    return () => {
+      if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    };
+  }, [search, fetchConversations]);
+
+  // Select conversation and load messages (unified endpoint merges channel + AI)
+  const selectConversation = useCallback(async (id: string) => {
+    setSelectedId(id);
+    setIsLoadingMessages(true);
+    setChannelInfo(null);
+    setReplyText('');
+    try {
+      const data = await chatApi.getUnifiedHistory(id);
+      setSelectedConv(data.conversation);
+      setMessages(data.messages);
+      setChannelInfo(data.channelInfo ?? null);
+    } catch {
+      toast.error('Failed to load conversation');
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  }, []);
+
+  // Manual refresh
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await fetchConversations(search || undefined);
+    if (selectedIdRef.current) {
+      await refreshSelectedMessages(selectedIdRef.current);
+    }
+    setIsRefreshing(false);
+  }, [fetchConversations, refreshSelectedMessages, search]);
+
+  // Send reply to channel conversation
+  const handleChannelReply = useCallback(async () => {
+    if (!replyText.trim() || !selectedId || !channelInfo) return;
+    setIsSendingReply(true);
+    try {
+      await chatApi.channelReply(selectedId, replyText.trim());
+      setReplyText('');
+      // Refresh to show the sent message
+      await refreshSelectedMessages(selectedId);
+      toast.success('Reply sent');
+    } catch {
+      toast.error('Failed to send reply');
+    } finally {
+      setIsSendingReply(false);
+    }
+  }, [replyText, selectedId, channelInfo, refreshSelectedMessages, toast]);
+
+  // Scroll to bottom when messages load
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Archive/unarchive
+  const handleArchive = useCallback(
+    async (id: string, archived: boolean) => {
+      try {
+        await chatApi.archiveHistory(id, archived);
+        setConversations((prev) => prev.filter((c) => c.id !== id));
+        if (selectedId === id) {
+          setSelectedId(null);
+          setSelectedConv(null);
+          setMessages([]);
+        }
+        toast.success(archived ? 'Conversation archived' : 'Conversation unarchived');
+      } catch {
+        toast.error('Failed to update conversation');
+      }
+    },
+    [selectedId, toast]
+  );
+
+  // Delete
+  const handleDelete = useCallback(
+    async (id: string) => {
+      const ok = await confirm({
+        title: 'Delete Conversation',
+        message: 'This conversation will be permanently deleted. This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'danger',
+      });
+      if (!ok) return;
+
+      try {
+        await chatApi.deleteHistory(id);
+        setConversations((prev) => prev.filter((c) => c.id !== id));
+        if (selectedId === id) {
+          setSelectedId(null);
+          setSelectedConv(null);
+          setMessages([]);
+        }
+        toast.success('Conversation deleted');
+      } catch {
+        toast.error('Failed to delete conversation');
+      }
+    },
+    [selectedId, confirm, toast]
+  );
+
+  // ---- Bulk operations ----
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelectedIds(new Set(conversations.map((c) => c.id)));
+  }, [conversations]);
+
+  const deselectAll = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const ok = await confirm({
+      title: 'Delete Conversations',
+      message: `Permanently delete ${selectedIds.size} conversation${selectedIds.size !== 1 ? 's' : ''}? This cannot be undone.`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
+    try {
+      const ids = [...selectedIds];
+      await chatApi.bulkDeleteHistory(ids);
+      setConversations((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+      if (selectedId && selectedIds.has(selectedId)) {
+        setSelectedId(null);
+        setSelectedConv(null);
+        setMessages([]);
+      }
+      toast.success(`Deleted ${ids.length} conversation${ids.length !== 1 ? 's' : ''}`);
+      exitSelectMode();
+    } catch {
+      toast.error('Failed to delete conversations');
+    }
+  }, [selectedIds, selectedId, confirm, toast, exitSelectMode]);
+
+  const handleBulkArchive = useCallback(
+    async (archived: boolean) => {
+      if (selectedIds.size === 0) return;
+      const action = archived ? 'Archive' : 'Unarchive';
+      const ok = await confirm({
+        title: `${action} Conversations`,
+        message: `${action} ${selectedIds.size} conversation${selectedIds.size !== 1 ? 's' : ''}?`,
+        confirmText: action,
+      });
+      if (!ok) return;
+
+      try {
+        const ids = [...selectedIds];
+        await chatApi.bulkArchiveHistory(ids, archived);
+        setConversations((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+        if (selectedId && selectedIds.has(selectedId)) {
+          setSelectedId(null);
+          setSelectedConv(null);
+          setMessages([]);
+        }
+        toast.success(
+          `${archived ? 'Archived' : 'Unarchived'} ${ids.length} conversation${ids.length !== 1 ? 's' : ''}`
+        );
+        exitSelectMode();
+      } catch {
+        toast.error(`Failed to ${action.toLowerCase()} conversations`);
+      }
+    },
+    [selectedIds, selectedId, confirm, toast, exitSelectMode]
+  );
+
+  const handleDeleteOld = useCallback(
+    async (days: number) => {
+      setShowCleanupMenu(false);
+      const ok = await confirm({
+        title: 'Delete Old Conversations',
+        message: `Delete all conversations older than ${days} day${days !== 1 ? 's' : ''}? This cannot be undone.`,
+        confirmText: 'Delete',
+        variant: 'danger',
+      });
+      if (!ok) return;
+
+      try {
+        const result = await chatApi.deleteOldHistory(days);
+        toast.success(
+          `Deleted ${result.deleted} old conversation${result.deleted !== 1 ? 's' : ''}`
+        );
+        fetchConversations(search || undefined);
+      } catch {
+        toast.error('Failed to delete old conversations');
+      }
+    },
+    [confirm, toast, fetchConversations, search]
+  );
+
+  const handleDeleteAll = useCallback(async () => {
+    setShowCleanupMenu(false);
+    const ok = await confirm({
+      title: 'Delete All Conversations',
+      message: 'Delete ALL conversations? This cannot be undone.',
+      confirmText: 'Delete All',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
+    try {
+      const result = await chatApi.deleteAllHistory();
+      toast.success(`Deleted ${result.deleted} conversation${result.deleted !== 1 ? 's' : ''}`);
+      setConversations([]);
+      setSelectedId(null);
+      setSelectedConv(null);
+      setMessages([]);
+      exitSelectMode();
+    } catch {
+      toast.error('Failed to delete conversations');
+    }
+  }, [confirm, toast, exitSelectMode]);
+
+  if (isLoading) {
+    return <LoadingSpinner message="Loading chat history..." />;
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
+            Chat History
+          </h2>
+          <p className="text-sm text-text-muted dark:text-dark-text-muted">
+            {conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
+            {showArchived ? ' (archived)' : ''}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs text-text-muted dark:text-dark-text-muted">
+            <span
+              className={`w-2 h-2 rounded-full ${wsStatus === 'connected' ? 'bg-success' : 'bg-text-muted'}`}
+            />
+            {wsStatus === 'connected' ? 'Live' : 'Offline'}
+          </div>
+
+          {/* Cleanup dropdown */}
+          <div className="relative" ref={cleanupMenuRef}>
+            <button
+              onClick={() => setShowCleanupMenu(!showCleanupMenu)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Cleanup
+              <ChevronDown className="w-3 h-3" />
+            </button>
+            {showCleanupMenu && (
+              <div className="absolute right-0 top-full mt-1 w-56 bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg shadow-lg z-20 py-1">
+                <button
+                  onClick={() => handleDeleteOld(7)}
+                  className="w-full text-left px-4 py-2 text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
+                >
+                  Delete older than 7 days
+                </button>
+                <button
+                  onClick={() => handleDeleteOld(30)}
+                  className="w-full text-left px-4 py-2 text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
+                >
+                  Delete older than 30 days
+                </button>
+                <div className="border-t border-border dark:border-dark-border my-1" />
+                <button
+                  onClick={handleDeleteAll}
+                  className="w-full text-left px-4 py-2 text-sm text-error hover:bg-error/10"
+                >
+                  Delete all conversations
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              showArchived
+                ? 'bg-primary text-white'
+                : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
+            }`}
+          >
+            <Archive className="w-4 h-4" />
+            Archived
+          </button>
+
+          <button
+            onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              selectMode
+                ? 'bg-primary text-white'
+                : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
+            }`}
+          >
+            <Check className="w-4 h-4" />
+            Select
+          </button>
+
+          <button
+            onClick={handleRefresh}
+            className="p-2 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
+            disabled={isRefreshing}
+          >
+            <RefreshCw
+              className={`w-5 h-5 text-text-secondary dark:text-dark-text-secondary ${isRefreshing ? 'animate-spin' : ''}`}
+            />
+          </button>
+        </div>
+      </header>
+
+      {/* Tabs */}
+      <div className="flex border-b border-border dark:border-dark-border px-6">
+        {(['home', 'history'] as TabId[]).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === tab
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:border-border dark:hover:border-dark-border'
+            }`}
+          >
+            {tab === 'home' && <Home className="w-3.5 h-3.5" />}
+            {tab === 'history' && <History className="w-3.5 h-3.5" />}
+            {TAB_LABELS[tab]}
+          </button>
+        ))}
+      </div>
+
+      {/* Home Tab */}
+      {activeTab === 'home' && (
+        <div className="flex-1 overflow-y-auto p-6">
+          <PageHomeTab
+            heroIcons={[
+              { icon: History, color: 'text-primary bg-primary/10' },
+              { icon: MessageSquare, color: 'text-emerald-500 bg-emerald-500/10' },
+              { icon: Search, color: 'text-violet-500 bg-violet-500/10' },
+            ]}
+            title="Your Conversation Archive"
+            subtitle="Browse, search, and revisit past conversations. Every interaction is preserved for context and reference."
+            cta={{
+              label: 'Browse History',
+              icon: History,
+              onClick: () => setActiveTab('history'),
+            }}
+            skipHomeChecked={skipHome}
+            onSkipHomeChange={onSkipHomeChange}
+            skipHomeLabel="Skip this screen and go directly to History"
+            features={[
+              {
+                icon: History,
+                color: 'text-primary bg-primary/10',
+                title: 'Full History',
+                description: 'Complete archive of all your conversations.',
+              },
+              {
+                icon: Search,
+                color: 'text-orange-500 bg-orange-500/10',
+                title: 'Search & Filter',
+                description: 'Find conversations by keyword or date.',
+              },
+              {
+                icon: Download,
+                color: 'text-emerald-500 bg-emerald-500/10',
+                title: 'Conversation Export',
+                description: 'Export conversations for backup or analysis.',
+              },
+              {
+                icon: Brain,
+                color: 'text-violet-500 bg-violet-500/10',
+                title: 'Context Recall',
+                description: 'Revisit past context for continuity.',
+              },
+            ]}
+            steps={[
+              {
+                title: 'Browse past conversations',
+                detail: 'See all your conversations in one place.',
+              },
+              { title: 'Search by keyword', detail: 'Find specific topics or messages.' },
+              {
+                title: 'Click to revisit',
+                detail: 'Open any conversation to review details.',
+              },
+              {
+                title: 'Export if needed',
+                detail: 'Download conversations for offline use.',
+              },
+            ]}
+            quickActions={[
+              {
+                icon: History,
+                label: 'View History',
+                description: 'Browse all past conversations.',
+                onClick: () => setActiveTab('history'),
+              },
+            ]}
+          />
+        </div>
+      )}
+
+      {/* History Tab */}
+      {activeTab === 'history' && (
+        <div className="flex-1 flex overflow-hidden">
+          {/* Conversation List Sidebar */}
+          <aside className="w-80 border-r border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary flex flex-col overflow-hidden">
+            {/* Search + Select Mode Header */}
+            <div className="p-3 border-b border-border dark:border-dark-border">
+              {selectMode ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text-secondary dark:text-dark-text-secondary">
+                    {selectedIds.size} selected
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={selectedIds.size === conversations.length ? deselectAll : selectAll}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      {selectedIds.size === conversations.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                    <button
+                      onClick={exitSelectMode}
+                      className="p-1 rounded hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
+                    >
+                      <X className="w-4 h-4 text-text-muted dark:text-dark-text-muted" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted dark:text-dark-text-muted" />
+                  <input
+                    type="text"
+                    placeholder="Search conversations..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 rounded-lg bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border text-sm text-text-primary dark:text-dark-text-primary placeholder:text-text-muted dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Conversation List */}
+            <div className="flex-1 overflow-y-auto">
+              {conversations.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-text-muted dark:text-dark-text-muted p-4">
+                  <MessageSquare className="w-12 h-12 mb-3 opacity-20" />
+                  <p className="text-sm">No conversations found</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border dark:divide-dark-border">
+                  {conversations.map((conv) => {
+                    const source = getSource(conv);
+                    const isSelected = selectedId === conv.id;
+                    const isChecked = selectedIds.has(conv.id);
+
+                    return (
+                      <button
+                        key={conv.id}
+                        onClick={() =>
+                          selectMode ? toggleSelection(conv.id) : selectConversation(conv.id)
+                        }
+                        className={`w-full text-left px-4 py-3 transition-colors ${
+                          selectMode && isChecked
+                            ? 'bg-primary/10'
+                            : isSelected && !selectMode
+                              ? 'bg-primary/10'
+                              : 'hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2">
+                          {selectMode && (
+                            <div
+                              className={`mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center ${
+                                isChecked
+                                  ? 'bg-primary border-primary text-white'
+                                  : 'border-border dark:border-dark-border'
+                              }`}
+                            >
+                              {isChecked && <Check className="w-3 h-3" />}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <h4
+                                className={`text-sm font-medium truncate flex-1 ${
+                                  (selectMode ? isChecked : isSelected)
+                                    ? 'text-primary'
+                                    : 'text-text-primary dark:text-dark-text-primary'
+                                }`}
+                              >
+                                {conv.title || 'Untitled'}
+                              </h4>
+                              <span className="text-[10px] text-text-muted dark:text-dark-text-muted whitespace-nowrap flex-shrink-0">
+                                {formatDate(conv.updatedAt)}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <SourceBadge source={source} />
+                              {conv.agentName && (
+                                <span className="text-[10px] text-text-muted dark:text-dark-text-muted truncate">
+                                  {conv.agentName}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-text-muted dark:text-dark-text-muted ml-auto flex-shrink-0">
+                                {conv.messageCount} msg{conv.messageCount !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+
+                            {conv.model && (
+                              <div className="text-[10px] text-text-muted dark:text-dark-text-muted mt-1 truncate">
+                                {conv.provider}/{conv.model}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Floating Action Bar */}
+            {selectMode && selectedIds.size > 0 && (
+              <div className="border-t border-border dark:border-dark-border bg-bg-primary dark:bg-dark-bg-primary px-4 py-3 flex items-center justify-between">
+                <span className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
+                  {selectedIds.size} selected
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleBulkArchive(!showArchived)}
+                    className="px-3 py-1.5 text-xs rounded-lg bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary/80 transition-colors"
+                  >
+                    <Archive className="w-3.5 h-3.5 inline mr-1" />
+                    {showArchived ? 'Unarchive' : 'Archive'}
+                  </button>
+                  <button
+                    onClick={handleBulkDelete}
+                    className="px-3 py-1.5 text-xs rounded-lg bg-error text-white hover:bg-error/90 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 inline mr-1" />
+                    Delete
+                  </button>
+                </div>
+              </div>
+            )}
+          </aside>
+
+          {/* Message Thread */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {!selectedId ? (
+              <div className="flex flex-col items-center justify-center h-full text-text-muted dark:text-dark-text-muted">
+                <History className="w-16 h-16 mb-4 opacity-20" />
+                <p>Select a conversation to view</p>
+                <p className="text-sm mt-1">
+                  All conversations from Web UI and channels are shown here
+                </p>
+              </div>
+            ) : isLoadingMessages ? (
+              <LoadingSpinner message="Loading messages..." />
+            ) : (
+              <>
+                {/* Conversation Header */}
+                {selectedConv && (
+                  <div className="flex items-center gap-3 px-6 py-3 border-b border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary">
+                    <button
+                      onClick={() => {
+                        setSelectedId(null);
+                        setSelectedConv(null);
+                        setMessages([]);
+                      }}
+                      className="p-1 rounded hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary lg:hidden"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary truncate">
+                          {selectedConv.title || 'Untitled'}
+                        </h3>
+                        <SourceBadge source={getSource(selectedConv)} />
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] text-text-muted dark:text-dark-text-muted mt-0.5">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {formatFullDate(selectedConv.createdAt)}
+                        </span>
+                        {selectedConv.channelSenderName && (
+                          <span className="flex items-center gap-1">
+                            <User className="w-3 h-3" />
+                            {selectedConv.channelSenderName}
+                          </span>
+                        )}
+                        {selectedConv.model && (
+                          <span>
+                            {selectedConv.provider}/{selectedConv.model}
+                          </span>
+                        )}
+                        <span>{selectedConv.messageCount} messages</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleArchive(selectedConv.id, !selectedConv.isArchived)}
+                        className="p-1.5 rounded-lg hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary text-text-muted dark:text-dark-text-muted"
+                        title={selectedConv.isArchived ? 'Unarchive' : 'Archive'}
+                      >
+                        <Archive className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(selectedConv.id)}
+                        className="p-1.5 rounded-lg hover:bg-error/10 text-text-muted dark:text-dark-text-muted hover:text-error"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto px-6 py-4">
+                  <div className="space-y-4 max-w-3xl mx-auto">
+                    {messages.map((msg) => {
+                      const unified = msg as UnifiedMessage;
+                      const isAssistant = msg.role === 'assistant';
+                      const isSystem = msg.role === 'system' || msg.role === 'tool';
+                      const senderName = unified.senderName;
+
+                      if (isSystem) {
+                        return (
+                          <div key={msg.id} className="flex justify-center">
+                            <div className="px-3 py-1.5 rounded-full bg-bg-tertiary dark:bg-dark-bg-tertiary text-[11px] text-text-muted dark:text-dark-text-muted max-w-[80%] truncate">
+                              {msg.role === 'tool'
+                                ? `Tool: ${msg.content.slice(0, 100)}`
+                                : msg.content.slice(0, 100)}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex ${isAssistant ? 'justify-start' : 'justify-end'}`}
+                        >
+                          <div
+                            className={`flex gap-2 max-w-[80%] ${isAssistant ? 'flex-row' : 'flex-row-reverse'}`}
+                          >
+                            {/* Avatar */}
+                            <div
+                              className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
+                                isAssistant
+                                  ? 'bg-primary/10 text-primary'
+                                  : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-muted dark:text-dark-text-muted'
+                              }`}
+                            >
+                              {isAssistant ? (
+                                <Bot className="w-4 h-4" />
+                              ) : (
+                                <User className="w-4 h-4" />
+                              )}
+                            </div>
+
+                            {/* Bubble */}
+                            <div
+                              className={`rounded-2xl px-4 py-2.5 ${
+                                isAssistant
+                                  ? 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary rounded-tl-md'
+                                  : 'bg-primary text-white rounded-tr-md'
+                              }`}
+                            >
+                              {/* Sender name for channel messages */}
+                              {senderName && (
+                                <p
+                                  className={`text-[10px] font-semibold mb-1 ${
+                                    isAssistant ? 'text-primary' : 'text-white/80'
+                                  }`}
+                                >
+                                  {senderName}
+                                </p>
+                              )}
+
+                              <MarkdownContent
+                                content={
+                                  isAssistant ? stripChatInternalTags(msg.content) : msg.content
+                                }
+                                compact
+                                className="text-sm"
+                              />
+
+                              {msg.attachments && msg.attachments.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {msg.attachments.map((attachment, index) => (
+                                    <HistoryAttachmentChip
+                                      key={index}
+                                      attachment={attachment}
+                                      inverted={!isAssistant}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Tool calls indicator */}
+                              {msg.toolCalls && msg.toolCalls.length > 0 && (
+                                <div
+                                  className={`mt-2 pt-2 border-t ${
+                                    isAssistant
+                                      ? 'border-border/50 dark:border-dark-border/50'
+                                      : 'border-white/20'
+                                  }`}
+                                >
+                                  <p
+                                    className={`text-[10px] ${isAssistant ? 'text-text-muted dark:text-dark-text-muted' : 'text-white/60'}`}
+                                  >
+                                    Used {msg.toolCalls.length} tool
+                                    {msg.toolCalls.length !== 1 ? 's' : ''}:{' '}
+                                    {(msg.toolCalls as Array<{ name: string }>)
+                                      .map((tc) => tc.name)
+                                      .join(', ')}
+                                  </p>
+                                </div>
+                              )}
+
+                              {isAssistant && isTraceInfo(msg.trace) && (
+                                <div className="mt-3">
+                                  <TraceDisplay trace={msg.trace} />
+                                </div>
+                              )}
+
+                              {/* Timestamp */}
+                              <div
+                                className={`mt-1 text-[10px] ${
+                                  isAssistant
+                                    ? 'text-text-muted dark:text-dark-text-muted'
+                                    : 'text-white/50'
+                                }`}
+                              >
+                                {formatDate(msg.createdAt)}
+                                {msg.model && <span className="ml-2">{msg.model}</span>}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={messagesEndRef} />
+                  </div>
+                </div>
+
+                {/* Channel Reply Input */}
+                {channelInfo && (
+                  <div className="border-t border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary px-6 py-3">
+                    <div className="max-w-3xl mx-auto flex items-center gap-3">
+                      <input
+                        type="text"
+                        placeholder={`Reply to ${channelInfo.senderName ?? 'channel'}...`}
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleChannelReply();
+                          }
+                        }}
+                        disabled={isSendingReply}
+                        className="flex-1 px-4 py-2 rounded-lg bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border text-sm text-text-primary dark:text-dark-text-primary placeholder:text-text-muted dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                      />
+                      <button
+                        onClick={handleChannelReply}
+                        disabled={!replyText.trim() || isSendingReply}
+                        className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSendingReply ? 'Sending...' : 'Send'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

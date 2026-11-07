@@ -1,0 +1,571 @@
+/**
+ * Conversation memory management
+ */
+
+import { randomUUID } from 'node:crypto';
+import type {
+  Conversation,
+  Message,
+  MemoryConfig,
+  ContentPart,
+  ToolCall,
+  ToolResult,
+} from './types.js';
+import { getLog } from '../services/get-log.js';
+import { getErrorMessage } from '../services/error-utils.js';
+
+const log = getLog('Memory');
+
+/**
+ * Default memory configuration
+ */
+const DEFAULT_MEMORY_CONFIG: Required<MemoryConfig> = {
+  maxMessages: 100,
+  maxTokens: 100000,
+  summarize: false,
+  persistence: 'session',
+};
+
+/**
+ * Conversation memory manager
+ */
+export class ConversationMemory {
+  private readonly conversations = new Map<string, Conversation>();
+  private readonly config: Required<MemoryConfig>;
+
+  constructor(config: MemoryConfig = {}) {
+    this.config = { ...DEFAULT_MEMORY_CONFIG, ...config };
+  }
+
+  /**
+   * Create a new conversation
+   */
+  create(systemPrompt?: string, metadata?: Record<string, unknown>): Conversation {
+    const now = new Date();
+    const conversation: Conversation = {
+      id: randomUUID(),
+      systemPrompt,
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+      metadata,
+    };
+
+    this.conversations.set(conversation.id, conversation);
+    return conversation;
+  }
+
+  /**
+   * Create a conversation with a specific ID (for DB restore scenarios).
+   * Used when reloading a conversation from database after agent memory eviction.
+   */
+  createWithId(
+    id: string,
+    systemPrompt?: string,
+    metadata?: Record<string, unknown>
+  ): Conversation {
+    const now = new Date();
+    const conversation: Conversation = {
+      id,
+      systemPrompt,
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+      metadata,
+    };
+
+    this.conversations.set(id, conversation);
+    return conversation;
+  }
+
+  /**
+   * Get a conversation by ID
+   */
+  get(id: string): Conversation | undefined {
+    return this.conversations.get(id);
+  }
+
+  /**
+   * Check if a conversation exists
+   */
+  has(id: string): boolean {
+    return this.conversations.has(id);
+  }
+
+  /**
+   * Add a message to a conversation
+   */
+  addMessage(conversationId: string, message: Message): Conversation | undefined {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return undefined;
+
+    let newMessages = [...conversation.messages, message];
+
+    // Apply message limit
+    if (newMessages.length > this.config.maxMessages) {
+      const excess = newMessages.length - this.config.maxMessages;
+      newMessages = newMessages.slice(excess);
+    }
+
+    const updated: Conversation = {
+      ...conversation,
+      messages: newMessages,
+      updatedAt: new Date(),
+    };
+
+    this.conversations.set(conversationId, updated);
+    return updated;
+  }
+
+  /**
+   * Add a user message
+   */
+  addUserMessage(
+    conversationId: string,
+    content: string | readonly ContentPart[],
+    metadata?: Record<string, unknown>
+  ): Conversation | undefined {
+    return this.addMessage(conversationId, {
+      role: 'user',
+      content,
+      metadata,
+    });
+  }
+
+  /**
+   * Add an assistant message
+   */
+  addAssistantMessage(
+    conversationId: string,
+    content: string,
+    toolCalls?: readonly ToolCall[],
+    metadata?: Record<string, unknown>
+  ): Conversation | undefined {
+    return this.addMessage(conversationId, {
+      role: 'assistant',
+      content,
+      toolCalls,
+      metadata,
+    });
+  }
+
+  /**
+   * Add tool results message
+   */
+  addToolResults(conversationId: string, results: readonly ToolResult[]): Conversation | undefined {
+    return this.addMessage(conversationId, {
+      role: 'tool',
+      content: '',
+      toolResults: results,
+    });
+  }
+
+  /**
+   * Get messages for context (applies token limit).
+   * Older tool results are truncated to save tokens — recent ones kept intact.
+   */
+  getContextMessages(conversationId: string): readonly Message[] {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return [];
+
+    const messages = [...conversation.messages];
+
+    // If we have a token limit, trim from the beginning
+    if (this.config.maxTokens > 0) {
+      let tokenCount = 0;
+      let startIndex = messages.length;
+
+      // Count tokens from the end (most recent first)
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (!msg) continue;
+
+        const msgTokens = this.estimateTokens(msg);
+        if (tokenCount + msgTokens > this.config.maxTokens) {
+          startIndex = i + 1;
+          break;
+        }
+        tokenCount += msgTokens;
+        startIndex = i;
+      }
+
+      // The kept window must contain a user turn and begin on a clean turn
+      // boundary. After many tool turns the budget trim can cut past the
+      // cycle's user message, leaving a window of only tool/assistant turns —
+      // or, for a single over-budget turn, nothing at all. Both are rejected
+      // as structurally invalid: GLM/ZAI return "messages parameter is illegal
+      // (1214)" for system+tool / system+assistant with no user; MiniMax
+      // returns "chat content is empty (2013)" for system-only. Back up to the
+      // most recent user message at or before the trim point so the slice
+      // starts cleanly and always carries a user turn. (This is what crashed
+      // every Claw cycle: a huge tool result pushed the user turn out of budget
+      // and produced a [system, tool] request.)
+      let boundary = Math.min(startIndex, messages.length - 1);
+      while (boundary >= 0 && messages[boundary]?.role !== 'user') {
+        boundary--;
+      }
+      if (boundary >= 0) {
+        startIndex = boundary;
+      } else if (messages.length > 0) {
+        // No user message anywhere in range — send what we have rather than
+        // an empty window (the genuinely-empty case can't be repaired here).
+        startIndex = 0;
+      }
+
+      const kept = messages.slice(startIndex);
+
+      // If the sole kept message still blows the budget, truncate its text to
+      // fit rather than shipping it whole — a multi-hundred-KB cycle prompt
+      // would otherwise overflow the model's real context window and fail
+      // anyway. Keep the head: the Claw puts the cycle header / next-intent /
+      // instructions up front and trails MEMORY.md + artifacts at the end.
+      const only = kept.length === 1 ? kept[0] : undefined;
+      if (
+        only &&
+        typeof only.content === 'string' &&
+        this.estimateTokens(only) > this.config.maxTokens
+      ) {
+        const budgetChars = Math.max(2048, this.config.maxTokens * 4 - 256);
+        if (only.content.length > budgetChars) {
+          kept[0] = {
+            ...only,
+            content:
+              only.content.slice(0, budgetChars) + '\n\n[...truncated to fit context budget]',
+          };
+        }
+      }
+
+      return this.truncateOldToolResults(kept);
+    }
+
+    return this.truncateOldToolResults(messages);
+  }
+
+  /**
+   * Get messages with system prompt
+   */
+  getFullContext(conversationId: string): readonly Message[] {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return [];
+
+    const contextMessages = this.getContextMessages(conversationId);
+
+    if (conversation.systemPrompt) {
+      return [{ role: 'system', content: conversation.systemPrompt }, ...contextMessages];
+    }
+
+    return contextMessages;
+  }
+
+  /** Memory token budget in tokens (0 = unlimited). */
+  getMaxTokens(): number {
+    return this.config.maxTokens;
+  }
+
+  /**
+   * Estimate total tokens of ALL stored messages for a conversation
+   * (before any context windowing). Used to detect context pressure for
+   * preflight compaction.
+   */
+  estimateContextTokens(conversationId: string): number {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return 0;
+    let total = 0;
+    for (const msg of conversation.messages) total += this.estimateTokens(msg);
+    return total;
+  }
+
+  /**
+   * Replace older messages with a single summary message, keeping the most
+   * recent `keepRecent` messages intact.
+   *
+   * The cut point is advanced forward to the next `user` message so a
+   * tool-call roundtrip (assistant.toolCalls -> tool result) is never split
+   * across the boundary. The summary is inserted as a `user` message — never
+   * `system`, because some providers (Anthropic) strip all system-role
+   * messages out of the messages array.
+   *
+   * Returns false when there is nothing safe to compact (too few messages, or
+   * no clean `user` boundary after the cut), so callers can fail open.
+   */
+  compactOlderIntoSummary(conversationId: string, keepRecent: number, summary: string): boolean {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return false;
+    const messages = conversation.messages;
+    if (messages.length <= keepRecent) return false;
+
+    let cut = Math.max(0, messages.length - keepRecent);
+    while (cut < messages.length && messages[cut]?.role !== 'user') cut++;
+    // cut === 0 means nothing older to compact; cut >= length means no clean
+    // user boundary was found — skip rather than risk orphaning tool pairs.
+    if (cut === 0 || cut >= messages.length) return false;
+
+    const summaryMessage: Message = {
+      role: 'user',
+      content: `[Conversation summary from compaction — older turns condensed]\n${summary}`,
+      metadata: { compactionSummary: true },
+    };
+
+    this.conversations.set(conversationId, {
+      ...conversation,
+      messages: [summaryMessage, ...messages.slice(cut)],
+      updatedAt: new Date(),
+    });
+    return true;
+  }
+
+  /**
+   * Truncate large tool results in older messages to save context tokens.
+   * Keeps the last 4 messages fully intact (the current turn + previous turn).
+   * Older tool results > 2000 chars are truncated with a "[truncated]" note.
+   */
+  private truncateOldToolResults(messages: Message[]): Message[] {
+    const TOOL_RESULT_LIMIT = 2000;
+
+    // No single tool result may dominate the context window. Older results are
+    // capped hard (2000 chars). Recent results in the "safe zone" stay intact
+    // UNLESS one is larger than half the memory budget: a single multi-MB tool
+    // output (giant file read, command dump, page scrape) otherwise overflows
+    // the model's real context window and the request fails outright with
+    // "Prompt exceeds max length" (ZAI/GLM code 1261) — proven against a live
+    // Claw cycle that kept a 2.1 MB (~533K-token) tool result. The recent cap
+    // is budget-relative so ordinary recent results are untouched; maxTokens
+    // === 0 (unlimited) disables it.
+    const recentLimit =
+      this.config.maxTokens > 0
+        ? Math.max(TOOL_RESULT_LIMIT, Math.floor(this.config.maxTokens / 2) * 4)
+        : Number.POSITIVE_INFINITY;
+
+    const safeCount = 4; // keep the last N messages otherwise intact
+    const cutoff = messages.length - safeCount;
+
+    return messages.map((msg, i) => {
+      if (!msg.toolResults || msg.toolResults.length === 0) return msg;
+
+      const limit = i >= cutoff ? recentLimit : TOOL_RESULT_LIMIT;
+      if (!Number.isFinite(limit)) return msg; // unlimited recent budget
+
+      let changed = false;
+      const truncatedResults = msg.toolResults.map((tr) => {
+        if (tr.content.length <= limit) return tr;
+        changed = true;
+        return {
+          ...tr,
+          content: tr.content.slice(0, limit) + '\n[...truncated]',
+        };
+      });
+      return changed ? { ...msg, toolResults: truncatedResults } : msg;
+    });
+  }
+
+  /**
+   * Estimate token count for a message (rough approximation)
+   */
+  private estimateTokens(message: Message): number {
+    let chars = 0;
+
+    if (typeof message.content === 'string') {
+      chars += message.content.length;
+    } else {
+      for (const part of message.content) {
+        if (part.type === 'text') {
+          chars += part.text.length;
+        } else if (part.type === 'image') {
+          // Images are roughly 85 tokens for low res, 170+ for high res
+          chars += 500;
+        }
+      }
+    }
+
+    // Add overhead for tool calls
+    if (message.toolCalls) {
+      for (const tc of message.toolCalls) {
+        chars += tc.name.length + tc.arguments.length + 50;
+      }
+    }
+
+    // Add overhead for tool results
+    if (message.toolResults) {
+      for (const tr of message.toolResults) {
+        chars += tr.content.length + 50;
+      }
+    }
+
+    // ~4 characters per token
+    return Math.ceil(chars / 4);
+  }
+
+  /**
+   * Clear a conversation's messages
+   */
+  clearMessages(conversationId: string): boolean {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return false;
+
+    this.conversations.set(conversationId, {
+      ...conversation,
+      messages: [],
+      updatedAt: new Date(),
+    });
+
+    return true;
+  }
+
+  /**
+   * Delete a conversation
+   */
+  delete(conversationId: string): boolean {
+    return this.conversations.delete(conversationId);
+  }
+
+  /**
+   * Update conversation metadata
+   */
+  updateMetadata(
+    conversationId: string,
+    metadata: Record<string, unknown>
+  ): Conversation | undefined {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return undefined;
+
+    const updated: Conversation = {
+      ...conversation,
+      metadata: { ...conversation.metadata, ...metadata },
+      updatedAt: new Date(),
+    };
+
+    this.conversations.set(conversationId, updated);
+    return updated;
+  }
+
+  /**
+   * Update system prompt
+   */
+  updateSystemPrompt(conversationId: string, systemPrompt: string): Conversation | undefined {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return undefined;
+
+    const updated: Conversation = {
+      ...conversation,
+      systemPrompt,
+      updatedAt: new Date(),
+    };
+
+    this.conversations.set(conversationId, updated);
+    return updated;
+  }
+
+  /**
+   * Get all conversation IDs
+   */
+  getAllIds(): readonly string[] {
+    return Array.from(this.conversations.keys());
+  }
+
+  /**
+   * Get conversation count
+   */
+  getCount(): number {
+    return this.conversations.size;
+  }
+
+  /**
+   * Get conversation statistics
+   */
+  getStats(conversationId: string):
+    | {
+        messageCount: number;
+        estimatedTokens: number;
+        lastActivity: Date;
+      }
+    | undefined {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return undefined;
+
+    let totalTokens = 0;
+    for (const msg of conversation.messages) {
+      totalTokens += this.estimateTokens(msg);
+    }
+
+    return {
+      messageCount: conversation.messages.length,
+      estimatedTokens: totalTokens,
+      lastActivity: conversation.updatedAt,
+    };
+  }
+
+  /**
+   * Export conversation to JSON
+   */
+  export(conversationId: string): string | undefined {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return undefined;
+
+    return JSON.stringify(conversation, null, 2);
+  }
+
+  /**
+   * Import conversation from JSON
+   */
+  import(json: string): Conversation | undefined {
+    try {
+      const data = JSON.parse(json);
+
+      // Validate required fields
+      if (!data.id || !Array.isArray(data.messages)) {
+        return undefined;
+      }
+
+      const conversation: Conversation = {
+        id: data.id,
+        systemPrompt: data.systemPrompt,
+        messages: data.messages,
+        createdAt: new Date(data.createdAt),
+        updatedAt: new Date(data.updatedAt),
+        metadata: data.metadata,
+      };
+
+      this.conversations.set(conversation.id, conversation);
+      return conversation;
+    } catch (error) {
+      log.warn('Failed to import conversation:', getErrorMessage(error));
+      return undefined;
+    }
+  }
+
+  /**
+   * Fork a conversation (create a copy)
+   */
+  fork(conversationId: string): Conversation | undefined {
+    const original = this.conversations.get(conversationId);
+    if (!original) return undefined;
+
+    const forked: Conversation = {
+      ...original,
+      id: randomUUID(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      metadata: {
+        ...original.metadata,
+        forkedFrom: conversationId,
+      },
+    };
+
+    this.conversations.set(forked.id, forked);
+    return forked;
+  }
+
+  /**
+   * Clear all conversations
+   */
+  clear(): void {
+    this.conversations.clear();
+  }
+}
+
+/**
+ * Create a conversation memory instance
+ */
+export function createMemory(config?: MemoryConfig): ConversationMemory {
+  return new ConversationMemory(config);
+}

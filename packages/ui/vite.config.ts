@@ -1,0 +1,220 @@
+import { defineConfig, loadEnv, createLogger } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { visualizer } from 'rollup-plugin-visualizer';
+import { VitePWA } from 'vite-plugin-pwa';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import type { Plugin } from 'vite';
+
+/**
+ * Fail the build if the emitted CSS is suspiciously small.
+ *
+ * Tailwind v4 scans source files with the native `@tailwindcss/oxide` addon.
+ * If that native binary fails to load (e.g. a corrupt platform package on
+ * Windows), oxide silently falls back to its WASM build, which scans nothing
+ * and emits a utility-less stylesheet (~13 KB instead of ~250 KB) — with no
+ * error. That ships an entirely unstyled UI, including in Docker images.
+ * A healthy build is hundreds of KB; 80 KB is far above the broken case and
+ * far below any legitimate output, so it cleanly distinguishes the two.
+ */
+function cssSizeGuard(minBytes = 80_000): Plugin {
+  return {
+    name: 'css-size-guard',
+    apply: 'build',
+    writeBundle(_options, bundle) {
+      let total = 0;
+      for (const [name, asset] of Object.entries(bundle)) {
+        if (name.endsWith('.css') && asset.type === 'asset') {
+          const src = asset.source;
+          total += typeof src === 'string' ? Buffer.byteLength(src) : src.byteLength;
+        }
+      }
+      if (total < minBytes) {
+        throw new Error(
+          `[css-size-guard] Emitted CSS is only ${total} bytes (< ${minBytes}). ` +
+            `Tailwind likely generated no utilities — the native @tailwindcss/oxide ` +
+            `scanner probably failed and fell back to WASM. Repair the install ` +
+            `(pnpm install --force) before shipping.`
+        );
+      }
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  // Load env from monorepo root (two levels up from packages/ui)
+  const env = loadEnv(mode, resolve(__dirname, '../..'), '');
+
+  // Read version from core package.json (single source of truth)
+  const corePkg = JSON.parse(readFileSync(resolve(__dirname, '../core/package.json'), 'utf-8'));
+
+  const uiPort = parseInt(env.UI_PORT || '8199', 10);
+  const apiPort = env.PORT || '8080';
+  const apiTarget = `http://127.0.0.1:${apiPort}`;
+  const wsTarget = `ws://127.0.0.1:${apiPort}`;
+
+  // Filter out "ws proxy error" noise from Claude Desktop Preview Panel.
+  // The embedded browser has no auth token, so gateway rejects WS upgrades
+  // with 401. This is expected and harmless — UI works fine without realtime.
+  const logger = createLogger();
+  const originalError = logger.error.bind(logger);
+  logger.error = (msg, options) => {
+    if (typeof msg === 'string' && msg.includes('ws proxy error')) return;
+    originalError(msg, options);
+  };
+
+  // Bundle visualizer: emits `dist/bundle-stats.html` (treemap) when
+  // `ANALYZE=true` is set. Use locally to spot vendor-chunk bloat; CI can
+  // upload the artifact for size-diff review.
+  const enableVisualizer = env.ANALYZE === 'true';
+
+  return {
+    customLogger: logger,
+    plugins: [
+      react(),
+      tailwindcss(),
+      VitePWA({
+        registerType: 'autoUpdate',
+        includeAssets: ['logo.svg', 'ownpilot-logo.jpeg'],
+        manifest: {
+          name: 'OwnPilot',
+          short_name: 'OwnPilot',
+          description: 'Privacy-first AI Assistant Dashboard',
+          theme_color: '#0f172a',
+          background_color: '#0f172a',
+          display: 'standalone',
+          display_override: ['window-controls-overlay', 'standalone'],
+          start_url: '/',
+          scope: '/',
+          categories: ['productivity', 'ai', 'developer-tools'],
+          icons: [
+            {
+              src: 'logo.svg',
+              sizes: 'any',
+              type: 'image/svg+xml',
+              purpose: 'any maskable',
+            },
+            {
+              src: 'ownpilot-logo.jpeg',
+              sizes: '256x256',
+              type: 'image/jpeg',
+              purpose: 'any',
+            },
+          ],
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,svg,jpeg,png,ico,woff2}'],
+          runtimeCaching: [
+            {
+              urlPattern: /^\/api\/v1\/(chat|conversations|models|providers|settings)/,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'api-cache',
+                expiration: { maxEntries: 50, maxAgeSeconds: 300 },
+              },
+            },
+          ],
+        },
+      }),
+      cssSizeGuard(),
+      ...(enableVisualizer
+        ? [
+            visualizer({
+              filename: 'dist/bundle-stats.html',
+              template: 'treemap',
+              gzipSize: true,
+              brotliSize: true,
+              open: false,
+            }),
+          ]
+        : []),
+    ],
+    define: {
+      __APP_VERSION__: JSON.stringify(corePkg.version),
+    },
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, './src'),
+      },
+    },
+    server: {
+      port: uiPort,
+      // Ignore coverage artifact changes across the entire monorepo.
+      // Vitest writes HTML/JS coverage reports under each package's coverage/
+      // directory during test runs—Vite detects these as new/changed files and
+      // triggers a full page reload, creating a disruptive feedback loop.
+      watch: {
+        ignored: ['**/coverage/**'],
+      },
+      // NOTE: Vite 7.3.1 built-in proxy is broken on Node.js 24.
+      // In dev mode with VITE_API_BASE set, the UI fetches directly from gateway.
+      // Without VITE_API_BASE, proxy is used (works on Node 22).
+      ...(env.VITE_API_BASE
+        ? {}
+        : {
+            proxy: {
+              '/api': {
+                target: apiTarget,
+                changeOrigin: true,
+              },
+              '/ws': {
+                target: wsTarget,
+                ws: true,
+                changeOrigin: true,
+              },
+            },
+          }),
+    },
+    build: {
+      outDir: 'dist',
+      // Production builds should not ship source maps — they leak the entire
+      // TypeScript source tree, including auth flows and tool implementations,
+      // through `gateway` `serveStatic('/assets/*')`. Set `VITE_SOURCEMAP=true`
+      // to opt back in for staging/debug builds.
+      sourcemap: env.VITE_SOURCEMAP === 'true' ? true : mode !== 'production',
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replace(/\\/g, '/');
+            // Vendor chunks (node_modules only)
+            if (normalizedId.includes('node_modules')) {
+              if (normalizedId.includes('/react-dom/')) {
+                return 'vendor-react-dom';
+              }
+              if (normalizedId.includes('/react/') || normalizedId.includes('/scheduler/')) {
+                return 'vendor-react-core';
+              }
+              if (normalizedId.includes('/react-router')) {
+                return 'vendor-router';
+              }
+              if (normalizedId.includes('/@xyflow/')) {
+                return 'vendor-reactflow';
+              }
+              if (normalizedId.includes('/@xterm/')) {
+                return 'vendor-xterm';
+              }
+              if (
+                normalizedId.includes('/@monaco-editor/') ||
+                normalizedId.includes('/monaco-editor/')
+              ) {
+                return 'vendor-monaco';
+              }
+              if (normalizedId.includes('/recharts/') || normalizedId.includes('/d3-')) {
+                return 'vendor-charts';
+              }
+              if (normalizedId.includes('/prism-react-renderer/')) {
+                return 'vendor-prism';
+              }
+              return; // let Rollup decide for other deps
+            }
+            // App chunks (source code only)
+            if (normalizedId.includes('/components/icons')) return 'icons';
+            if (normalizedId.includes('/src/api/')) return 'api';
+            if (normalizedId.includes('/src/hooks/')) return 'stores';
+          },
+        },
+      },
+    },
+  };
+});

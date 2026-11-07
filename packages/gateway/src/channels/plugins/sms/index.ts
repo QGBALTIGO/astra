@@ -1,0 +1,128 @@
+/**
+ * SMS Channel Plugin (Twilio)
+ *
+ * Registers SMS as a channel plugin using the Twilio REST API.
+ * Provides Twilio credential configuration via Config Center and
+ * exposes ChannelPluginAPI for unified channel management.
+ */
+
+import { createChannelPlugin } from '@ownpilot/core/channels';
+import type { PluginCapability, PluginPermission } from '@ownpilot/core/plugins';
+import { getConfigCenter } from '@ownpilot/core/services';
+import { getChannelService } from '@ownpilot/core/channels';
+import { SmsChannelAPI } from './sms-api.js';
+
+export function buildSmsChannelPlugin() {
+  return createChannelPlugin()
+    .meta({
+      id: 'channel.sms',
+      name: 'SMS (Twilio)',
+      version: '1.0.0',
+      description: 'SMS messaging via Twilio — send and receive text messages',
+      author: { name: 'OwnPilot' },
+      capabilities: ['events'] as PluginCapability[],
+      permissions: ['network'] as PluginPermission[],
+      icon: '📱',
+      requiredServices: [
+        {
+          name: 'twilio_sms',
+          displayName: 'Twilio SMS',
+          category: 'channels',
+          docsUrl: 'https://www.twilio.com/docs/sms',
+          configSchema: [
+            {
+              name: 'account_sid',
+              label: 'Account SID',
+              type: 'string' as const,
+              required: true,
+              description: 'Twilio Account SID from console.twilio.com',
+              placeholder: 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+              order: 0,
+            },
+            {
+              name: 'auth_token',
+              label: 'Auth Token',
+              type: 'secret' as const,
+              required: true,
+              description: 'Twilio Auth Token from console.twilio.com',
+              order: 1,
+            },
+            {
+              name: 'from_number',
+              label: 'From Phone Number',
+              type: 'string' as const,
+              required: true,
+              description: 'Twilio phone number in E.164 format (e.g. +15551234567)',
+              placeholder: '+15551234567',
+              order: 2,
+            },
+            {
+              name: 'webhook_path',
+              label: 'Webhook Path',
+              type: 'string' as const,
+              description: 'Custom webhook path (default: /webhooks/sms)',
+              placeholder: '/webhooks/sms',
+              order: 3,
+            },
+          ],
+        },
+      ],
+    })
+    .platform('sms')
+    .channelApi((config) => {
+      const cc = getConfigCenter();
+      const resolvedConfig = {
+        ...config,
+        account_sid:
+          (config.account_sid as string) ??
+          (cc.getFieldValue('twilio_sms', 'account_sid') as string) ??
+          '',
+        auth_token:
+          (config.auth_token as string) ??
+          (cc.getFieldValue('twilio_sms', 'auth_token') as string) ??
+          '',
+        from_number:
+          (config.from_number as string) ??
+          (cc.getFieldValue('twilio_sms', 'from_number') as string) ??
+          '',
+      };
+      return new SmsChannelAPI(resolvedConfig, 'channel.sms');
+    })
+    .tool(
+      {
+        name: 'channel_sms_send',
+        description: 'Send an SMS message via the connected Twilio account',
+        parameters: {
+          type: 'object',
+          properties: {
+            to: {
+              type: 'string' as const,
+              description: 'Destination phone number in E.164 format (e.g. +15551234567)',
+            },
+            text: {
+              type: 'string' as const,
+              description: 'Message text (160 chars per segment; Twilio splits long messages)',
+            },
+          },
+          required: ['to', 'text'],
+        },
+      },
+      async (params) => {
+        const service = getChannelService();
+        const api = service.getChannel('channel.sms');
+        if (!api || api.getStatus() !== 'connected') {
+          return {
+            content: 'SMS channel is not connected. Configure Twilio credentials first.',
+          };
+        }
+        const msgId = await api.sendMessage({
+          platformChatId: String(params.to),
+          text: String(params.text),
+        });
+        return {
+          content: `SMS sent to ${params.to} (message SID: ${msgId})`,
+        };
+      }
+    )
+    .build();
+}

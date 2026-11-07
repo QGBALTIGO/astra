@@ -1,0 +1,1235 @@
+/**
+ * Agent Command Center Routes — Comprehensive Tests
+ *
+ * Tests for all endpoints:
+ *  POST /command         — broadcast command to multiple agents
+ *  GET  /status          — get status of all agents
+ *  POST /mission         — assign mission to agents / crews
+ *  GET  /activity        — recent activity from all agents
+ *  POST /execute         — execute agents immediately
+ *  GET  /analytics       — aggregate agent analytics
+ *  POST /tools/batch-update — update tools for multiple agents
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Hono } from 'hono';
+
+// =============================================================================
+// Hoisted mock objects — referenced inside vi.mock() factories to avoid TDZ
+// =============================================================================
+
+const {
+  mockSoulsRepo,
+  mockCrewsRepo,
+  mockHbLogRepo,
+  mockAgentsRepo,
+  mockAgentMsgsRepo,
+  mockSettingsRepo,
+  mockRunAgentHeartbeat,
+} = vi.hoisted(() => {
+  const mockSoulsRepo = {
+    list: vi.fn(),
+    getByAgentId: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    setHeartbeatEnabled: vi.fn(),
+  };
+
+  const mockCrewsRepo = {
+    list: vi.fn(),
+    getById: vi.fn(),
+    create: vi.fn(),
+    updateStatus: vi.fn(),
+    getMembers: vi.fn(),
+    addMember: vi.fn(),
+  };
+
+  const mockHbLogRepo = {
+    getLatest: vi.fn(),
+    getLatestByAgentIds: vi.fn().mockResolvedValue(new Map()),
+    getRecent: vi.fn(),
+    getStats: vi.fn(),
+    getStatsByAgentIds: vi.fn().mockResolvedValue(new Map()),
+  };
+
+  const mockAgentsRepo = {
+    create: vi.fn(),
+  };
+
+  const mockAgentMsgsRepo = {
+    listByAgent: vi.fn(),
+  };
+
+  const mockSettingsRepo = {
+    get: vi.fn(),
+  };
+
+  const mockRunAgentHeartbeat = vi.fn();
+
+  return {
+    mockSoulsRepo,
+    mockCrewsRepo,
+    mockHbLogRepo,
+    mockAgentsRepo,
+    mockAgentMsgsRepo,
+    mockSettingsRepo,
+    mockRunAgentHeartbeat,
+  };
+});
+
+// =============================================================================
+// Module mocks
+// =============================================================================
+
+vi.mock('../../db/repositories/souls.js', () => ({
+  getSoulsRepository: vi.fn(() => mockSoulsRepo),
+}));
+
+vi.mock('../../db/repositories/crew/index.js', () => ({
+  getCrewsRepository: vi.fn(() => mockCrewsRepo),
+}));
+
+vi.mock('../../db/repositories/heartbeats/log.js', () => ({
+  getHeartbeatLogRepository: vi.fn(() => mockHbLogRepo),
+}));
+
+vi.mock('../../db/repositories/agents/index.js', () => ({
+  agentsRepo: mockAgentsRepo,
+}));
+
+vi.mock('../../db/repositories/agents/messages.js', () => ({
+  getAgentMessagesRepository: vi.fn(() => mockAgentMsgsRepo),
+}));
+
+vi.mock('../../db/repositories/index.js', () => ({
+  settingsRepo: mockSettingsRepo,
+}));
+
+vi.mock('../../services/heartbeat/soul-service.js', () => ({
+  runAgentHeartbeat: mockRunAgentHeartbeat,
+}));
+
+// =============================================================================
+// Imports after mocks
+// =============================================================================
+
+import { agentCommandCenterRoutes } from './command-center.js';
+import { errorHandler } from '../../middleware/error-handler.js';
+
+// =============================================================================
+// App factory
+// =============================================================================
+
+function createApp() {
+  const app = new Hono();
+  app.use('*', async (c, next) => {
+    c.set('userId', 'default');
+    c.set('sessionAuthenticated', true);
+    await next();
+  });
+  app.route('/acc', agentCommandCenterRoutes);
+  app.onError(errorHandler);
+  return app;
+}
+
+// =============================================================================
+// Test data helpers
+// =============================================================================
+
+function makeSoul(agentId = 'agent-1', overrides: Record<string, unknown> = {}) {
+  return {
+    id: `soul-${agentId}`,
+    agentId,
+    identity: {
+      name: 'Test Soul',
+      emoji: '🤖',
+      role: 'Worker',
+      personality: 'helpful',
+      voice: { tone: 'neutral', language: 'en' },
+      boundaries: [],
+    },
+    purpose: { mission: 'Be helpful', goals: ['help users'], expertise: [], toolPreferences: [] },
+    autonomy: {
+      level: 3,
+      allowedActions: ['search_web', 'create_note'],
+      blockedActions: ['delete_data'],
+      requiresApproval: [],
+      maxCostPerCycle: 0.5,
+      maxCostPerDay: 5.0,
+      maxCostPerMonth: 100.0,
+      pauseOnConsecutiveErrors: 5,
+      pauseOnBudgetExceeded: true,
+      notifyUserOnPause: true,
+    },
+    heartbeat: {
+      enabled: true,
+      interval: '0 */6 * * *',
+      checklist: [],
+      selfHealingEnabled: false,
+      maxDurationMs: 120000,
+    },
+    relationships: { peers: [], delegates: [], channels: [], crewId: undefined },
+    evolution: {
+      version: 1,
+      evolutionMode: 'manual',
+      coreTraits: [],
+      mutableTraits: [],
+      learnings: [],
+      feedbackLog: [],
+    },
+    bootSequence: { onStart: [], onHeartbeat: [], onMessage: [] },
+    createdAt: new Date('2024-01-01'),
+    updatedAt: new Date('2024-01-02'),
+    ...overrides,
+  };
+}
+
+function makeCrew(id = 'crew-1', overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    name: 'Test Crew',
+    description: 'A test crew',
+    templateId: 'default',
+    coordinationPattern: 'hub_spoke',
+    status: 'active',
+    workspaceId: 'default',
+    createdAt: new Date('2024-01-01'),
+    updatedAt: new Date('2024-01-02'),
+    ...overrides,
+  };
+}
+
+function makeCrewMember(agentId = 'agent-1', role = 'coordinator') {
+  return { crewId: 'crew-1', agentId, role, joinedAt: new Date('2024-01-01') };
+}
+
+function makeHbEntry(agentId = 'agent-1') {
+  return {
+    id: `hb-${agentId}`,
+    agentId,
+    tasksRun: ['task1'],
+    tasksSkipped: [],
+    tasksFailed: [],
+    durationMs: 500,
+    cost: 0.01,
+    tokenUsage: { input: 100, output: 50 },
+    soulVersion: 1,
+    createdAt: new Date('2024-06-01T12:00:00Z'),
+  };
+}
+
+function makeMessage(agentId = 'agent-1') {
+  return {
+    id: `msg-${agentId}`,
+    from: 'user',
+    to: agentId,
+    type: 'task',
+    subject: 'Do something',
+    content: 'Please do something',
+    attachments: [],
+    priority: 'normal',
+    requiresResponse: false,
+    status: 'unread',
+    createdAt: new Date('2024-06-01T11:00:00Z'),
+  };
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+describe('Agent Command Center Routes', () => {
+  let app: ReturnType<typeof createApp>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    app = createApp();
+
+    // Sensible defaults for frequently-used mocks
+    mockSoulsRepo.list.mockResolvedValue([]);
+    mockSoulsRepo.getByAgentId.mockResolvedValue(null);
+    mockCrewsRepo.list.mockResolvedValue([]);
+    mockCrewsRepo.getMembers.mockResolvedValue([]);
+    mockHbLogRepo.getLatest.mockResolvedValue(null);
+    mockHbLogRepo.getRecent.mockResolvedValue([]);
+    mockHbLogRepo.getStats.mockResolvedValue({
+      totalCycles: 0,
+      totalCost: 0,
+      avgDurationMs: 0,
+      failureRate: 0,
+    });
+    mockAgentMsgsRepo.listByAgent.mockResolvedValue([]);
+    mockSettingsRepo.get.mockResolvedValue(null);
+  });
+
+  // ===========================================================================
+  // POST /acc/command
+  // ===========================================================================
+
+  describe('POST /acc/command', () => {
+    it('returns 400 when targets array is missing', async () => {
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'pause' }),
+      });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.success).toBe(false);
+      expect(json.error.message).toMatch(/targets/i);
+    });
+
+    it('returns 400 when targets is empty array', async () => {
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets: [], command: 'pause' }),
+      });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.success).toBe(false);
+    });
+
+    it('returns 400 when command is missing', async () => {
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets: [{ type: 'soul', id: 'agent-1' }] }),
+      });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.success).toBe(false);
+      expect(json.error.message).toMatch(/command/i);
+    });
+
+    it('succeeds: pause command on existing soul', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.setHeartbeatEnabled.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'soul', id: 'agent-1' }],
+          command: 'pause',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.command).toBe('pause');
+      expect(json.data.total).toBe(1);
+      expect(json.data.success).toBe(1);
+      expect(json.data.failed).toBe(0);
+      expect(json.data.results[0].success).toBe(true);
+      expect(json.data.results[0].result.status).toBe('paused');
+      expect(mockSoulsRepo.setHeartbeatEnabled).toHaveBeenCalledWith('agent-1', false);
+    });
+
+    it('succeeds: resume command on existing soul', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.setHeartbeatEnabled.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'soul', id: 'agent-1' }],
+          command: 'resume',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.results[0].result.status).toBe('resumed');
+      expect(mockSoulsRepo.setHeartbeatEnabled).toHaveBeenCalledWith('agent-1', true);
+    });
+
+    it('succeeds: run_once command on existing soul', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockRunAgentHeartbeat.mockResolvedValue({ success: true });
+
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'soul', id: 'agent-1' }],
+          command: 'run_once',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.results[0].result.status).toBe('executed');
+      expect(mockRunAgentHeartbeat).toHaveBeenCalledWith('agent-1');
+    });
+
+    it('records failure when soul is not found', async () => {
+      mockSoulsRepo.getByAgentId.mockResolvedValue(null);
+
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'soul', id: 'missing-agent' }],
+          command: 'pause',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.success).toBe(0);
+      expect(json.data.failed).toBe(1);
+      expect(json.data.results[0].error).toBe('Soul not found');
+    });
+
+    it('returns unknown_command result for unrecognized soul command', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'soul', id: 'agent-1' }],
+          command: 'teleport',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.results[0].result.status).toBe('unknown_command');
+    });
+
+    it('succeeds: pause command on crew — pauses all member souls', async () => {
+      const crew = makeCrew('crew-1');
+      const members = [makeCrewMember('agent-1'), makeCrewMember('agent-2')];
+      mockCrewsRepo.getById.mockResolvedValue(crew);
+      mockCrewsRepo.getMembers.mockResolvedValue(members);
+      mockSoulsRepo.setHeartbeatEnabled.mockResolvedValue(undefined);
+      mockCrewsRepo.updateStatus.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'crew', id: 'crew-1' }],
+          command: 'pause',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.results[0].result.status).toBe('paused');
+      expect(json.data.results[0].result.affectedAgents).toBe(2);
+      expect(mockSoulsRepo.setHeartbeatEnabled).toHaveBeenCalledTimes(2);
+      expect(mockCrewsRepo.updateStatus).toHaveBeenCalledWith('crew-1', 'paused');
+    });
+
+    it('succeeds: resume command on crew — resumes all member souls', async () => {
+      const crew = makeCrew('crew-1');
+      const members = [makeCrewMember('agent-1')];
+      mockCrewsRepo.getById.mockResolvedValue(crew);
+      mockCrewsRepo.getMembers.mockResolvedValue(members);
+      mockSoulsRepo.setHeartbeatEnabled.mockResolvedValue(undefined);
+      mockCrewsRepo.updateStatus.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'crew', id: 'crew-1' }],
+          command: 'resume',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.results[0].result.status).toBe('resumed');
+      expect(mockCrewsRepo.updateStatus).toHaveBeenCalledWith('crew-1', 'active');
+    });
+
+    it('records failure when crew is not found', async () => {
+      mockCrewsRepo.getById.mockResolvedValue(null);
+
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'crew', id: 'missing-crew' }],
+          command: 'pause',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.failed).toBe(1);
+      expect(json.data.results[0].error).toBe('Crew not found');
+    });
+
+    it('handles multiple targets with mixed results', async () => {
+      // Soul found, crew not found
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValueOnce(soul);
+      mockSoulsRepo.setHeartbeatEnabled.mockResolvedValue(undefined);
+      mockCrewsRepo.getById.mockResolvedValue(null);
+
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [
+            { type: 'soul', id: 'agent-1' },
+            { type: 'crew', id: 'crew-missing' },
+          ],
+          command: 'pause',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.total).toBe(2);
+      expect(json.data.success).toBe(1);
+      expect(json.data.failed).toBe(1);
+    });
+
+    it('records target-level error when soul operation throws', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.setHeartbeatEnabled.mockRejectedValue(new Error('DB error'));
+
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'soul', id: 'agent-1' }],
+          command: 'pause',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.failed).toBe(1);
+      expect(json.data.results[0].error).toBe('DB error');
+    });
+
+    it('returns 500 when body parsing throws', async () => {
+      const res = await app.request('/acc/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'not-json',
+      });
+      expect(res.status).toBe(500);
+    });
+  });
+
+  // ===========================================================================
+  // GET /acc/status
+  // ===========================================================================
+
+  describe('GET /acc/status', () => {
+    it('returns 200 with empty data when no agents exist', async () => {
+      mockSoulsRepo.list.mockResolvedValue([]);
+      mockCrewsRepo.list.mockResolvedValue([]);
+
+      const res = await app.request('/acc/status');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.souls).toHaveLength(0);
+      expect(json.data.crews).toHaveLength(0);
+      expect(json.data.summary.totalAgents).toBe(0);
+      expect(json.data.summary.totalCrews).toBe(0);
+    });
+
+    it('includes soul status with lastActivity from heartbeat log', async () => {
+      const soul = makeSoul('agent-1');
+      const hbEntry = makeHbEntry('agent-1');
+      mockSoulsRepo.list.mockResolvedValue([soul]);
+      mockHbLogRepo.getLatestByAgentIds.mockResolvedValueOnce(new Map([['agent-1', hbEntry]]));
+      mockCrewsRepo.list.mockResolvedValue([]);
+
+      const res = await app.request('/acc/status');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.souls).toHaveLength(1);
+      expect(json.data.souls[0].id).toBe('agent-1');
+      expect(json.data.souls[0].status).toBe('running');
+      expect(json.data.souls[0].lastActivity).not.toBeNull();
+    });
+
+    it('shows paused status for soul with disabled heartbeat', async () => {
+      const soul = makeSoul('agent-1', {
+        heartbeat: {
+          enabled: false,
+          interval: '0 */6 * * *',
+          checklist: [],
+          selfHealingEnabled: false,
+          maxDurationMs: 120000,
+        },
+      });
+      mockSoulsRepo.list.mockResolvedValue([soul]);
+      mockHbLogRepo.getLatest.mockResolvedValue(null);
+      mockCrewsRepo.list.mockResolvedValue([]);
+
+      const res = await app.request('/acc/status');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.souls[0].status).toBe('paused');
+      expect(json.data.summary.paused).toBe(1);
+    });
+
+    it('includes crew status info', async () => {
+      const crew = makeCrew('crew-1');
+      mockCrewsRepo.list.mockResolvedValue([crew]);
+      mockSoulsRepo.list.mockResolvedValue([]);
+
+      const res = await app.request('/acc/status');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.crews).toHaveLength(1);
+      expect(json.data.crews[0].id).toBe('crew-1');
+      expect(json.data.crews[0].pattern).toBe('hub_spoke');
+    });
+
+    it('returns 500 when soulRepo.list throws', async () => {
+      mockSoulsRepo.list.mockRejectedValue(new Error('DB down'));
+
+      const res = await app.request('/acc/status');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.success).toBe(false);
+    });
+  });
+
+  // ===========================================================================
+  // POST /acc/mission
+  // ===========================================================================
+
+  describe('POST /acc/mission', () => {
+    it('returns 400 when mission is missing', async () => {
+      const res = await app.request('/acc/mission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentIds: ['agent-1'] }),
+      });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.message).toMatch(/mission/i);
+    });
+
+    it('returns 400 when neither agentIds nor crewIds provided', async () => {
+      const res = await app.request('/acc/mission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mission: 'Do something' }),
+      });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.message).toMatch(/agentIds or crewIds/i);
+    });
+
+    it('assigns mission to individual agents', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.update.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/mission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: ['agent-1'],
+          mission: 'Find the answer',
+          priority: 'high',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.mission).toBe('Find the answer');
+      expect(json.data.priority).toBe('high');
+      expect(json.data.assigned).toBe(1);
+      expect(json.data.failed).toBe(0);
+      expect(mockSoulsRepo.update).toHaveBeenCalled();
+    });
+
+    it('records failure when agent soul not found', async () => {
+      mockSoulsRepo.getByAgentId.mockResolvedValue(null);
+
+      const res = await app.request('/acc/mission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: ['missing-agent'],
+          mission: 'Find the answer',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.assigned).toBe(0);
+      expect(json.data.failed).toBe(1);
+      expect(json.data.results[0].error).toBe('Not found');
+    });
+
+    it('assigns mission to crew members', async () => {
+      const soul = makeSoul('member-1');
+      const members = [makeCrewMember('member-1')];
+      mockCrewsRepo.getMembers.mockResolvedValue(members);
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.update.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/mission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          crewIds: ['crew-1'],
+          mission: 'Crew mission',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.assigned).toBe(1);
+      expect(mockSoulsRepo.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('appends deadline goal when deadline is provided', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.update.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/mission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: ['agent-1'],
+          mission: 'Complete by deadline',
+          deadline: '2025-12-31',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.assigned).toBe(1);
+      // Soul update should contain deadline in goals
+      const updatedSoul = mockSoulsRepo.update.mock.calls[0][0];
+      expect(updatedSoul.purpose.goals).toContain('Deadline: 2025-12-31');
+    });
+
+    it('defaults priority to medium when not provided', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.update.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/mission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentIds: ['agent-1'], mission: 'Default priority' }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.priority).toBe('medium');
+    });
+
+    it('returns 500 when an unexpected error occurs', async () => {
+      mockSoulsRepo.getByAgentId.mockRejectedValue(new Error('Fatal'));
+
+      const res = await app.request('/acc/mission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentIds: ['agent-1'], mission: 'crash test' }),
+      });
+
+      // Individual target errors are caught and recorded, not propagated as 500
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.failed).toBe(1);
+    });
+  });
+
+  // ===========================================================================
+  // GET /acc/activity
+  // ===========================================================================
+
+  describe('GET /acc/activity', () => {
+    it('returns 200 with empty activities when no souls exist', async () => {
+      mockSoulsRepo.list.mockResolvedValue([]);
+
+      const res = await app.request('/acc/activity');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.activities).toHaveLength(0);
+      expect(json.data.total).toBe(0);
+    });
+
+    it('returns heartbeat activities for souls', async () => {
+      const soul = makeSoul('agent-1');
+      const hbEntry = makeHbEntry('agent-1');
+      mockSoulsRepo.list.mockResolvedValue([soul]);
+      mockHbLogRepo.getRecent.mockResolvedValue([hbEntry]);
+      mockAgentMsgsRepo.listByAgent.mockResolvedValue([]);
+
+      const res = await app.request('/acc/activity');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.activities.length).toBeGreaterThan(0);
+      expect(json.data.activities[0].type).toBe('heartbeat');
+      expect(json.data.activities[0].agentId).toBe('agent-1');
+    });
+
+    it('labels activities as error type when tasks failed', async () => {
+      const soul = makeSoul('agent-1');
+      const failedHb = { ...makeHbEntry('agent-1'), tasksFailed: ['task-x'] };
+      mockSoulsRepo.list.mockResolvedValue([soul]);
+      mockHbLogRepo.getRecent.mockResolvedValue([failedHb]);
+      mockAgentMsgsRepo.listByAgent.mockResolvedValue([]);
+
+      const res = await app.request('/acc/activity');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.activities[0].type).toBe('error');
+    });
+
+    it('includes message activities for souls', async () => {
+      const soul = makeSoul('agent-1');
+      const msg = makeMessage('agent-1');
+      mockSoulsRepo.list.mockResolvedValue([soul]);
+      mockHbLogRepo.getRecent.mockResolvedValue([]);
+      mockAgentMsgsRepo.listByAgent.mockResolvedValue([msg]);
+
+      const res = await app.request('/acc/activity');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.activities.length).toBeGreaterThan(0);
+      expect(json.data.activities[0].type).toBe('message');
+    });
+
+    it('limits results by ?limit query param (max 100)', async () => {
+      const soul = makeSoul('agent-1');
+      const hbEntries = Array.from({ length: 5 }, (_, i) => ({
+        ...makeHbEntry('agent-1'),
+        id: `hb-${i}`,
+        createdAt: new Date(Date.now() - i * 1000),
+      }));
+      mockSoulsRepo.list.mockResolvedValue([soul]);
+      mockHbLogRepo.getRecent.mockResolvedValue(hbEntries);
+      mockAgentMsgsRepo.listByAgent.mockResolvedValue([]);
+
+      const res = await app.request('/acc/activity?limit=2');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.activities).toHaveLength(2);
+    });
+
+    it('returns 500 when soulRepo.list throws', async () => {
+      mockSoulsRepo.list.mockRejectedValue(new Error('DB failure'));
+
+      const res = await app.request('/acc/activity');
+
+      expect(res.status).toBe(500);
+    });
+  });
+
+  // ===========================================================================
+  // POST /acc/execute
+  // ===========================================================================
+
+  describe('POST /acc/execute', () => {
+    it('returns 400 when targets is missing', async () => {
+      const res = await app.request('/acc/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.message).toMatch(/targets/i);
+    });
+
+    it('returns 400 when targets is empty', async () => {
+      const res = await app.request('/acc/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets: [] }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('executes soul target sequentially', async () => {
+      mockRunAgentHeartbeat.mockResolvedValue({ success: true });
+
+      const res = await app.request('/acc/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'soul', id: 'agent-1' }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.executed).toBe(1);
+      expect(json.data.failed).toBe(0);
+      expect(json.data.parallel).toBe(false);
+      expect(mockRunAgentHeartbeat).toHaveBeenCalledWith('agent-1');
+    });
+
+    it('executes soul targets in parallel when parallel=true', async () => {
+      mockRunAgentHeartbeat.mockResolvedValue({ success: true });
+
+      const res = await app.request('/acc/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [
+            { type: 'soul', id: 'agent-1' },
+            { type: 'soul', id: 'agent-2' },
+          ],
+          parallel: true,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.executed).toBe(2);
+      expect(json.data.parallel).toBe(true);
+    });
+
+    it('records failure when runAgentHeartbeat returns success=false', async () => {
+      mockRunAgentHeartbeat.mockResolvedValue({ success: false, error: 'Heartbeat failed' });
+
+      const res = await app.request('/acc/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'soul', id: 'agent-1' }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.executed).toBe(0);
+      expect(json.data.failed).toBe(1);
+      expect(json.data.results[0].error).toBe('Heartbeat failed');
+    });
+
+    it('records individual target error when execution throws', async () => {
+      mockRunAgentHeartbeat.mockRejectedValue(new Error('Execution error'));
+
+      const res = await app.request('/acc/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'soul', id: 'agent-err' }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.failed).toBe(1);
+      expect(json.data.results[0].error).toBe('Execution error');
+    });
+
+    it('records individual target error in parallel mode', async () => {
+      mockRunAgentHeartbeat.mockRejectedValue(new Error('Parallel error'));
+
+      const res = await app.request('/acc/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ type: 'soul', id: 'agent-1' }],
+          parallel: true,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.failed).toBe(1);
+      expect(json.data.results[0].error).toBe('Parallel error');
+    });
+
+    it('returns 500 on unexpected body parse error', async () => {
+      const res = await app.request('/acc/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'bad json',
+      });
+      expect(res.status).toBe(500);
+    });
+  });
+
+  // ===========================================================================
+  // GET /acc/analytics
+  // ===========================================================================
+
+  describe('GET /acc/analytics', () => {
+    it('returns 200 with empty stats when no souls exist', async () => {
+      mockSoulsRepo.list.mockResolvedValue([]);
+      mockCrewsRepo.list.mockResolvedValue([]);
+
+      const res = await app.request('/acc/analytics');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.summary.totalAgents).toBe(0);
+      expect(json.data.summary.totalCrews).toBe(0);
+      expect(json.data.summary.totalCycles).toBe(0);
+      expect(json.data.topAgents).toHaveLength(0);
+      expect(json.data.agentStats).toHaveLength(0);
+    });
+
+    it('aggregates stats across all souls', async () => {
+      const souls = [
+        makeSoul('agent-1'),
+        makeSoul('agent-2', {
+          heartbeat: {
+            enabled: false,
+            interval: '0 */6 * * *',
+            checklist: [],
+            selfHealingEnabled: false,
+            maxDurationMs: 120000,
+          },
+        }),
+      ];
+      mockSoulsRepo.list.mockResolvedValue(souls);
+      mockCrewsRepo.list.mockResolvedValue([]);
+      mockHbLogRepo.getStatsByAgentIds.mockResolvedValueOnce(
+        new Map([
+          ['agent-1', { totalCycles: 10, totalCost: 0.5, avgDurationMs: 300, failureRate: 0.1 }],
+          ['agent-2', { totalCycles: 5, totalCost: 0.25, avgDurationMs: 200, failureRate: 0.0 }],
+        ])
+      );
+
+      const res = await app.request('/acc/analytics');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.summary.totalAgents).toBe(2);
+      expect(json.data.summary.totalCycles).toBe(15);
+      expect(json.data.summary.activeAgents).toBe(1);
+      expect(json.data.agentStats).toHaveLength(2);
+    });
+
+    it('sorts agentStats by cycles descending', async () => {
+      const souls = [makeSoul('agent-a'), makeSoul('agent-b')];
+      mockSoulsRepo.list.mockResolvedValue(souls);
+      mockCrewsRepo.list.mockResolvedValue([]);
+      mockHbLogRepo.getStatsByAgentIds.mockResolvedValueOnce(
+        new Map([
+          ['agent-a', { totalCycles: 2, totalCost: 0.1, avgDurationMs: 100, failureRate: 0 }],
+          ['agent-b', { totalCycles: 20, totalCost: 1.0, avgDurationMs: 200, failureRate: 0 }],
+        ])
+      );
+
+      const res = await app.request('/acc/analytics');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.agentStats[0].cycles).toBe(20);
+      expect(json.data.agentStats[1].cycles).toBe(2);
+    });
+
+    it('returns 500 when soulRepo.list throws', async () => {
+      mockSoulsRepo.list.mockRejectedValue(new Error('DB error'));
+
+      const res = await app.request('/acc/analytics');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.success).toBe(false);
+    });
+  });
+
+  // ===========================================================================
+  // POST /acc/tools/batch-update
+  // ===========================================================================
+
+  describe('POST /acc/tools/batch-update', () => {
+    it('returns 400 when agentIds is missing', async () => {
+      const res = await app.request('/acc/tools/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addAllowed: ['search_web'] }),
+      });
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.message).toMatch(/agentIds/i);
+    });
+
+    it('returns 400 when agentIds is empty array', async () => {
+      const res = await app.request('/acc/tools/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentIds: [] }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('adds allowed tools to soul', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.update.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/tools/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: ['agent-1'],
+          addAllowed: ['new_tool'],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.updated).toBe(1);
+      expect(json.data.failed).toBe(0);
+      const updatedSoul = mockSoulsRepo.update.mock.calls[0][0];
+      expect(updatedSoul.autonomy.allowedActions).toContain('new_tool');
+    });
+
+    it('removes allowed tools from soul', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.update.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/tools/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: ['agent-1'],
+          removeAllowed: ['search_web'],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const updatedSoul = mockSoulsRepo.update.mock.calls[0][0];
+      expect(updatedSoul.autonomy.allowedActions).not.toContain('search_web');
+    });
+
+    it('adds blocked tools to soul', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.update.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/tools/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: ['agent-1'],
+          addBlocked: ['dangerous_tool'],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const updatedSoul = mockSoulsRepo.update.mock.calls[0][0];
+      expect(updatedSoul.autonomy.blockedActions).toContain('dangerous_tool');
+    });
+
+    it('removes blocked tools from soul', async () => {
+      const soul = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.update.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/tools/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: ['agent-1'],
+          removeBlocked: ['delete_data'],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const updatedSoul = mockSoulsRepo.update.mock.calls[0][0];
+      expect(updatedSoul.autonomy.blockedActions).not.toContain('delete_data');
+    });
+
+    it('records failure when soul not found', async () => {
+      mockSoulsRepo.getByAgentId.mockResolvedValue(null);
+
+      const res = await app.request('/acc/tools/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: ['missing-agent'],
+          addAllowed: ['tool_x'],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.updated).toBe(0);
+      expect(json.data.failed).toBe(1);
+      expect(json.data.results[0].error).toBe('Soul not found');
+    });
+
+    it('handles multiple agentIds with partial success', async () => {
+      const soul1 = makeSoul('agent-1');
+      mockSoulsRepo.getByAgentId.mockResolvedValueOnce(soul1).mockResolvedValueOnce(null);
+      mockSoulsRepo.update.mockResolvedValue(undefined);
+
+      const res = await app.request('/acc/tools/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: ['agent-1', 'missing-agent'],
+          addAllowed: ['tool_y'],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.updated).toBe(1);
+      expect(json.data.failed).toBe(1);
+    });
+
+    it('records individual error when soul update throws', async () => {
+      const soul = makeSoul('agent-err');
+      mockSoulsRepo.getByAgentId.mockResolvedValue(soul);
+      mockSoulsRepo.update.mockRejectedValue(new Error('Update failed'));
+
+      const res = await app.request('/acc/tools/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: ['agent-err'],
+          addAllowed: ['tool_z'],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.failed).toBe(1);
+      expect(json.data.results[0].error).toBe('Update failed');
+    });
+
+    it('returns 500 on unexpected body error', async () => {
+      const res = await app.request('/acc/tools/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'invalid json body',
+      });
+      expect(res.status).toBe(500);
+    });
+  });
+});

@@ -1,0 +1,1130 @@
+/**
+ * Telegram Channel API (grammy)
+ *
+ * Implements ChannelPluginAPI using the grammy library.
+ * Supports both long-polling (default) and webhook mode.
+ * Handles message normalization, and event emission.
+ */
+
+import { randomBytes, randomInt } from 'node:crypto';
+import { Bot, InputFile } from 'grammy';
+import type { Message } from 'grammy/types';
+import { TelegramApprovalHandler } from './approval-handler.js';
+import { TelegramProgressManager } from './progress-manager.js';
+import { downloadTelegramAttachments } from './file-handler.js';
+import { channelAssetStore } from '../../../services/channel-asset-store.js';
+import {
+  type ChannelPluginAPI,
+  type ChannelConnectionStatus,
+  type ChannelPlatform,
+  type ChannelOutgoingMessage,
+  type ChannelUser,
+  type ChannelIncomingMessage,
+  type ChannelAttachment,
+  type ChannelMessageReceivedData,
+  type ChannelConnectionEventData,
+} from '@ownpilot/core/channels';
+import { getEventBus, createEvent } from '@ownpilot/core/events';
+import { ChannelEvents } from '@ownpilot/core/channels';
+import { getLog } from '../../../services/log.js';
+import { getErrorMessage } from '../../../utils/common.js';
+import { MAX_MESSAGE_CHAT_MAP_SIZE } from '../../../config/defaults.js';
+import { splitMessage, PLATFORM_MESSAGE_LIMITS } from '../../utils/message-utils.js';
+import { markdownToTelegramHtml } from '../../utils/markdown-telegram.js';
+
+const log = getLog('Telegram');
+
+/** Reconnection configuration */
+const RECONNECT_CONFIG = {
+  maxAttempts: 10,
+  initialDelayMs: 15000, // Start with 15 seconds for 409 conflicts
+  baseDelayMs: 5000, // Then 5 seconds base for other retries
+  maxDelayMs: 120000, // Cap at 2 minutes
+  backoffMultiplier: 2,
+};
+
+/**
+ * How long the polling connection must stay open before we consider it
+ * "stable" and reset the reconnect-attempts counter. Without this delay
+ * a 409-conflict storm (two pollers fighting for the slot, each kicking
+ * the other off after a brief success) keeps resetting the counter and
+ * defeats `RECONNECT_CONFIG.maxAttempts`, looping forever.
+ */
+const STABLE_CONNECTION_MS = 2 * 60_000;
+
+/** Detect Telegram "can't parse entities" errors so we can retry as plain text. */
+function isParseEntityError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes("can't parse entities") || msg.includes("can't find end of the entity");
+}
+
+function replaceExtension(filename: string, extension: string): string {
+  const withoutExt = filename.replace(/\.[^.\\/]+$/, '');
+  return `${withoutExt}.${extension}`;
+}
+
+async function convertAudioToOggOpus(audio: Buffer): Promise<Buffer> {
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
+  // randomBytes (CSPRNG) for the temp-file suffix — non-cryptographic PRNGs are
+  // non-cryptographic PRNG and the suffix is part of a filesystem path
+  // that an attacker could try to predict.
+  const base = path.join(
+    os.tmpdir(),
+    `ownpilot_tg_voice_${Date.now()}_${randomBytes(8).toString('hex')}`
+  );
+  const inputPath = `${base}.wav`;
+  const outputPath = `${base}.ogg`;
+
+  await fs.writeFile(inputPath, audio);
+  try {
+    await execFileAsync(
+      'ffmpeg',
+      ['-y', '-i', inputPath, '-vn', '-acodec', 'libopus', '-b:a', '48k', '-vbr', 'on', outputPath],
+      { timeout: 30000 }
+    );
+    return await fs.readFile(outputPath);
+  } finally {
+    await fs.unlink(inputPath).catch(() => undefined);
+    await fs.unlink(outputPath).catch(() => undefined);
+  }
+}
+
+// ============================================================================
+// Types
+// ============================================================================
+
+interface TelegramChannelConfig {
+  bot_token: string;
+  allowed_users?: string;
+  allowed_chats?: string;
+  parse_mode?: 'Markdown' | 'MarkdownV2' | 'HTML';
+  voice_reply_mode?: 'never' | 'voice_messages' | 'always';
+  voice_reply_voice?: string;
+  voice_reply_speed?: number;
+  /** Public HTTPS base URL for webhook mode. Empty/undefined = polling mode. */
+  webhook_url?: string;
+  /** Secret token for webhook URL path. Auto-generated if webhook_url is set but this is empty. */
+  webhook_secret?: string;
+}
+
+function optionalConfigString(config: Record<string, unknown>, key: string): string | undefined {
+  const value = config[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function parseMode(value: unknown): TelegramChannelConfig['parse_mode'] {
+  return value === 'Markdown' || value === 'MarkdownV2' || value === 'HTML' ? value : undefined;
+}
+
+function voiceReplyMode(value: unknown): TelegramChannelConfig['voice_reply_mode'] {
+  return value === 'never' || value === 'voice_messages' || value === 'always' ? value : undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function parseTelegramConfig(config: Record<string, unknown>): TelegramChannelConfig {
+  return {
+    bot_token: optionalConfigString(config, 'bot_token') ?? '',
+    allowed_users: optionalConfigString(config, 'allowed_users'),
+    allowed_chats: optionalConfigString(config, 'allowed_chats'),
+    parse_mode: parseMode(config.parse_mode),
+    voice_reply_mode: voiceReplyMode(config.voice_reply_mode),
+    voice_reply_voice: optionalConfigString(config, 'voice_reply_voice'),
+    voice_reply_speed: optionalNumber(config.voice_reply_speed),
+    webhook_url: optionalConfigString(config, 'webhook_url'),
+    webhook_secret: optionalConfigString(config, 'webhook_secret'),
+  };
+}
+
+// ============================================================================
+// Implementation
+// ============================================================================
+
+export class TelegramChannelAPI implements ChannelPluginAPI {
+  private readonly approvalHandler = new TelegramApprovalHandler();
+  private bot: Bot | null = null;
+  private status: ChannelConnectionStatus = 'disconnected';
+  private readonly config: TelegramChannelConfig;
+  private readonly pluginId: string;
+  private allowedUsers: Set<string> = new Set();
+  private allowedChats: Set<string> = new Set();
+  /** Maps platformMessageId → chatId for recent outgoing messages (edit/delete support) */
+  private messageChatMap = new Map<string, string>();
+  /** True when connected via webhook (vs polling). Used by disconnect() for cleanup. */
+  private webhookMode = false;
+  /** Reconnection state */
+  private reconnectAttempts = 0;
+  private reconnectTimer?: NodeJS.Timeout;
+  private stableConnectionTimer: NodeJS.Timeout | null = null;
+  private isReconnecting = false;
+  private lastErrorWasConflict = false;
+
+  constructor(config: Record<string, unknown>, pluginId: string) {
+    this.config = parseTelegramConfig(config);
+    this.pluginId = pluginId;
+
+    // Parse allowed users/chats from comma-separated strings
+    if (this.config.allowed_users) {
+      this.config.allowed_users
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((id) => this.allowedUsers.add(id));
+    }
+    if (this.config.allowed_chats) {
+      this.config.allowed_chats
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((id) => this.allowedChats.add(id));
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // ChannelPluginAPI
+  // --------------------------------------------------------------------------
+
+  async connect(): Promise<void> {
+    if (this.status === 'connected' || this.status === 'connecting') return;
+    if (!this.config.bot_token) {
+      throw new Error('Telegram bot_token is required');
+    }
+
+    // Clean up any existing bot instance (e.g. reconnecting after error)
+    if (this.bot) {
+      try {
+        this.bot.stop();
+      } catch {
+        /* already stopped */
+      }
+      this.bot = null;
+    }
+    this.webhookMode = false;
+
+    this.status = 'connecting';
+    this.emitConnectionEvent('connecting');
+
+    try {
+      this.bot = new Bot(this.config.bot_token);
+
+      // Register inline keyboard approval handler
+      this.approvalHandler.register(this.bot);
+
+      // ── Command handlers (MUST be registered BEFORE bot.on('message')!) ──
+      // Grammy's middleware chain is sequential: if bot.on('message') runs first
+      // and never calls next(), command handlers are never reached.
+      // By registering commands first, /start etc. match and handle, while
+      // non-command messages fall through via Grammy's pass() to the generic handler.
+
+      // Handle /start command with welcome
+      this.bot.command('start', async (ctx) => {
+        await ctx.reply(
+          'Welcome to OwnPilot! To verify your identity, generate a token in the OwnPilot web interface and send:\n/connect YOUR_TOKEN'
+        );
+      });
+
+      // /model — Set or show the preferred AI model
+      this.bot.command('model', async (ctx) => {
+        const args = (ctx.message?.text ?? '').split(' ').slice(1).join(' ').trim();
+        const chatId = String(ctx.chat.id);
+        const userId = String(ctx.from?.id ?? '');
+
+        try {
+          const { channelUsersRepo } = await import('../../../db/repositories/channels/users.js');
+          const { channelSessionsRepo } =
+            await import('../../../db/repositories/channels/sessions.js');
+
+          const user = await channelUsersRepo.findByPlatform('telegram', userId);
+          if (!user) {
+            await ctx.reply('Please verify your identity first with /connect YOUR_TOKEN');
+            return;
+          }
+
+          const session = await channelSessionsRepo.findActive(user.id, this.pluginId, chatId);
+          if (!session) {
+            await ctx.reply('No active session. Send a message first to start one.');
+            return;
+          }
+
+          if (!args) {
+            const current = (session.context?.preferredModel as string) || 'default';
+            await ctx.reply(
+              `Current model: <code>${current}</code>\n\nUsage: /model &lt;name&gt;\nExamples:\n/model gpt-4o\n/model claude-sonnet-4-5-20250514\n/model default`,
+              { parse_mode: 'HTML' }
+            );
+            return;
+          }
+
+          const modelName = args === 'default' ? undefined : args;
+          await channelSessionsRepo.updateContext(session.id, {
+            preferredModel: modelName ?? null,
+          });
+          await ctx.reply(
+            modelName
+              ? `\u2705 Model set to <code>${modelName}</code>`
+              : '\u2705 Model reset to default',
+            { parse_mode: 'HTML' }
+          );
+        } catch (err) {
+          log.error('[Telegram] /model command error:', err);
+          await ctx.reply('Failed to update model preference.');
+        }
+      });
+
+      // /new — Start a new conversation
+      this.bot.command('new', async (ctx) => {
+        const chatId = String(ctx.chat.id);
+        const userId = String(ctx.from?.id ?? '');
+        try {
+          const { channelUsersRepo } = await import('../../../db/repositories/channels/users.js');
+          const { channelSessionsRepo } =
+            await import('../../../db/repositories/channels/sessions.js');
+          const user = await channelUsersRepo.findByPlatform('telegram', userId);
+          if (!user) {
+            await ctx.reply('Please verify first with /connect YOUR_TOKEN');
+            return;
+          }
+          const session = await channelSessionsRepo.findActive(user.id, this.pluginId, chatId);
+          if (session) {
+            await channelSessionsRepo.deactivate(session.id);
+          }
+          await ctx.reply(
+            '\u2728 New conversation started. Your next message begins a fresh session.'
+          );
+        } catch (err) {
+          log.error('[Telegram] /new command error:', err);
+          await ctx.reply('Failed to start new conversation.');
+        }
+      });
+
+      // /clear — Clear conversation history
+      this.bot.command('clear', async (ctx) => {
+        const chatId = String(ctx.chat.id);
+        const userId = String(ctx.from?.id ?? '');
+        try {
+          const { channelUsersRepo } = await import('../../../db/repositories/channels/users.js');
+          const { channelSessionsRepo } =
+            await import('../../../db/repositories/channels/sessions.js');
+          const user = await channelUsersRepo.findByPlatform('telegram', userId);
+          if (!user) {
+            await ctx.reply('Please verify first with /connect YOUR_TOKEN');
+            return;
+          }
+          const session = await channelSessionsRepo.findActive(user.id, this.pluginId, chatId);
+          if (session) {
+            // Deactivate current session so next message starts fresh
+            await channelSessionsRepo.deactivate(session.id);
+            await ctx.reply(
+              '\ud83d\uddd1\ufe0f Conversation cleared. Your next message starts a fresh session.'
+            );
+          } else {
+            await ctx.reply('No active conversation to clear.');
+          }
+        } catch (err) {
+          log.error('[Telegram] /clear command error:', err);
+          await ctx.reply('Failed to clear history.');
+        }
+      });
+
+      // /history — Show conversation summary
+      this.bot.command('history', async (ctx) => {
+        const chatId = String(ctx.chat.id);
+        const userId = String(ctx.from?.id ?? '');
+        try {
+          const { channelUsersRepo } = await import('../../../db/repositories/channels/users.js');
+          const { channelSessionsRepo } =
+            await import('../../../db/repositories/channels/sessions.js');
+          const user = await channelUsersRepo.findByPlatform('telegram', userId);
+          if (!user) {
+            await ctx.reply('Please verify first with /connect YOUR_TOKEN');
+            return;
+          }
+          const session = await channelSessionsRepo.findActive(user.id, this.pluginId, chatId);
+          if (!session) {
+            await ctx.reply('No active session.');
+            return;
+          }
+
+          const startedAgo = session.createdAt
+            ? Math.round((Date.now() - session.createdAt.getTime()) / 60000)
+            : 0;
+
+          const lastMsgAgo = session.lastMessageAt
+            ? Math.round((Date.now() - session.lastMessageAt.getTime()) / 60000)
+            : null;
+
+          await ctx.reply(
+            `<b>Session Info</b>\n\n` +
+              `Conversation: ${session.conversationId ? 'Active' : 'None'}\n` +
+              `Started: ${startedAgo < 60 ? `${startedAgo}m ago` : `${Math.round(startedAgo / 60)}h ago`}\n` +
+              (lastMsgAgo !== null
+                ? `Last message: ${lastMsgAgo < 60 ? `${lastMsgAgo}m ago` : `${Math.round(lastMsgAgo / 60)}h ago`}\n`
+                : '') +
+              `Model: <code>${(session.context?.preferredModel as string) || 'default'}</code>`,
+            { parse_mode: 'HTML' }
+          );
+        } catch (err) {
+          log.error('[Telegram] /history command error:', err);
+          await ctx.reply('Failed to get history.');
+        }
+      });
+
+      // /status — Show current bot and session status
+      this.bot.command('status', async (ctx) => {
+        const chatId = String(ctx.chat.id);
+        const userId = String(ctx.from?.id ?? '');
+        try {
+          const { channelUsersRepo } = await import('../../../db/repositories/channels/users.js');
+          const { channelSessionsRepo } =
+            await import('../../../db/repositories/channels/sessions.js');
+          const user = await channelUsersRepo.findByPlatform('telegram', userId);
+
+          const session = user
+            ? await channelSessionsRepo.findActive(user.id, this.pluginId, chatId)
+            : null;
+
+          const model = (session?.context?.preferredModel as string) || 'default';
+          const verified = user?.isVerified ? '\u2705 Verified' : '\u274c Not verified';
+
+          const lines = [
+            '<b>OwnPilot Status</b>\n',
+            `Status: \ud83d\udfe2 Connected`,
+            `Bot: @${this.bot?.botInfo?.username ?? 'unknown'}`,
+            `Verification: ${verified}`,
+            `Model: <code>${model}</code>`,
+            session?.conversationId ? `Session: Active` : 'Session: None',
+          ];
+
+          await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+        } catch (err) {
+          log.error('[Telegram] /status command error:', err);
+          await ctx.reply('Failed to get status.');
+        }
+      });
+
+      // ── Generic message handler (AFTER all commands) ──
+      // Non-command messages fall through the command filters above and land here.
+      this.bot.on('message', (ctx) => {
+        this.handleIncomingMessage(ctx.message).catch((err) => {
+          log.error('[Telegram] Error handling message:', err);
+        });
+      });
+
+      // Install error handler — trigger reconnect for connection-level failures
+      this.bot.catch((err) => {
+        const httpCode = (err as { error_code?: number }).error_code;
+        const isConnectionError = httpCode === 401 || httpCode === 409;
+        if (isConnectionError) {
+          log.error('[Telegram] Connection-level bot error:', err);
+          this.status = 'error';
+          this.emitConnectionEvent('error');
+          // Trigger automatic reconnect for 409 conflicts
+          if (httpCode === 409 && !this.isReconnecting) {
+            this.lastErrorWasConflict = true;
+            void this.scheduleReconnect();
+          }
+        } else {
+          log.error('[Telegram] Per-request bot error (non-fatal):', err);
+        }
+      });
+
+      if (this.config.webhook_url) {
+        // === WEBHOOK MODE ===
+        // Auto-generate secret if not provided
+        if (!this.config.webhook_secret) {
+          this.config.webhook_secret = randomBytes(32).toString('hex');
+        }
+
+        // Initialize bot info without starting polling
+        await this.bot.init();
+
+        // Register the webhook callback handler for the route
+        const { registerWebhookHandler } = await import('./webhook.js');
+        registerWebhookHandler(this.bot, this.config.webhook_secret);
+
+        // Tell Telegram to send updates to our webhook URL
+        const webhookUrl = `${this.config.webhook_url.replace(/\/$/, '')}/webhooks/telegram/${this.config.webhook_secret}`;
+        await this.bot.api.setWebhook(webhookUrl);
+
+        this.webhookMode = true;
+        this.status = 'connected';
+        log.info('[Telegram] Bot connected via webhook', {
+          url: webhookUrl.replace(/\/[^/]+$/, '/***'),
+        });
+        this.emitConnectionEvent('connected');
+      } else {
+        // === POLLING MODE (default) ===
+        this.bot
+          .start({
+            onStart: () => {
+              // Defer reconnect-attempts reset behind a 2-minute stable window so a
+              // 409-conflict displace storm cannot loop forever by re-zeroing the counter
+              // on every brief successful poll.
+              this.scheduleStableConnectionReset();
+              this.status = 'connected';
+              log.info('[Telegram] Bot connected and polling');
+              this.emitConnectionEvent('connected');
+            },
+          })
+          .catch((err) => {
+            const httpCode = (err as { error_code?: number }).error_code;
+            log.error('[Telegram] Bot polling crashed:', err);
+            this.clearStableConnectionTimer();
+            this.status = 'error';
+            this.emitConnectionEvent('error');
+            // Trigger reconnect for 409 conflicts or other connection errors
+            if (!this.isReconnecting && (httpCode === 409 || !httpCode)) {
+              if (httpCode === 409) {
+                this.lastErrorWasConflict = true;
+              }
+              void this.scheduleReconnect();
+            }
+          });
+      }
+    } catch (error) {
+      this.status = 'error';
+      this.emitConnectionEvent('error');
+      throw error;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    // Deny all pending approvals before stopping
+    this.approvalHandler.clearAll();
+
+    if (this.bot) {
+      // Always try to delete webhook and drop pending updates
+      // This is critical for 409 conflict recovery
+      try {
+        await this.bot.api.deleteWebhook({ drop_pending_updates: true });
+        log.debug('[Telegram] Webhook deleted, pending updates dropped');
+      } catch (err) {
+        // Ignore errors - bot might not be fully initialized
+        log.debug('[Telegram] deleteWebhook failed (may be normal):', getErrorMessage(err));
+      }
+
+      // In webhook mode, also cleanup handler
+      if (this.webhookMode) {
+        try {
+          const { unregisterWebhookHandler } = await import('./webhook.js');
+          unregisterWebhookHandler();
+        } catch {
+          /* best effort */
+        }
+      }
+
+      this.bot.stop();
+      this.bot = null;
+    }
+    this.webhookMode = false;
+    this.clearReconnectTimer();
+    this.clearStableConnectionTimer();
+    this.status = 'disconnected';
+    this.emitConnectionEvent('disconnected');
+  }
+
+  /**
+   * Schedule an automatic reconnection attempt with exponential backoff.
+   * Called automatically when 409 Conflict errors occur.
+   */
+  private scheduleReconnect(): void {
+    if (this.isReconnecting || this.reconnectAttempts >= RECONNECT_CONFIG.maxAttempts) {
+      if (this.reconnectAttempts >= RECONNECT_CONFIG.maxAttempts) {
+        log.error('[Telegram] Max reconnection attempts reached, giving up');
+      }
+      return;
+    }
+
+    this.isReconnecting = true;
+    this.reconnectAttempts++;
+
+    // Use longer initial delay for 409 conflicts to ensure Telegram releases the session
+    const isFirstAttemptAfterConflict = this.lastErrorWasConflict && this.reconnectAttempts === 1;
+    const baseDelay = isFirstAttemptAfterConflict
+      ? RECONNECT_CONFIG.initialDelayMs
+      : RECONNECT_CONFIG.baseDelayMs;
+
+    // Calculate delay with exponential backoff
+    const delay = Math.min(
+      baseDelay * Math.pow(RECONNECT_CONFIG.backoffMultiplier, this.reconnectAttempts - 1),
+      RECONNECT_CONFIG.maxDelayMs
+    );
+
+    // Add small jitter to prevent thundering herd when multiple instances restart
+    const jitter = randomInt(2000);
+    const finalDelay = delay + jitter;
+
+    log.info(
+      `[Telegram] Scheduling reconnect attempt ${this.reconnectAttempts}/${RECONNECT_CONFIG.maxAttempts} in ${finalDelay}ms`
+    );
+
+    this.reconnectTimer = setTimeout(() => {
+      void this.performReconnect();
+    }, finalDelay);
+    // unref so a pending reconnect timer doesn't hold the process open
+    // during graceful shutdown — disconnect() still clearTimeout()s.
+    this.reconnectTimer.unref?.();
+  }
+
+  /**
+   * Perform the actual reconnection attempt.
+   */
+  private async performReconnect(): Promise<void> {
+    try {
+      log.info('[Telegram] Attempting to reconnect...');
+
+      // Fully disconnect first to clean up any stale state
+      await this.disconnect();
+
+      // Wait longer after 409 conflicts to ensure Telegram API released the session
+      const waitTime = this.lastErrorWasConflict ? 5000 : 2000;
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
+
+      // Attempt to reconnect. The `reconnectAttempts` counter is intentionally
+      // NOT reset here — `connect()`'s onStart will schedule the reset via
+      // `scheduleStableConnectionReset()` so a flaky reconnect that re-fails
+      // quickly cannot zero out the attempt counter and loop forever.
+      await this.connect();
+
+      log.info('[Telegram] Reconnected successfully');
+      this.lastErrorWasConflict = false;
+      this.isReconnecting = false;
+    } catch (error) {
+      log.error('[Telegram] Reconnect attempt failed:', error);
+      this.isReconnecting = false;
+
+      // Schedule another attempt if we haven't exceeded max
+      if (this.reconnectAttempts < RECONNECT_CONFIG.maxAttempts) {
+        this.scheduleReconnect();
+      } else {
+        log.error('[Telegram] Max reconnection attempts reached, giving up');
+        this.lastErrorWasConflict = false;
+      }
+    }
+  }
+
+  /**
+   * Clear any pending reconnect timer.
+   */
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    this.isReconnecting = false;
+  }
+
+  /**
+   * Arm the stable-connection window: only after the connection has stayed
+   * open for {@link STABLE_CONNECTION_MS} do we reset {@link reconnectAttempts}.
+   * A new successful `onStart` cancels the prior pending reset so back-to-back
+   * brief opens cannot reset the counter early.
+   */
+  private scheduleStableConnectionReset(): void {
+    this.clearStableConnectionTimer();
+    this.stableConnectionTimer = setTimeout(() => {
+      this.reconnectAttempts = 0;
+      this.stableConnectionTimer = null;
+    }, STABLE_CONNECTION_MS);
+    this.stableConnectionTimer.unref?.();
+  }
+
+  private clearStableConnectionTimer(): void {
+    if (this.stableConnectionTimer) {
+      clearTimeout(this.stableConnectionTimer);
+      this.stableConnectionTimer = null;
+    }
+  }
+
+  /** Manually trigger a reconnect (useful for external recovery) */
+  async reconnect(): Promise<void> {
+    this.reconnectAttempts = 0;
+    this.lastErrorWasConflict = false;
+    this.clearReconnectTimer();
+    this.clearStableConnectionTimer();
+    await this.performReconnect();
+  }
+
+  async sendMessage(message: ChannelOutgoingMessage): Promise<string> {
+    if (!this.bot) {
+      throw new Error('Telegram bot is not connected');
+    }
+
+    const chatId = message.platformChatId;
+    const attachments = message.attachments ?? [];
+    const voiceOptions = (message.options?.telegram as { asVoice?: boolean } | undefined) ?? {};
+
+    // Convert Markdown → Telegram HTML when parse_mode is HTML
+    let textToSend = message.text;
+    if (this.config.parse_mode === 'HTML') {
+      textToSend = markdownToTelegramHtml(message.text);
+    }
+
+    if (voiceOptions.asVoice && message.text.trim()) {
+      const voiceAttachment = await this.synthesizeReplyAttachment(message.text);
+      if (voiceAttachment) {
+        attachments.push(voiceAttachment);
+        textToSend = '';
+      }
+    }
+
+    const parts = textToSend.trim()
+      ? splitMessage(textToSend, PLATFORM_MESSAGE_LIMITS.telegram!)
+      : [];
+    let lastMessageId = '';
+
+    for (let i = 0; i < parts.length; i++) {
+      const options: Record<string, unknown> = {};
+
+      // Parse mode
+      if (this.config.parse_mode) {
+        options.parse_mode = this.config.parse_mode;
+      }
+
+      // Only first part gets reply_parameters
+      if (i === 0 && message.replyToId) {
+        const msgId = message.replyToId.includes(':')
+          ? message.replyToId.split(':').pop()
+          : message.replyToId;
+        if (msgId && !Number.isNaN(Number(msgId))) {
+          options.reply_parameters = { message_id: Number(msgId) };
+        }
+      }
+
+      let sent;
+      try {
+        sent = await this.bot.api.sendMessage(chatId, parts[i]!, options);
+      } catch (err) {
+        // If Telegram rejects the formatting, retry as plain text
+        if (options.parse_mode && isParseEntityError(err)) {
+          log.warn('[Telegram] Parse entity error, retrying without parse_mode', {
+            parseMode: options.parse_mode,
+            error: getErrorMessage(err),
+          });
+          const { parse_mode: _, ...plainOptions } = options;
+          sent = await this.bot.api.sendMessage(chatId, parts[i]!, plainOptions);
+        } else {
+          throw err;
+        }
+      }
+      lastMessageId = String(sent.message_id);
+      // Evict oldest entries if map is at capacity
+      if (this.messageChatMap.size >= MAX_MESSAGE_CHAT_MAP_SIZE) {
+        const oldest = this.messageChatMap.keys().next().value;
+        if (oldest) this.messageChatMap.delete(oldest);
+      }
+      this.messageChatMap.set(lastMessageId, chatId);
+
+      // Small delay between split messages
+      if (parts.length > 1 && i < parts.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+
+    for (let i = 0; i < attachments.length; i++) {
+      const attachment = attachments[i]!;
+      const options: Record<string, unknown> = {};
+
+      if (i === 0 && !lastMessageId && message.replyToId) {
+        const msgId = message.replyToId.includes(':')
+          ? message.replyToId.split(':').pop()
+          : message.replyToId;
+        if (msgId && !Number.isNaN(Number(msgId))) {
+          options.reply_parameters = { message_id: Number(msgId) };
+        }
+      }
+
+      const sent = await this.sendAttachment(chatId, attachment, options, voiceOptions.asVoice);
+      if (!sent) continue;
+
+      lastMessageId = String(sent.message_id);
+      if (this.messageChatMap.size >= MAX_MESSAGE_CHAT_MAP_SIZE) {
+        const oldest = this.messageChatMap.keys().next().value;
+        if (oldest) this.messageChatMap.delete(oldest);
+      }
+      this.messageChatMap.set(lastMessageId, chatId);
+    }
+
+    return lastMessageId;
+  }
+
+  private async sendAttachment(
+    chatId: string,
+    attachment: ChannelAttachment,
+    options: Record<string, unknown>,
+    forceVoice = false
+  ): Promise<{ message_id: number } | null> {
+    if (!this.bot) return null;
+
+    const preparedAttachment =
+      forceVoice && attachment.type === 'audio'
+        ? await this.prepareTelegramVoiceAttachment(attachment)
+        : attachment;
+    const input = this.toInputFile(preparedAttachment);
+    if (!input) return null;
+
+    if (preparedAttachment.type === 'audio') {
+      const mimeType = preparedAttachment.mimeType.toLowerCase();
+      if (mimeType === 'audio/ogg' || mimeType === 'audio/opus') {
+        return this.bot.api.sendVoice(chatId, input, options);
+      }
+      return this.bot.api.sendAudio(chatId, input, options);
+    }
+
+    if (preparedAttachment.type === 'image') {
+      return this.bot.api.sendPhoto(chatId, input, options);
+    }
+
+    return this.bot.api.sendDocument(chatId, input, options);
+  }
+
+  private toInputFile(attachment: ChannelAttachment): InputFile | string | null {
+    if (attachment.data) {
+      return new InputFile(Buffer.from(attachment.data), attachment.filename ?? 'attachment');
+    }
+    if (attachment.path) {
+      return new InputFile(attachment.path, attachment.filename);
+    }
+    return attachment.url ?? null;
+  }
+
+  private async prepareTelegramVoiceAttachment(
+    attachment: ChannelAttachment
+  ): Promise<ChannelAttachment> {
+    const mimeType = attachment.mimeType.toLowerCase();
+    if (mimeType === 'audio/ogg' || mimeType === 'audio/opus') return attachment;
+    if (!attachment.data) return attachment;
+
+    try {
+      const converted = await convertAudioToOggOpus(Buffer.from(attachment.data));
+      return {
+        ...attachment,
+        data: converted,
+        mimeType: 'audio/ogg',
+        filename: replaceExtension(attachment.filename ?? `voice_${Date.now()}`, 'ogg'),
+        size: converted.length,
+      };
+    } catch (error) {
+      log.warn('[Telegram] Failed to convert audio to OGG/Opus voice format', {
+        error: getErrorMessage(error),
+      });
+      return attachment;
+    }
+  }
+
+  async shouldReplyWithVoice(message: ChannelIncomingMessage): Promise<boolean> {
+    const mode = this.config.voice_reply_mode ?? 'never';
+    if (mode === 'never') return false;
+    if (mode === 'always') return true;
+    return Boolean(message.attachments?.some((attachment) => attachment.type === 'audio'));
+  }
+
+  private async synthesizeReplyAttachment(text: string): Promise<ChannelAttachment | null> {
+    try {
+      const { getVoiceService } = await import('../../../services/voice-service.js');
+      const service = getVoiceService();
+      const config = await service.getConfig();
+      if (!config.available || !(config.ttsSupported || config.ttsAvailable)) return null;
+
+      const result = await service.synthesize(text, {
+        voice: this.config.voice_reply_voice || undefined,
+        speed: this.config.voice_reply_speed,
+        format: 'opus',
+      });
+
+      return {
+        type: 'audio',
+        mimeType: result.contentType,
+        filename: `ownpilot_voice_${Date.now()}.${result.format}`,
+        size: result.audio.length,
+        data: result.audio,
+      };
+    } catch (error) {
+      log.warn('[Telegram] Failed to synthesize voice reply', { error: getErrorMessage(error) });
+      return null;
+    }
+  }
+
+  getStatus(): ChannelConnectionStatus {
+    return this.status;
+  }
+
+  getPlatform(): ChannelPlatform {
+    return 'telegram';
+  }
+
+  /** Get bot info (username, first name) after connection. */
+  getBotInfo(): { username?: string; firstName?: string } | null {
+    if (!this.bot) return null;
+    try {
+      const info = this.bot.botInfo;
+      return { username: info.username, firstName: info.first_name };
+    } catch {
+      return null;
+    }
+  }
+
+  async sendTyping(platformChatId: string): Promise<void> {
+    if (!this.bot) return;
+    await this.bot.api.sendChatAction(platformChatId, 'typing').catch((err: unknown) => {
+      log.debug('[Telegram] Typing indicator failed', { chatId: platformChatId, error: err });
+    });
+  }
+
+  async editMessage(platformMessageId: string, newText: string): Promise<void> {
+    if (!this.bot) throw new Error('Telegram bot is not connected');
+    const chatId = this.messageChatMap.get(platformMessageId);
+    if (!chatId) {
+      log.warn('[Telegram] editMessage: no chatId found for message', { platformMessageId });
+      return;
+    }
+    const options: Record<string, unknown> = {};
+    if (this.config.parse_mode) options.parse_mode = this.config.parse_mode;
+    await this.bot.api.editMessageText(chatId, Number(platformMessageId), newText, options);
+  }
+
+  async deleteMessage(platformMessageId: string): Promise<void> {
+    if (!this.bot) throw new Error('Telegram bot is not connected');
+    const chatId = this.messageChatMap.get(platformMessageId);
+    if (!chatId) {
+      log.warn('[Telegram] deleteMessage: no chatId found for message', { platformMessageId });
+      return;
+    }
+    await this.bot.api.deleteMessage(chatId, Number(platformMessageId));
+    this.messageChatMap.delete(platformMessageId);
+  }
+
+  /**
+   * Create a progress manager for a given chat.
+   * Used by ChannelServiceImpl to show tool execution progress.
+   */
+  createProgressManager(chatId: string): TelegramProgressManager | null {
+    if (!this.bot) return null;
+    return new TelegramProgressManager(this.bot, chatId, this.config.parse_mode);
+  }
+
+  /**
+   * Track a message ID → chatId mapping (for edit/delete support).
+   */
+  trackMessage(platformMessageId: string, chatId: string): void {
+    if (this.messageChatMap.size >= MAX_MESSAGE_CHAT_MAP_SIZE) {
+      const oldest = this.messageChatMap.keys().next().value;
+      if (oldest) this.messageChatMap.delete(oldest);
+    }
+    this.messageChatMap.set(platformMessageId, chatId);
+  }
+
+  /**
+   * Request tool approval from the user via inline keyboard buttons.
+   * Returns true if approved, false if denied or timed out.
+   */
+  async requestApproval(
+    chatId: string,
+    params: { toolName: string; description: string; riskLevel?: string }
+  ): Promise<boolean> {
+    if (!this.bot) return false;
+    return this.approvalHandler.request(this.bot, chatId, params);
+  }
+
+  async resolveUser(_platformUserId: string): Promise<ChannelUser | null> {
+    if (!this.bot) return null;
+    try {
+      // grammy doesn't have getUser, but we can try getChatMember-like approaches
+      // For now, return null - user resolution happens through channel_users table
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Private: Message Processing
+  // --------------------------------------------------------------------------
+
+  private async handleIncomingMessage(message: Message): Promise<void> {
+    // Ignore messages from bots to prevent feedback loops
+    if (message.from?.is_bot) return;
+
+    // Accept text, captions, or messages with media attachments
+    const hasMedia = !!(
+      message.photo ||
+      message.document ||
+      message.audio ||
+      message.voice ||
+      message.video
+    );
+    if (!message.text && !message.caption && !hasMedia) return;
+
+    const userId = String(message.from?.id ?? '');
+    const chatId = String(message.chat.id);
+
+    // Access control
+    if (this.allowedUsers.size > 0 && !this.allowedUsers.has(userId)) {
+      return;
+    }
+    if (this.allowedChats.size > 0 && !this.allowedChats.has(chatId)) {
+      return;
+    }
+
+    // Build normalized message
+    const sender: ChannelUser = {
+      platformUserId: userId,
+      platform: 'telegram',
+      displayName:
+        [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ') || 'Unknown',
+      username: message.from?.username,
+      isBot: message.from?.is_bot,
+    };
+
+    // Download and process attachments (with actual file data)
+    let attachments: ChannelAttachment[] = [];
+    if (hasMedia && this.bot) {
+      try {
+        attachments = await downloadTelegramAttachments(this.bot, message);
+      } catch (err) {
+        log.warn('[Telegram] Failed to download attachments, using metadata only', { error: err });
+        attachments = this.extractAttachments(message);
+      }
+    } else {
+      attachments = this.extractAttachments(message);
+    }
+
+    if (attachments.length > 0) {
+      attachments = await channelAssetStore.persistIncomingAttachments({
+        messageId: `${this.pluginId}:${message.message_id}`,
+        channelPluginId: this.pluginId,
+        platform: 'telegram',
+        platformChatId: chatId,
+        attachments,
+      });
+    }
+
+    const normalized: ChannelIncomingMessage = {
+      id: `${this.pluginId}:${message.message_id}`,
+      channelPluginId: this.pluginId,
+      platform: 'telegram',
+      platformChatId: chatId,
+      sender,
+      text: message.text ?? message.caption ?? '',
+      attachments: attachments.length > 0 ? attachments : undefined,
+      replyToId: message.reply_to_message
+        ? `${this.pluginId}:${message.reply_to_message.message_id}`
+        : undefined,
+      timestamp: new Date(message.date * 1000),
+      metadata: {
+        platformMessageId: message.message_id,
+        chatType: message.chat.type,
+        chatTitle: 'title' in message.chat ? message.chat.title : undefined,
+      },
+    };
+
+    // Emit via EventBus
+    try {
+      const eventBus = getEventBus();
+      eventBus.emit(
+        createEvent<ChannelMessageReceivedData>(
+          ChannelEvents.MESSAGE_RECEIVED,
+          'channel',
+          this.pluginId,
+          { message: normalized }
+        )
+      );
+    } catch (err) {
+      log.error('[Telegram] Failed to emit message event:', err);
+    }
+  }
+
+  private extractAttachments(message: Message): ChannelAttachment[] {
+    const attachments: ChannelAttachment[] = [];
+
+    if (message.photo && message.photo.length > 0) {
+      // Pick largest photo (last in array)
+      const largest = message.photo[message.photo.length - 1]!;
+      attachments.push({
+        type: 'image',
+        mimeType: 'image/jpeg',
+        filename: `photo_${largest.file_id}.jpg`,
+        size: largest.file_size,
+      });
+    }
+
+    if (message.document) {
+      attachments.push({
+        type: 'file',
+        mimeType: message.document.mime_type ?? 'application/octet-stream',
+        filename: message.document.file_name ?? `doc_${message.document.file_id}`,
+        size: message.document.file_size,
+      });
+    }
+
+    if (message.audio) {
+      attachments.push({
+        type: 'audio',
+        mimeType: message.audio.mime_type ?? 'audio/mpeg',
+        filename: message.audio.file_name ?? `audio_${message.audio.file_id}`,
+        size: message.audio.file_size,
+      });
+    }
+
+    if (message.video) {
+      attachments.push({
+        type: 'video',
+        mimeType: message.video.mime_type ?? 'video/mp4',
+        filename: message.video.file_name ?? `video_${message.video.file_id}`,
+        size: message.video.file_size,
+      });
+    }
+
+    if (message.voice) {
+      attachments.push({
+        type: 'audio',
+        mimeType: message.voice.mime_type ?? 'audio/ogg',
+        filename: `voice_${message.voice.file_id}.ogg`,
+        size: message.voice.file_size,
+      });
+    }
+
+    return attachments;
+  }
+
+  // --------------------------------------------------------------------------
+  // Private: Event Helpers
+  // --------------------------------------------------------------------------
+
+  private emitConnectionEvent(status: ChannelConnectionStatus): void {
+    try {
+      const eventBus = getEventBus();
+      const eventName =
+        status === 'connected'
+          ? ChannelEvents.CONNECTED
+          : status === 'connecting'
+            ? ChannelEvents.CONNECTING
+            : status === 'error'
+              ? ChannelEvents.ERROR
+              : ChannelEvents.DISCONNECTED;
+
+      eventBus.emit(
+        createEvent<ChannelConnectionEventData>(eventName, 'channel', this.pluginId, {
+          channelPluginId: this.pluginId,
+          platform: 'telegram',
+          status,
+        })
+      );
+    } catch {
+      // EventBus not ready
+    }
+  }
+}

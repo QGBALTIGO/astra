@@ -1,0 +1,821 @@
+/**
+ * Secure Personal Memory Store
+ *
+ * Privacy & Security First Design:
+ * - All data encrypted at rest (AES-256-GCM)
+ * - Per-user isolated memory spaces
+ * - Access control with permissions
+ * - Comprehensive audit logging
+ * - Secure key derivation (never stored)
+ * - Data expiration and secure deletion
+ * - Memory types: facts, preferences, conversations, semantic
+ */
+
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
+import { getLog } from '../services/get-log.js';
+import type {
+  MemoryType,
+  AccessLevel,
+  MemoryMetadata,
+  EncryptedMemoryEntry,
+  MemoryEntry,
+  MemoryQuery,
+  AuditLogEntry,
+  SecureMemoryConfig,
+} from './types.js';
+import {
+  PBKDF2_DEFAULT_ITERATIONS,
+  deriveKey,
+  hashUserId,
+  hashContent,
+  encryptContent,
+  decryptContent,
+  secureWipe,
+} from './encryption.js';
+
+const log = getLog('SecureMemory');
+
+// =============================================================================
+// Secure Memory Store
+// =============================================================================
+
+/**
+ * Secure Personal Memory Store
+ */
+export class SecureMemoryStore {
+  private readonly config: Required<SecureMemoryConfig>;
+  private readonly salt: Buffer;
+  private entries: Map<string, EncryptedMemoryEntry> = new Map();
+  /** Per-user secondary index: userIdHash → Set<entryId>. Enables O(1) per-user queries. */
+  private userIndex: Map<string, Set<string>> = new Map();
+  private auditLog: AuditLogEntry[] = [];
+  private purgeTimer: NodeJS.Timeout | null = null;
+  private initialized = false;
+
+  constructor(config: SecureMemoryConfig = {}) {
+    const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? '.';
+    const dataDir = path.join(homeDir, '.ownpilot', 'memory');
+
+    this.config = {
+      storageDir: config.storageDir ?? dataDir,
+      pbkdf2Iterations: config.pbkdf2Iterations ?? PBKDF2_DEFAULT_ITERATIONS,
+      installationSalt: config.installationSalt ?? process.env.MEMORY_SALT ?? '',
+      auditLog: config.auditLog ?? true,
+      auditRetentionDays: config.auditRetentionDays ?? 30,
+      purgeInterval: config.purgeInterval ?? 3600000, // 1 hour
+      maxEntriesPerUser: config.maxEntriesPerUser ?? 10000,
+    };
+
+    // Salt is resolved in initialize() once the storageDir is ready
+    this.salt = Buffer.alloc(32);
+  }
+
+  /**
+   * Initialize the memory store
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+
+    await fs.mkdir(this.config.storageDir, { recursive: true });
+
+    // Resolve installation salt: env > explicit config > persisted file > generate new.
+    // CRITICAL: propagate the resolved salt back into `config.installationSalt` so
+    // `hashUserId()` and `hashContent()` use the same per-installation value as the
+    // encryption-key derivation. Otherwise both call sites silently fall back to
+    // the empty-string default (or env), making user-id hashes deterministic and
+    // identical across every install — defeating the per-installation isolation
+    // property this store promises.
+    const resolvedSalt = await this.loadOrCreateSalt();
+    this.config.installationSalt = resolvedSalt;
+    const saltBuffer = createHash('sha256').update(resolvedSalt).digest();
+    saltBuffer.copy(this.salt);
+
+    await this.loadEntries();
+    await this.loadAuditLog();
+
+    // Start purge timer
+    if (this.config.purgeInterval > 0) {
+      this.purgeTimer = setInterval(() => {
+        this.purgeExpired().catch((e) => log.error('Purge failed:', e));
+      }, this.config.purgeInterval);
+      this.purgeTimer.unref();
+    }
+
+    this.initialized = true;
+    log.info(`Initialized with ${this.entries.size} entries`);
+  }
+
+  /**
+   * Store a memory entry
+   */
+  async store(
+    userId: string,
+    masterKey: string,
+    type: MemoryType,
+    content: unknown,
+    options: {
+      key?: string;
+      accessLevel?: AccessLevel;
+      ttl?: number;
+      expiresAt?: string;
+      tags?: string[];
+      source?: MemoryMetadata['source'];
+      confidence?: number;
+      relatedIds?: string[];
+      custom?: Record<string, unknown>;
+    } = {}
+  ): Promise<string> {
+    this.ensureInitialized();
+
+    const userIdHash = hashUserId(userId, this.config.installationSalt);
+
+    // Check entry limit
+    const userEntryCount = this.countUserEntries(userIdHash);
+    if (this.config.maxEntriesPerUser > 0 && userEntryCount >= this.config.maxEntriesPerUser) {
+      await this.logAudit('create', userId, undefined, type, false, 'Entry limit exceeded');
+      throw new Error('Memory entry limit exceeded');
+    }
+
+    // Derive encryption key (never stored)
+    const key = deriveKey(masterKey, this.salt, this.config.pbkdf2Iterations);
+
+    try {
+      // Serialize content
+      const contentStr = JSON.stringify(content);
+
+      // Check for duplicates
+      const contentHash = hashContent(contentStr, this.config.installationSalt);
+      const existing = this.findByContentHash(userIdHash, contentHash);
+      if (existing) {
+        // Update existing instead of creating duplicate
+        return await this.updateInternal(existing.id, userId, masterKey, content, options);
+      }
+
+      // Encrypt content
+      const { encrypted, iv, authTag } = encryptContent(contentStr, key);
+
+      // Generate ID
+      const id = `mem_${Date.now()}_${randomBytes(8).toString('hex')}`;
+
+      // Create entry
+      const entry: EncryptedMemoryEntry = {
+        id,
+        userIdHash,
+        type,
+        accessLevel: options.accessLevel ?? 'private',
+        encryptedContent: encrypted,
+        iv,
+        authTag,
+        contentHash,
+        metadata: {
+          createdAt: new Date().toISOString(),
+          accessCount: 0,
+          source: options.source ?? 'manual',
+          confidence: options.confidence,
+          ttl: options.ttl,
+          expiresAt:
+            options.expiresAt ??
+            (options.ttl ? new Date(Date.now() + options.ttl * 1000).toISOString() : undefined),
+          tags: options.tags,
+          relatedIds: options.relatedIds,
+          custom: options.custom,
+        },
+      };
+
+      this.entries.set(id, entry);
+      this.userIndexAdd(userIdHash, id);
+      await this.saveEntries();
+      await this.logAudit('create', userId, id, type, true);
+
+      return id;
+    } finally {
+      secureWipe(key);
+    }
+  }
+
+  /**
+   * Retrieve a memory entry by ID
+   */
+  async retrieve(userId: string, masterKey: string, memoryId: string): Promise<MemoryEntry | null> {
+    this.ensureInitialized();
+
+    const entry = this.entries.get(memoryId);
+    if (!entry) {
+      await this.logAudit('read', userId, memoryId, undefined, false, 'Not found');
+      return null;
+    }
+
+    // Verify user ownership
+    const userIdHash = hashUserId(userId, this.config.installationSalt);
+    if (entry.userIdHash !== userIdHash) {
+      await this.logAudit('read', userId, memoryId, entry.type, false, 'Access denied');
+      return null;
+    }
+
+    // Check expiration
+    if (this.isExpired(entry)) {
+      await this.logAudit('read', userId, memoryId, entry.type, false, 'Expired');
+      return null;
+    }
+
+    // Derive key and decrypt
+    const key = deriveKey(masterKey, this.salt, this.config.pbkdf2Iterations);
+
+    try {
+      const contentStr = decryptContent(entry.encryptedContent, entry.iv, entry.authTag, key);
+
+      // Update access metadata
+      entry.metadata.lastAccessedAt = new Date().toISOString();
+      entry.metadata.accessCount++;
+
+      // Refresh TTL if configured
+      if (entry.metadata.ttl) {
+        entry.metadata.expiresAt = new Date(Date.now() + entry.metadata.ttl * 1000).toISOString();
+      }
+
+      await this.saveEntries();
+      await this.logAudit('read', userId, memoryId, entry.type, true);
+
+      return {
+        id: entry.id,
+        type: entry.type,
+        accessLevel: entry.accessLevel,
+        content: JSON.parse(contentStr),
+        metadata: entry.metadata,
+      };
+    } catch {
+      await this.logAudit('read', userId, memoryId, entry.type, false, 'Decryption failed');
+      return null;
+    } finally {
+      secureWipe(key);
+    }
+  }
+
+  /**
+   * Query memories (decrypts matching entries)
+   */
+  async query(
+    userId: string,
+    masterKey: string,
+    criteria: MemoryQuery = {}
+  ): Promise<MemoryEntry[]> {
+    this.ensureInitialized();
+
+    const userIdHash = hashUserId(userId, this.config.installationSalt);
+    const results: MemoryEntry[] = [];
+
+    // Filter entries — use per-user index for O(1) lookup instead of O(n) scan
+    const userEntryIds = this.userIndex.get(userIdHash);
+    let candidates = userEntryIds
+      ? Array.from(userEntryIds)
+          .map((id) => this.entries.get(id))
+          .filter((e): e is EncryptedMemoryEntry => e !== undefined)
+      : [];
+
+    // Apply type filter
+    if (criteria.type) {
+      const types = Array.isArray(criteria.type) ? criteria.type : [criteria.type];
+      candidates = candidates.filter((e) => types.includes(e.type));
+    }
+
+    // Apply access level filter
+    if (criteria.accessLevel) {
+      candidates = candidates.filter((e) => e.accessLevel === criteria.accessLevel);
+    }
+
+    // Apply tag filter
+    if (criteria.tags && criteria.tags.length > 0) {
+      candidates = candidates.filter((e) =>
+        e.metadata.tags?.some((t) => criteria.tags!.includes(t))
+      );
+    }
+
+    // Apply date filters
+    if (criteria.createdAfter) {
+      candidates = candidates.filter((e) => e.metadata.createdAt >= criteria.createdAfter!);
+    }
+    if (criteria.createdBefore) {
+      candidates = candidates.filter((e) => e.metadata.createdAt <= criteria.createdBefore!);
+    }
+
+    // Apply confidence filter
+    if (criteria.minConfidence !== undefined) {
+      candidates = candidates.filter(
+        (e) =>
+          e.metadata.confidence === undefined || e.metadata.confidence >= criteria.minConfidence!
+      );
+    }
+
+    // Filter expired unless requested
+    if (!criteria.includeExpired) {
+      candidates = candidates.filter((e) => !this.isExpired(e));
+    }
+
+    // Derive key
+    const key = deriveKey(masterKey, this.salt, this.config.pbkdf2Iterations);
+
+    try {
+      // Decrypt and filter by search
+      for (const entry of candidates) {
+        try {
+          const contentStr = decryptContent(entry.encryptedContent, entry.iv, entry.authTag, key);
+
+          // Apply search filter
+          if (criteria.search) {
+            const searchLower = criteria.search.toLowerCase();
+            if (!contentStr.toLowerCase().includes(searchLower)) {
+              continue;
+            }
+          }
+
+          results.push({
+            id: entry.id,
+            type: entry.type,
+            accessLevel: entry.accessLevel,
+            content: JSON.parse(contentStr),
+            metadata: entry.metadata,
+          });
+        } catch {
+          // Skip entries that fail decryption
+        }
+      }
+
+      // Sort by creation date (newest first)
+      results.sort((a, b) => b.metadata.createdAt.localeCompare(a.metadata.createdAt));
+
+      // Apply pagination
+      const offset = criteria.offset ?? 0;
+      const limit = criteria.limit ?? 100;
+      const paginated = results.slice(offset, offset + limit);
+
+      await this.logAudit('search', userId, undefined, undefined, true, undefined, {
+        resultCount: paginated.length,
+        totalCount: results.length,
+      });
+
+      return paginated;
+    } finally {
+      secureWipe(key);
+    }
+  }
+
+  /**
+   * Update a memory entry
+   */
+  async update(
+    userId: string,
+    masterKey: string,
+    memoryId: string,
+    content: unknown,
+    options: {
+      tags?: string[];
+      ttl?: number;
+      expiresAt?: string;
+      accessLevel?: AccessLevel;
+    } = {}
+  ): Promise<boolean> {
+    return (await this.updateInternal(memoryId, userId, masterKey, content, options)) === memoryId;
+  }
+
+  /**
+   * Delete a memory entry (secure deletion)
+   */
+  async delete(userId: string, memoryId: string): Promise<boolean> {
+    this.ensureInitialized();
+
+    const entry = this.entries.get(memoryId);
+    if (!entry) {
+      await this.logAudit('delete', userId, memoryId, undefined, false, 'Not found');
+      return false;
+    }
+
+    // Verify ownership
+    const userIdHash = hashUserId(userId, this.config.installationSalt);
+    if (entry.userIdHash !== userIdHash) {
+      await this.logAudit('delete', userId, memoryId, entry.type, false, 'Access denied');
+      return false;
+    }
+
+    // Delete entry
+    this.entries.delete(memoryId);
+    this.userIndexRemove(userIdHash, memoryId);
+    await this.saveEntries();
+    await this.logAudit('delete', userId, memoryId, entry.type, true);
+
+    return true;
+  }
+
+  /**
+   * Delete all memories for a user (secure wipe)
+   */
+  async deleteAll(userId: string): Promise<number> {
+    this.ensureInitialized();
+
+    const userIdHash = hashUserId(userId, this.config.installationSalt);
+    let deleted = 0;
+
+    const userIds = this.userIndex.get(userIdHash);
+    if (userIds) {
+      for (const id of userIds) {
+        this.entries.delete(id);
+        deleted++;
+      }
+      this.userIndex.delete(userIdHash);
+    }
+
+    if (deleted > 0) {
+      await this.saveEntries();
+    }
+
+    await this.logAudit('purge', userId, undefined, undefined, true, undefined, {
+      deletedCount: deleted,
+    });
+
+    return deleted;
+  }
+
+  /**
+   * Get memory statistics for a user
+   */
+  async getStats(userId: string): Promise<{
+    totalEntries: number;
+    byType: Record<MemoryType, number>;
+    byAccessLevel: Record<AccessLevel, number>;
+    oldestEntry?: string;
+    newestEntry?: string;
+    totalTags: number;
+    expiredCount: number;
+  }> {
+    this.ensureInitialized();
+
+    const userIdHash = hashUserId(userId, this.config.installationSalt);
+    const userEntryIds = this.userIndex.get(userIdHash) ?? new Set<string>();
+    const userEntries = Array.from(userEntryIds)
+      .map((id) => this.entries.get(id))
+      .filter((e): e is EncryptedMemoryEntry => e !== undefined);
+
+    const byType: Record<string, number> = {};
+    const byAccessLevel: Record<string, number> = {};
+    const allTags = new Set<string>();
+    let expiredCount = 0;
+    let oldest: string | undefined;
+    let newest: string | undefined;
+
+    for (const entry of userEntries) {
+      byType[entry.type] = (byType[entry.type] ?? 0) + 1;
+      byAccessLevel[entry.accessLevel] = (byAccessLevel[entry.accessLevel] ?? 0) + 1;
+
+      if (entry.metadata.tags) {
+        entry.metadata.tags.forEach((t) => allTags.add(t));
+      }
+
+      if (this.isExpired(entry)) {
+        expiredCount++;
+      }
+
+      if (!oldest || entry.metadata.createdAt < oldest) {
+        oldest = entry.metadata.createdAt;
+      }
+      if (!newest || entry.metadata.createdAt > newest) {
+        newest = entry.metadata.createdAt;
+      }
+    }
+
+    return {
+      totalEntries: userEntries.length,
+      byType: byType as Record<MemoryType, number>,
+      byAccessLevel: byAccessLevel as Record<AccessLevel, number>,
+      oldestEntry: oldest,
+      newestEntry: newest,
+      totalTags: allTags.size,
+      expiredCount,
+    };
+  }
+
+  /**
+   * Export all memories (encrypted backup)
+   */
+  async export(
+    userId: string,
+    masterKey: string
+  ): Promise<{
+    version: string;
+    exportedAt: string;
+    entryCount: number;
+    entries: MemoryEntry[];
+  }> {
+    const entries = await this.query(userId, masterKey, { includeExpired: true });
+
+    await this.logAudit('export', userId, undefined, undefined, true, undefined, {
+      entryCount: entries.length,
+    });
+
+    return {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      entryCount: entries.length,
+      entries,
+    };
+  }
+
+  /**
+   * Import memories from backup
+   */
+  async import(
+    userId: string,
+    masterKey: string,
+    backup: { entries: MemoryEntry[] }
+  ): Promise<{ imported: number; skipped: number }> {
+    let imported = 0;
+    let skipped = 0;
+
+    for (const entry of backup.entries) {
+      try {
+        await this.store(userId, masterKey, entry.type, entry.content, {
+          accessLevel: entry.accessLevel,
+          tags: entry.metadata.tags,
+          source: 'imported',
+          ttl: entry.metadata.ttl,
+          custom: entry.metadata.custom,
+        });
+        imported++;
+      } catch {
+        skipped++;
+      }
+    }
+
+    return { imported, skipped };
+  }
+
+  /**
+   * Shutdown the memory store
+   */
+  async shutdown(): Promise<void> {
+    if (this.purgeTimer) {
+      clearInterval(this.purgeTimer);
+      this.purgeTimer = null;
+    }
+
+    await this.saveEntries();
+    await this.saveAuditLog();
+
+    this.entries.clear();
+    this.userIndex.clear();
+    this.auditLog = [];
+    this.initialized = false;
+  }
+
+  // ==========================================================================
+  // Private Methods
+  // ==========================================================================
+
+  private ensureInitialized(): void {
+    if (!this.initialized) {
+      throw new Error('SecureMemoryStore not initialized. Call initialize() first.');
+    }
+  }
+
+  private async updateInternal(
+    memoryId: string,
+    userId: string,
+    masterKey: string,
+    content: unknown,
+    options: Record<string, unknown>
+  ): Promise<string> {
+    const entry = this.entries.get(memoryId);
+    if (!entry) {
+      throw new Error('Memory entry not found');
+    }
+
+    const userIdHash = hashUserId(userId, this.config.installationSalt);
+    if (entry.userIdHash !== userIdHash) {
+      throw new Error('Access denied');
+    }
+
+    const key = deriveKey(masterKey, this.salt, this.config.pbkdf2Iterations);
+
+    try {
+      const contentStr = JSON.stringify(content);
+      const { encrypted, iv, authTag } = encryptContent(contentStr, key);
+
+      entry.encryptedContent = encrypted;
+      entry.iv = iv;
+      entry.authTag = authTag;
+      entry.contentHash = hashContent(contentStr, this.config.installationSalt);
+      entry.metadata.modifiedAt = new Date().toISOString();
+
+      if (options.tags) entry.metadata.tags = options.tags as string[];
+      if (options.accessLevel) entry.accessLevel = options.accessLevel as AccessLevel;
+      if (options.ttl) {
+        entry.metadata.ttl = options.ttl as number;
+        entry.metadata.expiresAt = new Date(
+          Date.now() + (options.ttl as number) * 1000
+        ).toISOString();
+      }
+      if (options.expiresAt) entry.metadata.expiresAt = options.expiresAt as string;
+
+      await this.saveEntries();
+      await this.logAudit('update', userId, memoryId, entry.type, true);
+
+      return memoryId;
+    } finally {
+      secureWipe(key);
+    }
+  }
+
+  private userIndexAdd(userIdHash: string, id: string): void {
+    let set = this.userIndex.get(userIdHash);
+    if (!set) {
+      set = new Set();
+      this.userIndex.set(userIdHash, set);
+    }
+    set.add(id);
+  }
+
+  private userIndexRemove(userIdHash: string, id: string): void {
+    const set = this.userIndex.get(userIdHash);
+    if (set) {
+      set.delete(id);
+      if (set.size === 0) this.userIndex.delete(userIdHash);
+    }
+  }
+
+  private countUserEntries(userIdHash: string): number {
+    return this.userIndex.get(userIdHash)?.size ?? 0;
+  }
+
+  private findByContentHash(
+    userIdHash: string,
+    contentHash: string
+  ): EncryptedMemoryEntry | undefined {
+    const userIds = this.userIndex.get(userIdHash);
+    if (!userIds) return undefined;
+    for (const id of userIds) {
+      const entry = this.entries.get(id);
+      if (entry?.contentHash === contentHash) return entry;
+    }
+    return undefined;
+  }
+
+  private isExpired(entry: EncryptedMemoryEntry): boolean {
+    if (!entry.metadata.expiresAt) return false;
+    return new Date() > new Date(entry.metadata.expiresAt);
+  }
+
+  private async purgeExpired(): Promise<number> {
+    let purged = 0;
+    for (const [id, entry] of this.entries) {
+      if (this.isExpired(entry)) {
+        this.entries.delete(id);
+        this.userIndexRemove(entry.userIdHash, id);
+        purged++;
+      }
+    }
+
+    if (purged > 0) {
+      await this.saveEntries();
+      log.info(`Purged ${purged} expired entries`);
+    }
+
+    return purged;
+  }
+
+  /**
+   * Load or create the installation salt file.
+   * Priority: explicit config/env > persisted file > generate new.
+   */
+  private async loadOrCreateSalt(): Promise<string> {
+    // Highest priority: explicit config or env var
+    if (this.config.installationSalt) {
+      return this.config.installationSalt;
+    }
+
+    const saltFile = path.join(this.config.storageDir, 'salt.key');
+    try {
+      const existing = await fs.readFile(saltFile, 'utf-8');
+      const trimmed = existing.trim();
+      if (trimmed.length >= 32) return trimmed;
+    } catch {
+      // File doesn't exist yet — generate a new one
+    }
+
+    // Generate a new salt and persist it
+    const newSalt = randomBytes(32).toString('hex');
+    try {
+      await fs.writeFile(saltFile, newSalt, { mode: 0o600 });
+    } catch (err) {
+      log.warn(
+        'Could not persist installation salt — set MEMORY_SALT env var to avoid key loss on restart',
+        {
+          error: String(err),
+        }
+      );
+    }
+    return newSalt;
+  }
+
+  private async loadEntries(): Promise<void> {
+    const filePath = path.join(this.config.storageDir, 'entries.encrypted.json');
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const data = JSON.parse(content) as EncryptedMemoryEntry[];
+      this.entries = new Map(data.map((e) => [e.id, e]));
+    } catch (error) {
+      // Distinguish first-run (ENOENT — expected, debug is fine) from a
+      // corruption event (which would silently lose all encrypted
+      // credentials). On corruption, rename the file out of the way so the
+      // user can recover it manually.
+      const isFirstRun = (error as NodeJS.ErrnoException)?.code === 'ENOENT';
+      const log = getLog('SecureStore');
+      if (isFirstRun) {
+        log.debug('Failed to load entries, starting with empty store:', error);
+      } else {
+        const corruptPath = `${filePath}.corrupt-${Date.now()}`;
+        try {
+          await fs.rename(filePath, corruptPath);
+        } catch {
+          // best-effort
+        }
+        log.error(
+          `entries.encrypted.json was corrupt; renamed to ${corruptPath} and starting with empty store. Original error:`,
+          error
+        );
+      }
+      this.entries = new Map();
+    }
+
+    // Rebuild per-user index
+    this.userIndex.clear();
+    for (const [id, entry] of this.entries) {
+      this.userIndexAdd(entry.userIdHash, id);
+    }
+  }
+
+  private async saveEntries(): Promise<void> {
+    const filePath = path.join(this.config.storageDir, 'entries.encrypted.json');
+    const data = Array.from(this.entries.values());
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  }
+
+  private async loadAuditLog(): Promise<void> {
+    const filePath = path.join(this.config.storageDir, 'audit.log.json');
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      this.auditLog = JSON.parse(content) as AuditLogEntry[];
+
+      // Prune old entries
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - this.config.auditRetentionDays);
+      this.auditLog = this.auditLog.filter((e) => new Date(e.timestamp) > cutoff);
+    } catch (error) {
+      // File may not exist on first run - this is expected
+      const log = getLog('SecureStore');
+      log.debug('Failed to load audit log, starting with empty log:', error);
+      this.auditLog = [];
+    }
+  }
+
+  private async saveAuditLog(): Promise<void> {
+    if (!this.config.auditLog) return;
+
+    const filePath = path.join(this.config.storageDir, 'audit.log.json');
+    await fs.writeFile(filePath, JSON.stringify(this.auditLog, null, 2), 'utf-8');
+  }
+
+  private async logAudit(
+    action: AuditLogEntry['action'],
+    userId: string,
+    memoryId?: string,
+    memoryType?: MemoryType,
+    success: boolean = true,
+    error?: string,
+    metadata?: Record<string, unknown>
+  ): Promise<void> {
+    if (!this.config.auditLog) return;
+
+    const entry: AuditLogEntry = {
+      timestamp: new Date().toISOString(),
+      action,
+      userId: hashUserId(userId, this.config.installationSalt).slice(0, 16), // Partial hash for privacy
+      memoryId: memoryId?.slice(0, 16), // Partial ID
+      memoryType,
+      success,
+      error,
+      metadata,
+    };
+
+    this.auditLog.push(entry);
+
+    // Keep log size reasonable
+    if (this.auditLog.length > 10000) {
+      this.auditLog = this.auditLog.slice(-5000);
+    }
+
+    // Save periodically
+    if (this.auditLog.length % 100 === 0) {
+      await this.saveAuditLog();
+    }
+  }
+}

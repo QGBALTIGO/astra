@@ -1,0 +1,541 @@
+/**
+ * Trigger Management Tools
+ *
+ * AI agent tools for creating, managing, and firing triggers.
+ */
+
+import type { ToolDefinition } from '@ownpilot/core/tools';
+import { getTriggerService, getErrorMessage } from '@ownpilot/core/services';
+import { getTriggerEngine } from '../triggers/index.js';
+
+// =============================================================================
+// Tool Definitions
+// =============================================================================
+
+const createTriggerDef: ToolDefinition = {
+  name: 'create_trigger',
+  workflowUsable: false,
+  description: `Create a proactive trigger that automates actions on schedule, event, or condition.
+
+IMPORTANT for schedule triggers: You MUST provide a valid 5-field cron expression. Invalid cron will be rejected.
+Cron format: "minute hour day month weekday"
+- minute: 0-59, hour: 0-23, day: 1-31, month: 1-12, weekday: 0-6 (0=Sunday)
+- Use * for any, */n for every n, n-m for range, n,m for list
+Examples: "0 8 * * *" (daily 8AM), "0 9 * * 1-5" (weekdays 9AM), "*/15 * * * *" (every 15min), "0 20 * * *" (daily 8PM), "0 9 * * 1" (Monday 9AM), "0 0 1 * *" (1st of month midnight)`,
+  parameters: {
+    type: 'object',
+    properties: {
+      name: {
+        type: 'string',
+        description: 'Name for the trigger (e.g. "Daily Report", "Low Progress Alert")',
+      },
+      description: {
+        type: 'string',
+        description: 'What this trigger does',
+      },
+      type: {
+        type: 'string',
+        description:
+          'Trigger type: schedule (cron-based), event (fires on system event), condition (checks periodically), webhook (external call)',
+        enum: ['schedule', 'event', 'condition', 'webhook'],
+      },
+      cron: {
+        type: 'string',
+        description:
+          'REQUIRED for schedule type. 5-field cron: "minute hour day month weekday". Examples: "0 8 * * *" (daily 8AM), "0 9 * * 1-5" (weekdays 9AM), "*/30 * * * *" (every 30min)',
+      },
+      event_type: {
+        type: 'string',
+        description:
+          'For event type. Available events: goal_completed, memory_added, message_received',
+      },
+      condition: {
+        type: 'string',
+        description:
+          'For condition type. Available: stale_goals (goals not updated in N days), upcoming_deadline (goals due within N days), memory_threshold (memory count >= N), low_progress (goals below N% progress), no_activity (no recent activity)',
+        enum: [
+          'stale_goals',
+          'upcoming_deadline',
+          'memory_threshold',
+          'low_progress',
+          'no_activity',
+        ],
+      },
+      threshold: {
+        type: 'number',
+        description:
+          'For condition type. Meaning depends on condition: stale_goals=days (default 3), upcoming_deadline=days (default 7), memory_threshold=count (default 100), low_progress=percent (default 20)',
+      },
+      action_type: {
+        type: 'string',
+        description:
+          'What to do when triggered: chat (send AI prompt), tool (run a tool), notification (log message), goal_check (check stale goals), memory_summary (summarize memories)',
+        enum: ['chat', 'tool', 'notification', 'goal_check', 'memory_summary'],
+      },
+      action_payload: {
+        type: 'object',
+        description:
+          'Action payload. For chat: {"prompt": "your instruction"}. For tool: {"tool": "tool_name", ...args}. For notification: {"message": "text"}. For goal_check: {"staleDays": 3}. For memory_summary: {}.',
+      },
+      enabled: {
+        type: 'boolean',
+        description: 'Whether trigger is active (default: true)',
+      },
+      priority: {
+        type: 'number',
+        description: 'Priority 1-10 (default: 5, higher = more important)',
+      },
+    },
+    required: ['name', 'type', 'action_type', 'action_payload'],
+  },
+  category: 'Automation',
+};
+
+const listTriggersDef: ToolDefinition = {
+  name: 'list_triggers',
+  workflowUsable: false,
+  description: 'List all triggers with their status, type, and last fired time.',
+  parameters: {
+    type: 'object',
+    properties: {
+      type: {
+        type: 'string',
+        description: 'Filter by trigger type',
+        enum: ['schedule', 'event', 'condition', 'webhook'],
+      },
+      enabled: {
+        type: 'boolean',
+        description: 'Filter by enabled/disabled status',
+      },
+    },
+  },
+  category: 'Automation',
+};
+
+const enableTriggerDef: ToolDefinition = {
+  name: 'enable_trigger',
+  workflowUsable: false,
+  description: 'Enable or disable a trigger by its ID.',
+  parameters: {
+    type: 'object',
+    properties: {
+      trigger_id: {
+        type: 'string',
+        description: 'ID of the trigger to enable/disable',
+      },
+      enabled: {
+        type: 'boolean',
+        description: 'Set to true to enable, false to disable',
+      },
+    },
+    required: ['trigger_id', 'enabled'],
+  },
+  category: 'Automation',
+};
+
+const fireTriggerDef: ToolDefinition = {
+  name: 'fire_trigger',
+  workflowUsable: false,
+  description: 'Manually fire a trigger immediately, regardless of its schedule or conditions.',
+  parameters: {
+    type: 'object',
+    properties: {
+      trigger_id: {
+        type: 'string',
+        description: 'ID of the trigger to fire',
+      },
+    },
+    required: ['trigger_id'],
+  },
+  category: 'Automation',
+};
+
+const deleteTriggerDef: ToolDefinition = {
+  name: 'delete_trigger',
+  workflowUsable: false,
+  description: 'Delete a trigger permanently.',
+  parameters: {
+    type: 'object',
+    properties: {
+      trigger_id: {
+        type: 'string',
+        description: 'ID of the trigger to delete',
+      },
+    },
+    required: ['trigger_id'],
+  },
+  category: 'Automation',
+};
+
+const triggerStatsDef: ToolDefinition = {
+  name: 'trigger_stats',
+  workflowUsable: false,
+  description:
+    'Get statistics about triggers: total count, enabled count, fires this week, success rate.',
+  parameters: {
+    type: 'object',
+    properties: {},
+  },
+  category: 'Automation',
+};
+
+const cronFromNaturalLanguageDef: ToolDefinition = {
+  name: 'cron_from_natural_language',
+  workflowUsable: false,
+  description:
+    'Convert a natural language schedule description into a cron expression and create a trigger. ' +
+    'Use this to create schedule triggers without needing to know cron syntax. ' +
+    'Example: "every day at 9am" becomes cron "0 9 * * *".',
+  parameters: {
+    type: 'object',
+    properties: {
+      description: {
+        type: 'string',
+        description:
+          'Natural language description of the schedule (e.g., "every day at 9am", "weekday mornings")',
+      },
+      name: {
+        type: 'string',
+        description: 'Name for the trigger',
+      },
+      action_type: {
+        type: 'string',
+        enum: ['chat', 'tool', 'notification', 'goal_check', 'memory_summary'],
+        description: 'What to do when triggered (default: notification)',
+        default: 'notification',
+      },
+      action_payload: {
+        type: 'object',
+        description: 'Action payload for the trigger',
+      },
+      priority: {
+        type: 'number',
+        description: 'Priority 1-10 (default: 5)',
+        default: 5,
+      },
+    },
+    required: ['description'],
+  },
+  category: 'Automation',
+};
+
+export const TRIGGER_TOOLS: ToolDefinition[] = [
+  createTriggerDef,
+  listTriggersDef,
+  enableTriggerDef,
+  fireTriggerDef,
+  deleteTriggerDef,
+  triggerStatsDef,
+  cronFromNaturalLanguageDef,
+];
+
+// =============================================================================
+// Executor
+// =============================================================================
+
+export async function executeTriggerTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  userId = 'default'
+): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const service = getTriggerService();
+
+  switch (toolName) {
+    case 'create_trigger': {
+      const type = args.type as string;
+      let config: Record<string, unknown> = {};
+
+      if (type === 'schedule') {
+        if (!args.cron) {
+          return {
+            success: false,
+            error:
+              'Schedule triggers require a cron expression. Example: "0 8 * * *" for daily at 8 AM.',
+          };
+        }
+        config = { cron: args.cron, timezone: 'local' };
+      } else if (type === 'event') {
+        if (!args.event_type) {
+          return {
+            success: false,
+            error:
+              'Event triggers require an event_type. Available: goal_completed, memory_added, message_received.',
+          };
+        }
+        config = { eventType: args.event_type };
+      } else if (type === 'condition') {
+        if (!args.condition) {
+          return {
+            success: false,
+            error:
+              'Condition triggers require a condition. Available: stale_goals, upcoming_deadline, memory_threshold, low_progress, no_activity.',
+          };
+        }
+        // Validate condition against allowed values to prevent injection
+        const validConditions = [
+          'stale_goals',
+          'upcoming_deadline',
+          'memory_threshold',
+          'low_progress',
+          'no_activity',
+        ];
+        if (!validConditions.includes(args.condition as string)) {
+          return {
+            success: false,
+            error: `Invalid condition "${args.condition}". Must be one of: ${validConditions.join(', ')}`,
+          };
+        }
+        config = {
+          condition: args.condition,
+          threshold: args.threshold ?? 3,
+          checkInterval: 60,
+        };
+      } else if (type === 'webhook') {
+        config = {};
+      }
+
+      try {
+        const trigger = await service.createTrigger(userId, {
+          name: args.name as string,
+          description: args.description as string | undefined,
+          type: type as 'schedule' | 'event' | 'condition' | 'webhook',
+          config,
+          action: {
+            type: args.action_type as
+              'chat' | 'tool' | 'notification' | 'goal_check' | 'memory_summary',
+            payload: (args.action_payload as Record<string, unknown>) ?? {},
+          },
+          enabled: args.enabled !== false,
+          priority: (args.priority as number) ?? 5,
+        });
+
+        return {
+          success: true,
+          result: {
+            id: trigger.id,
+            name: trigger.name,
+            type: trigger.type,
+            enabled: trigger.enabled,
+            nextFire: trigger.nextFire?.toISOString() ?? null,
+            message:
+              `Trigger "${trigger.name}" created successfully.` +
+              (trigger.nextFire ? ` Next fire: ${trigger.nextFire.toISOString()}` : ''),
+          },
+        };
+      } catch (e) {
+        return { success: false, error: getErrorMessage(e) };
+      }
+    }
+
+    case 'list_triggers': {
+      const triggers = await service.listTriggers(userId, {
+        type: args.type as string | undefined as never,
+        enabled: args.enabled as boolean | undefined,
+        limit: 50,
+      });
+
+      return {
+        success: true,
+        result: triggers.map((t) => ({
+          id: t.id,
+          name: t.name,
+          type: t.type,
+          enabled: t.enabled,
+          priority: t.priority,
+          lastFired: t.lastFired?.toISOString() ?? null,
+          nextFire: t.nextFire?.toISOString() ?? null,
+          fireCount: t.fireCount,
+          description: t.description,
+          actionType: t.action.type,
+        })),
+      };
+    }
+
+    case 'enable_trigger': {
+      const triggerId = args.trigger_id as string;
+      const enabled = args.enabled as boolean;
+      const updated = await service.updateTrigger(userId, triggerId, { enabled });
+      if (!updated) {
+        return { success: false, error: `Trigger not found: ${triggerId}` };
+      }
+      return {
+        success: true,
+        result: { id: triggerId, enabled, message: `Trigger ${enabled ? 'enabled' : 'disabled'}.` },
+      };
+    }
+
+    case 'fire_trigger': {
+      const triggerId = args.trigger_id as string;
+      const trigger = await service.getTrigger(userId, triggerId);
+      if (!trigger) {
+        return { success: false, error: `Trigger not found: ${triggerId}` };
+      }
+
+      const engine = getTriggerEngine();
+      if (!engine) {
+        return { success: false, error: 'Trigger engine is not running.' };
+      }
+
+      try {
+        await engine.fireTrigger(triggerId);
+        return {
+          success: true,
+          result: {
+            id: triggerId,
+            name: trigger.name,
+            message: `Trigger "${trigger.name}" fired manually.`,
+          },
+        };
+      } catch (e) {
+        return { success: false, error: `Failed to fire trigger: ${getErrorMessage(e)}` };
+      }
+    }
+
+    case 'delete_trigger': {
+      const triggerId = args.trigger_id as string;
+      const deleted = await service.deleteTrigger(userId, triggerId);
+      if (!deleted) {
+        return { success: false, error: `Trigger not found: ${triggerId}` };
+      }
+      return { success: true, result: { id: triggerId, message: 'Trigger deleted.' } };
+    }
+
+    case 'trigger_stats': {
+      const stats = await service.getStats(userId);
+      return { success: true, result: stats };
+    }
+
+    case 'cron_from_natural_language': {
+      const description = args.description as string;
+      if (!description) {
+        return { success: false, error: 'description is required' };
+      }
+
+      // We need to make an internal call - create trigger directly via service
+      const { resolveDefaultProviderAndModel, getApiKey } = await import('../routes/settings.js');
+      const { localProvidersRepo } = await import('../db/repositories/index.js');
+      const { createProvider, getProviderConfig, validateCronExpression } =
+        await import('@ownpilot/core');
+      type AIProvider = 'openai' | 'anthropic' | 'google' | 'openai-compatible';
+      const { wsGateway } = await import('../ws/server.js');
+
+      const NATIVE_PROVIDERS = new Set([
+        'openai',
+        'anthropic',
+        'google',
+        'deepseek',
+        'groq',
+        'mistral',
+        'xai',
+        'together',
+        'fireworks',
+        'perplexity',
+      ]);
+
+      const { provider, model } = await resolveDefaultProviderAndModel('default', 'default');
+      if (!provider || !model) {
+        return { success: false, error: 'No AI provider configured' };
+      }
+
+      const localProv = await localProvidersRepo.getProvider(provider);
+      const apiKey = localProv ? localProv.apiKey || 'local-no-key' : await getApiKey(provider);
+      if (!apiKey) {
+        return { success: false, error: `API key not configured for: ${provider}` };
+      }
+
+      const providerConfig = getProviderConfig(provider);
+      const providerType = NATIVE_PROVIDERS.has(provider) ? provider : 'openai';
+      const providerInstance = createProvider({
+        id: provider,
+        provider: providerType as AIProvider,
+        apiKey,
+        baseUrl: providerConfig?.baseUrl,
+        headers: providerConfig?.headers,
+      });
+
+      const NL_CRON_PROMPT = `Convert this natural language schedule description into a valid cron expression.
+
+Input: "${description}"
+
+You MUST respond with ONLY a valid JSON object (no markdown, no explanation):
+{"cron": "valid 5-field cron expression", "summary": "one sentence what this schedule does"}
+
+Cron format: minute hour day month weekday
+- minute: 0-59, hour: 0-23, day: 1-31, month: 1-12, weekday: 0-6 (0=Sunday)
+- Use * for any, */n for every n, n-m for range, n,m for list
+
+Examples:
+- "every day at 9am" -> {"cron": "0 9 * * *", "summary": "Daily at 9am"}
+- "weekday mornings" -> {"cron": "0 8 * * 1-5", "summary": "Weekday mornings at 8am"}
+- "every hour" -> {"cron": "0 * * * *", "summary": "Hourly"}
+- "every Monday at noon" -> {"cron": "0 12 * * 1", "summary": "Weekly on Monday at noon"}`;
+
+      const result = await providerInstance.complete({
+        model: { model, maxTokens: 256, temperature: 0.3 },
+        messages: [
+          {
+            role: 'system' as const,
+            content: 'You are a cron expression expert. Respond with ONLY JSON.',
+          },
+          { role: 'user' as const, content: NL_CRON_PROMPT },
+        ],
+      });
+
+      if (!result.ok || !result.value.content) {
+        return { success: false, error: 'AI failed to parse schedule' };
+      }
+
+      let responseText = result.value.content.trim();
+      const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) responseText = jsonMatch[1]!;
+
+      let parsed: { cron?: string; summary?: string };
+      try {
+        parsed = JSON.parse(responseText);
+      } catch {
+        return { success: false, error: 'Invalid AI response format' };
+      }
+
+      if (!parsed.cron) {
+        return { success: false, error: 'AI did not return cron expression' };
+      }
+
+      const cronValidation = validateCronExpression(parsed.cron);
+      if (!cronValidation.valid) {
+        return { success: false, error: `Invalid cron from AI: ${cronValidation.error}` };
+      }
+
+      const trigger = await service.createTrigger(userId, {
+        name: (args.name as string) ?? parsed.summary ?? description.substring(0, 50),
+        description: parsed.summary ?? description,
+        type: 'schedule',
+        config: { cron: parsed.cron },
+        action: {
+          type: (args.action_type as 'notification') ?? 'notification',
+          payload: (args.action_payload as Record<string, unknown>) ?? {
+            message: `Trigger: ${description}`,
+          },
+        },
+        enabled: true,
+        priority: ((args.priority as number) ?? 5) as number,
+      });
+
+      wsGateway.broadcast('data:changed', { entity: 'trigger', action: 'created', id: trigger.id });
+
+      return {
+        success: true,
+        result: {
+          id: trigger.id,
+          name: trigger.name,
+          cron: parsed.cron,
+          summary: parsed.summary,
+          nextFire: trigger.nextFire?.toISOString() ?? null,
+          message: `Trigger "${trigger.name}" created with cron "${parsed.cron}"`,
+        },
+      };
+    }
+
+    default:
+      return { success: false, error: `Unknown trigger tool: ${toolName}` };
+  }
+}
