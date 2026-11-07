@@ -100,6 +100,8 @@ jobs:
           AUTH_TYPE: jwt
           MEMORY_SALT: test-only-astra-e2e-salt
           OWNPILOT_DATA_DIR: /tmp/astra-e2e-data
+          # Used only by CI Vite (localhost:8199); do not disable CSRF checks.
+          CORS_ORIGINS: 'http://localhost:8199'
         run: |
           set -euo pipefail
           export BOOTSTRAP_TOKEN="$(openssl rand -hex 40)"
