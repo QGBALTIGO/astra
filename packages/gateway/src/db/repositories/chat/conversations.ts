@@ -37,13 +37,20 @@ export class ConversationsRepository extends BaseRepository {
   async create(data: {
     id: string;
     agentName: string;
+    userId?: string;
     systemPrompt?: string;
     metadata?: Record<string, unknown>;
   }): Promise<Conversation> {
     await this.execute(
-      `INSERT INTO conversations (id, agent_name, system_prompt, metadata)
-       VALUES ($1, $2, $3, $4)`,
-      [data.id, data.agentName, data.systemPrompt ?? null, JSON.stringify(data.metadata ?? {})]
+      `INSERT INTO conversations (id, user_id, agent_name, system_prompt, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        data.id,
+        data.userId ?? 'default',
+        data.agentName,
+        data.systemPrompt ?? null,
+        JSON.stringify(data.metadata ?? {}),
+      ]
     );
 
     const result = await this.getById(data.id);
