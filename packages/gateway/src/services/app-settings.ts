@@ -419,7 +419,14 @@ export async function isSandboxEnabled(): Promise<boolean> {
 // Tool group settings
 // ============================================
 
-/** Get enabled tool group IDs (synchronous read from settings cache). */
+/**
+ * Return the effective tool groups. Astra's personal-finance feature flag
+ * enables the user-requested finance capabilities even if an older saved
+ * OwnPilot configuration omitted that group. Dangerous groups (shell,
+ * CLI, email, remote actions) retain their individual permission gates.
+ */
 export function getEnabledToolGroupIds(): string[] {
-  return settingsRepo.get<string[]>(TOOL_GROUPS_KEY) ?? DEFAULT_ENABLED_GROUPS;
+  const configured = settingsRepo.get<string[]>(TOOL_GROUPS_KEY) ?? DEFAULT_ENABLED_GROUPS;
+  if (process.env.ASTRA_ENABLE_FINANCE !== 'true') return configured;
+  return configured.includes('finance') ? configured : [...configured, 'finance'];
 }
