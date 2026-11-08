@@ -1073,6 +1073,106 @@ describe('ChannelServiceImpl', () => {
       mockSessionsRepo.touchLastMessage.mockResolvedValue(undefined);
     });
 
+    describe('WhatsApp multi-user routing', () => {
+      it('assigns a unique private scope to each customer while preserving the owner', async () => {
+        vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+        try {
+          service.dispose();
+          channelPlugin = createChannelPlugin({
+            id: 'channel.whatsapp',
+            platform: 'whatsapp',
+            botPhone: '5567981030648',
+          });
+          registry = createMockPluginRegistry([channelPlugin]);
+          service = new ChannelServiceImpl(registry as never, {
+            usersRepo: mockUsersRepo as never,
+            sessionsRepo: mockSessionsRepo as never,
+            verificationService: mockVerificationService as never,
+            dmPairingRequests: mockDmPairingRequests as never,
+          });
+          mockGetOwnerUserId.mockResolvedValue('5567981030648');
+          mockUsersRepo.findOrCreate.mockImplementation(async (input: {
+            ownpilotUserId?: string;
+            platformUserId: string;
+          }) =>
+            createChannelUser({
+              id: `cu-${input.platformUserId}`,
+              ownpilotUserId: input.ownpilotUserId ?? 'default',
+              isVerified: input.platformUserId === '5567981030648',
+            })
+          );
+          mockGetOrCreateChatAgent.mockResolvedValue(
+            createMockAgent({
+              chat: vi.fn().mockResolvedValue({ ok: true, value: { content: 'Tudo certo' } }),
+            })
+          );
+
+          for (const [id, phone] of [
+            ['customer-a', '5521997557364'],
+            ['customer-b', '5511987654321'],
+            ['owner', '5567981030648'],
+          ]) {
+            await service.processIncomingMessage(
+              createIncomingMessage({
+                id,
+                channelPluginId: 'channel.whatsapp',
+                platform: 'whatsapp',
+                platformChatId: phone,
+                sender: { platformUserId: phone, platform: 'whatsapp' },
+                metadata: { fromMe: phone === '5567981030648', isSelfChat: phone === '5567981030648' },
+              })
+            );
+          }
+
+          expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
+            expect.objectContaining({ ownpilotUserId: 'whatsapp:5521997557364' })
+          );
+          expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
+            expect.objectContaining({ ownpilotUserId: 'whatsapp:5511987654321' })
+          );
+          expect(mockVerificationService.verifyViaWhitelist).toHaveBeenCalledWith(
+            'whatsapp',
+            '5521997557364',
+            'Test User',
+            'whatsapp:5521997557364'
+          );
+          expect(mockGetOrCreateChatAgent.mock.calls.map((call) => call[8])).toEqual(
+            expect.arrayContaining([
+              'whatsapp:5521997557364',
+              'whatsapp:5511987654321',
+              'default',
+            ])
+          );
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledTimes(3);
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      });
+
+      it('does not allow a customer to claim ownership with a pairing key', async () => {
+        vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+        try {
+          mockGetOwnerUserId.mockResolvedValue('5567981030648');
+          mockUsersRepo.findOrCreate.mockResolvedValue(
+            createChannelUser({ ownpilotUserId: 'whatsapp:5521997557364' })
+          );
+          await service.processIncomingMessage(
+            createIncomingMessage({
+              platform: 'whatsapp',
+              sender: { platformUserId: '5521997557364', platform: 'whatsapp' },
+              text: '/connect SOME-ADMIN-KEY',
+              metadata: { isSelfChat: false, fromMe: false },
+            })
+          );
+
+          expect(mockClaimOwnership).not.toHaveBeenCalled();
+          expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      });
+    });
+
     describe('user resolution', () => {
       it('should find or create channel user from message sender', async () => {
         // Set up MessageBus path
