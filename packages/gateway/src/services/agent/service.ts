@@ -35,6 +35,7 @@ import { getSoulsRepository } from '../../db/repositories/souls.js';
 import { getAgentMessagesRepository } from '../../db/repositories/agents/messages.js';
 import { getLog } from '../log.js';
 import { BASE_SYSTEM_PROMPT, CHANNEL_SYSTEM_PROMPT, CLI_SYSTEM_PROMPT } from './prompt.js';
+import { registerExpenseOverrides } from '../../tools/overrides/expense.js';
 import {
   registerGatewayTools,
   registerDynamicTools,
@@ -164,6 +165,8 @@ async function createAgentFromRecord(record: AgentRecord): Promise<Agent> {
   // Create tool registry with ALL tools (not just core)
   const tools = new ToolRegistry();
   registerAllTools(tools);
+  // Chat, WhatsApp and configured agents must read the same Postgres expenses as the UI.
+  registerExpenseOverrides(tools, 'default');
   tools.setConfigCenter(getConfigCenter());
 
   // Register all gateway domain tools (memory, goals, etc.) with tracing
@@ -533,6 +536,8 @@ async function createChatAgentInstance(
 
   const tools = new ToolRegistry();
   registerAllTools(tools);
+  // Chat, WhatsApp and configured agents must read the same Postgres expenses as the UI.
+  registerExpenseOverrides(tools, 'default');
   tools.setConfigCenter(getConfigCenter());
 
   const userId = 'default';
