@@ -209,7 +209,7 @@ export class ChannelUsersRepository extends BaseRepository {
   ): Promise<void> {
     await this.execute(
       `UPDATE channel_users SET is_verified = TRUE, verified_at = NOW(),
-        verification_method = $1, ownpilot_user_id = $2
+        verification_method = $1, ownpilot_user_id = $2, status = 'active'
        WHERE id = $3`,
       [method, ownpilotUserId, id]
     );
@@ -251,6 +251,8 @@ export class ChannelUsersRepository extends BaseRepository {
    */
   async list(options?: {
     ownpilotUserId?: string;
+    /** Owner dashboard: include only customers with canonical WhatsApp-scoped IDs. */
+    includeWhatsAppCustomers?: boolean;
     platform?: string;
     isVerified?: boolean;
     limit?: number;
@@ -263,7 +265,14 @@ export class ChannelUsersRepository extends BaseRepository {
     // Scope to a single owner when provided — the management UI must only ever
     // see the authenticated user's own linked channel accounts.
     if (options?.ownpilotUserId) {
-      conditions.push(`ownpilot_user_id = $${paramIndex++}`);
+      if (options.includeWhatsAppCustomers) {
+        conditions.push(
+          `(ownpilot_user_id = ${paramIndex++} OR
+            (platform = 'whatsapp' AND ownpilot_user_id = 'whatsapp:' || platform_user_id))`
+        );
+      } else {
+        conditions.push(`ownpilot_user_id = ${paramIndex++}`);
+      }
       params.push(options.ownpilotUserId);
     }
     if (options?.platform) {
