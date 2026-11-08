@@ -1,0 +1,47 @@
+name: Format Astra WhatsApp multi-user
+on:
+  push:
+    branches:
+      - feat/whatsapp-multiuser-isolado-20261108
+    paths:
+      - .github/workflows/format-whatsapp-multiuser.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/whatsapp-multiuser-isolado-20261108
+          persist-credentials: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Format five files flagged in CI
+        run: |
+          pnpm exec prettier --write \
+            packages/gateway/src/channels/plugins/whatsapp/whatsapp-api.ts \
+            packages/gateway/src/channels/service-impl.test.ts \
+            packages/gateway/src/db/repositories/channels/users.test.ts \
+            packages/gateway/src/routes/channels/auth.ts \
+            packages/gateway/src/services/agent/service.ts
+      - name: Commit formatting to feature branch
+        run: |
+          git add packages/gateway/src/channels/plugins/whatsapp/whatsapp-api.ts \
+            packages/gateway/src/channels/service-impl.test.ts \
+            packages/gateway/src/db/repositories/channels/users.test.ts \
+            packages/gateway/src/routes/channels/auth.ts \
+            packages/gateway/src/services/agent/service.ts
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "style(whatsapp): apply Prettier to multi-user changes"
+            git push origin HEAD:feat/whatsapp-multiuser-isolado-20261108
+          fi
