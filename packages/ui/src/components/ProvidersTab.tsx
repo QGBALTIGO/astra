@@ -241,6 +241,8 @@ export function ProvidersTab() {
             {/* Enable/Disable toggle */}
             <button
               onClick={() => handleToggle(provider.id, !provider.isEnabled)}
+              aria-label={`${provider.isEnabled ? 'Desativar' : 'Ativar'} ${provider.name}`}
+              aria-pressed={provider.isEnabled}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 provider.isEnabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
               }`}
