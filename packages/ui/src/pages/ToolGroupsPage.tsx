@@ -49,7 +49,7 @@ function ToolGroupCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium text-sm text-text-primary">{group.name}</span>
-            <span className="text-xs text-text-muted">({group.toolCount} tools)</span>
+            <span className="text-xs text-text-muted">({group.toolCount} ferramentas)</span>
             {group.alwaysOn && (
               <span className="inline-flex items-center gap-1 text-xs text-text-muted">
                 <Lock className="w-3 h-3" />
@@ -57,7 +57,13 @@ function ToolGroupCard({
               </span>
             )}
           </div>
-          <p className="text-xs text-text-muted mt-0.5 truncate">{group.description}</p>
+          <p className="text-xs text-text-muted mt-0.5 truncate">
+            {group.description === 'Create dynamic tables for any data structure'
+              ? 'Crie tabelas dinâmicas para organizar informações'
+              : group.description === 'Create and manage user-created tools'
+                ? 'Crie e gerencie ferramentas personalizadas'
+                : group.description}
+          </p>
         </div>
 
         {/* Toggle */}
@@ -110,7 +116,7 @@ export function ToolGroupsPage() {
   const toast = useToast();
 
   type TabId = 'home' | 'groups';
-  const TAB_LABELS: Record<TabId, string> = { home: 'Home', groups: 'Groups' };
+  const TAB_LABELS: Record<TabId, string> = { home: 'Início', groups: 'Grupos' };
 
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId =
@@ -138,7 +144,7 @@ export function ToolGroupsPage() {
       setGroups(data.groups);
       setDirty(false);
     } catch (err) {
-      toast.error('Failed to load tool groups');
+      toast.error('Não foi possível carregar os grupos de ferramentas');
       console.error(err);
     } finally {
       setLoading(false);
@@ -160,9 +166,9 @@ export function ToolGroupsPage() {
       const enabledIds = groups.filter((g) => g.enabled).map((g) => g.id);
       await settingsApi.saveToolGroups(enabledIds);
       setDirty(false);
-      toast.success('Tool groups saved');
+      toast.success('Grupos de ferramentas salvos');
     } catch (err) {
-      toast.error('Failed to save tool groups');
+      toast.error('Não foi possível salvar os grupos');
       console.error(err);
     } finally {
       setSaving(false);
@@ -190,7 +196,7 @@ export function ToolGroupsPage() {
             Tool Groups
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            {enabledCount} groups enabled ({totalTools} tools available)
+            {enabledCount} grupos ativos ({totalTools} ferramentas disponíveis)
           </p>
         </div>
         <div className="flex items-center gap-2">

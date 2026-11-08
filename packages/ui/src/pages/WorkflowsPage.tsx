@@ -51,9 +51,9 @@ const logStatusIcons: Record<string, React.ComponentType<{ className?: string }>
 type TabId = 'home' | 'workflows' | 'logs';
 
 const TAB_LABELS: Record<TabId, string> = {
-  home: 'Home',
-  workflows: 'Workflows',
-  logs: 'Execution Logs',
+  home: 'Início',
+  workflows: 'Automações',
+  logs: 'Histórico',
 };
 
 export function WorkflowsPage() {
@@ -81,7 +81,7 @@ export function WorkflowsPage() {
       const data = await workflowsApi.list({ limit: '100' });
       setWorkflows(data.workflows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load workflows');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar as automações');
     } finally {
       setIsLoading(false);
     }
@@ -213,26 +213,27 @@ export function WorkflowsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex min-w-0 flex-col gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Workflows
+            Automações
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            {workflows.length} workflow{workflows.length !== 1 ? 's' : ''}, {activeCount} active
+            {workflows.length} {workflows.length === 1 ? 'automação' : 'automações'}, {activeCount}{' '}
+            ativas
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto">
           <button
             onClick={handleImportFile}
-            className="flex items-center gap-2 px-4 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg transition-colors"
+            className="flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border border-border bg-bg-tertiary px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-bg-primary dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary dark:hover:bg-dark-bg-primary"
           >
             <Upload className="w-4 h-4" />
-            Import
+            Importar
           </button>
           <button
             onClick={handleCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
+            className="flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
           >
             <Plus className="w-4 h-4" />
             Nova automação
@@ -241,7 +242,7 @@ export function WorkflowsPage() {
       </header>
 
       {/* Tab bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="flex min-w-0 gap-1 border-b border-border px-3 py-2 dark:border-dark-border sm:px-6">
         {(['home', 'workflows', 'logs'] as TabId[]).map((tab) => (
           <button
             key={tab}
@@ -249,7 +250,7 @@ export function WorkflowsPage() {
               setActiveTab(tab);
               if (tab === 'logs') fetchRecentLogs();
             }}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-medium transition-colors sm:flex-none sm:justify-start sm:rounded-none sm:border-b-2 sm:px-4 sm:text-sm ${
               activeTab === tab
                 ? 'border-primary text-primary'
                 : 'border-transparent text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:border-border dark:hover:border-dark-border'
@@ -271,57 +272,57 @@ export function WorkflowsPage() {
               { icon: Play, color: 'text-emerald-500 bg-emerald-500/10' },
               { icon: Layers, color: 'text-violet-500 bg-violet-500/10' },
             ]}
-            title="Build Multi-Step Workflows"
-            subtitle="Workflows chain multiple actions into automated pipelines — from simple sequences to complex branching logic."
+            title="Automatize sua rotina"
+            subtitle="Conecte ferramentas e etapas para automatizar tarefas, sem complicação."
             cta={{ label: 'Criar fluxo', icon: Plus, onClick: handleCreate }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to Workflows"
+            skipHomeLabel="Ir diretamente para minhas automações"
             features={[
               {
                 icon: GitBranch,
                 color: 'text-primary bg-primary/10',
-                title: 'Visual Editor',
+                title: 'Editor visual',
                 description:
                   'Drag-and-drop workflow builder with a canvas to wire tools and actions together visually.',
               },
               {
                 icon: Layers,
                 color: 'text-violet-500 bg-violet-500/10',
-                title: 'Step Types',
+                title: 'Etapas flexíveis',
                 description:
                   'Use chat, tool, condition, and transformation nodes to build any automation pipeline.',
               },
               {
                 icon: Shuffle,
                 color: 'text-emerald-500 bg-emerald-500/10',
-                title: 'Branching Logic',
+                title: 'Condições e caminhos',
                 description:
                   'Add conditional branches and parallel paths for complex decision-making workflows.',
               },
               {
                 icon: BarChart,
                 color: 'text-orange-500 bg-orange-500/10',
-                title: 'Execution Logs',
+                title: 'Histórico de execução',
                 description:
                   'Track every workflow run with detailed step-by-step logs, timing, and error reporting.',
               },
             ]}
             steps={[
               {
-                title: 'Create workflow',
+                title: 'Criar automação',
                 detail: 'Start a new workflow with a name and description.',
               },
               {
-                title: 'Add steps',
+                title: 'Adicionar etapas',
                 detail: 'Drag tool nodes, chat nodes, and condition nodes onto the canvas.',
               },
               {
-                title: 'Configure connections',
+                title: 'Conectar etapas',
                 detail: 'Wire steps together to define execution order and data flow.',
               },
               {
-                title: 'Run & monitor',
+                title: 'Executar e acompanhar',
                 detail:
                   'Execute workflows manually or via triggers, and monitor results in real time.',
               },
@@ -329,13 +330,13 @@ export function WorkflowsPage() {
             quickActions={[
               {
                 icon: GitBranch,
-                label: 'View Workflows',
+                label: 'Ver automações',
                 description: 'See all configured workflows',
                 onClick: () => setActiveTab('workflows'),
               },
               {
                 icon: Activity,
-                label: 'Execution Logs',
+                label: 'Histórico de execução',
                 description: 'View workflow run history',
                 onClick: () => {
                   setActiveTab('logs');
@@ -349,7 +350,7 @@ export function WorkflowsPage() {
 
       {/* Content */}
       <div
-        className={`flex-1 overflow-y-auto p-6 animate-fade-in-up ${activeTab === 'home' ? 'hidden' : ''}`}
+        className={`min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 animate-fade-in-up sm:p-6 ${activeTab === 'home' ? 'hidden' : ''}`}
       >
         {activeTab === 'workflows' ? (
           isLoading ? (
@@ -357,11 +358,11 @@ export function WorkflowsPage() {
           ) : error ? (
             <EmptyState
               icon={AlertTriangle}
-              title="Failed to load workflows"
+              title="Não foi possível carregar as automações"
               description={error}
               variant="card"
               action={{
-                label: 'Try Again',
+                label: 'Tentar novamente',
                 onClick: fetchWorkflows,
                 icon: RefreshCw,
               }}
@@ -395,8 +396,8 @@ export function WorkflowsPage() {
         recentLogs.length === 0 ? (
           <EmptyState
             icon={Activity}
-            title="No execution logs"
-            description="Workflow execution history will appear here."
+            title="Nenhuma execução registrada"
+            description="O histórico de execução das automações aparecerá aqui."
           />
         ) : (
           <div className="space-y-2">

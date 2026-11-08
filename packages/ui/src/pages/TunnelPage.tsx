@@ -321,7 +321,7 @@ export function TunnelPage() {
             onClick={handleStop}
             className="flex-1 px-4 py-2 rounded-lg bg-red-500/10 text-red-500 border border-red-500/20 text-sm font-medium hover:bg-red-500/20 transition-colors"
           >
-            Stop Tunnel
+            Parar conexão
           </button>
           {tunnelHref && (
             <a
@@ -331,7 +331,7 @@ export function TunnelPage() {
               className="flex-1 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
             >
               <ExternalLink className="w-4 h-4" />
-              Open URL
+              Abrir endereço
             </a>
           )}
         </div>
@@ -351,7 +351,7 @@ export function TunnelPage() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-text-primary dark:text-dark-text-primary">
-                Tunnel Error
+                Erro na conexão externa
               </h2>
               <StatusBadge state="error" />
             </div>
@@ -379,7 +379,7 @@ export function TunnelPage() {
               onClick={() => setWizardState('configure')}
               className="flex-1 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors"
             >
-              Try Again
+              Tentar novamente
             </button>
           </div>
         </div>
@@ -402,7 +402,7 @@ export function TunnelPage() {
                 Tunnel Stopped
               </h2>
               <p className="text-sm text-text-muted dark:text-dark-text-muted">
-                Your gateway is not accessible from the internet
+                Seu servidor ainda não está acessível pela internet
               </p>
             </div>
           </div>

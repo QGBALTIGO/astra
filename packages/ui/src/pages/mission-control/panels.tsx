@@ -55,7 +55,7 @@ export function EmptyHint() {
   return (
     <div className="p-6 text-center rounded-lg border border-dashed border-border dark:border-dark-border">
       <Zap className="w-10 h-10 text-text-muted mx-auto mb-2 opacity-40" />
-      <p className="text-sm text-text-muted">No claws configured yet.</p>
+      <p className="text-sm text-text-muted">Nenhum agente autônomo configurado.</p>
       <Link to="/claws" className="text-xs text-primary hover:underline mt-2 inline-block">
         Create your first claw →
       </Link>

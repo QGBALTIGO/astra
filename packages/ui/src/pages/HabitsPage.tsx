@@ -448,7 +448,7 @@ export function HabitsPage() {
                   description={
                     filter === 'archived'
                       ? 'Archive habits you no longer track to keep your list clean.'
-                      : 'Create your first habit to start building consistent routines and track your progress.'
+                      : 'Crie seu primeiro hábito para acompanhar sua rotina e suas conquistas.'
                   }
                   variant="card"
                   iconBgColor="bg-emerald-500/10 dark:bg-emerald-500/20"

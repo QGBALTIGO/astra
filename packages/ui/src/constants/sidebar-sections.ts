@@ -579,12 +579,12 @@ export const SIDEBAR_DATA_SECTIONS: Record<string, SidebarDataSectionDef> = {
 
 /** Group labels for ZoneEditor visual grouping */
 export const SECTION_GROUP_LABELS: Record<SidebarSectionGroup, string> = {
-  core: 'Core',
-  data: 'Data',
-  ai: 'AI & Automation',
-  tools: 'Tools & Extensions',
-  personal: 'Personal',
-  system: 'System',
+  core: 'Principal',
+  data: 'Dados e ambientes',
+  ai: 'IA e automações',
+  tools: 'Ferramentas',
+  personal: 'Minha rotina',
+  system: 'Conexões e sistema',
 };
 
 /** Which group each built-in static section belongs to */

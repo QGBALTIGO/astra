@@ -7,13 +7,38 @@ test.describe('Navegação lateral do Astra', () => {
   });
 
   test('usa a largura padrão no computador', async ({ page }) => {
-    await expect(page.locator('[data-testid="sidebar"]')).toHaveClass(/w-60/);
+    await expect(page.locator('[data-testid="sidebar"]')).toHaveClass(/w-64/);
   });
 
   test('exibe os atalhos iniciais da conversa e da visão geral', async ({ page }) => {
     const nav = page.locator('[data-testid="sidebar-nav"]');
     await expect(nav.locator('a[href="/"]').first()).toBeVisible();
     await expect(nav.locator('a[href="/dashboard"]').first()).toBeVisible();
+  });
+
+  test('organiza navegação em seções no estilo Orion', async ({ page }) => {
+    const nav = page.getByTestId('sidebar-nav');
+    for (const group of ['principal', 'rotina', 'conexoes', 'preferencias']) {
+      await expect(nav.getByTestId(`sidebar-group-${group}`)).toBeVisible();
+    }
+    const groupLabels = await nav.locator('.astra-sidebar-group-label').allTextContents();
+    expect(groupLabels.map((label) => label.trim())).toEqual([
+      'Principal',
+      'Minha rotina',
+      'Conexões',
+      'Preferências',
+    ]);
+    // All destinations remain real links, not dummy navigation cards.
+    await expect(nav.locator('a[href="/channels"]')).toBeVisible();
+    await expect(nav.locator('a[href="/tasks"]')).toBeVisible();
+  });
+
+  test('marca a seção atual com o mesmo estilo azul', async ({ page }) => {
+    await page.getByTestId('sidebar-nav').locator('a[href="/dashboard"]').first().click();
+    const active = page.getByTestId('sidebar-nav').locator('a[href="/dashboard"]').first();
+    await expect(active).toHaveClass(/astra-nav-link--active/);
+    await expect(page.getByTestId('sidebar-group-principal')).toBeVisible();
+    await expect(page.locator('#main-content')).toBeVisible();
   });
 
   test('permite abrir busca global pela barra lateral', async ({ page }) => {

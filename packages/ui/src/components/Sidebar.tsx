@@ -27,8 +27,47 @@ import { useDialog } from './ConfirmDialog';
 import { X, ChevronRight, Search, Calendar, MessageSquare } from './icons';
 import type { Conversation } from '../api/types';
 
-/** Data sections get a divider before them (if not first visible section) */
-const DATA_GROUPS = new Set(['data', 'ai', 'tools', 'personal', 'system']);
+/** Visual navigation groups — preserve customizable links and routes. */
+const NAV_GROUP_LABELS: Record<string, string> = {
+  principal: 'Principal',
+  rotina: 'Minha rotina',
+  conexoes: 'Conexões',
+  ferramentas: 'Ferramentas',
+  preferencias: 'Preferências',
+};
+
+function getVisualNavGroup(id: string): string {
+  if (id === '/' || id === '/dashboard' || id === 'search' || id === 'recents' || id === '/history')
+    return 'principal';
+  if (
+    id === 'scheduled' ||
+    [
+      '/calendar',
+      '/tasks',
+      '/expenses',
+      '/memories',
+      '/triggers',
+      'tasks',
+      'notes',
+      'habits',
+      'goals',
+      'memories',
+      'contacts',
+    ].includes(id)
+  )
+    return 'rotina';
+  if (id === 'customize') return 'preferencias';
+  if (
+    ['/channels', 'channels', 'edge-devices', '/edge-devices', 'mcp-servers', 'ai-models'].includes(
+      id
+    )
+  )
+    return 'conexoes';
+  const group = getSectionGroup(id);
+  if (group === 'personal') return 'rotina';
+  if (group === 'system') return 'conexoes';
+  return 'ferramentas';
+}
 
 interface SidebarProps {
   isMobile: boolean;
@@ -120,7 +159,7 @@ export function Sidebar({
   );
 
   // Desktop sidebar width from config (mobile stays fixed w-64)
-  const desktopWidthClass = SIDEBAR_WIDTH_VALUES[layoutConfig.sidebar.width]?.class ?? 'w-60';
+  const desktopWidthClass = SIDEBAR_WIDTH_VALUES[layoutConfig.sidebar.width]?.class ?? 'w-64';
 
   // Accordion collapse state for data sections (default: all expanded)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -185,18 +224,23 @@ export function Sidebar({
       )}
 
       {/* Navigation — config-driven section rendering */}
-      <nav className="flex-1 p-2 overflow-y-auto" data-testid="sidebar-nav">
+      <nav
+        className="astra-sidebar-nav flex-1 min-h-0 overflow-y-auto"
+        data-testid="sidebar-nav"
+        aria-label="Navegação principal"
+      >
         {visibleSections.map((section, sectionIdx) => {
-          // Show divider when entering a data group (not if first section)
-          const currentGroup = getSectionGroup(section.id);
-          const prevGroup =
-            sectionIdx > 0 ? getSectionGroup(visibleSections[sectionIdx - 1]!.id) : currentGroup;
+          const currentGroup = getVisualNavGroup(section.id);
+          const previousGroup =
+            sectionIdx > 0 ? getVisualNavGroup(visibleSections[sectionIdx - 1]!.id) : null;
           const divider =
-            sectionIdx > 0 && currentGroup !== prevGroup && DATA_GROUPS.has(currentGroup) ? (
-              <div
-                key={`div-${section.id}`}
-                className="border-t border-border dark:border-dark-border my-2"
-              />
+            currentGroup !== previousGroup ? (
+              <p
+                className="astra-sidebar-group-label"
+                data-testid={`sidebar-group-${currentGroup}`}
+              >
+                {NAV_GROUP_LABELS[currentGroup]}
+              </p>
             ) : null;
 
           // Registry-driven data sections (workspaces, workflows, and all future data sections)
@@ -223,66 +267,73 @@ export function Sidebar({
             const navItem = NAV_ITEM_MAP.get(section.id);
             if (!navItem) return null;
             return (
-              <PinnedNavLink
-                key={section.id}
-                item={navItem}
-                onCloseCustomize={onCloseCustomize}
-                isCustomizeOpen={isCustomizeOpen}
-                badge={
-                  section.id === '/history'
-                    ? badgeCounts.inbox
-                    : section.id === '/tasks'
-                      ? badgeCounts.tasks
-                      : undefined
-                }
-              />
+              <div key={section.id}>
+                {divider}
+                <PinnedNavLink
+                  item={navItem}
+                  onCloseCustomize={onCloseCustomize}
+                  isCustomizeOpen={isCustomizeOpen}
+                  badge={
+                    section.id === '/history'
+                      ? badgeCounts.inbox
+                      : section.id === '/tasks'
+                        ? badgeCounts.tasks
+                        : undefined
+                  }
+                />
+              </div>
             );
           }
 
           switch (section.id) {
             case 'search':
               return (
-                <button
-                  key="search"
-                  onClick={onSearchOpen}
-                  data-testid="sidebar-search-btn"
-                  className="w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5 text-left"
-                >
-                  <Search className="w-4 h-4 shrink-0" />
-                  <span className="truncate flex-1">Buscar</span>
-                </button>
+                <div key="search">
+                  {divider}
+                  <button
+                    onClick={onSearchOpen}
+                    data-testid="sidebar-search-btn"
+                    className="astra-nav-link w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary text-left"
+                  >
+                    <Search className="w-4 h-4 shrink-0" />
+                    <span className="truncate flex-1">Buscar</span>
+                  </button>
+                </div>
               );
 
             case 'scheduled':
               return (
-                <NavLink
-                  key="scheduled"
-                  to="/calendar"
-                  end
-                  onClick={onCloseCustomize}
-                  data-testid="sidebar-scheduled-link"
-                  className={({ isActive }) =>
-                    `flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base ${
-                      isActive && !isCustomizeOpen
-                        ? 'bg-primary/10 text-primary border-l-[3px] border-primary'
-                        : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5'
-                    }`
-                  }
-                >
-                  <Calendar className="w-4 h-4 shrink-0" />
-                  <span className="truncate flex-1">Agenda</span>
-                </NavLink>
+                <div key="scheduled">
+                  {divider}
+                  <NavLink
+                    to="/calendar"
+                    end
+                    onClick={onCloseCustomize}
+                    data-testid="sidebar-scheduled-link"
+                    className={({ isActive }) =>
+                      `astra-nav-link flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm transition-colors ${
+                        isActive && !isCustomizeOpen
+                          ? 'astra-nav-link--active'
+                          : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
+                      }`
+                    }
+                  >
+                    <Calendar className="w-4 h-4 shrink-0" />
+                    <span className="truncate flex-1">Agenda</span>
+                  </NavLink>
+                </div>
               );
 
             case 'customize':
               return (
                 <div key="customize" data-testid="sidebar-customize-link">
+                  {divider}
                   <button
                     onClick={onCustomizeToggle}
-                    className={`w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base text-left ${
+                    className={`astra-nav-link w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-left transition-colors ${
                       isCustomizeOpen
-                        ? 'bg-primary/10 text-primary border-l-[3px] border-primary'
-                        : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5'
+                        ? 'astra-nav-link--active'
+                        : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
                     }`}
                   >
                     <ChevronRight className="w-4 h-4 shrink-0" />
@@ -302,7 +353,7 @@ export function Sidebar({
                         navigate('/history');
                       }}
                       data-testid="sidebar-recents"
-                      className="w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded-md transition-all text-base text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary hover:translate-x-0.5 text-left"
+                      className="astra-nav-link w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary text-left"
                     >
                       <MessageSquare className="w-4 h-4 shrink-0" />
                       <span className="truncate flex-1">Recentes</span>

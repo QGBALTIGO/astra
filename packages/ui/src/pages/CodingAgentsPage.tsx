@@ -336,7 +336,7 @@ export function CodingAgentsPage() {
               {sessions.length === 0 && !isLoading && (
                 <div className="text-center py-8 text-text-muted dark:text-dark-text-muted text-sm">
                   <Terminal className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p>No sessions yet</p>
+                  <p>Nenhuma sessão registrada</p>
                   <p className="text-xs mt-1">Click "New Session" to start</p>
                 </div>
               )}
@@ -498,11 +498,11 @@ export function CodingAgentsPage() {
               <div className="flex-1 flex items-center justify-center text-text-muted dark:text-dark-text-muted">
                 <div className="text-center">
                   <Terminal className="w-16 h-16 mx-auto mb-4 opacity-20" />
-                  <p className="text-lg font-medium mb-2">No session selected</p>
+                  <p className="text-lg font-medium mb-2">Nenhuma sessão selecionada</p>
                   <p className="text-sm mb-4">
                     {sessions.length > 0
                       ? 'Select a session from the sidebar'
-                      : 'Create a new session to get started'}
+                      : 'Crie uma sessão para começar'}
                   </p>
                   {sessions.length === 0 && (
                     <button

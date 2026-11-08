@@ -124,13 +124,13 @@ export function Layout() {
 
           <div className="astra-shell flex flex-col h-dvh bg-bg-primary dark:bg-dark-bg-primary">
             {/* Global Header Bar — 5 zones: Brand | Left | Center | Right | Settings */}
-            <header className="astra-header relative h-14 flex items-center px-4 md:px-6 border-b border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary shrink-0 z-50">
+            <header className="astra-header relative h-16 flex shrink-0 items-center border-b border-border bg-bg-secondary px-4 dark:border-dark-border dark:bg-dark-bg-secondary md:px-6 z-50">
               {/* Zone 1: Brand (fixed) */}
               <div className="flex items-center gap-2 shrink-0">
                 {isMobile && (
                   <button
                     onClick={() => setIsMobileSidebarOpen(true)}
-                    className="p-1 -ml-1 rounded-md text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary"
+                    className="-ml-1 inline-flex h-10 w-10 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-bg-tertiary dark:text-dark-text-secondary dark:hover:bg-dark-bg-tertiary"
                     aria-label="Abrir menu"
                   >
                     <Menu className="w-5 h-5" />
@@ -176,7 +176,7 @@ export function Layout() {
                 <div ref={settingsDropdownRef} className="relative">
                   <button
                     onClick={() => setIsSettingsDropdownOpen((prev) => !prev)}
-                    className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
+                    className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
                       isSettingsDropdownOpen
                         ? 'bg-primary/15 text-primary'
                         : 'text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
@@ -187,7 +187,7 @@ export function Layout() {
                     <Settings className="w-4 h-4" />
                   </button>
                   {isSettingsDropdownOpen && settingsGroup && (
-                    <div className="absolute top-full right-0 mt-1 min-w-[200px] max-h-[320px] overflow-y-auto py-1 rounded-lg border border-border dark:border-dark-border bg-bg-secondary dark:bg-dark-bg-secondary shadow-lg z-50">
+                    <div className="absolute top-full right-0 z-50 mt-2 max-h-[min(70vh,400px)] min-w-[220px] overflow-y-auto rounded-2xl border border-border bg-bg-secondary p-1.5 shadow-xl dark:border-dark-border dark:bg-dark-bg-secondary">
                       {settingsGroup.items.map((item) => {
                         const Icon = item.icon;
                         const isActive = location.pathname === item.to;

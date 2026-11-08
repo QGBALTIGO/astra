@@ -12,17 +12,17 @@ const CreateTab = lazy(() => import('./CreateTab').then((m) => ({ default: m.Cre
 type TabId = 'home' | 'installed' | 'discover' | 'create';
 
 const TAB_DESCRIPTIONS: Record<TabId, string> = {
-  home: 'Welcome to the Skills Hub',
-  installed: 'Manage your installed skills and extensions',
-  discover: 'Browse the npm registry for AgentSkills.io packages',
-  create: 'Build a new skill with the guided wizard',
+  home: 'Conheça as habilidades do Astra',
+  installed: 'Gerencie suas habilidades e extensões instaladas',
+  discover: 'Encontre novas habilidades e pacotes compatíveis',
+  create: 'Crie uma habilidade com o assistente passo a passo',
 };
 
 const TAB_LABELS: Record<TabId, string> = {
-  home: 'Home',
-  installed: 'Installed',
-  discover: 'Discover',
-  create: 'Create',
+  home: 'Início',
+  installed: 'Instaladas',
+  discover: 'Explorar',
+  create: 'Criar',
 };
 
 function TabLoader() {
@@ -53,12 +53,12 @@ export function SkillsHubPage() {
   const formatParam = searchParams.get('format') ?? undefined;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex min-h-0 min-w-0 flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Skills Hub
+            Central de habilidades
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
             {TAB_DESCRIPTIONS[activeTab]}
@@ -67,12 +67,12 @@ export function SkillsHubPage() {
       </header>
 
       {/* Tab bar */}
-      <div className="flex border-b border-border dark:border-dark-border px-6">
+      <div className="grid min-w-0 grid-cols-2 gap-1 border-b border-border px-3 py-2 dark:border-dark-border sm:flex sm:px-6">
         {(['home', 'installed', 'discover', 'create'] as TabId[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setTab(tab)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-sm font-medium transition-colors sm:justify-start sm:rounded-none sm:border-b-2 sm:px-4 ${
               activeTab === tab
                 ? 'border-primary text-primary'
                 : 'border-transparent text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:border-border dark:hover:border-dark-border'
@@ -96,7 +96,7 @@ export function SkillsHubPage() {
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
         {activeTab === 'home' && <HomeTab />}
         <Suspense fallback={<TabLoader />}>
           {activeTab === 'installed' && (

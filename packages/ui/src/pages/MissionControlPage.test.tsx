@@ -111,7 +111,7 @@ describe('MissionControlPage', () => {
     await flushAsyncUpdates();
 
     expect(container.querySelectorAll('*').length).toBeGreaterThan(10);
-    expect(hasText(container, 'No pending escalations.')).toBe(true);
+    expect(hasText(container, 'Nenhuma pendência de aprovação.')).toBe(true);
   });
 
   it('renders a returned claw in the fleet grid', async () => {

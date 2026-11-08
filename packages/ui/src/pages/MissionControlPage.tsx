@@ -408,7 +408,7 @@ export function MissionControlPage() {
               Escalations ({escalations.length})
             </h2>
             {escalations.length === 0 ? (
-              <p className="text-xs text-text-muted">No pending escalations.</p>
+              <p className="text-xs text-text-muted">Nenhuma pendência de aprovação.</p>
             ) : (
               <div className="space-y-2">
                 {escalations.map((claw) => (
@@ -473,7 +473,7 @@ export function MissionControlPage() {
               </Link>
             </div>
             {codingSessions.length === 0 ? (
-              <p className="text-xs text-text-muted">No active sessions.</p>
+              <p className="text-xs text-text-muted">Nenhuma sessão ativa.</p>
             ) : (
               <div className="space-y-1.5">
                 {codingSessions.slice(0, 5).map((s) => (
@@ -502,7 +502,7 @@ export function MissionControlPage() {
               Recent plan activity
             </h2>
             {activity.length === 0 ? (
-              <p className="text-xs text-text-muted">No plan changes yet.</p>
+              <p className="text-xs text-text-muted">Nenhuma alteração de plano registrada.</p>
             ) : (
               <ul className="space-y-1.5">
                 {activity.slice(0, 12).map(({ claw, entry, at }, i) => (

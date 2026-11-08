@@ -120,14 +120,14 @@ export const SECTION_DEFAULT_STYLES: Record<string, SidebarSectionStyle> = {
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionConfig[] = [
   { id: '/', order: 0 },
   { id: '/dashboard', order: 1 },
-  { id: 'scheduled', order: 2 },
-  { id: '/tasks', order: 3 },
-  { id: '/expenses', order: 4 },
-  { id: '/channels', order: 5 },
-  { id: '/memories', order: 6 },
-  { id: '/triggers', order: 7 },
-  { id: 'search', order: 8 },
-  { id: 'recents', order: 9, style: 'flat' },
+  { id: 'recents', order: 2, style: 'flat' },
+  { id: 'search', order: 3 },
+  { id: 'scheduled', order: 4 },
+  { id: '/tasks', order: 5 },
+  { id: '/expenses', order: 6 },
+  { id: '/memories', order: 7 },
+  { id: '/triggers', order: 8 },
+  { id: '/channels', order: 9 },
   { id: 'customize', order: 10 },
 ];
 
@@ -174,7 +174,7 @@ export const SIDEBAR_WIDTH_VALUES: Record<
   { class: string; label: string; px: number }
 > = {
   narrow: { class: 'w-48', label: 'Compacta', px: 192 },
-  default: { class: 'w-60', label: 'Padrão', px: 240 },
+  default: { class: 'w-64', label: 'Padrão', px: 256 },
   wide: { class: 'w-72', label: 'Ampla', px: 288 },
 };
 
