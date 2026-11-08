@@ -210,4 +210,3 @@ describe('Agendamento direto e gratuito pelo canal', () => {
     expect(response).toContain('já estava registrado');
   });
 });
-

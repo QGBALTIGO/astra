@@ -477,4 +477,3 @@ export async function processDirectAgent(message: ChannelIncomingMessage): Promi
   }
   return 'Não consegui processar sua mensagem agora. Tente novamente em instantes.';
 }
-

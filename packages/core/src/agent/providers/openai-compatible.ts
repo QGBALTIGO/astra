@@ -765,4 +765,3 @@ export function createOpenAICompatibleProvider(
 ): OpenAICompatibleProvider | null {
   return OpenAICompatibleProvider.fromProviderId(providerId);
 }
-
