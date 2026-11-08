@@ -51,9 +51,9 @@ const logStatusIcons: Record<string, React.ComponentType<{ className?: string }>
 type TabId = 'home' | 'workflows' | 'logs';
 
 const TAB_LABELS: Record<TabId, string> = {
-  home: 'Home',
-  workflows: 'Workflows',
-  logs: 'Execution Logs',
+  home: 'Início',
+  workflows: 'Automações',
+  logs: 'Histórico',
 };
 
 export function WorkflowsPage() {
@@ -81,7 +81,7 @@ export function WorkflowsPage() {
       const data = await workflowsApi.list({ limit: '100' });
       setWorkflows(data.workflows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load workflows');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar as automações');
     } finally {
       setIsLoading(false);
     }
@@ -213,27 +213,27 @@ export function WorkflowsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
+      <header className="flex min-w-0 flex-col gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Workflows
+            Automações
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
             {workflows.length} {workflows.length === 1 ? 'automação' : 'automações'}, {activeCount}{' '}
             ativas
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto">
           <button
             onClick={handleImportFile}
-            className="flex items-center gap-2 px-4 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-primary dark:text-dark-text-primary hover:bg-bg-primary dark:hover:bg-dark-bg-primary border border-border dark:border-dark-border rounded-lg transition-colors"
+            className="flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border border-border bg-bg-tertiary px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-bg-primary dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary dark:hover:bg-dark-bg-primary"
           >
             <Upload className="w-4 h-4" />
             Importar
           </button>
           <button
             onClick={handleCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
+            className="flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
           >
             <Plus className="w-4 h-4" />
             Nova automação
@@ -242,7 +242,7 @@ export function WorkflowsPage() {
       </header>
 
       {/* Tab bar */}
-      <div className="grid min-w-0 grid-cols-3 gap-1 border-b border-border px-3 py-2 dark:border-dark-border sm:flex sm:px-6">
+      <div className="flex min-w-0 gap-1 border-b border-border px-3 py-2 dark:border-dark-border sm:px-6">
         {(['home', 'workflows', 'logs'] as TabId[]).map((tab) => (
           <button
             key={tab}
@@ -250,7 +250,7 @@ export function WorkflowsPage() {
               setActiveTab(tab);
               if (tab === 'logs') fetchRecentLogs();
             }}
-            className={`flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-sm font-medium transition-colors sm:justify-start sm:rounded-none sm:border-b-2 sm:px-4 ${
+            className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-medium transition-colors sm:flex-none sm:justify-start sm:rounded-none sm:border-b-2 sm:px-4 sm:text-sm ${
               activeTab === tab
                 ? 'border-primary text-primary'
                 : 'border-transparent text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:border-border dark:hover:border-dark-border'
