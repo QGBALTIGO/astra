@@ -30,30 +30,30 @@ const FEATURES: Feature[] = [
   {
     icon: BookOpen,
     color: 'text-primary bg-primary/10',
-    title: 'SKILL.md Standard',
+    title: 'Padrão SKILL.md',
     description:
-      'Skills use the open AgentSkills.io format — plain markdown files that any AI agent can understand.',
+      'As habilidades seguem o padrão aberto AgentSkills.io, em arquivos Markdown que outros assistentes também compreendem.',
   },
   {
     icon: Puzzle,
     color: 'text-violet-500 bg-violet-500/10',
-    title: 'Plug & Play',
+    title: 'Pronto para usar',
     description:
-      'Install a skill and it becomes available to your AI instantly. No code changes, no restarts required.',
+      'Instale uma habilidade e ela ficará disponível para sua IA sem reiniciar ou alterar o código.',
   },
   {
     icon: Globe,
     color: 'text-emerald-500 bg-emerald-500/10',
-    title: 'npm Registry',
+    title: 'Biblioteca npm',
     description:
-      'Discover and install community skills directly from npm. Search by keyword, author, or category.',
+      'Encontre habilidades da comunidade no npm por palavra-chave, autor ou categoria.',
   },
   {
     icon: Wrench,
     color: 'text-orange-500 bg-orange-500/10',
-    title: 'Built-in Tools',
+    title: 'Ferramentas integradas',
     description:
-      'Skills can expose custom tools, API integrations, and data transformations your AI can call.',
+      'As habilidades podem adicionar ferramentas, integrações e transformações de dados ao assistente.',
   },
 ];
 
@@ -69,22 +69,22 @@ const QUICK_ACTIONS: QuickAction[] = [
   {
     tab: 'installed',
     icon: Terminal,
-    label: 'View Installed',
-    description: 'Manage, enable, or remove your current skills',
+    label: 'Ver instaladas',
+    description: 'Gerencie, ative ou remova suas habilidades',
     color: 'border-primary/30 hover:border-primary/60',
   },
   {
     tab: 'discover',
     icon: Search,
-    label: 'Browse Registry',
-    description: 'Search npm for community-built skills',
+    label: 'Explorar biblioteca',
+    description: 'Pesquise habilidades disponíveis no npm',
     color: 'border-emerald-500/30 hover:border-emerald-500/60',
   },
   {
     tab: 'create',
     icon: Plus,
-    label: 'Create a Skill',
-    description: 'Build a new skill with the guided wizard',
+    label: 'Criar habilidade',
+    description: 'Crie uma habilidade com o assistente passo a passo',
     color: 'border-violet-500/30 hover:border-violet-500/60',
   },
 ];
@@ -98,37 +98,37 @@ interface Step {
 const STEPS: Step[] = [
   {
     n: 1,
-    title: 'Find or create a skill',
+    title: 'Encontre ou crie uma habilidade',
     detail:
-      'Browse the npm registry in the Discover tab, or build your own with the Create wizard. Skills are simple SKILL.md markdown files.',
+      'Explore a biblioteca de habilidades ou crie a sua usando o assistente. O formato é um arquivo SKILL.md.',
   },
   {
     n: 2,
-    title: 'Install with one click',
+    title: 'Instale com poucos cliques',
     detail:
-      'Click Install on any discovered package, drag-and-drop a .skill file, or paste a SKILL.md URL. The skill is parsed and stored instantly.',
+      'Instale um pacote encontrado, envie um arquivo .skill ou informe o endereço de um SKILL.md.',
   },
   {
     n: 3,
-    title: 'Your AI gains new abilities',
+    title: 'Sua IA aprende novas habilidades',
     detail:
-      "Installed skills are injected into your AI agent's context automatically. Ask it to use the new capability — it just works.",
+      "As habilidades instaladas são disponibilizadas ao assistente automaticamente.",
   },
   {
     n: 4,
-    title: 'Test, evaluate, and optimize',
+    title: 'Teste, avalie e melhore',
     detail:
-      'Use the built-in eval runner to grade skill quality, then optimize descriptions with AI for better triggering accuracy.',
+      'Avalie a qualidade das habilidades e melhore suas descrições para obter resultados mais precisos.',
   },
 ];
 
 const SKILL_EXAMPLES = [
-  { emoji: '📧', name: 'Email Drafting', desc: 'Compose professional emails in your style' },
-  { emoji: '📊', name: 'Data Analysis', desc: 'Parse CSVs, generate charts, find trends' },
-  { emoji: '🔍', name: 'Web Research', desc: 'Search, summarize, and cite sources' },
-  { emoji: '📝', name: 'Meeting Notes', desc: 'Summarize transcripts into action items' },
-  { emoji: '🛠️', name: 'DevOps', desc: 'Monitor services, parse logs, run deploys' },
-  { emoji: '🌐', name: 'Translation', desc: 'Translate content across 50+ languages' },
+  { emoji: '📧', name: 'Escrever e-mails', desc: 'Crie e-mails profissionais no seu estilo' },
+  { emoji: '📊', name: 'Análise de dados', desc: 'Analise CSVs, gráficos e tendências' },
+  { emoji: '🔍', name: 'Pesquisa na web', desc: 'Pesquise, resuma e cite fontes' },
+  { emoji: '📝', name: 'Notas de reunião', desc: 'Resuma reuniões e organize tarefas' },
+  { emoji: '🛠️', name: 'DevOps', desc: 'Monitore sistemas, logs e publicações' },
+  { emoji: '🌐', name: 'Tradução', desc: 'Traduza textos em mais de 50 idiomas' },
 ];
 
 // =============================================================================
@@ -161,18 +161,18 @@ export function HomeTab() {
           </span>
         </div>
         <h1 className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">
-          Teach Your AI New Skills
+          Ensine novas habilidades à sua IA
         </h1>
         <p className="text-text-secondary dark:text-dark-text-secondary max-w-xl mx-auto leading-relaxed">
-          Skills are portable instruction sets that give your AI agent new capabilities — from email
-          drafting to data analysis. Install from npm or build your own.
+          Habilidades ampliam o que seu assistente pode fazer, de e-mails à análise de dados.
+          Instale pacotes prontos ou crie os seus.
         </p>
         <button
           onClick={() => goToTab('discover')}
           className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition-colors mt-2"
         >
           <Download className="w-4 h-4" />
-          Browse Skills
+          Explorar habilidades
         </button>
       </div>
 
@@ -180,7 +180,7 @@ export function HomeTab() {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
           <Zap className="w-4 h-4 text-primary" />
-          What Are Skills?
+          O que são habilidades?
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {FEATURES.map((f) => (
@@ -208,7 +208,7 @@ export function HomeTab() {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-primary" />
-          Popular Skill Ideas
+          Ideias de habilidades
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {SKILL_EXAMPLES.map((ex) => (
@@ -234,7 +234,7 @@ export function HomeTab() {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-primary" />
-          Getting Started
+          Primeiros passos
         </h2>
         <div className="space-y-3">
           {STEPS.map((step) => (
@@ -259,7 +259,7 @@ export function HomeTab() {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
           <Zap className="w-4 h-4 text-primary" />
-          Quick Actions
+          Acesso rápido
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {QUICK_ACTIONS.map((qa) => (
@@ -284,13 +284,12 @@ export function HomeTab() {
       <div className="border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 rounded-xl p-4 space-y-2">
         <p className="text-sm font-semibold text-blue-700 dark:text-blue-400 flex items-center gap-2">
           <BookOpen className="w-4 h-4" />
-          About the SKILL.md Format
+          Sobre o formato SKILL.md
         </p>
         <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-          Skills follow the open <span className="font-semibold">AgentSkills.io</span> standard — a
-          plain markdown file with YAML frontmatter for metadata and markdown body for instructions.
-          OwnPilot also supports its own native format with richer tool definitions and
-          multi-section layouts. Both formats are fully supported.
+          As habilidades seguem o padrão aberto <span className="font-semibold">AgentSkills.io</span>,
+          com metadados em YAML e instruções em Markdown. O Astra também aceita o formato nativo
+          com ferramentas e seções adicionais. Ambos são compatíveis.
         </p>
       </div>
 
@@ -301,10 +300,10 @@ export function HomeTab() {
           className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition-colors shadow-sm"
         >
           <Plus className="w-4 h-4" />
-          Create Your First Skill
+          Crie sua primeira habilidade
         </button>
         <p className="text-xs text-text-muted dark:text-dark-text-muted mt-2">
-          The wizard guides you through writing, testing, and packaging a skill.
+          O assistente ajuda a escrever, testar e preparar sua habilidade.
         </p>
       </div>
     </div>
