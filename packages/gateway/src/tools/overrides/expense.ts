@@ -7,7 +7,7 @@
  * The tool DEFINITIONS remain in core. Only the executors are swapped.
  */
 
-import type { ToolRegistry, ToolDefinition } from '@ownpilot/core/tools';
+import type { ToolRegistry } from '@ownpilot/core/tools';
 import { executeExpenseTool } from '../expense-tools.js';
 import { getLog } from '../../services/log.js';
 
@@ -35,10 +35,9 @@ export function registerExpenseOverrides(tools: ToolRegistry, userId: string): v
     const existing = tools.get(toolName);
     if (!existing) continue;
 
-    const def: ToolDefinition = existing.definition;
-
-    // Re-register with DB-backed executor (overwrites the file-based one)
-    tools.register(def, async (args) => {
+    // Replacing an executor must use updateExecutor: register() rejects duplicates.
+    // Preserve the original qualified name and definition so tool discovery stays intact.
+    const updated = tools.updateExecutor(existing.definition.name, async (args) => {
       const result = await executeExpenseTool(toolName, args as Record<string, unknown>, userId);
       return {
         content: result.success
@@ -47,7 +46,7 @@ export function registerExpenseOverrides(tools: ToolRegistry, userId: string): v
         isError: !result.success,
       };
     });
-    overridden++;
+    if (updated) overridden++;
   }
 
   log.info(`Registered ${overridden} DB-backed expense tool overrides`);

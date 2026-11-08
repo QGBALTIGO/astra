@@ -1,12 +1,12 @@
 /**
  * Expense Override Registration Tests
  *
- * Verifies registerExpenseOverrides swaps the file-based executors for
- * DB-backed ones without touching parse_receipt, and forwards args and
- * errors correctly through the new executor.
+ * Guarantees DB-backed expense executors replace the existing core handlers.
+ * ToolRegistry.register() rejects duplicates; only updateExecutor() may do this.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { registerAllTools, ToolRegistry } from '@ownpilot/core/tools';
 import { registerExpenseOverrides } from './expense.js';
 
 const mockExecuteExpenseTool = vi.fn();
@@ -15,27 +15,21 @@ vi.mock('../expense-tools.js', () => ({
   executeExpenseTool: (...args: unknown[]) => mockExecuteExpenseTool(...args),
 }));
 
-type Handler = (args: unknown) => Promise<{ content: string; isError: boolean }>;
+type Handler = (args: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
 
-/**
- * Minimal fake of the ToolRegistry interface surface that registerExpenseOverrides
- * actually uses: `get(name)` returning { definition } and `register(def, handler)`.
- * We avoid pulling in the real ToolRegistry so the test stays focused.
- */
-function makeFakeRegistry(existing: string[]): {
-  get: ReturnType<typeof vi.fn>;
-  register: ReturnType<typeof vi.fn>;
-  handlers: Map<string, Handler>;
-} {
+function makeFakeRegistry(existing: string[]) {
   const handlers = new Map<string, Handler>();
-  const register = vi.fn((def: { name: string }, handler: Handler) => {
-    handlers.set(def.name, handler);
-  });
   const get = vi.fn((name: string) => {
     if (!existing.includes(name)) return undefined;
-    return { definition: { name, description: `${name} def` } };
+    return { definition: { name: `core.${name}`, description: `${name} definition` } };
   });
-  return { get, register, handlers };
+  const updateExecutor = vi.fn((name: string, handler: Handler) => {
+    if (!existing.includes(name.replace(/^core\./, ''))) return false;
+    handlers.set(name, handler);
+    return true;
+  });
+  const register = vi.fn();
+  return { get, updateExecutor, register, handlers };
 }
 
 const DB_TOOLS = [
@@ -53,92 +47,92 @@ describe('registerExpenseOverrides', () => {
     vi.clearAllMocks();
   });
 
-  it('registers every DB-backed tool when all originals exist', () => {
+  it('updates all seven registered handlers instead of re-registering duplicates', () => {
     const registry = makeFakeRegistry(DB_TOOLS);
-
     registerExpenseOverrides(registry as never, 'user-1');
 
-    expect(registry.register).toHaveBeenCalledTimes(7);
+    expect(registry.updateExecutor).toHaveBeenCalledTimes(7);
+    expect(registry.register).not.toHaveBeenCalled();
     for (const name of DB_TOOLS) {
-      expect(registry.handlers.has(name)).toBe(true);
+      expect(registry.handlers.has(`core.${name}`)).toBe(true);
     }
   });
 
-  it('does NOT override parse_receipt (vision-based, stays in core)', () => {
+  it('does not override parse_receipt (vision-only, not DB-backed)', () => {
     const registry = makeFakeRegistry([...DB_TOOLS, 'parse_receipt']);
-
     registerExpenseOverrides(registry as never, 'user-1');
-
-    expect(registry.handlers.has('parse_receipt')).toBe(false);
+    expect(registry.handlers.has('core.parse_receipt')).toBe(false);
   });
 
-  it('skips tools that are not registered in the registry', () => {
+  it('skips tools not present in the registry', () => {
     const registry = makeFakeRegistry(['add_expense', 'query_expenses']);
-
     registerExpenseOverrides(registry as never, 'user-1');
-
-    expect(registry.register).toHaveBeenCalledTimes(2);
+    expect(registry.updateExecutor).toHaveBeenCalledTimes(2);
   });
 
-  it('produces no-op registrations when none of the expected tools are present', () => {
+  it('does nothing when none of the expected tools are registered', () => {
     const registry = makeFakeRegistry([]);
-
     registerExpenseOverrides(registry as never, 'user-1');
-
-    expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.updateExecutor).not.toHaveBeenCalled();
   });
 
-  it('forwards tool name, args, and userId to executeExpenseTool; serializes success', async () => {
+  it('passes the user ID and arguments to PostgreSQL-backed executor', async () => {
     const registry = makeFakeRegistry(['add_expense']);
     mockExecuteExpenseTool.mockResolvedValue({
       success: true,
       result: { id: 'exp-1', amount: 12 },
     });
-
     registerExpenseOverrides(registry as never, 'user-42');
-    const handler = registry.handlers.get('add_expense')!;
-    const result = await handler({ amount: 12, description: 'coffee' });
+    const handler = registry.handlers.get('core.add_expense')!;
+    const result = await handler({ amount: 12, description: 'café' });
 
-    expect(mockExecuteExpenseTool).toHaveBeenCalledWith(
-      'add_expense',
-      { amount: 12, description: 'coffee' },
-      'user-42'
-    );
+    const expectedArgs = { amount: 12, description: 'café' };
+    expect(mockExecuteExpenseTool).toHaveBeenCalledWith('add_expense', expectedArgs, 'user-42');
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.content)).toEqual({ id: 'exp-1', amount: 12 });
   });
 
-  it('marks handler result as error when the underlying executor fails with an error string', async () => {
+  it('reports an underlying execution failure without pretending success', async () => {
     const registry = makeFakeRegistry(['delete_expense']);
     mockExecuteExpenseTool.mockResolvedValue({ success: false, error: 'not found' });
-
     registerExpenseOverrides(registry as never, 'user-1');
-    const handler = registry.handlers.get('delete_expense')!;
-    const result = await handler({ id: 'exp-x' });
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toBe('not found');
+    const result = await registry.handlers.get('core.delete_expense')!({ expenseId: 'exp-x' });
+    expect(result).toEqual({ isError: true, content: 'not found' });
   });
 
-  it('falls back to generic message when executor returns failure without an error field', async () => {
+  it('uses a generic error when the executor supplies no error field', async () => {
     const registry = makeFakeRegistry(['query_expenses']);
     mockExecuteExpenseTool.mockResolvedValue({ success: false });
-
     registerExpenseOverrides(registry as never, 'user-1');
-    const handler = registry.handlers.get('query_expenses')!;
-    const result = await handler({});
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toBe('Expense operation failed');
+    const result = await registry.handlers.get('core.query_expenses')!({});
+    expect(result).toEqual({ isError: true, content: 'Expense operation failed' });
   });
 
-  it('passes through the existing tool definition when re-registering', () => {
+  it('uses updateExecutor with the existing qualified definition name', () => {
     const registry = makeFakeRegistry(['add_expense']);
-
     registerExpenseOverrides(registry as never, 'user-1');
+    expect(registry.updateExecutor.mock.calls[0]?.[0]).toBe('core.add_expense');
+  });
 
-    const [def] = registry.register.mock.calls[0]!;
-    expect((def as { name: string }).name).toBe('add_expense');
-    expect((def as { description: string }).description).toBe('add_expense def');
+  it('actually replaces existing core handlers in the real ToolRegistry', async () => {
+    const registry = new ToolRegistry();
+    registerAllTools(registry);
+
+    const previousExpenseExecutor = registry.get('expense_summary')?.executor;
+    const originalReceiptExecutor = registry.get('parse_receipt')?.executor;
+    expect(previousExpenseExecutor).toBeDefined();
+
+    registerExpenseOverrides(registry, 'user-42');
+
+    expect(registry.get('expense_summary')?.executor).not.toBe(previousExpenseExecutor);
+    expect(registry.get('parse_receipt')?.executor).toBe(originalReceiptExecutor);
+
+    mockExecuteExpenseTool.mockResolvedValue({ success: true, result: { totalAmount: 50 } });
+    const args = { period: 'this_month' };
+    const context = { userId: 'user-42', conversationId: 'test', callId: 'test' } as never;
+    const result = await registry.get('expense_summary')!.executor(args, context);
+
+    expect(mockExecuteExpenseTool).toHaveBeenCalledWith('expense_summary', args, 'user-42');
+    expect(JSON.parse(result.content as string)).toEqual({ totalAmount: 50 });
   });
 });

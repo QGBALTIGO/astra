@@ -18,7 +18,7 @@
 import { sanitizeProviderName } from '../utils/common.js';
 import { settingsRepo, localProvidersRepo } from '../db/repositories/index.js';
 import { getDefaultModelForProvider, type ResolvedAuth } from '@ownpilot/core/agent';
-import { DEFAULT_ENABLED_GROUPS } from '@ownpilot/core/tools';
+import { DEFAULT_ENABLED_GROUPS, TOOL_GROUPS } from '@ownpilot/core/tools';
 import { DEFAULT_SANDBOX_SETTINGS } from '@ownpilot/core/workspace';
 import type { SandboxSettings } from '@ownpilot/core/workspace';
 import { getLog } from './log.js';
@@ -422,4 +422,21 @@ export async function isSandboxEnabled(): Promise<boolean> {
 /** Get enabled tool group IDs (synchronous read from settings cache). */
 export function getEnabledToolGroupIds(): string[] {
   return settingsRepo.get<string[]>(TOOL_GROUPS_KEY) ?? DEFAULT_ENABLED_GROUPS;
+}
+
+/**
+ * Opt-in Astra migration: enable every built-in tool group once for this instance.
+ * Never overwrite later user changes from Settings on subsequent restarts.
+ * Provider credentials, execution permissions and approval policies remain separate.
+ */
+const ASTRA_ALL_TOOL_GROUPS_MIGRATION_KEY = 'astra:all-tool-groups-migrated-v1';
+
+export async function bootstrapAstraToolGroups(): Promise<void> {
+  if (process.env.ASTRA_ENABLE_ALL_TOOL_GROUPS !== 'true') return;
+  if (settingsRepo.get<boolean>(ASTRA_ALL_TOOL_GROUPS_MIGRATION_KEY) === true) return;
+
+  const groupIds = Object.keys(TOOL_GROUPS);
+  await settingsRepo.set(TOOL_GROUPS_KEY, groupIds);
+  await settingsRepo.set(ASTRA_ALL_TOOL_GROUPS_MIGRATION_KEY, true);
+  settingsLog.info(`Astra activated ${groupIds.length} tool groups (one-time migration)`);
 }
