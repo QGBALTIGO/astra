@@ -614,7 +614,9 @@ async function createChatAgentInstance(
   const enabledGroupIds = getEnabledToolGroupIds();
   const allowedToolNames = new Set(resolveToolGroups(enabledGroupIds, undefined));
   const filteredChatTools = chatStandardToolDefs.filter(
-    (tool) => allowedToolNames.has(tool.name) || allowedToolNames.has(getBaseName(tool.name))
+    (tool) =>
+      (!isWhatsAppCustomer || tools.has(tool.name)) &&
+      (allowedToolNames.has(tool.name) || allowedToolNames.has(getBaseName(tool.name)))
   );
   const toolDefs = [...filteredChatTools, ...chatAlwaysIncluded];
   // A customer needs the personal tools even if the operator disables a global
