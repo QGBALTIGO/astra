@@ -59,6 +59,7 @@ import {
   API_KEY_PREFIX,
   PROVIDER_OAUTH_CONFIG_PREFIX,
   getEffectiveAllowedDirs,
+  getEnabledToolGroupIds,
 } from './app-settings.js';
 
 describe('getResolvedAuth', () => {
@@ -268,5 +269,52 @@ describe('getEffectiveAllowedDirs (CODING-AGENT-CWD)', () => {
     mockGet.mockResolvedValue(JSON.stringify(['/work']));
     process.env.OWNPILOT_CODING_AGENT_ANY_DIR = 'true';
     expect(await getEffectiveAllowedDirs()).toEqual(['/work']);
+  });
+});
+
+describe('Astra personal finance tool activation', () => {
+  it('enables finance for existing users without activating shell, developer or email tools', () => {
+    const oldFlag = process.env.ASTRA_ENABLE_FINANCE;
+    try {
+      process.env.ASTRA_ENABLE_FINANCE = 'true';
+      mockGet.mockImplementation((key: string) =>
+        key === 'tool_groups' ? ['core', 'personalData', 'memory'] : undefined
+      );
+      expect(getEnabledToolGroupIds()).toEqual(['core', 'personalData', 'memory', 'finance']);
+      expect(getEnabledToolGroupIds()).not.toContain('codeExecution');
+      expect(getEnabledToolGroupIds()).not.toContain('devTools');
+      expect(getEnabledToolGroupIds()).not.toContain('communication');
+    } finally {
+      if (oldFlag === undefined) delete process.env.ASTRA_ENABLE_FINANCE;
+      else process.env.ASTRA_ENABLE_FINANCE = oldFlag;
+    }
+  });
+
+  it('respects the legacy group configuration when Astra finance flag is absent', () => {
+    const oldFlag = process.env.ASTRA_ENABLE_FINANCE;
+    try {
+      delete process.env.ASTRA_ENABLE_FINANCE;
+      mockGet.mockImplementation((key: string) =>
+        key === 'tool_groups' ? ['core', 'personalData'] : undefined
+      );
+      expect(getEnabledToolGroupIds()).toEqual(['core', 'personalData']);
+    } finally {
+      if (oldFlag === undefined) delete process.env.ASTRA_ENABLE_FINANCE;
+      else process.env.ASTRA_ENABLE_FINANCE = oldFlag;
+    }
+  });
+
+  it('does not duplicate finance when it is already enabled', () => {
+    const oldFlag = process.env.ASTRA_ENABLE_FINANCE;
+    try {
+      process.env.ASTRA_ENABLE_FINANCE = 'true';
+      mockGet.mockImplementation((key: string) =>
+        key === 'tool_groups' ? ['core', 'finance'] : undefined
+      );
+      expect(getEnabledToolGroupIds()).toEqual(['core', 'finance']);
+    } finally {
+      if (oldFlag === undefined) delete process.env.ASTRA_ENABLE_FINANCE;
+      else process.env.ASTRA_ENABLE_FINANCE = oldFlag;
+    }
   });
 });

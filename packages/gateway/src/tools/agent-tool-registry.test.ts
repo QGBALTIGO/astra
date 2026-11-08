@@ -1571,6 +1571,33 @@ describe('agent-tools helpers', () => {
       return { reg, captured };
     }
 
+    it('executes personal-data tools with the authenticated user ID', async () => {
+      const { PERSONAL_DATA_TOOLS } = await import('@ownpilot/core/tools');
+      const { executePersonalDataTool } = await import('./personal-data-tools.js');
+      const td = { name: 'list_tasks', description: 'List tasks', parameters: {} };
+      (PERSONAL_DATA_TOOLS as (typeof td)[]).push(td);
+      try {
+        vi.mocked(executePersonalDataTool).mockResolvedValue({
+          success: true,
+          result: { tasks: [] },
+        });
+        const { reg } = captureGatewayExecutors(false);
+        const registered = vi
+          .mocked(reg.register)
+          .mock.calls.find(
+            ([definition]) => (definition as { name: string }).name === 'list_tasks'
+          );
+        expect(registered).toBeDefined();
+        const handler = registered![1] as (args: unknown, context: unknown) => Promise<unknown>;
+        const result = await handler({}, {});
+        expect(executePersonalDataTool).toHaveBeenCalledWith('list_tasks', {}, 'user-1');
+        expect(result).toEqual({ content: JSON.stringify({ tasks: [] }, null, 2) });
+      } finally {
+        const index = (PERSONAL_DATA_TOOLS as (typeof td)[]).indexOf(td);
+        if (index >= 0) (PERSONAL_DATA_TOOLS as (typeof td)[]).splice(index, 1);
+      }
+    });
+
     it('hits the if(trace) branch in group executor (line 210)', async () => {
       mockExecuteMemoryTool.mockResolvedValue({ success: true, result: 'stored' });
       const { captured } = captureGatewayExecutors(true);

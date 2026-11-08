@@ -191,6 +191,11 @@ vi.mock('./prompt.js', () => ({
   CHANNEL_SYSTEM_PROMPT: 'Astra é um assistente em português do Brasil.',
 }));
 
+const mockRegisterExpenseOverrides = vi.fn();
+vi.mock('../../tools/overrides/expense.js', () => ({
+  registerExpenseOverrides: mockRegisterExpenseOverrides,
+}));
+
 vi.mock('../../tools/agent-tool-registry.js', () => ({
   registerGatewayTools: vi.fn(),
   registerDynamicTools: vi.fn(async () => []),
@@ -1358,6 +1363,51 @@ describe('getOrCreateChatAgent', () => {
     expect(
       chatAgentCache.has('chat|groq|openai/gpt-oss-120b|conv_channel:telegram:session-one|channel')
     ).toBe(true);
+  });
+
+  it('uses the authenticated channel user ID for PostgreSQL tools and memory', async () => {
+    mockCreateAgent.mockImplementation(() => makeMockAgent().agent);
+
+    const first = await mod.getOrCreateChatAgent(
+      'groq',
+      'openai/gpt-oss-120b',
+      undefined,
+      null,
+      'channel:telegram:shared',
+      undefined,
+      true,
+      'verified-user-one'
+    );
+    const second = await mod.getOrCreateChatAgent(
+      'groq',
+      'openai/gpt-oss-120b',
+      undefined,
+      null,
+      'channel:telegram:shared',
+      undefined,
+      true,
+      'verified-user-two'
+    );
+
+    expect(first).not.toBe(second);
+    expect(mockRegisterExpenseOverrides).toHaveBeenCalledWith(
+      expect.anything(),
+      'verified-user-one'
+    );
+    expect(mockRegisterExpenseOverrides).toHaveBeenCalledWith(
+      expect.anything(),
+      'verified-user-two'
+    );
+    expect(mockInjectMemoryIntoPrompt).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ userId: 'verified-user-two' })
+    );
+    expect([...chatAgentCache.keys()].some((key) => key.includes('user_verified-user-one'))).toBe(
+      true
+    );
+    expect([...chatAgentCache.keys()].some((key) => key.includes('user_verified-user-two'))).toBe(
+      true
+    );
   });
 
   it('keeps web Groq limits unchanged and isolates external sessions', async () => {

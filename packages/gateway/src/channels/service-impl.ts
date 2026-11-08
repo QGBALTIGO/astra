@@ -970,7 +970,7 @@ export class ChannelServiceImpl implements IChannelService {
         );
       } else {
         // Legacy fallback: direct agent.chat()
-        responseText = await this.processDirectAgent(message);
+        responseText = await this.processDirectAgent(message, channelUser.ownpilotUserId);
       }
 
       // 8. Send response (guard against empty text — Telegram rejects it)
@@ -1101,8 +1101,11 @@ export class ChannelServiceImpl implements IChannelService {
     );
   }
 
-  private async processDirectAgent(message: ChannelIncomingMessage): Promise<string> {
-    return processDirectAgentImpl(message);
+  private async processDirectAgent(
+    message: ChannelIncomingMessage,
+    userId: string
+  ): Promise<string> {
+    return processDirectAgentImpl(message, userId);
   }
 
   // ==========================================================================

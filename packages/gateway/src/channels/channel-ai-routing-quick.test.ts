@@ -1,12 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSchedule = vi.hoisted(() => vi.fn());
+const mockExpenseTool = vi.hoisted(() => vi.fn());
+const mockFinancePermission = vi.hoisted(() => vi.fn());
 vi.mock('../tools/channel-reminder-tools.js', () => ({
   executeChannelReminderTool: mockSchedule,
+}));
+vi.mock('../tools/expense-tools.js', () => ({
+  executeExpenseTool: mockExpenseTool,
+}));
+vi.mock('../services/tool/permission.js', () => ({
+  checkToolPermission: mockFinancePermission,
 }));
 
 import {
   deterministicChannelReply,
+  tryAnswerRecordedExpenses,
   tryScheduleRelativeChannelReminder,
 } from './channel-ai-routing.js';
 
@@ -97,4 +106,81 @@ describe('Agendamento direto e gratuito pelo canal', () => {
     const response = await tryScheduleRelativeChannelReminder(message, 'default');
     expect(response).toContain('já estava registrado');
   });
+});
+
+describe('Consultas financeiras reais, sem IA', () => {
+  beforeEach(() => {
+    mockExpenseTool.mockReset();
+    mockFinancePermission.mockReset();
+    mockFinancePermission.mockResolvedValue({ allowed: true });
+    mockExpenseTool.mockResolvedValue({
+      success: true,
+      result: { period: 'this_month', count: 2, totalAmount: 50, byCurrency: { BRL: 50 } },
+    });
+  });
+
+  it.each([
+    ['Quanto gastei esse mês?', 'this_month'],
+    ['Quanto eu gastei neste mês', 'this_month'],
+    ['Quanto já gastei hoje?', 'today'],
+    ['Quanto gastei mês passado?', 'last_month'],
+    ['Quanto gastei nesta semana?', 'this_week'],
+  ])('consulta %s usando registros do usuário autenticado', async (text, period) => {
+    const response = await tryAnswerRecordedExpenses(text, 'canal-user-1');
+    expect(response).toContain('R$');
+    expect(response).toContain('50,00');
+    expect(mockFinancePermission).toHaveBeenCalledWith('canal-user-1', 'core.expense_summary', {
+      source: 'chat',
+    });
+    expect(mockExpenseTool).toHaveBeenCalledWith('expense_summary', { period }, 'canal-user-1');
+  });
+
+  it('diferencia valor dito no chat de lançamento salvo no banco', async () => {
+    mockExpenseTool.mockResolvedValueOnce({
+      success: true,
+      result: { period: 'this_month', count: 0, totalAmount: 0, byCurrency: {} },
+    });
+    const response = await tryAnswerRecordedExpenses('Quanto gastei esse mês?', 'canal-user-1');
+    expect(response).toContain('Não encontrei despesas salvas');
+    expect(response).toContain('não entram no total');
+  });
+
+  it('não soma BRL e USD sem conversão', async () => {
+    mockExpenseTool.mockResolvedValueOnce({
+      success: true,
+      result: { count: 2, byCurrency: { BRL: 50, USD: 100 } },
+    });
+    const response = await tryAnswerRecordedExpenses('Quanto gastei esse mês?', 'canal-user-1');
+    expect(response).toContain('R$');
+    expect(response).toContain('US$');
+    expect(response).toContain('Não somei moedas diferentes');
+  });
+
+  it('respeita grupo desativado e não expõe despesas', async () => {
+    mockFinancePermission.mockResolvedValueOnce({
+      allowed: false,
+      reason: 'Tool group "Finance" is disabled',
+    });
+    const response = await tryAnswerRecordedExpenses('Quanto gastei hoje?', 'canal-user-1');
+    expect(response).toContain('não foi habilitado');
+    expect(mockExpenseTool).not.toHaveBeenCalled();
+  });
+
+  it('não inventa totais quando o banco falha', async () => {
+    mockExpenseTool.mockResolvedValueOnce({
+      success: false,
+      error: 'PostgreSQL connection failed',
+    });
+    const response = await tryAnswerRecordedExpenses('Quanto gastei esse mês?', 'canal-user-1');
+    expect(response).toContain('Nenhum total foi calculado');
+    expect(response).not.toContain('PostgreSQL');
+  });
+
+  it.each(['Gastei 50 reais no almoço', 'Quanto custa uma consulta?', 'Qual foi meu gasto médio?'])(
+    'mantém outras perguntas %s no fluxo normal',
+    async (question) => {
+      expect(await tryAnswerRecordedExpenses(question, 'canal-user-1')).toBeNull();
+      expect(mockExpenseTool).not.toHaveBeenCalled();
+    }
+  );
 });

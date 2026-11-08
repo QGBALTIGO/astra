@@ -18,6 +18,7 @@ import {
   buildSoulPrompt,
 } from '@ownpilot/core/agent';
 import { ToolRegistry, getBaseName } from '@ownpilot/core/tools';
+import { registerExpenseOverrides } from '../../tools/overrides/expense.js';
 import { hasProviderService, getProviderService } from '@ownpilot/core/services';
 import type { AIProvider } from '@ownpilot/core/costs';
 import { unsafeToolId } from '@ownpilot/core/types';
@@ -168,6 +169,8 @@ async function createAgentFromRecord(record: AgentRecord): Promise<Agent> {
 
   // Register all gateway domain tools (memory, goals, etc.) with tracing
   const userId = 'default';
+  // Finance must use the same PostgreSQL records as the dashboard and API.
+  registerExpenseOverrides(tools, userId);
   registerGatewayTools(tools, userId, true);
 
   // Register dynamic tools (CRUD meta-tools, special meta-tools, active custom tools)
@@ -442,7 +445,8 @@ export async function getOrCreateChatAgent(
   pageContext?: { path?: string } | null,
   conversationId?: string,
   gatewayUrl?: string,
-  channelMode = false
+  channelMode = false,
+  userId = 'default'
 ): Promise<Agent> {
   // CLI providers are NOT cached — each request may need fresh MCP session state
   // while still reusing the persistent ~/.ownpilot/workspace directory.
@@ -454,7 +458,8 @@ export async function getOrCreateChatAgent(
       fallback,
       pageContext,
       gatewayUrl,
-      channelMode
+      channelMode,
+      userId
     );
   }
 
@@ -466,7 +471,8 @@ export async function getOrCreateChatAgent(
   const pathSuffix = pageContext?.path ? `|dir_${sanitize(pageContext.path)}` : '';
   const convSuffix = conversationId ? `|conv_${sanitize(conversationId)}` : '';
   const channelSuffix = channelMode ? '|channel' : '';
-  const cacheKey = `chat|${sanitize(provider)}|${sanitize(model)}${fbSuffix}${pathSuffix}${convSuffix}${channelSuffix}`;
+  const userSuffix = userId === 'default' ? '' : `|user_${sanitize(userId)}`;
+  const cacheKey = `chat|${sanitize(provider)}|${sanitize(model)}${fbSuffix}${pathSuffix}${convSuffix}${channelSuffix}${userSuffix}`;
 
   const cached = lruGet(chatAgentCache, cacheKey);
   if (cached) return cached;
@@ -481,7 +487,8 @@ export async function getOrCreateChatAgent(
     fallback,
     pageContext,
     gatewayUrl,
-    channelMode
+    channelMode,
+    userId
   ).finally(() => {
     pendingChatAgents.delete(cacheKey);
   });
@@ -502,7 +509,8 @@ async function createChatAgentInstance(
   fallback?: { provider: string; model: string },
   _pageContext?: { path?: string } | null,
   gatewayUrl?: string,
-  channelMode = false
+  channelMode = false,
+  userId = 'default'
 ): Promise<Agent> {
   // ── CLI Chat Provider path ──
   // CLI providers (cli-claude, cli-codex, cli-gemini) use login-based auth
@@ -535,7 +543,7 @@ async function createChatAgentInstance(
   registerAllTools(tools);
   tools.setConfigCenter(getConfigCenter());
 
-  const userId = 'default';
+  registerExpenseOverrides(tools, userId);
   registerGatewayTools(tools, userId, false);
 
   const activeCustomToolDefs = await registerDynamicTools(
@@ -589,7 +597,7 @@ async function createChatAgentInstance(
       ? CHANNEL_SYSTEM_PROMPT
       : BASE_SYSTEM_PROMPT;
   const { systemPrompt: enhancedPrompt } = await injectMemoryIntoPrompt(basePrompt, {
-    userId: 'default',
+    userId,
     tools: isCliProvider ? [] : toolDefs, // CLI tools are discovered via MCP, not injected
     includeProfile: true,
     includeInstructions: true,
