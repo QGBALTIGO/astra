@@ -155,6 +155,30 @@ export class ChannelUsersRepository extends BaseRepository {
   ): Promise<ChannelUserEntity & { created: boolean }> {
     const existing = await this.findByPlatform(input.platform, input.platformUserId);
     if (existing) {
+      // Prior single-owner versions created records under "default" even for
+      // ignored senders. In multi-user mode a WhatsApp contact must not retain
+      // that owner scope, any previous verification or a historical session.
+      if (
+        input.platform === 'whatsapp' &&
+        input.ownpilotUserId?.startsWith('whatsapp:') &&
+        existing.ownpilotUserId !== input.ownpilotUserId
+      ) {
+        await this.execute(
+          `UPDATE channel_users
+           SET ownpilot_user_id = $1, is_verified = FALSE, verified_at = NULL,
+               verification_method = NULL
+           WHERE id = $2 AND platform = 'whatsapp'`,
+          [input.ownpilotUserId, existing.id]
+        );
+        await this.execute(
+          `UPDATE channel_sessions SET is_active = FALSE
+           WHERE channel_user_id = $1`,
+          [existing.id]
+        );
+        existing.ownpilotUserId = input.ownpilotUserId;
+        existing.isVerified = false;
+      }
+
       // Update last seen and display info
       await this.execute(
         `UPDATE channel_users SET last_seen_at = NOW(),
