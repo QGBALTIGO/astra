@@ -4,7 +4,7 @@
  * Sections: stats bar, inline command bar, executions table,
  * detail modal, capabilities browser.
  */
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react';
 import {
   Play,
   Square,
@@ -34,6 +34,12 @@ import {
 } from '../api/endpoints/agentic';
 import { providersApi } from '../api/endpoints/providers';
 import { useGateway } from '../hooks/useWebSocket';
+import {
+  AGENTIC_STATUS_LABELS,
+  CAPABILITY_TAG_PT_BR,
+  EXECUTOR_KIND_LABELS,
+  localizedCapability,
+} from './agentic-ptbr';
 
 const POLL_MS = 5_000;
 const EXECUTOR_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -102,7 +108,7 @@ function StatusBadge({ status }: { status: string }) {
     <span
       className={`px-2 py-0.5 rounded text-xs font-medium border ${colors[status] ?? 'bg-gray-800 text-gray-400 border-gray-700'}`}
     >
-      {status.replace(/_/g, ' ')}
+      {AGENTIC_STATUS_LABELS[status] ?? status.replace(/_/g, ' ')}
     </span>
   );
 }
@@ -764,6 +770,8 @@ function CapabilitiesPanel() {
     }>
   >([]);
   const [kindFilter, setKindFilter] = useState('');
+  const [kindMenuOpen, setKindMenuOpen] = useState(false);
+  const kindMenuRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -783,41 +791,74 @@ function CapabilitiesPanel() {
     })();
   }, [kindFilter]);
 
+  useEffect(() => {
+    if (!kindMenuOpen) return;
+    const closeIfOutside = (event: PointerEvent) => {
+      if (!kindMenuRef.current?.contains(event.target as Node)) setKindMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeIfOutside);
+    return () => document.removeEventListener('pointerdown', closeIfOutside);
+  }, [kindMenuOpen]);
+
   const byKind = new Map<string, typeof caps>();
   for (const cap of caps) {
     const list = byKind.get(cap.executorKind) ?? [];
-    list.push(cap);
+    list.push(localizedCapability(cap));
     byKind.set(cap.executorKind, list);
   }
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-4">
-        <select
-          value={kindFilter}
-          onChange={(e) => setKindFilter(e.target.value)}
-          className="px-3 py-1.5 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg border border-border dark:border-dark-border text-xs"
-        >
-          <option value="">All Executor Kinds</option>
-          {[
-            'claw',
-            'soul_heartbeat',
-            'crew',
-            'coding_agent',
-            'workflow',
-            'trigger',
-            'channel',
-            'direct_llm',
-            'sandbox_code',
-            'tool_catalog',
-          ].map((k) => (
-            <option key={k} value={k}>
-              {k.replace(/_/g, ' ')}
-            </option>
-          ))}
-        </select>
+      <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:w-80" ref={kindMenuRef} onKeyDown={(event) => {
+          if (event.key === 'Escape') setKindMenuOpen(false);
+        }}>
+          <button
+            type="button"
+            aria-label="Filtrar por tipo de executor"
+            aria-expanded={kindMenuOpen}
+            aria-controls="agentic-executor-options"
+            aria-haspopup="listbox"
+            onClick={() => setKindMenuOpen((open) => !open)}
+            className="flex min-h-11 w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-left text-sm font-medium text-text-primary transition-colors hover:border-primary/40 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {kindFilter ? EXECUTOR_KIND_LABELS[kindFilter] ?? kindFilter : 'Todos os tipos de executor'}
+            </span>
+            <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${kindMenuOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {kindMenuOpen && (
+            <div
+              id="agentic-executor-options"
+              role="listbox"
+              aria-label="Tipos de executor"
+              className="absolute inset-x-0 top-full z-30 mt-2 max-h-[min(320px,55dvh)] overflow-y-auto rounded-xl border border-border bg-bg-secondary p-1.5 shadow-xl dark:border-dark-border dark:bg-dark-bg-secondary"
+            >
+              {[
+                ['', 'Todos os tipos'],
+                ...Object.entries(EXECUTOR_KIND_LABELS),
+              ].map(([kind, label]) => (
+                <button
+                  key={kind || 'all'}
+                  role="option"
+                  aria-selected={kindFilter === kind}
+                  type="button"
+                  onClick={() => {
+                    setKindFilter(kind);
+                    setKindMenuOpen(false);
+                  }}
+                  className={`flex min-h-10 w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors ${kindFilter === kind
+                    ? 'bg-primary/10 font-semibold text-primary'
+                    : 'text-text-secondary hover:bg-bg-tertiary dark:text-dark-text-secondary dark:hover:bg-dark-bg-tertiary'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <span className="text-xs text-text-muted dark:text-dark-text-muted">
-          {caps.length} capabilities
+          {caps.length} {caps.length === 1 ? 'capacidade disponível' : 'capacidades disponíveis'}
         </span>
       </div>
       {loading ? (
@@ -825,13 +866,13 @@ function CapabilitiesPanel() {
           <RefreshCw className="w-6 h-6 animate-spin text-purple-500" />
         </div>
       ) : caps.length === 0 ? (
-        <div className="text-center py-8 text-text-muted text-sm">No capabilities found</div>
+        <div className="text-center py-8 text-text-muted text-sm">Nenhuma capacidade encontrada</div>
       ) : (
         <div className="space-y-4">
           {Array.from(byKind.entries()).map(([kind, items]) => (
             <div key={kind}>
               <h4 className="text-xs font-semibold text-text-muted dark:text-dark-text-muted uppercase tracking-wider mb-2">
-                {kind.replace(/_/g, ' ')} ({items.length})
+                {EXECUTOR_KIND_LABELS[kind] ?? kind} ({items.length})
               </h4>
               <div className="space-y-2">
                 {items.map((cap) => (
@@ -845,7 +886,7 @@ function CapabilitiesPanel() {
                       </span>
                       {cap.requiresApproval && (
                         <span className="px-1.5 py-0.5 text-[10px] bg-amber-900/30 text-amber-400 rounded">
-                          requires approval
+                          Exige aprovação
                         </span>
                       )}
                     </div>
@@ -853,12 +894,12 @@ function CapabilitiesPanel() {
                       {cap.description}
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {cap.tags.slice(0, 6).map((t) => (
+                      {cap.tags.filter((tag) => CAPABILITY_TAG_PT_BR[tag]).slice(0, 4).map((t) => (
                         <span
                           key={t}
                           className="px-1.5 py-0.5 text-[10px] bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-muted rounded"
                         >
-                          {t}
+                          {CAPABILITY_TAG_PT_BR[t]}
                         </span>
                       ))}
                     </div>
