@@ -1,0 +1,38 @@
+name: Format Astra provider labels once
+on:
+  push:
+    branches:
+      - fix/astra-orion-labels-final-20261108
+    paths:
+      - .github/workflows/astra-pr13-format-once.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Format affected provider UI
+        run: pnpm exec prettier --write packages/ui/src/components/ProvidersTab.tsx packages/ui/src/components/AIBriefingCard.tsx
+      - name: Save formatted code and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add packages/ui/src/components/ProvidersTab.tsx packages/ui/src/components/AIBriefingCard.tsx
+          git rm .github/workflows/astra-pr13-format-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style(astra): formatar traduções de provedores"
+          git push origin HEAD:fix/astra-orion-labels-final-20261108
