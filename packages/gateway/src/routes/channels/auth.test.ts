@@ -308,6 +308,88 @@ describe('Channel Auth Routes', () => {
     });
   });
 
+  describe('WhatsApp subscriber administration', () => {
+    it('lists scoped WhatsApp customers in operator mode', async () => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      try {
+        mockChannelUsersRepo.list.mockResolvedValue([]);
+        await app.request('/auth/users?platform=whatsapp');
+        expect(mockChannelUsersRepo.list).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ownpilotUserId: 'default',
+            includeWhatsAppCustomers: true,
+            platform: 'whatsapp',
+          })
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it('allows the operator to approve a canonical customer scope', async () => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      try {
+        mockVerificationService.approveUser.mockResolvedValue(true);
+        mockChannelUsersRepo.getById.mockResolvedValue(
+          mockUser({
+            id: 'customer-1',
+            platform: 'whatsapp',
+            platformUserId: '5521997557364',
+            ownpilotUserId: 'whatsapp:5521997557364',
+            isVerified: false,
+          })
+        );
+        const res = await app.request('/auth/users/customer-1/approve', { method: 'POST' });
+        expect(res.status).toBe(200);
+        expect(mockVerificationService.approveUser).toHaveBeenCalledWith('customer-1');
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it('refuses forged tenant scopes and other-platform identities', async () => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      try {
+        for (const forgedUser of [
+          mockUser({
+            platform: 'telegram',
+            platformUserId: '5521997557364',
+            ownpilotUserId: 'whatsapp:5521997557364',
+          }),
+          mockUser({
+            platform: 'whatsapp',
+            platformUserId: '5521997557364',
+            ownpilotUserId: 'whatsapp:another-customer',
+          }),
+        ]) {
+          mockChannelUsersRepo.getById.mockResolvedValueOnce(forgedUser);
+          const res = await app.request('/auth/users/u-1/approve', { method: 'POST' });
+          expect(res.status).toBe(404);
+        }
+        expect(mockVerificationService.approveUser).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it('keeps customer management disabled in self-chat mode', async () => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'false');
+      try {
+        mockChannelUsersRepo.getById.mockResolvedValue(
+          mockUser({
+            platform: 'whatsapp',
+            platformUserId: '5521997557364',
+            ownpilotUserId: 'whatsapp:5521997557364',
+          })
+        );
+        const res = await app.request('/auth/users/u-1/approve', { method: 'POST' });
+        expect(res.status).toBe(404);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+  });
+
   // ─── POST /users/:id/approve ───────────────────────────────
 
   describe('POST /auth/users/:id/approve', () => {

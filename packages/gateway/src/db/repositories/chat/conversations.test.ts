@@ -83,7 +83,7 @@ describe('ConversationsRepository', () => {
       // Verify INSERT was called with correct params
       expect(mockAdapter.execute).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO conversations'),
-        ['conv-1', 'assistant', 'You are helpful.', '{"key":"value"}']
+        ['conv-1', 'default', 'assistant', 'You are helpful.', '{"key":"value"}']
       );
 
       // Verify the returned entity is properly mapped
@@ -109,10 +109,24 @@ describe('ConversationsRepository', () => {
       // systemPrompt should be undefined, metadata should be empty object
       expect(mockAdapter.execute).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO conversations'),
-        ['conv-2', 'bot', null, '{}']
+        ['conv-2', 'default', 'bot', null, '{}']
       );
       expect(result.systemPrompt).toBeUndefined();
       expect(result.metadata).toEqual({});
+    });
+
+    it('writes separate user ownership for channel customers', async () => {
+      mockAdapter.execute.mockResolvedValueOnce({ changes: 1 });
+      mockAdapter.queryOne.mockResolvedValueOnce(makeConversationRow());
+      await repo.create({
+        id: 'conv-1',
+        agentName: 'default',
+        userId: 'whatsapp:5521997557364',
+      });
+      expect(mockAdapter.execute).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO conversations (id, user_id'),
+        ['conv-1', 'whatsapp:5521997557364', 'default', null, '{}']
+      );
     });
 
     it('throws when getById returns null after insert', async () => {

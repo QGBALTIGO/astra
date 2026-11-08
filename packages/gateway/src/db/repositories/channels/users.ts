@@ -155,6 +155,30 @@ export class ChannelUsersRepository extends BaseRepository {
   ): Promise<ChannelUserEntity & { created: boolean }> {
     const existing = await this.findByPlatform(input.platform, input.platformUserId);
     if (existing) {
+      // Prior single-owner versions created records under "default" even for
+      // ignored senders. In multi-user mode a WhatsApp contact must not retain
+      // that owner scope, any previous verification or a historical session.
+      if (
+        input.platform === 'whatsapp' &&
+        input.ownpilotUserId?.startsWith('whatsapp:') &&
+        existing.ownpilotUserId !== input.ownpilotUserId
+      ) {
+        await this.execute(
+          `UPDATE channel_users
+           SET ownpilot_user_id = $1, is_verified = FALSE, verified_at = NULL,
+               verification_method = NULL
+           WHERE id = $2 AND platform = 'whatsapp'`,
+          [input.ownpilotUserId, existing.id]
+        );
+        await this.execute(
+          `UPDATE channel_sessions SET is_active = FALSE
+           WHERE channel_user_id = $1`,
+          [existing.id]
+        );
+        existing.ownpilotUserId = input.ownpilotUserId;
+        existing.isVerified = false;
+      }
+
       // Update last seen and display info
       await this.execute(
         `UPDATE channel_users SET last_seen_at = NOW(),
@@ -185,7 +209,7 @@ export class ChannelUsersRepository extends BaseRepository {
   ): Promise<void> {
     await this.execute(
       `UPDATE channel_users SET is_verified = TRUE, verified_at = NOW(),
-        verification_method = $1, ownpilot_user_id = $2
+        verification_method = $1, ownpilot_user_id = $2, status = 'active'
        WHERE id = $3`,
       [method, ownpilotUserId, id]
     );
@@ -227,6 +251,8 @@ export class ChannelUsersRepository extends BaseRepository {
    */
   async list(options?: {
     ownpilotUserId?: string;
+    /** Owner dashboard: include only customers with canonical WhatsApp-scoped IDs. */
+    includeWhatsAppCustomers?: boolean;
     platform?: string;
     isVerified?: boolean;
     limit?: number;
@@ -239,7 +265,14 @@ export class ChannelUsersRepository extends BaseRepository {
     // Scope to a single owner when provided — the management UI must only ever
     // see the authenticated user's own linked channel accounts.
     if (options?.ownpilotUserId) {
-      conditions.push(`ownpilot_user_id = $${paramIndex++}`);
+      if (options.includeWhatsAppCustomers) {
+        conditions.push(
+          `(ownpilot_user_id = $${paramIndex++} OR
+            (platform = 'whatsapp' AND ownpilot_user_id = 'whatsapp:' || platform_user_id))`
+        );
+      } else {
+        conditions.push(`ownpilot_user_id = $${paramIndex++}`);
+      }
       params.push(options.ownpilotUserId);
     }
     if (options?.platform) {

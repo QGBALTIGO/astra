@@ -429,6 +429,24 @@ export class ChannelServiceImpl implements IChannelService {
         return;
       }
 
+      // Resolve channel ownership before choosing a data scope. The connected WhatsApp
+      // account is the administrator; each external phone gets a separate identity.
+      const ownerUserId = await getOwnerUserId(message.platform);
+      const whatsappMultiUser =
+        message.platform === 'whatsapp' && process.env.ASTRA_WHATSAPP_MULTIUSER === 'true';
+      const isWhatsAppGuest =
+        whatsappMultiUser &&
+        ownerUserId !== null &&
+        ownerUserId !== message.sender.platformUserId &&
+        message.metadata?.isGroup !== true;
+      const customerUserId = isWhatsAppGuest
+        ? `whatsapp:${message.sender.platformUserId}`
+        : undefined;
+      if (isWhatsAppGuest && !/^[1-9][0-9]{9,14}$/.test(message.sender.platformUserId)) {
+        log.warn('Ignoring unresolvable WhatsApp customer identity');
+        return;
+      }
+
       // 1. Find or create channel user
       const channelUser = await this.usersRepo.findOrCreate({
         platform: message.platform,
@@ -436,6 +454,7 @@ export class ChannelServiceImpl implements IChannelService {
         displayName: message.sender.displayName,
         platformUsername: message.sender.username,
         avatarUrl: message.sender.avatarUrl,
+        ...(customerUserId ? { ownpilotUserId: customerUserId } : {}),
       });
 
       // 1b. Emit first_seen event for new users
@@ -517,6 +536,14 @@ export class ChannelServiceImpl implements IChannelService {
 
       // 3. Handle /connect — pairing key claim takes priority over everything
       if (message.text.startsWith('/connect ')) {
+        // A customer must never claim channel ownership or link to an admin identity.
+        // Only self-chat messages originated by the connected account may pair.
+        if (
+          whatsappMultiUser &&
+          (message.metadata?.isSelfChat !== true || message.metadata?.fromMe !== true)
+        ) {
+          return;
+        }
         const submittedKey = message.text.slice('/connect '.length).trim();
         await this.handleConnectCommand(message, channelUser.id, submittedKey);
         return;
@@ -530,10 +557,9 @@ export class ChannelServiceImpl implements IChannelService {
 
       // 3b. Owner check — only the claimed owner gets AI responses.
       //     Non-owners get the DM pairing flow: generate code, notify owner.
-      const ownerUserId = await getOwnerUserId(message.platform);
       if (ownerUserId !== null) {
         // Owner IS claimed — check if sender is the owner
-        if (message.sender.platformUserId !== ownerUserId) {
+        if (message.sender.platformUserId !== ownerUserId && !isWhatsAppGuest) {
           // Non-owner: check if pending approval
           const pendingSenders = await this.dmPairing.getPendingSenders(message.platform);
           if (pendingSenders.has(message.sender.platformUserId)) {
@@ -616,16 +642,49 @@ export class ChannelServiceImpl implements IChannelService {
       // 4. Check verification — whitelist, approval code, or admin approval
       if (!channelUser.isVerified) {
         if (message.platform === 'whatsapp') {
-          // Owner confirmed above — auto-verify
+          if (isWhatsAppGuest) {
+            // SaaS access is opt-in: a random DM cannot consume model tokens.
+            // An explicit trusted list can authorize test/customer phones, while
+            // other numbers must be approved in the operator's Channels panel.
+            const trustedNumbers = (process.env.ASTRA_WHATSAPP_TRUSTED_NUMBERS ?? '')
+              .split(',')
+              .map((number) => number.replace(/[^0-9]/g, ''))
+              .filter(Boolean);
+            const canAutoEnroll =
+              process.env.ASTRA_WHATSAPP_AUTO_ENROLL === 'true' ||
+              trustedNumbers.includes(message.sender.platformUserId);
+            if (!canAutoEnroll) {
+              if (channelUser.status !== 'pending') {
+                await this.usersRepo.updateStatus(channelUser.id, 'pending');
+              }
+              if (channelUser.created) {
+                const api = this.getChannel(message.channelPluginId);
+                await api
+                  ?.sendMessage({
+                    platformChatId: message.platformChatId,
+                    text:
+                      'Olá! Seu número foi cadastrado no Astra. Seu acesso está aguardando autorização. ' +
+                      'Você receberá atendimento após a liberação.',
+                  })
+                  .catch((err) => {
+                    log.warn('Could not send WhatsApp access-pending notice', { error: err });
+                  });
+              }
+              return;
+            }
+          }
+
+          // Owner or explicitly authorized customer — verify using their own scope.
           const verificationSvc = getChannelVerificationService();
           await verificationSvc.verifyViaWhitelist(
             message.platform,
             message.sender.platformUserId,
-            message.sender.displayName
+            message.sender.displayName,
+            channelUser.ownpilotUserId
           );
           channelUser.isVerified = true;
-          log.info('Auto-verified WhatsApp owner', {
-            userId: message.sender.platformUserId,
+          log.info('Auto-verified WhatsApp sender', {
+            scope: isWhatsAppGuest ? 'customer' : 'owner',
           });
         } else {
           const plugin = this.pluginRegistry.get(message.channelPluginId);
@@ -848,7 +907,12 @@ export class ChannelServiceImpl implements IChannelService {
         const agent = await getOrCreateChatAgent(
           routing.provider ?? 'openai',
           routing.model ?? 'gpt-4o',
-          fallback
+          fallback,
+          null,
+          `channel:${message.channelPluginId}:${channelUser.id}`,
+          undefined,
+          true,
+          channelUser.ownpilotUserId
         );
         const systemPrompt = agent.getConversation().systemPrompt;
         const conv = agent.getMemory().create(systemPrompt);
@@ -861,6 +925,7 @@ export class ChannelServiceImpl implements IChannelService {
         await conversationsRepo.create({
           id: conversationId,
           agentName: 'default',
+          userId: channelUser.ownpilotUserId,
           metadata: {
             source: 'channel',
             platform: message.platform,
@@ -970,7 +1035,7 @@ export class ChannelServiceImpl implements IChannelService {
         );
       } else {
         // Legacy fallback: direct agent.chat()
-        responseText = await this.processDirectAgent(message);
+        responseText = await this.processDirectAgent(message, channelUser.ownpilotUserId);
       }
 
       // 8. Send response (guard against empty text — Telegram rejects it)
@@ -1101,8 +1166,11 @@ export class ChannelServiceImpl implements IChannelService {
     );
   }
 
-  private async processDirectAgent(message: ChannelIncomingMessage): Promise<string> {
-    return processDirectAgentImpl(message);
+  private async processDirectAgent(
+    message: ChannelIncomingMessage,
+    userId: string
+  ): Promise<string> {
+    return processDirectAgentImpl(message, userId);
   }
 
   // ==========================================================================

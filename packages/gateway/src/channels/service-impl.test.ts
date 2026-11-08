@@ -30,6 +30,7 @@ const mockGetServiceRegistry = vi.hoisted(() => vi.fn());
 
 const mockUsersRepo = vi.hoisted(() => ({
   findOrCreate: vi.fn(),
+  updateStatus: vi.fn().mockResolvedValue(undefined),
 }));
 
 const mockSessionsRepo = vi.hoisted(() => ({
@@ -1073,6 +1074,148 @@ describe('ChannelServiceImpl', () => {
       mockSessionsRepo.touchLastMessage.mockResolvedValue(undefined);
     });
 
+    describe('WhatsApp multi-user routing', () => {
+      it('assigns a unique private scope to each customer while preserving the owner', async () => {
+        vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+        vi.stubEnv('ASTRA_WHATSAPP_AUTO_ENROLL', 'true');
+        try {
+          service.dispose();
+          channelPlugin = createChannelPlugin({
+            id: 'channel.whatsapp',
+            platform: 'whatsapp',
+            botPhone: '5567981030648',
+          });
+          registry = createMockPluginRegistry([channelPlugin]);
+          service = new ChannelServiceImpl(registry as never, {
+            usersRepo: mockUsersRepo as never,
+            sessionsRepo: mockSessionsRepo as never,
+            verificationService: mockVerificationService as never,
+            dmPairingRequests: mockDmPairingRequests as never,
+          });
+          mockGetOwnerUserId.mockResolvedValue('5567981030648');
+          mockUsersRepo.findOrCreate.mockImplementation(
+            async (input: { ownpilotUserId?: string; platformUserId: string }) =>
+              createChannelUser({
+                id: `cu-${input.platformUserId}`,
+                ownpilotUserId: input.ownpilotUserId ?? 'default',
+                isVerified: input.platformUserId === '5567981030648',
+              })
+          );
+          mockGetOrCreateChatAgent.mockResolvedValue(
+            createMockAgent({
+              chat: vi.fn().mockResolvedValue({ ok: true, value: { content: 'Tudo certo' } }),
+            })
+          );
+
+          for (const [id, phone] of [
+            ['customer-a', '5521997557364'],
+            ['customer-b', '5511987654321'],
+            ['owner', '5567981030648'],
+          ]) {
+            await service.processIncomingMessage(
+              createIncomingMessage({
+                id,
+                channelPluginId: 'channel.whatsapp',
+                platform: 'whatsapp',
+                platformChatId: phone,
+                sender: { platformUserId: phone, platform: 'whatsapp' },
+                metadata: {
+                  fromMe: phone === '5567981030648',
+                  isSelfChat: phone === '5567981030648',
+                },
+              })
+            );
+          }
+
+          expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
+            expect.objectContaining({ ownpilotUserId: 'whatsapp:5521997557364' })
+          );
+          expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
+            expect.objectContaining({ ownpilotUserId: 'whatsapp:5511987654321' })
+          );
+          expect(mockVerificationService.verifyViaWhitelist).toHaveBeenCalledWith(
+            'whatsapp',
+            '5521997557364',
+            'Test User',
+            'whatsapp:5521997557364'
+          );
+          expect(mockGetOrCreateChatAgent.mock.calls.map((call) => call[7])).toEqual(
+            expect.arrayContaining(['whatsapp:5521997557364', 'whatsapp:5511987654321', 'default'])
+          );
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledTimes(3);
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      });
+
+      it('saves a new customer as pending until owner approval', async () => {
+        vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+        vi.stubEnv('ASTRA_WHATSAPP_AUTO_ENROLL', 'false');
+        vi.stubEnv('ASTRA_WHATSAPP_TRUSTED_NUMBERS', '');
+        try {
+          service.dispose();
+          channelPlugin = createChannelPlugin({ id: 'channel.whatsapp', platform: 'whatsapp' });
+          registry = createMockPluginRegistry([channelPlugin]);
+          service = new ChannelServiceImpl(registry as never, {
+            usersRepo: mockUsersRepo as never,
+            sessionsRepo: mockSessionsRepo as never,
+            verificationService: mockVerificationService as never,
+            dmPairingRequests: mockDmPairingRequests as never,
+          });
+          mockGetOwnerUserId.mockResolvedValue('5567981030648');
+          mockUsersRepo.findOrCreate.mockResolvedValue({
+            ...createChannelUser({
+              ownpilotUserId: 'whatsapp:5521997557364',
+              isVerified: false,
+            }),
+            status: 'active',
+            created: true,
+          });
+          await service.processIncomingMessage(
+            createIncomingMessage({
+              channelPluginId: 'channel.whatsapp',
+              platform: 'whatsapp',
+              platformChatId: '5521997557364',
+              sender: { platformUserId: '5521997557364', platform: 'whatsapp' },
+              metadata: { fromMe: false, isSelfChat: false },
+            })
+          );
+
+          expect(mockUsersRepo.updateStatus).toHaveBeenCalledWith('cu-1', 'pending');
+          expect(mockVerificationService.verifyViaWhitelist).not.toHaveBeenCalled();
+          expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ text: expect.stringContaining('aguardando autorização') })
+          );
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      });
+
+      it('does not allow a customer to claim ownership with a pairing key', async () => {
+        vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+        try {
+          mockGetOwnerUserId.mockResolvedValue('5567981030648');
+          mockUsersRepo.findOrCreate.mockResolvedValue(
+            createChannelUser({ ownpilotUserId: 'whatsapp:5521997557364' })
+          );
+          await service.processIncomingMessage(
+            createIncomingMessage({
+              platform: 'whatsapp',
+              sender: { platformUserId: '5521997557364', platform: 'whatsapp' },
+              text: '/connect SOME-ADMIN-KEY',
+              metadata: { isSelfChat: false, fromMe: false },
+            })
+          );
+
+          expect(mockClaimOwnership).not.toHaveBeenCalled();
+          expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      });
+    });
+
     describe('user resolution', () => {
       it('should find or create channel user from message sender', async () => {
         // Set up MessageBus path
@@ -1764,7 +1907,8 @@ describe('ChannelServiceImpl', () => {
           null,
           expect.stringContaining('channel:'),
           undefined,
-          true
+          true,
+          'op-user-1'
         );
         expect(mockBus.process).toHaveBeenCalledWith(
           expect.anything(),

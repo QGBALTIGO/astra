@@ -293,7 +293,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         this.handleConnectionUpdate(update);
       });
 
-      // Handle incoming messages — self-chat only
+      // Receive inbound direct messages from other contacts only in explicit multi-user mode.
       this.sock.ev.on('messages.upsert', (upsert) => {
         log.info(
           `[WhatsApp] UPSERT EVENT received — type: ${upsert.type}, count: ${upsert.messages.length}`
@@ -321,12 +321,14 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
           const effectiveJid = this.resolveIncomingJid(msg.key);
           const isSelf = this.isSelfChat(effectiveJid);
-          if (!isSelf) {
-            log.debug(
-              `[WhatsApp] Skipping non-self realtime message from ${effectiveJid ?? msg.key.remoteJid}`
-            );
+          const isInboundDM = effectiveJid?.endsWith('@s.whatsapp.net') && !msg.key.fromMe;
+          const acceptsGuest = process.env.ASTRA_WHATSAPP_MULTIUSER === 'true' && isInboundDM;
+          if (!isSelf && !acceptsGuest) {
+            log.debug('[WhatsApp] Skipping message outside authorized DM handling');
             continue;
           }
+          // Never answer the connected account's outgoing messages to third parties.
+          if (msg.key.fromMe && !isSelf) continue;
           // In self-chat, skip messages the bot sent (prevent infinite loop)
           if (msg.key.id && this.sentMessageIds.has(msg.key.id)) continue;
 
@@ -1236,8 +1238,17 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     const phone = this.phoneFromJid(participantJid);
 
     if (!isGroup && !this.isSelfChat(remoteJid)) {
-      log.info(`[WhatsApp] Skipping non-self DM from ${phone}`);
-      return;
+      // Only real inbound WhatsApp DMs can create a customer conversation.
+      // A manual outgoing message from the connected number must not trigger the AI.
+      if (process.env.ASTRA_WHATSAPP_MULTIUSER !== 'true' || msg.key.fromMe) {
+        log.debug('[WhatsApp] Skipping non-self or outgoing DM');
+        return;
+      }
+      // A phone number must be resolvable; never treat a temporary LID as an account.
+      if (!/^[1-9][0-9]{9,14}$/.test(phone)) {
+        log.warn('[WhatsApp] Ignoring DM with unresolved phone identity');
+        return;
+      }
     }
 
     // Extract message content
@@ -1343,6 +1354,9 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         platformMessageId: messageId,
         jid: remoteJid,
         isGroup,
+        // Origin is trusted Baileys metadata, not the content of the message.
+        isSelfChat: !isGroup && this.isSelfChat(remoteJid),
+        fromMe: msg.key.fromMe === true,
         pushName: msg.pushName || undefined,
         // For groups: store participant JID so we know who sent it
         ...(isGroup && { participant: participantJid }),
