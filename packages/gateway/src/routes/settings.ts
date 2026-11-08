@@ -25,7 +25,7 @@ import {
 import { settingsRepo, localProvidersRepo } from '../db/repositories/index.js';
 import { getAvailableProviders } from '@ownpilot/core/agent';
 import { isDockerAvailable } from '@ownpilot/core/sandbox';
-import { TOOL_GROUPS, DEFAULT_ENABLED_GROUPS } from '@ownpilot/core/tools';
+import { TOOL_GROUPS } from '@ownpilot/core/tools';
 import type { SandboxSettings } from '@ownpilot/core/workspace';
 import { getDataDirectoryInfo } from '../paths/index.js';
 import { getMigrationStatus } from '../paths/migration.js';
@@ -447,8 +447,9 @@ settingsRoutes.post('/sandbox/disable', async (c) => {
  * GET /tool-groups - Get all tool groups with enabled/disabled state
  */
 settingsRoutes.get('/tool-groups', (c) => {
-  const savedGroups = settingsRepo.get<string[]>(TOOL_GROUPS_KEY);
-  const enabledGroupIds = savedGroups ?? DEFAULT_ENABLED_GROUPS;
+  // Report the actual effective flags (including Astra's explicitly
+  // enabled finance capability), not only the old saved settings.
+  const enabledGroupIds = getEnabledToolGroupIds();
 
   const groups = Object.values(TOOL_GROUPS).map((group) => ({
     id: group.id,
@@ -493,7 +494,7 @@ settingsRoutes.put('/tool-groups', async (c) => {
     const enabledGroupIds = [...enabledSet];
     await settingsRepo.set(TOOL_GROUPS_KEY, enabledGroupIds);
 
-    return apiResponse(c, { enabledGroupIds });
+    return apiResponse(c, { enabledGroupIds: getEnabledToolGroupIds() });
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('Validation failed:'))
       return apiError(c, { code: ERROR_CODES.VALIDATION_ERROR, message: err.message }, 400);
