@@ -245,7 +245,9 @@ export function ProvidersTab() {
                 provider.isEnabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
               }`}
               title={
-                provider.isEnabled ? 'Ativado — clique para desativar' : 'Desativado — clique para ativar'
+                provider.isEnabled
+                  ? 'Ativado — clique para desativar'
+                  : 'Desativado — clique para ativar'
               }
             >
               <span
@@ -309,7 +311,9 @@ export function ProvidersTab() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">Provedores de IA</h3>
+        <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
+          Provedores de IA
+        </h3>
         <p className="text-sm text-text-muted dark:text-dark-text-muted">
           Configure provider settings like endpoint URLs and types. These settings survive
           models.dev sync.
@@ -348,7 +352,9 @@ export function ProvidersTab() {
       {/* Stats */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="p-4 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg">
-          <p className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">{providers.length}</p>
+          <p className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">
+            {providers.length}
+          </p>
           <p className="text-sm text-gray-500">Total de provedores</p>
         </div>
         <div className="p-4 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg">

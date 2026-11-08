@@ -569,8 +569,8 @@ export function AIModelsTab() {
             Modelos de IA
           </h3>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            Exibindo {filteredModels.length} modelos &bull; {modelCounts.configured} configurados &bull;{' '}
-            {modelCounts.total} total
+            Exibindo {filteredModels.length} modelos &bull; {modelCounts.configured} configurados
+            &bull; {modelCounts.total} total
           </p>
         </div>
 

@@ -564,7 +564,8 @@ export function ProfilePage() {
                 </div>
               ) : (
                 <p className="text-sm text-text-muted dark:text-dark-text-muted italic">
-                  Nenhuma memória cadastrada. Adicione informações importantes para personalizar seu assistente.
+                  Nenhuma memória cadastrada. Adicione informações importantes para personalizar seu
+                  assistente.
                 </p>
               )}
             </SectionCard>

@@ -219,7 +219,8 @@ export function WorkflowsPage() {
             Workflows
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            {workflows.length} {workflows.length === 1 ? 'automação' : 'automações'}, {activeCount} ativas
+            {workflows.length} {workflows.length === 1 ? 'automação' : 'automações'}, {activeCount}{' '}
+            ativas
           </p>
         </div>
         <div className="flex items-center gap-2">
