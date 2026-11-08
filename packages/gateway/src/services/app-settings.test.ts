@@ -11,7 +11,7 @@
  *    through to the legacy api_key path.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ResolvedAuth } from '@ownpilot/core/agent';
 
 const mockGet = vi.fn();
@@ -59,6 +59,7 @@ import {
   API_KEY_PREFIX,
   PROVIDER_OAUTH_CONFIG_PREFIX,
   getEffectiveAllowedDirs,
+  bootstrapAstraToolGroups,
 } from './app-settings.js';
 
 describe('getResolvedAuth', () => {
@@ -268,5 +269,57 @@ describe('getEffectiveAllowedDirs (CODING-AGENT-CWD)', () => {
     mockGet.mockResolvedValue(JSON.stringify(['/work']));
     process.env.OWNPILOT_CODING_AGENT_ANY_DIR = 'true';
     expect(await getEffectiveAllowedDirs()).toEqual(['/work']);
+  });
+});
+
+describe('bootstrapAstraToolGroups', () => {
+  const originalFlag = process.env.ASTRA_ENABLE_ALL_TOOL_GROUPS;
+
+  beforeEach(() => {
+    mockGet.mockReset();
+    mockSet.mockReset();
+  });
+
+  afterEach(() => {
+    if (originalFlag === undefined) delete process.env.ASTRA_ENABLE_ALL_TOOL_GROUPS;
+    else process.env.ASTRA_ENABLE_ALL_TOOL_GROUPS = originalFlag;
+  });
+
+  it('does not change settings unless the operator explicitly opted in', async () => {
+    delete process.env.ASTRA_ENABLE_ALL_TOOL_GROUPS;
+    await bootstrapAstraToolGroups();
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+
+  it('enables all 14 tool groups once and records the migration', async () => {
+    process.env.ASTRA_ENABLE_ALL_TOOL_GROUPS = 'true';
+    mockGet.mockReturnValue(null);
+    await bootstrapAstraToolGroups();
+
+    expect(mockGet).toHaveBeenCalledWith('astra:all-tool-groups-migrated-v1');
+    expect(mockSet).toHaveBeenCalledTimes(2);
+    const enabledGroups = mockSet.mock.calls[0]?.[1] as string[];
+    expect(mockSet.mock.calls[0]?.[0]).toBe('tool_groups');
+    expect(enabledGroups).toHaveLength(14);
+    for (const group of ['finance', 'webFetch', 'media', 'communication', 'devTools', 'codeExecution']) {
+      expect(enabledGroups).toContain(group);
+    }
+    expect(mockSet).toHaveBeenLastCalledWith('astra:all-tool-groups-migrated-v1', true);
+  });
+
+  it('does not overwrite a user-modified configuration after the first activation', async () => {
+    process.env.ASTRA_ENABLE_ALL_TOOL_GROUPS = 'true';
+    mockGet.mockReturnValue(true);
+    await bootstrapAstraToolGroups();
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+
+  it('does not mark the activation completed if the settings write fails', async () => {
+    process.env.ASTRA_ENABLE_ALL_TOOL_GROUPS = 'true';
+    mockGet.mockReturnValue(null);
+    mockSet.mockRejectedValueOnce(new Error('Postgres unavailable'));
+    await expect(bootstrapAstraToolGroups()).rejects.toThrow('Postgres unavailable');
+    expect(mockSet).toHaveBeenCalledTimes(1);
   });
 });
