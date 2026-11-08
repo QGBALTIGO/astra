@@ -41,7 +41,7 @@ import type { GatewayConfig } from './types/index.js';
 import { wsGateway, setWsAuthConfig } from './ws/index.js';
 import { initializeAdapter } from './db/adapters/index.js';
 import { getDatabaseConfig, DEFAULT_POSTGRES_PASSWORD } from './db/adapters/types.js';
-import { loadApiKeysToEnvironment } from './services/app-settings.js';
+import { bootstrapAstraToolGroups, loadApiKeysToEnvironment } from './services/app-settings.js';
 import { initializeFileWorkspace } from './workspace/index.js';
 import { settingsRepo, initializeSettingsRepo } from './db/repositories/settings/index.js';
 import { initializeDataDirectories, getDataDirectoryInfo } from './paths/index.js';
@@ -298,6 +298,7 @@ async function main() {
   // Initialize settings repository (creates table and loads cache)
   log.info('Initializing settings...');
   await initializeSettingsRepo();
+  await bootstrapAstraToolGroups();
 
   // Reconcile orphaned sessions from any previous crash/unclean shutdown
   log.info('Running orphan session reconciliation...');
