@@ -20,7 +20,7 @@ import {
 } from './icons';
 import { useToast } from './ToastProvider';
 import { providersApi } from '../api';
-import type { ProviderInfo, UserOverride } from '../types';
+import type { ProviderInfo, UserPersonalizado } from '../types';
 import { EmptyState } from './EmptyState';
 import { safeHref } from '../utils/safe-url';
 
@@ -39,7 +39,7 @@ export function ProvidersTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterConfigured, setFilterConfigured] = useState<'all' | 'configured' | 'unconfigured'>(
+  const [filterConfigurados, setFilterConfigurados] = useState<'all' | 'configured' | 'unconfigured'>(
     'configured'
   );
 
@@ -84,7 +84,7 @@ export function ProvidersTab() {
       await providersApi.toggle(providerId, enabled);
       // Update local state
       setProviders((prev) =>
-        prev.map((p) => (p.id === providerId ? { ...p, isEnabled: enabled, hasOverride: true } : p))
+        prev.map((p) => (p.id === providerId ? { ...p, isEnabled: enabled, hasPersonalizado: true } : p))
       );
       toast.success(enabled ? 'Provedor ativado' : 'Provedor desativado');
     } catch {
@@ -96,7 +96,7 @@ export function ProvidersTab() {
     // Fetch current config
     try {
       const data = await providersApi.getConfig(providerId);
-      const override: UserOverride = data.userOverride || ({} as UserOverride);
+      const override: UserPersonalizado = data.userPersonalizado || ({} as UserPersonalizado);
       const baseConfig = data.baseConfig || {};
       setEditForm({
         baseUrl: override.baseUrl || (baseConfig as Record<string, string>).baseUrl || '',
@@ -139,7 +139,7 @@ export function ProvidersTab() {
     }
   };
 
-  const handleResetOverride = async (providerId: string) => {
+  const handleResetPersonalizado = async (providerId: string) => {
     if (!(await confirm({ message: 'Restaurar as configurações padrão deste provedor?' }))) return;
     try {
       await providersApi.resetConfig(providerId);
@@ -160,15 +160,15 @@ export function ProvidersTab() {
         return false;
       }
     }
-    // Configured filter
-    if (filterConfigured === 'configured' && !p.isConfigured) return false;
-    if (filterConfigured === 'unconfigured' && p.isConfigured) return false;
+    // Configurados filter
+    if (filterConfigurados === 'configured' && !p.isConfigurados) return false;
+    if (filterConfigurados === 'unconfigured' && p.isConfigurados) return false;
     return true;
   });
 
   // Group by configured status
-  const configuredProviders = filteredProviders.filter((p) => p.isConfigured);
-  const unconfiguredProviders = filteredProviders.filter((p) => !p.isConfigured);
+  const configuredProviders = filteredProviders.filter((p) => p.isConfigurados);
+  const unconfiguredProviders = filteredProviders.filter((p) => !p.isConfigurados);
 
   const renderProviderCard = (provider: ProviderInfo) => {
     const isDisabled = !provider.isEnabled;
@@ -180,7 +180,7 @@ export function ProvidersTab() {
         className={`rounded-2xl border p-4 transition-colors ${
           isDisabled
             ? 'border-border bg-bg-tertiary opacity-65 dark:border-dark-border dark:bg-dark-bg-tertiary'
-            : provider.isConfigured
+            : provider.isConfigurados
               ? 'border-border bg-bg-secondary hover:border-primary/40 dark:border-dark-border dark:bg-dark-bg-secondary'
               : 'border-border bg-bg-secondary hover:border-primary/25 dark:border-dark-border dark:bg-dark-bg-secondary'
         }`}
@@ -195,13 +195,13 @@ export function ProvidersTab() {
               <h4 className="truncate font-semibold text-text-primary dark:text-dark-text-primary">
                 {provider.name}
               </h4>
-              {provider.isConfigured && (
+              {provider.isConfigurados && (
                 <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                   <Check className="w-3 h-3" />
                   Chave configurada
                 </span>
               )}
-              {provider.hasOverride && (
+              {provider.hasPersonalizado && (
                 <span className="rounded-lg bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
                   Personalizado
                 </span>
@@ -268,7 +268,7 @@ export function ProvidersTab() {
                 href={docsHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-1.5 text-gray-500 hover:text-primary hover:bg-primary/10 rounded transition-colors"
+                className="p-1.5 text-text-muted dark:text-dark-text-muted hover:text-primary hover:bg-primary/10 rounded transition-colors"
                 title="Ver documentação"
               >
                 <ExternalLink className="w-4 h-4" />
@@ -331,9 +331,9 @@ export function ProvidersTab() {
           {(['all', 'configured', 'unconfigured'] as const).map((filter) => (
             <button
               key={filter}
-              onClick={() => setFilterConfigured(filter)}
-              className={`px-3 py-2 text-sm rounded-lg capitalize transition-colors ${
-                filterConfigured === filter
+              onClick={() => setFilterConfigurados(filter)}
+              className={`px-3 py-2 text-sm rounded-xl capitalize transition-colors ${
+                filterConfigurados === filter
                   ? 'bg-primary text-white'
                   : 'bg-bg-tertiary text-text-secondary dark:bg-dark-bg-tertiary dark:text-dark-text-secondary hover:bg-primary/10'
               }`}
@@ -358,19 +358,19 @@ export function ProvidersTab() {
         </div>
         <div className="card-elevated rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary">
           <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-            {providers.filter((p) => p.isConfigured).length}
+            {providers.filter((p) => p.isConfigurados).length}
           </p>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">Configurados</p>
         </div>
         <div className="card-elevated rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary">
           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-            {providers.filter((p) => p.hasOverride).length}
+            {providers.filter((p) => p.hasPersonalizado).length}
           </p>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">Personalizados</p>
         </div>
       </div>
 
-      {/* Configured providers */}
+      {/* Configurados providers */}
       {configuredProviders.length > 0 && (
         <section>
           <h4 className="mb-3 text-sm font-semibold text-text-secondary dark:text-dark-text-secondary">
@@ -383,7 +383,7 @@ export function ProvidersTab() {
       )}
 
       {/* Unconfigured providers */}
-      {unconfiguredProviders.length > 0 && filterConfigured !== 'configured' && (
+      {unconfiguredProviders.length > 0 && filterConfigurados !== 'configured' && (
         <section>
           <h4 className="mb-3 text-sm font-semibold text-text-secondary dark:text-dark-text-secondary">
             Outros provedores ({unconfiguredProviders.length})
@@ -415,14 +415,14 @@ export function ProvidersTab() {
                 </h3>
                 <button
                   onClick={() => setEditingProvider(null)}
-                  className="p-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  className="p-1 text-text-muted dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-gray-300"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               <div className="space-y-4">
-                {/* Provider Type */}
+                {/* Tipo de provedor */}
                 <div>
                   <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
                     Tipo de provedor
@@ -498,7 +498,7 @@ export function ProvidersTab() {
                   />
                 </div>
 
-                {/* Billing Type */}
+                {/* Tipo de cobrança */}
                 <div>
                   <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
                     Tipo de cobrança
@@ -520,7 +520,7 @@ export function ProvidersTab() {
                   </p>
                 </div>
 
-                {/* Subscription details (only if subscription) */}
+                {/* Assinatura details (only if subscription) */}
                 {editForm.billingType === 'subscription' && (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -566,9 +566,9 @@ export function ProvidersTab() {
               </div>
 
               {/* Actions */}
-              <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between mt-6 pt-4 border-t border-border dark:border-dark-border">
                 <button
-                  onClick={() => handleResetOverride(editingProvider)}
+                  onClick={() => handleResetPersonalizado(editingProvider)}
                   className="text-sm text-red-600 hover:text-red-700 dark:text-red-400"
                 >
                   Restaurar padrão
