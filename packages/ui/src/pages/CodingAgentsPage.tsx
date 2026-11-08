@@ -336,7 +336,7 @@ export function CodingAgentsPage() {
               {sessions.length === 0 && !isLoading && (
                 <div className="text-center py-8 text-text-muted dark:text-dark-text-muted text-sm">
                   <Terminal className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p>No sessions yet</p>
+                  <p>Nenhuma sessão registrada</p>
                   <p className="text-xs mt-1">Click "New Session" to start</p>
                 </div>
               )}
