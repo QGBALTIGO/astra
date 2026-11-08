@@ -1,0 +1,39 @@
+name: Astra Finance one-shot formatter
+on:
+  push:
+    branches:
+      - fix/astra-finance-tools-real-records-20261108
+    paths:
+      - .github/workflows/astra-finance-one-shot-format.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Format changed files with repo Prettier
+        run: >-
+          pnpm exec prettier --write packages/core/src/agent/tool-config.ts packages/gateway/src/channels/channel-ai-routing-quick.test.ts packages/gateway/src/channels/channel-ai-routing.ts packages/gateway/src/channels/service-impl.test.ts packages/gateway/src/channels/service-impl.ts packages/gateway/src/services/agent/prompt.ts packages/gateway/src/services/agent/service.test.ts packages/gateway/src/services/agent/service.ts packages/gateway/src/services/app-settings.test.ts packages/gateway/src/services/app-settings.ts packages/gateway/src/tools/agent-tool-registry.test.ts packages/gateway/src/tools/overrides/expense.test.ts packages/gateway/src/tools/overrides/expense.ts packages/gateway/src/tools/registry/core-registration.ts
+      - name: Commit formatted changes and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add packages/core/src/agent/tool-config.ts packages/gateway/src/channels/channel-ai-routing-quick.test.ts packages/gateway/src/channels/channel-ai-routing.ts packages/gateway/src/channels/service-impl.test.ts packages/gateway/src/channels/service-impl.ts packages/gateway/src/services/agent/prompt.ts packages/gateway/src/services/agent/service.test.ts packages/gateway/src/services/agent/service.ts packages/gateway/src/services/app-settings.test.ts packages/gateway/src/services/app-settings.ts packages/gateway/src/tools/agent-tool-registry.test.ts packages/gateway/src/tools/overrides/expense.test.ts packages/gateway/src/tools/overrides/expense.ts packages/gateway/src/tools/registry/core-registration.ts
+          git rm .github/workflows/astra-finance-one-shot-format.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style(astra): format finance registry fixes and tests"
+          git push origin HEAD:fix/astra-finance-tools-real-records-20261108
