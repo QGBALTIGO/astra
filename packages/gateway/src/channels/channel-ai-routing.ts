@@ -166,7 +166,8 @@ export async function processViaBus(
     null,
     `channel:${message.channelPluginId}:${session.sessionId}`,
     undefined,
-    true
+    true,
+    channelUser.ownpilotUserId
   );
 
   // Load session conversation for context continuity
