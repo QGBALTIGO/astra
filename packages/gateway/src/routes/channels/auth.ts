@@ -8,11 +8,26 @@
 import { LOCAL_OWNER_ID } from '../../config/defaults.js';
 import { Hono } from 'hono';
 import { getChannelVerificationService } from '../../channels/auth/verification.js';
-import { channelUsersRepo } from '../../db/repositories/channels/users.js';
+import {
+  channelUsersRepo,
+  type ChannelUserEntity,
+} from '../../db/repositories/channels/users.js';
 import { getPaginationParams, apiResponse, apiError, ERROR_CODES } from '../helpers.js';
 import { wsGateway } from '../../ws/server.js';
 
 export const channelAuthRoutes = new Hono();
+
+function canManageChannelUser(user: ChannelUserEntity, ownerUserId: string): boolean {
+  if (user.ownpilotUserId === ownerUserId) return true;
+  // Customer records live in their own data scope, but the single WhatsApp
+  // account owner must still be able to approve/block/revoke subscriptions.
+  return (
+    ownerUserId === LOCAL_OWNER_ID &&
+    process.env.ASTRA_WHATSAPP_MULTIUSER === 'true' &&
+    user.platform === 'whatsapp' &&
+    user.ownpilotUserId === `whatsapp:${user.platformUserId}`
+  );
+}
 
 /**
  * Load a channel user by id and enforce that it belongs to the authenticated
@@ -23,7 +38,7 @@ export const channelAuthRoutes = new Hono();
  */
 async function getOwnedChannelUserById(id: string, ownerUserId: string) {
   const user = await channelUsersRepo.getById(id);
-  if (!user || user.ownpilotUserId !== ownerUserId) return null;
+  if (!user || !canManageChannelUser(user, ownerUserId)) return null;
   return user;
 }
 
@@ -66,7 +81,7 @@ channelAuthRoutes.get('/status/:platform/:platformUserId', async (c) => {
   const user = await channelUsersRepo.findByPlatform(platform, platformUserId);
 
   // Only return data for the authenticated user's own linked accounts
-  if (user && user.ownpilotUserId !== userId) {
+  if (user && !canManageChannelUser(user, userId)) {
     return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'Not found' }, 404);
   }
 
@@ -98,7 +113,7 @@ channelAuthRoutes.post('/block/:platform/:platformUserId', async (c) => {
   const userId = LOCAL_OWNER_ID;
   const { platform, platformUserId } = c.req.param();
   const target = await channelUsersRepo.findByPlatform(platform, platformUserId);
-  if (!target || target.ownpilotUserId !== userId) {
+  if (!target || !canManageChannelUser(target, userId)) {
     return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, 404);
   }
   const service = getChannelVerificationService();
@@ -115,7 +130,7 @@ channelAuthRoutes.post('/unblock/:platform/:platformUserId', async (c) => {
   const userId = LOCAL_OWNER_ID;
   const { platform, platformUserId } = c.req.param();
   const target = await channelUsersRepo.findByPlatform(platform, platformUserId);
-  if (!target || target.ownpilotUserId !== userId) {
+  if (!target || !canManageChannelUser(target, userId)) {
     return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, 404);
   }
   const service = getChannelVerificationService();
@@ -137,6 +152,7 @@ channelAuthRoutes.get('/users', async (c) => {
   const users = await channelUsersRepo.list({
     // Scope to the authenticated owner — never expose other users' linked accounts.
     ownpilotUserId: userId,
+    includeWhatsAppCustomers: process.env.ASTRA_WHATSAPP_MULTIUSER === 'true',
     platform: platform ?? undefined,
     isVerified: verified !== undefined ? verified === 'true' : undefined,
     limit,
