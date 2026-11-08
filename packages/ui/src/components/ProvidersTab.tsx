@@ -315,7 +315,8 @@ export function ProvidersTab() {
           Provedores de IA
         </h3>
         <p className="text-sm text-text-muted dark:text-dark-text-muted">
-          Configure endereços e tipos de integração. Suas preferências são preservadas ao atualizar o catálogo de modelos.
+          Configure endereços e tipos de integração. Suas preferências são preservadas ao atualizar
+          o catálogo de modelos.
         </p>
       </div>
 
@@ -342,7 +343,11 @@ export function ProvidersTab() {
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
-              {filter === 'all' ? 'Todos' : filter === 'configured' ? 'Configurados' : 'Não configurados'}
+              {filter === 'all'
+                ? 'Todos'
+                : filter === 'configured'
+                  ? 'Configurados'
+                  : 'Não configurados'}
             </button>
           ))}
         </div>
