@@ -518,7 +518,7 @@ export function AIBriefingCard() {
                   <div className="flex items-center gap-2 mb-2">
                     <Lightbulb className="w-4 h-4 text-success" />
                     <h4 className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-                      Insights
+                      Observações
                     </h4>
                   </div>
                   <ul className="space-y-1">
