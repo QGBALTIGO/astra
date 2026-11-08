@@ -530,7 +530,7 @@ export function ChatPage() {
           className="relative flex min-w-0 flex-col gap-2 border-b border-border px-3 py-3 dark:border-dark-border sm:px-5 xl:flex-row xl:items-center xl:justify-between xl:gap-3"
         >
           <div className="grid w-full min-w-0 grid-cols-2 gap-2 xl:flex xl:flex-1 xl:items-center xl:gap-3">
-            <div className="col-span-2 min-w-0 pr-12 xl:col-auto xl:mr-auto xl:pr-0">
+            <div className="col-span-2 flex min-h-[46px] min-w-0 flex-col justify-center pr-14 xl:col-auto xl:mr-auto xl:min-h-0 xl:pr-0">
               <h2 className="flex min-w-0 items-center gap-2 truncate text-base font-semibold text-text-primary dark:text-dark-text-primary sm:text-lg">
                 {isChannelMode ? (
                   <>
@@ -778,16 +778,16 @@ export function ChatPage() {
           </div>
 
           {/* A nova conversa fica acessível sem quebrar a largura no celular. */}
-          <div className="absolute right-3 top-3 flex shrink-0 items-center gap-2 lg:static">
+          <div className="absolute right-3 top-3 flex shrink-0 items-center gap-2 xl:static">
             {/* Timeline toggle */}
             <button
               onClick={() => setTimelineMode(!timelineMode)}
-              className="hidden items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors lg:flex ${
+              className="hidden items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors xl:flex ${
                 timelineMode
                   ? 'bg-primary/10 border-primary/30 text-primary'
                   : 'border-border dark:border-dark-border text-text-muted dark:text-dark-text-muted hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary'
               }"
-              title="Toggle timeline view"
+              title="Alternar visualização da linha do tempo"
             >
               <span
                 className={`w-8 h-4 rounded-full relative transition-colors ${
@@ -806,7 +806,7 @@ export function ChatPage() {
             {/* New Chat button */}
             <button
               onClick={handleNewChat}
-              className="flex h-9 w-9 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-medium text-white transition-colors hover:bg-primary-dark lg:h-auto lg:w-auto lg:px-3 lg:py-1.5"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-medium text-white shadow-sm transition-colors hover:bg-primary-dark xl:h-auto xl:w-auto xl:px-3 xl:py-2"
               aria-label="Nova conversa"
               title="Nova conversa"
             >
@@ -818,7 +818,7 @@ export function ChatPage() {
                   d="M12 4v16m8-8H4"
                 />
               </svg>
-              <span className="hidden lg:inline">Nova conversa</span>
+              <span className="hidden xl:inline">Nova conversa</span>
             </button>
           </div>
         </header>
@@ -859,7 +859,7 @@ export function ChatPage() {
             <button
               onClick={handleNewChat}
               className="px-2 py-1 text-xs text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded-md transition-colors"
-              title="New session"
+              title="Nova sessão"
             >
               +
             </button>
@@ -867,7 +867,7 @@ export function ChatPage() {
         )}
 
         {/* Session context bar — visible only in web mode */}
-        {!isChannelMode && (
+        {!isChannelMode && messages.length > 0 && (
           <ContextBar
             sessionInfo={sessionInfo}
             defaultMaxTokens={
@@ -905,7 +905,7 @@ export function ChatPage() {
               <button
                 onClick={disableAutoCompactPrompt}
                 className="px-2 py-1 rounded-md text-yellow-700/80 dark:text-yellow-300/70 hover:bg-yellow-100 dark:hover:bg-yellow-900/40"
-                title="Stop showing this banner. You can still compact manually from the context bar."
+                title="Não mostrar este aviso novamente. Você ainda poderá resumir a conversa manualmente."
               >
                 Não perguntar novamente
               </button>
