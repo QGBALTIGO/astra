@@ -1121,7 +1121,10 @@ describe('ChannelServiceImpl', () => {
                 platform: 'whatsapp',
                 platformChatId: phone,
                 sender: { platformUserId: phone, platform: 'whatsapp' },
-                metadata: { fromMe: phone === '5567981030648', isSelfChat: phone === '5567981030648' },
+                metadata: {
+                  fromMe: phone === '5567981030648',
+                  isSelfChat: phone === '5567981030648',
+                },
               })
             );
           }
