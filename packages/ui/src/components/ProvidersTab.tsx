@@ -20,7 +20,7 @@ import {
 } from './icons';
 import { useToast } from './ToastProvider';
 import { providersApi } from '../api';
-import type { ProviderInfo, UserPersonalizado } from '../types';
+import type { ProviderInfo, UserOverride } from '../types';
 import { EmptyState } from './EmptyState';
 import { safeHref } from '../utils/safe-url';
 
@@ -84,7 +84,7 @@ export function ProvidersTab() {
       await providersApi.toggle(providerId, enabled);
       // Update local state
       setProviders((prev) =>
-        prev.map((p) => (p.id === providerId ? { ...p, isEnabled: enabled, hasPersonalizado: true } : p))
+        prev.map((p) => (p.id === providerId ? { ...p, isEnabled: enabled, hasOverride: true } : p))
       );
       toast.success(enabled ? 'Provedor ativado' : 'Provedor desativado');
     } catch {
@@ -96,7 +96,7 @@ export function ProvidersTab() {
     // Fetch current config
     try {
       const data = await providersApi.getConfig(providerId);
-      const override: UserPersonalizado = data.userPersonalizado || ({} as UserPersonalizado);
+      const override: UserOverride = data.userOverride || ({} as UserOverride);
       const baseConfig = data.baseConfig || {};
       setEditForm({
         baseUrl: override.baseUrl || (baseConfig as Record<string, string>).baseUrl || '',
@@ -139,7 +139,7 @@ export function ProvidersTab() {
     }
   };
 
-  const handleResetPersonalizado = async (providerId: string) => {
+  const handleResetOverride = async (providerId: string) => {
     if (!(await confirm({ message: 'Restaurar as configurações padrão deste provedor?' }))) return;
     try {
       await providersApi.resetConfig(providerId);
@@ -201,7 +201,7 @@ export function ProvidersTab() {
                   Chave de API
                 </span>
               )}
-              {provider.hasPersonalizado && (
+              {provider.hasOverride && (
                 <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
                   Personalizado
                 </span>
@@ -245,7 +245,7 @@ export function ProvidersTab() {
                 provider.isEnabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
               }`}
               title={
-                provider.isAtivado
+                provider.isEnabled
                   ? 'Ativado — clique para desativar'
                   : 'Desativado — clique para ativar'
               }
@@ -334,7 +334,7 @@ export function ProvidersTab() {
         <div className="flex gap-2">
           {(['all', 'configured', 'unconfigured'] as const).map((filter) => (
             <button
-              key={filter === 'all' ? 'Todos' : filter === 'configured' ? 'Configurados' : 'Não configurados'}
+              key={filter}
               onClick={() => setFilterConfigured(filter)}
               className={`px-3 py-2 text-sm rounded-lg capitalize transition-colors ${
                 filterConfigured === filter
@@ -364,7 +364,7 @@ export function ProvidersTab() {
         </div>
         <div className="p-4 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg">
           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-            {providers.filter((p) => p.hasPersonalizado).length}
+            {providers.filter((p) => p.hasOverride).length}
           </p>
           <p className="text-sm text-gray-500">Personalizados</p>
         </div>
@@ -422,7 +422,7 @@ export function ProvidersTab() {
               </div>
 
               <div className="space-y-4">
-                {/* Tipo de provedor */}
+                {/* Provider Type */}
                 <div>
                   <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
                     Tipo de provedor
@@ -443,7 +443,7 @@ export function ProvidersTab() {
                   </p>
                 </div>
 
-                {/* Endereço da API */}
+                {/* Base URL */}
                 <div>
                   <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
                     Endereço da API
@@ -484,7 +484,7 @@ export function ProvidersTab() {
                   </button>
                 </div>
 
-                {/* Observações */}
+                {/* Notes */}
                 <div>
                   <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
                     Observações
@@ -498,7 +498,7 @@ export function ProvidersTab() {
                   />
                 </div>
 
-                {/* Forma de cobrança */}
+                {/* Billing Type */}
                 <div>
                   <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
                     Forma de cobrança
@@ -520,7 +520,7 @@ export function ProvidersTab() {
                   </p>
                 </div>
 
-                {/* Assinatura details (only if subscription) */}
+                {/* Subscription details (only if subscription) */}
                 {editForm.billingType === 'subscription' && (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -568,7 +568,7 @@ export function ProvidersTab() {
               {/* Actions */}
               <div className="flex items-center justify-between mt-6 pt-4 border-t border-border dark:border-dark-border">
                 <button
-                  onClick={() => handleResetPersonalizado(editingProvider)}
+                  onClick={() => handleResetOverride(editingProvider)}
                   className="text-sm text-red-600 hover:text-red-700 dark:text-red-400"
                 >
                   Restaurar padrão
