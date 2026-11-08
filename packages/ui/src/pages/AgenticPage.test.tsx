@@ -206,7 +206,7 @@ describe('AgenticPage', () => {
   it('renders without crashing', async () => {
     const container = render(<AgenticPage />);
     expect(container).toBeDefined();
-    expect(findByText(container, 'Agentic Command Center')).toBeTruthy();
+    expect(findByText(container, 'Central de tarefas automatizadas')).toBeTruthy();
     await flushAsyncUpdates();
   });
 
@@ -238,8 +238,8 @@ describe('AgenticPage', () => {
     });
     expect(findByText(container, 'Research AI')).toBeTruthy();
     expect(findByText(container, 'Fix login bug')).toBeTruthy();
-    expect(findByText(container, 'completed')).toBeTruthy();
-    expect(findByText(container, 'running')).toBeTruthy();
+    expect(findByText(container, 'Concluída')).toBeTruthy();
+    expect(findByText(container, 'Em execução')).toBeTruthy();
   });
 
   it('shows progress and cost for each execution', async () => {
@@ -248,7 +248,7 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 100));
     });
     // Check cost values appear somewhere in the DOM (they're inside nested elements)
-    expect(container.textContent).toContain('1/1 steps');
+    expect(container.textContent).toContain('1/1 etapas');
     expect(container.textContent).toContain('$0.0050');
     expect(container.textContent).toContain('$0.0100');
   });
@@ -259,14 +259,14 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(findByText(container, 'No executions yet')).toBeTruthy();
+    expect(findByText(container, 'Nenhuma execução registrada')).toBeTruthy();
   });
 
   // ── Command Bar ──
 
   it('shows collapsed command bar by default', async () => {
     const container = render(<AgenticPage />);
-    expect(findByText(container, 'Execute Agentic Task')).toBeTruthy();
+    expect(findByText(container, 'Executar tarefa automatizada')).toBeTruthy();
     // Form should be hidden
     expect(container.querySelector('form')).toBeNull();
     await flushAsyncUpdates();
@@ -274,7 +274,7 @@ describe('AgenticPage', () => {
 
   it('expands command bar on click', async () => {
     const container = render(<AgenticPage />);
-    const header = findByText(container, 'Execute Agentic Task');
+    const header = findByText(container, 'Executar tarefa automatizada');
     expect(header).toBeTruthy();
 
     await act(async () => {
@@ -283,7 +283,7 @@ describe('AgenticPage', () => {
 
     // Form should now be visible
     expect(container.querySelector('form')).toBeTruthy();
-    expect(findByText(container, 'Task Description *')).toBeTruthy();
+    expect(findByText(container, 'Descrição da tarefa *')).toBeTruthy();
   });
 
   it('shows form fields and execute button when expanded', async () => {
@@ -297,7 +297,7 @@ describe('AgenticPage', () => {
     });
 
     const container = render(<AgenticPage />);
-    const header = findByText(container, 'Execute Agentic Task');
+    const header = findByText(container, 'Executar tarefa automatizada');
     await act(async () => {
       header!.click();
     });
@@ -310,14 +310,14 @@ describe('AgenticPage', () => {
     expect(container.querySelector('select')).toBeTruthy();
     const submitBtn = container.querySelector('button[type="submit"]')! as HTMLButtonElement;
     expect(submitBtn).toBeTruthy();
-    expect(submitBtn.textContent).toContain('Execute');
+    expect(submitBtn.textContent).toContain('Executar');
     // Button should be disabled when description is empty
     expect(submitBtn.disabled).toBe(true);
   });
 
   it('disables execute button when description is empty', async () => {
     const container = render(<AgenticPage />);
-    const header = findByText(container, 'Execute Agentic Task');
+    const header = findByText(container, 'Executar tarefa automatizada');
     await act(async () => {
       header!.click();
     });
@@ -335,7 +335,7 @@ describe('AgenticPage', () => {
     });
 
     // Find and click Capabilities tab
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     expect(capsTab).toBeTruthy();
     await act(async () => {
       capsTab!.click();
@@ -370,7 +370,7 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
     // Should still show the page without crashing
-    expect(findByText(container, 'Agentic Command Center')).toBeTruthy();
+    expect(findByText(container, 'Central de tarefas automatizadas')).toBeTruthy();
   });
 
   // ── Capabilities edge-cases ──
@@ -382,7 +382,7 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     expect(capsTab).toBeTruthy();
     await act(async () => {
       capsTab!.click();
@@ -391,7 +391,7 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    expect(container.textContent).toContain('No capabilities found');
+    expect(container.textContent).toContain('Nenhuma capacidade encontrada');
   });
 
   it('renders capability executor-kind chips and tags', async () => {
@@ -403,7 +403,7 @@ describe('AgenticPage', () => {
           description: 'Has tags',
           executorKind: 'claw',
           providerId: 'p1',
-          tags: ['a', 'b'],
+          tags: ['autonomous', 'persistent'],
           requiresApproval: false,
         },
       ],
@@ -413,7 +413,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
@@ -421,8 +421,8 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
     expect(container.textContent).toContain('Tagged Claw');
-    expect(container.textContent).toContain('a');
-    expect(container.textContent).toContain('b');
+    expect(container.textContent).toContain('autônomo');
+    expect(container.textContent).toContain('persistente');
   });
 
   it('handles capabilities API failure by showing the capabilities empty fallback', async () => {
@@ -434,7 +434,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
@@ -442,7 +442,7 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
     // The empty-state copy is rendered because the catch path resets caps to []
-    expect(container.textContent).toContain('No capabilities found');
+    expect(container.textContent).toContain('Nenhuma capacidade encontrada');
   });
 
   // ── Active execution polling ──
@@ -486,7 +486,7 @@ describe('AgenticPage', () => {
       steps: [],
     });
     const container = render(<AgenticPage />);
-    const header = findByText(container, 'Execute Agentic Task');
+    const header = findByText(container, 'Executar tarefa automatizada');
     await act(async () => {
       header!.click();
     });
@@ -550,7 +550,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
@@ -558,17 +558,17 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    // Switch the kind filter to "claw"
-    const kindFilter = container.querySelector('select') as HTMLSelectElement;
-    expect(kindFilter).not.toBeNull();
-    act(() => {
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLSelectElement.prototype,
-        'value'
-      )?.set;
-      setter?.call(kindFilter, 'claw');
-      kindFilter.dispatchEvent(new window.Event('change', { bubbles: true }));
-    });
+    // The compact custom menu replaces the huge native iOS select popover.
+    const filterButton = container.querySelector(
+      'button[aria-label="Filtrar por tipo de executor"]'
+    ) as HTMLButtonElement;
+    expect(filterButton).not.toBeNull();
+    act(() => filterButton.click());
+    const clawOption = Array.from(container.querySelectorAll('[role="option"]')).find(
+      (element) => element.textContent?.trim() === 'Agente autônomo'
+    ) as HTMLButtonElement;
+    expect(clawOption).toBeDefined();
+    act(() => clawOption.click());
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
@@ -596,7 +596,7 @@ describe('AgenticPage', () => {
 
     const clickNext = () => {
       const btn = Array.from(container.querySelectorAll('button')).find(
-        (b) => b.textContent?.trim() === 'Next'
+        (b) => b.textContent?.trim() === 'Próxima'
       );
       act(() => {
         btn?.click();
@@ -615,7 +615,7 @@ describe('AgenticPage', () => {
     });
 
     const finalNext = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Next'
+      (b) => b.textContent?.trim() === 'Próxima'
     );
     expect(finalNext).toBeDefined();
     expect(finalNext?.disabled).toBe(true);
@@ -637,7 +637,7 @@ describe('AgenticPage', () => {
     });
 
     const nextButton = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Next'
+      (b) => b.textContent?.trim() === 'Próxima'
     );
     expect(nextButton).toBeDefined();
 
@@ -650,7 +650,7 @@ describe('AgenticPage', () => {
     });
 
     const prevButton = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Previous'
+      (b) => b.textContent?.trim() === 'Anterior'
     );
     expect(prevButton).toBeDefined();
     expect(prevButton?.disabled).toBe(false);
@@ -686,18 +686,18 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(container.textContent).toContain('requires approval');
+    expect(container.textContent).toContain('Exige aprovação');
   });
 
   it('renders at most six tag chips per capability, even with longer tag arrays', async () => {
-    const manyTags = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+    const manyTags = ['autonomous', 'continuous', 'background', 'persistent', 'agent', 'research', 'code', 'monitoring', 'scheduled'];
     mockCapabilities.mockResolvedValue({
       capabilities: [
         {
@@ -716,21 +716,19 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    // 6 tag chips from the capability render; we assert text content presence
-    // rather than counting DOM nodes because the select background also
-    // uses bg-bg-tertiary.
-    expect(container.textContent).toContain('a');
-    expect(container.textContent).toContain('f');
-    expect(container.textContent).not.toContain('>g<');
-    expect(container.textContent).not.toContain('>h<');
-    expect(container.textContent).not.toContain('>i<');
+    // Keep the four most relevant translated tags to avoid noisy mobile cards.
+    expect(container.textContent).toContain('autônomo');
+    expect(container.textContent).toContain('contínuo');
+    expect(container.textContent).toContain('segundo plano');
+    expect(container.textContent).toContain('persistente');
+    expect(container.textContent).not.toContain('monitoramento');
   });
 
   it('groups capabilities by executor-kind and renders each group heading', async () => {
@@ -761,16 +759,16 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(container.textContent).toContain('claw (1)');
-    expect(container.textContent).toContain('direct llm (1)');
-    expect(container.textContent).toContain('2 capabilities');
+    expect(container.textContent).toContain('Agente autônomo (1)');
+    expect(container.textContent).toContain('Conversa com IA (1)');
+    expect(container.textContent).toContain('2 capacidades disponíveis');
   });
 
   // ── ExecutionDetailModal render states ──
@@ -834,7 +832,7 @@ describe('AgenticPage', () => {
     });
     // Top-level error block
     expect(container.textContent).toContain('Top-level failure');
-    expect(container.textContent).toContain('Error');
+    expect(container.textContent).toContain('Erro');
     // Summary
     expect(container.textContent).toContain('Partial progress before failure');
     // Step error
@@ -845,7 +843,7 @@ describe('AgenticPage', () => {
     // Step duration >= 1000ms
     expect(container.textContent).toContain('1.2s');
     // Status badge for failed step
-    expect(container.textContent).toContain('failed');
+    expect(container.textContent).toContain('Falhou');
   });
 
   it('renders the no-step-details fallback when an execution has no steps', async () => {
@@ -865,7 +863,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(container.textContent).toContain('No step details available');
+    expect(container.textContent).toContain('Nenhuma etapa detalhada disponível');
   });
 
   it('renders the Execution not found state when the API returns no record', async () => {
@@ -881,7 +879,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(container.textContent).toContain('Execution not found');
+    expect(container.textContent).toContain('Execução não encontrada');
   });
 
   it('renders a Cancel button for running executions and flips status after click', async () => {
@@ -903,7 +901,7 @@ describe('AgenticPage', () => {
     });
 
     const cancelButton = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Cancel'
+      (b) => b.textContent?.trim() === 'Cancelar'
     );
     expect(cancelButton).toBeDefined();
 
@@ -916,6 +914,6 @@ describe('AgenticPage', () => {
 
     expect(mockCancel).toHaveBeenCalledWith('exec-1');
     // The badge should now show 'cancelled' after the click
-    expect(container.textContent).toContain('cancelled');
+    expect(container.textContent).toContain('Cancelada');
   });
 });
