@@ -844,7 +844,7 @@ function CapabilitiesPanel() {
                   aria-selected={kindFilter === kind}
                   type="button"
                   onClick={() => {
-                    setKindFilter(kind);
+                    setKindFilter(kind ?? '');
                     setKindMenuOpen(false);
                   }}
                   className={`flex min-h-10 w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors ${kindFilter === kind
