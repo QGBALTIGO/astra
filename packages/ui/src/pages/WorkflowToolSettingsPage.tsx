@@ -1,5 +1,5 @@
 /**
- * Workflow Tool Settings Page
+ * Ferramentas de automação Page
  *
  * Manage workflowUsable toggles for custom tools and MCP tools.
  * Shows which tools are used in active workflows and warns before disabling.
@@ -147,7 +147,7 @@ export function WorkflowToolSettingsPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-4xl p-6">
-        <h1 className="text-2xl font-bold mb-6">Workflow Tool Settings</h1>
+        <h1 className="text-2xl font-bold mb-6">Ferramentas de automação</h1>
         <div className="flex items-center justify-center py-12">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
@@ -157,7 +157,7 @@ export function WorkflowToolSettingsPage() {
 
   return (
     <div className="mx-auto max-w-4xl p-6">
-      <h1 className="text-2xl font-bold mb-2">Workflow Tool Settings</h1>
+      <h1 className="text-2xl font-bold mb-2">Ferramentas de automação</h1>
       <p className="text-sm text-muted-foreground mb-6">
         Control which tools are available as workflow nodes. Disabling a tool here hides it from the
         workflow editor and copilot.
@@ -192,7 +192,7 @@ export function WorkflowToolSettingsPage() {
         <div className="space-y-1">
           {customTools.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">
-              No active custom tools found.
+              Nenhuma ferramenta personalizada ativa encontrada.
             </p>
           ) : (
             customTools.map((tool) => {
