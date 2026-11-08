@@ -126,7 +126,7 @@ const defaultExecutions = [
   {
     id: 'exec-1',
     taskName: 'Research AI',
-    status: 'completed',
+    status: 'Concluída',
     summary: 'Completed 1/1 steps',
     totalCostUsd: 0.005,
     totalDurationMs: 150,
@@ -135,13 +135,13 @@ const defaultExecutions = [
     startedAt: '2026-06-15T10:00:00Z',
     completedAt: '2026-06-15T10:01:00Z',
     steps: [
-      { index: 1, executorKind: 'claw', capabilityId: 'c1', status: 'completed', durationMs: 150 },
+      { index: 1, executorKind: 'claw', capabilityId: 'c1', status: 'Concluída', durationMs: 150 },
     ],
   },
   {
     id: 'exec-2',
     taskName: 'Fix login bug',
-    status: 'running',
+    status: 'Em execução',
     summary: 'In progress',
     totalCostUsd: 0.01,
     totalDurationMs: 3000,
@@ -150,12 +150,12 @@ const defaultExecutions = [
     startedAt: '2026-06-15T10:05:00Z',
     completedAt: null,
     steps: [
-      { index: 1, executorKind: 'claw', capabilityId: 'c1', status: 'completed', durationMs: 100 },
+      { index: 1, executorKind: 'claw', capabilityId: 'c1', status: 'Concluída', durationMs: 100 },
       {
         index: 2,
         executorKind: 'coding_agent',
         capabilityId: 'c2',
-        status: 'running',
+        status: 'Em execução',
         durationMs: 2900,
       },
     ],
@@ -206,7 +206,7 @@ describe('AgenticPage', () => {
   it('renders without crashing', async () => {
     const container = render(<AgenticPage />);
     expect(container).toBeDefined();
-    expect(findByText(container, 'Agentic Command Center')).toBeTruthy();
+    expect(findByText(container, 'Central de tarefas automatizadas')).toBeTruthy();
     await flushAsyncUpdates();
   });
 
@@ -238,8 +238,8 @@ describe('AgenticPage', () => {
     });
     expect(findByText(container, 'Research AI')).toBeTruthy();
     expect(findByText(container, 'Fix login bug')).toBeTruthy();
-    expect(findByText(container, 'completed')).toBeTruthy();
-    expect(findByText(container, 'running')).toBeTruthy();
+    expect(findByText(container, 'Concluída')).toBeTruthy();
+    expect(findByText(container, 'Em execução')).toBeTruthy();
   });
 
   it('shows progress and cost for each execution', async () => {
@@ -248,7 +248,7 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 100));
     });
     // Check cost values appear somewhere in the DOM (they're inside nested elements)
-    expect(container.textContent).toContain('1/1 steps');
+    expect(container.textContent).toContain('1/1 etapas');
     expect(container.textContent).toContain('$0.0050');
     expect(container.textContent).toContain('$0.0100');
   });
@@ -259,14 +259,14 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(findByText(container, 'No executions yet')).toBeTruthy();
+    expect(findByText(container, 'Nenhuma execução registrada')).toBeTruthy();
   });
 
   // ── Command Bar ──
 
   it('shows collapsed command bar by default', async () => {
     const container = render(<AgenticPage />);
-    expect(findByText(container, 'Execute Agentic Task')).toBeTruthy();
+    expect(findByText(container, 'Executar tarefa automatizada')).toBeTruthy();
     // Form should be hidden
     expect(container.querySelector('form')).toBeNull();
     await flushAsyncUpdates();
@@ -274,7 +274,7 @@ describe('AgenticPage', () => {
 
   it('expands command bar on click', async () => {
     const container = render(<AgenticPage />);
-    const header = findByText(container, 'Execute Agentic Task');
+    const header = findByText(container, 'Executar tarefa automatizada');
     expect(header).toBeTruthy();
 
     await act(async () => {
@@ -283,13 +283,13 @@ describe('AgenticPage', () => {
 
     // Form should now be visible
     expect(container.querySelector('form')).toBeTruthy();
-    expect(findByText(container, 'Task Description *')).toBeTruthy();
+    expect(findByText(container, 'Descrição da tarefa *')).toBeTruthy();
   });
 
   it('shows form fields and execute button when expanded', async () => {
     mockExecute.mockResolvedValue({
       id: 'exec-3',
-      status: 'completed',
+      status: 'Concluída',
       summary: 'Done',
       totalCostUsd: 0,
       totalDurationMs: 50,
@@ -297,7 +297,7 @@ describe('AgenticPage', () => {
     });
 
     const container = render(<AgenticPage />);
-    const header = findByText(container, 'Execute Agentic Task');
+    const header = findByText(container, 'Executar tarefa automatizada');
     await act(async () => {
       header!.click();
     });
@@ -310,14 +310,14 @@ describe('AgenticPage', () => {
     expect(container.querySelector('select')).toBeTruthy();
     const submitBtn = container.querySelector('button[type="submit"]')! as HTMLButtonElement;
     expect(submitBtn).toBeTruthy();
-    expect(submitBtn.textContent).toContain('Execute');
+    expect(submitBtn.textContent).toContain('Executar');
     // Button should be disabled when description is empty
     expect(submitBtn.disabled).toBe(true);
   });
 
   it('disables execute button when description is empty', async () => {
     const container = render(<AgenticPage />);
-    const header = findByText(container, 'Execute Agentic Task');
+    const header = findByText(container, 'Executar tarefa automatizada');
     await act(async () => {
       header!.click();
     });
@@ -335,7 +335,7 @@ describe('AgenticPage', () => {
     });
 
     // Find and click Capabilities tab
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     expect(capsTab).toBeTruthy();
     await act(async () => {
       capsTab!.click();
@@ -370,7 +370,7 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
     // Should still show the page without crashing
-    expect(findByText(container, 'Agentic Command Center')).toBeTruthy();
+    expect(findByText(container, 'Central de tarefas automatizadas')).toBeTruthy();
   });
 
   // ── Capabilities edge-cases ──
@@ -382,7 +382,7 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     expect(capsTab).toBeTruthy();
     await act(async () => {
       capsTab!.click();
@@ -391,7 +391,7 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    expect(container.textContent).toContain('No capabilities found');
+    expect(container.textContent).toContain('Nenhuma capacidade encontrada');
   });
 
   it('renders capability executor-kind chips and tags', async () => {
@@ -403,7 +403,7 @@ describe('AgenticPage', () => {
           description: 'Has tags',
           executorKind: 'claw',
           providerId: 'p1',
-          tags: ['a', 'b'],
+          tags: ['autonomous', 'persistent'],
           requiresApproval: false,
         },
       ],
@@ -413,7 +413,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
@@ -421,8 +421,8 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
     expect(container.textContent).toContain('Tagged Claw');
-    expect(container.textContent).toContain('a');
-    expect(container.textContent).toContain('b');
+    expect(container.textContent).toContain('autônomo');
+    expect(container.textContent).toContain('persistente');
   });
 
   it('handles capabilities API failure by showing the capabilities empty fallback', async () => {
@@ -434,7 +434,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
@@ -442,7 +442,7 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
     // The empty-state copy is rendered because the catch path resets caps to []
-    expect(container.textContent).toContain('No capabilities found');
+    expect(container.textContent).toContain('Nenhuma capacidade encontrada');
   });
 
   // ── Active execution polling ──
@@ -479,14 +479,14 @@ describe('AgenticPage', () => {
   it('keeps the execute button disabled until description is filled', async () => {
     mockExecute.mockResolvedValue({
       id: 'exec-x',
-      status: 'completed',
+      status: 'Concluída',
       summary: 'Done',
       totalCostUsd: 0,
       totalDurationMs: 50,
       steps: [],
     });
     const container = render(<AgenticPage />);
-    const header = findByText(container, 'Execute Agentic Task');
+    const header = findByText(container, 'Executar tarefa automatizada');
     await act(async () => {
       header!.click();
     });
@@ -550,7 +550,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
@@ -558,17 +558,17 @@ describe('AgenticPage', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    // Switch the kind filter to "claw"
-    const kindFilter = container.querySelector('select') as HTMLSelectElement;
-    expect(kindFilter).not.toBeNull();
-    act(() => {
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLSelectElement.prototype,
-        'value'
-      )?.set;
-      setter?.call(kindFilter, 'claw');
-      kindFilter.dispatchEvent(new window.Event('change', { bubbles: true }));
-    });
+    // The compact custom menu replaces the huge native iOS select popover.
+    const filterButton = container.querySelector(
+      'button[aria-label="Filtrar por tipo de executor"]'
+    ) as HTMLButtonElement;
+    expect(filterButton).not.toBeNull();
+    act(() => filterButton.click());
+    const clawOption = Array.from(container.querySelectorAll('[role="option"]')).find(
+      (element) => element.textContent?.trim() === 'Agente autônomo'
+    ) as HTMLButtonElement;
+    expect(clawOption).toBeDefined();
+    act(() => clawOption.click());
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
@@ -596,7 +596,7 @@ describe('AgenticPage', () => {
 
     const clickNext = () => {
       const btn = Array.from(container.querySelectorAll('button')).find(
-        (b) => b.textContent?.trim() === 'Next'
+        (b) => b.textContent?.trim() === 'Próxima'
       );
       act(() => {
         btn?.click();
@@ -615,7 +615,7 @@ describe('AgenticPage', () => {
     });
 
     const finalNext = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Next'
+      (b) => b.textContent?.trim() === 'Próxima'
     );
     expect(finalNext).toBeDefined();
     expect(finalNext?.disabled).toBe(true);
@@ -637,7 +637,7 @@ describe('AgenticPage', () => {
     });
 
     const nextButton = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Next'
+      (b) => b.textContent?.trim() === 'Próxima'
     );
     expect(nextButton).toBeDefined();
 
@@ -650,7 +650,7 @@ describe('AgenticPage', () => {
     });
 
     const prevButton = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Previous'
+      (b) => b.textContent?.trim() === 'Anterior'
     );
     expect(prevButton).toBeDefined();
     expect(prevButton?.disabled).toBe(false);
@@ -686,7 +686,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
@@ -716,7 +716,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
@@ -761,7 +761,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    const capsTab = findByText(container, 'Capabilities');
+    const capsTab = findByText(container, 'Capacidades');
     await act(async () => {
       capsTab!.click();
     });
@@ -814,7 +814,7 @@ describe('AgenticPage', () => {
           index: 1,
           executorKind: 'direct_llm',
           capabilityId: 'cap-b',
-          status: 'completed',
+          status: 'Concluída',
           durationMs: 500,
           costUsd: 0.005,
           output: { ok: true },
@@ -886,8 +886,8 @@ describe('AgenticPage', () => {
 
   it('renders a Cancel button for running executions and flips status after click', async () => {
     // Make the default lookup return a running execution so the cancel
-    // branch (status === 'running' || 'pending') is reachable.
-    const runningExec = { ...defaultExecutions[0], status: 'running', summary: 'Working...' };
+    // branch (status === 'Em execução' || 'pending') is reachable.
+    const runningExec = { ...defaultExecutions[0], status: 'Em execução', summary: 'Working...' };
     mockGet.mockResolvedValueOnce(runningExec);
     mockCancel.mockResolvedValueOnce({ id: 'exec-1', status: 'cancelled' });
     const container = render(<AgenticPage />);
