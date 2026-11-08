@@ -34,6 +34,117 @@ export function deterministicChannelReply(text: string): string | null {
   return null;
 }
 
+type ExpenseSummaryPeriod =
+  'today' | 'this_week' | 'this_month' | 'last_month' | 'this_year' | 'all_time';
+
+const EXPENSE_PERIOD_LABELS: Record<ExpenseSummaryPeriod, string> = {
+  today: 'hoje',
+  this_week: 'nesta semana',
+  this_month: 'neste mês',
+  last_month: 'no mês passado',
+  this_year: 'neste ano',
+  all_time: 'no período completo',
+};
+
+function normalizeChannelIntent(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR')
+    .trim();
+}
+
+/**
+ * Recognize unambiguous expense-total questions. These are read-only and can
+ * be answered straight from Postgres, avoiding both provider rate limits and
+ * the fragile nested `use_tool({ tool_name, arguments })` shape.
+ */
+export function expenseSummaryPeriodForChannel(text: string): ExpenseSummaryPeriod | null {
+  const normalized = normalizeChannelIntent(text);
+  const asksForTotal =
+    /\bquanto\b[^?!.]*\b(?:gastei|gasto|gastamos|gastos?|despesas?)\b/u.test(normalized) ||
+    /\b(?:total|resumo)\b[^?!.]*\b(?:de|dos?|das?)?\s*(?:meus?\s+)?(?:gastos?|despesas?)\b/u.test(
+      normalized
+    ) ||
+    /\b(?:gastos?|despesas?)\b[^?!.]*\b(?:total|resumo)\b/u.test(normalized);
+  if (!asksForTotal) return null;
+
+  if (/\b(?:mes|mês)\s+passado\b/u.test(normalized)) return 'last_month';
+  if (/\b(?:hoje|do\s+dia)\b/u.test(normalized)) return 'today';
+  if (/\b(?:esta|essa|nesta|nessa)\s+semana\b|\bsemana\s+atual\b/u.test(normalized)) {
+    return 'this_week';
+  }
+  if (/\b(?:este|esse|neste|nesse)\s+mes\b|\bmes\s+atual\b|\bdo\s+mes\b/u.test(normalized)) {
+    return 'this_month';
+  }
+  if (/\b(?:este|esse|neste|nesse)\s+ano\b|\bano\s+atual\b/u.test(normalized)) {
+    return 'this_year';
+  }
+  if (/\b(?:desde\s+sempre|todo\s+o\s+periodo|no\s+total)\b/u.test(normalized)) {
+    return 'all_time';
+  }
+  return null;
+}
+
+function formatExpenseAmount(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+  }
+}
+
+/** Read-only fast path shared by WhatsApp and Telegram expense summaries. */
+export async function tryExpenseSummaryChannelReply(
+  message: Pick<ChannelIncomingMessage, 'text' | 'id' | 'channelPluginId' | 'platformChatId'>,
+  userId: string
+): Promise<string | null> {
+  const period = expenseSummaryPeriodForChannel(message.text);
+  if (!period) return null;
+
+  const { executeExpenseTool } = await import('../tools/expense-tools.js');
+  return runInExecContext(
+    {
+      channelPluginId: message.channelPluginId,
+      platformChatId: message.platformChatId,
+      channelMessageId: message.id,
+    },
+    async () => {
+      const result = await executeExpenseTool('expense_summary', { period }, userId);
+      if (!result.success || !result.result) {
+        return 'Não consegui consultar seus gastos agora. Nenhum registro foi alterado.';
+      }
+
+      const summary = result.result as {
+        count?: number;
+        totalAmount?: number;
+        byCurrency?: Record<string, number>;
+      };
+      const count = summary.count ?? 0;
+      const periodLabel = EXPENSE_PERIOD_LABELS[period];
+      if (count === 0) {
+        return `Você não tem gastos registrados ${periodLabel}.`;
+      }
+
+      const currencyTotals = Object.entries(summary.byCurrency ?? {});
+      if (currencyTotals.length > 1) {
+        const totals = currencyTotals
+          .map(([currency, amount]) => formatExpenseAmount(amount, currency))
+          .join(' e ');
+        return `Seus gastos ${periodLabel} somam ${totals}, em ${count} ${count === 1 ? 'lançamento' : 'lançamentos'}. Mantive as moedas separadas, sem conversão.`;
+      }
+
+      const [currency = 'BRL', currencyAmount] = currencyTotals[0] ?? [];
+      const amount = currencyAmount ?? summary.totalAmount ?? 0;
+      return `Você gastou ${formatExpenseAmount(amount, currency)} ${periodLabel}, em ${count} ${count === 1 ? 'lançamento' : 'lançamentos'}.`;
+    }
+  );
+}
+
 /**
  * Zero-token path for fully specified relative reminders.
  * Ambiguous requests still go to the assistant instead of creating a wrong task.
@@ -124,6 +235,11 @@ export async function processViaBus(
     ? null
     : await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId);
   if (reminderReply) return reminderReply;
+
+  const expenseReply = message.attachments?.length
+    ? null
+    : await tryExpenseSummaryChannelReply(message, channelUser.ownpilotUserId);
+  if (expenseReply) return expenseReply;
 
   const freeReply = deterministicChannelReply(message.text);
   if (freeReply && !message.attachments?.length) return freeReply;
@@ -313,6 +429,11 @@ export async function processViaBus(
  * Legacy fallback: process directly via agent.chat() without the bus.
  */
 export async function processDirectAgent(message: ChannelIncomingMessage): Promise<string> {
+  const expenseReply = message.attachments?.length
+    ? null
+    : await tryExpenseSummaryChannelReply(message, 'default');
+  if (expenseReply) return expenseReply;
+
   const freeReply = deterministicChannelReply(message.text);
   if (freeReply && !message.attachments?.length) return freeReply;
 
@@ -356,3 +477,4 @@ export async function processDirectAgent(message: ChannelIncomingMessage): Promi
   }
   return 'Não consegui processar sua mensagem agora. Tente novamente em instantes.';
 }
+
