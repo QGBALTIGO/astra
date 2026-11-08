@@ -498,11 +498,11 @@ export function CodingAgentsPage() {
               <div className="flex-1 flex items-center justify-center text-text-muted dark:text-dark-text-muted">
                 <div className="text-center">
                   <Terminal className="w-16 h-16 mx-auto mb-4 opacity-20" />
-                  <p className="text-lg font-medium mb-2">No session selected</p>
+                  <p className="text-lg font-medium mb-2">Nenhuma sessão selecionada</p>
                   <p className="text-sm mb-4">
                     {sessions.length > 0
                       ? 'Select a session from the sidebar'
-                      : 'Create a new session to get started'}
+                      : 'Crie uma sessão para começar'}
                   </p>
                   {sessions.length === 0 && (
                     <button
