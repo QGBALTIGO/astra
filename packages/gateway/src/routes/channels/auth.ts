@@ -8,10 +8,7 @@
 import { LOCAL_OWNER_ID } from '../../config/defaults.js';
 import { Hono } from 'hono';
 import { getChannelVerificationService } from '../../channels/auth/verification.js';
-import {
-  channelUsersRepo,
-  type ChannelUserEntity,
-} from '../../db/repositories/channels/users.js';
+import { channelUsersRepo, type ChannelUserEntity } from '../../db/repositories/channels/users.js';
 import { getPaginationParams, apiResponse, apiError, ERROR_CODES } from '../helpers.js';
 import { wsGateway } from '../../ws/server.js';
 
