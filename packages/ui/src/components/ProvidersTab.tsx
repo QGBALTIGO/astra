@@ -20,7 +20,7 @@ import {
 } from './icons';
 import { useToast } from './ToastProvider';
 import { providersApi } from '../api';
-import type { ProviderInfo, UserPersonalizado } from '../types';
+import type { ProviderInfo, UserOverride } from '../types';
 import { EmptyState } from './EmptyState';
 import { safeHref } from '../utils/safe-url';
 
@@ -39,8 +39,8 @@ export function ProvidersTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterConfigurados, setFilterConfigurados] = useState<'all' | 'configured' | 'unconfigured'>(
-    'configured'
+  const [filterConfigured, setFilterConfigured] = useState<'all' | 'configured' | 'unconfigured'>(
+    'all'
   );
 
   // Edit modal state
@@ -84,11 +84,11 @@ export function ProvidersTab() {
       await providersApi.toggle(providerId, enabled);
       // Update local state
       setProviders((prev) =>
-        prev.map((p) => (p.id === providerId ? { ...p, isEnabled: enabled, hasPersonalizado: true } : p))
+        prev.map((p) => (p.id === providerId ? { ...p, isEnabled: enabled, hasOverride: true } : p))
       );
       toast.success(enabled ? 'Provedor ativado' : 'Provedor desativado');
     } catch {
-      toast.error('Não foi possível alterar o provedor');
+      toast.error('Não foi possível alterar o estado do provedor');
     }
   };
 
@@ -96,7 +96,7 @@ export function ProvidersTab() {
     // Fetch current config
     try {
       const data = await providersApi.getConfig(providerId);
-      const override: UserPersonalizado = data.userPersonalizado || ({} as UserPersonalizado);
+      const override: UserOverride = data.userOverride || ({} as UserOverride);
       const baseConfig = data.baseConfig || {};
       setEditForm({
         baseUrl: override.baseUrl || (baseConfig as Record<string, string>).baseUrl || '',
@@ -139,7 +139,7 @@ export function ProvidersTab() {
     }
   };
 
-  const handleResetPersonalizado = async (providerId: string) => {
+  const handleResetOverride = async (providerId: string) => {
     if (!(await confirm({ message: 'Restaurar as configurações padrão deste provedor?' }))) return;
     try {
       await providersApi.resetConfig(providerId);
@@ -147,7 +147,7 @@ export function ProvidersTab() {
       setEditingProvider(null);
       toast.success('Configuração restaurada');
     } catch {
-      toast.error('Não foi possível restaurar a configuração');
+      toast.error('Não foi possível restaurar as configurações do provedor');
     }
   };
 
@@ -160,15 +160,15 @@ export function ProvidersTab() {
         return false;
       }
     }
-    // Configurados filter
-    if (filterConfigurados === 'configured' && !p.isConfigurados) return false;
-    if (filterConfigurados === 'unconfigured' && p.isConfigurados) return false;
+    // Configured filter
+    if (filterConfigured === 'configured' && !p.isConfigured) return false;
+    if (filterConfigured === 'unconfigured' && p.isConfigured) return false;
     return true;
   });
 
   // Group by configured status
-  const configuredProviders = filteredProviders.filter((p) => p.isConfigurados);
-  const unconfiguredProviders = filteredProviders.filter((p) => !p.isConfigurados);
+  const configuredProviders = filteredProviders.filter((p) => p.isConfigured);
+  const unconfiguredProviders = filteredProviders.filter((p) => !p.isConfigured);
 
   const renderProviderCard = (provider: ProviderInfo) => {
     const isDisabled = !provider.isEnabled;
@@ -177,12 +177,12 @@ export function ProvidersTab() {
     return (
       <div
         key={provider.id}
-        className={`rounded-2xl border p-4 transition-colors ${
+        className={`card-elevated rounded-2xl border p-4 transition-colors ${
           isDisabled
-            ? 'border-border bg-bg-tertiary opacity-65 dark:border-dark-border dark:bg-dark-bg-tertiary'
-            : provider.isConfigurados
-              ? 'border-border bg-bg-secondary hover:border-primary/40 dark:border-dark-border dark:bg-dark-bg-secondary'
-              : 'border-border bg-bg-secondary hover:border-primary/25 dark:border-dark-border dark:bg-dark-bg-secondary'
+            ? 'border-border bg-bg-tertiary opacity-70 dark:border-dark-border dark:bg-dark-bg-tertiary'
+            : provider.isConfigured
+              ? 'border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary'
+              : 'border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary'
         }`}
       >
         <div className="flex items-start justify-between gap-4">
@@ -192,34 +192,34 @@ export function ProvidersTab() {
                 className="w-3 h-3 rounded-full flex-shrink-0"
                 style={{ backgroundColor: provider.color || '#666' }}
               />
-              <h4 className="truncate font-semibold text-text-primary dark:text-dark-text-primary">
+              <h4 className="font-medium text-text-primary dark:text-dark-text-primary truncate">
                 {provider.name}
               </h4>
-              {provider.isConfigurados && (
+              {provider.isConfigured && (
                 <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                   <Check className="w-3 h-3" />
-                  Chave configurada
+                  API Key
                 </span>
               )}
-              {provider.hasPersonalizado && (
-                <span className="rounded-lg bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
-                  Personalizado
+              {provider.hasOverride && (
+                <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
+                  Override
                 </span>
               )}
               {provider.billingType === 'subscription' && (
-                <span className="rounded-lg bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
-                  Assinatura
+                <span className="text-xs px-1.5 py-0.5 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded">
+                  Subscription
                   {provider.subscriptionCostUsd ? ` $${provider.subscriptionCostUsd}/mo` : ''}
                 </span>
               )}
               {provider.billingType === 'free' && (
-                <span className="rounded-lg bg-bg-tertiary px-2 py-1 text-xs font-semibold text-text-secondary dark:bg-dark-bg-tertiary dark:text-dark-text-secondary">
-                  Gratuito
+                <span className="text-xs px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded">
+                  Free
                 </span>
               )}
             </div>
 
-            <div className="space-y-1 text-xs text-text-muted dark:text-dark-text-muted">
+            <div className="text-xs text-text-muted dark:text-dark-text-muted space-y-1">
               <p className="flex items-center gap-1">
                 <Server className="w-3 h-3" />
                 <span className="font-mono">{provider.type}</span>
@@ -229,7 +229,7 @@ export function ProvidersTab() {
                   {provider.baseUrl}
                 </p>
               )}
-              <p className="flex flex-wrap items-center gap-2">
+              <p className="flex items-center gap-2">
                 <span>{provider.modelCount} modelos</span>
                 {provider.features.vision && <span className="text-purple-500">👁 Visão</span>}
                 {provider.features.toolUse && <span className="text-blue-500">🔧 Ferramentas</span>}
@@ -237,14 +237,16 @@ export function ProvidersTab() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
             {/* Enable/Disable toggle */}
             <button
               onClick={() => handleToggle(provider.id, !provider.isEnabled)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                provider.isEnabled ? 'bg-primary' : 'bg-bg-tertiary dark:bg-dark-bg-tertiary'
+                provider.isEnabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
               }`}
-              title={provider.isEnabled ? 'Desativar provedor' : 'Ativar provedor'}
+              title={
+                provider.isEnabled ? 'Ativado — clique para desativar' : 'Desativado — clique para ativar'
+              }
             >
               <span
                 className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -256,7 +258,7 @@ export function ProvidersTab() {
             {/* Edit button */}
             <button
               onClick={() => handleEdit(provider.id)}
-              className="rounded-lg p-2 text-text-muted transition-colors hover:bg-primary/10 hover:text-primary dark:text-dark-text-muted"
+              className="p-1.5 text-gray-500 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
               title="Editar configurações do provedor"
             >
               <Edit2 className="w-4 h-4" />
@@ -268,7 +270,7 @@ export function ProvidersTab() {
                 href={docsHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-1.5 text-text-muted dark:text-dark-text-muted hover:text-primary hover:bg-primary/10 rounded transition-colors"
+                className="p-1.5 text-gray-500 hover:text-primary hover:bg-primary/10 rounded transition-colors"
                 title="Ver documentação"
               >
                 <ExternalLink className="w-4 h-4" />
@@ -307,16 +309,15 @@ export function ProvidersTab() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-          Provedores de IA
-        </h3>
+        <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">Provedores de IA</h3>
         <p className="text-sm text-text-muted dark:text-dark-text-muted">
-          Revise as conexões, o tipo de API e os modelos de forma organizada.
+          Configure provider settings like endpoint URLs and types. These settings survive
+          models.dev sync.
         </p>
       </div>
 
       {/* Search and filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -324,25 +325,21 @@ export function ProvidersTab() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar provedores..."
-            className="w-full rounded-xl border border-border bg-bg-secondary py-2.5 pl-10 pr-4 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-secondary dark:text-dark-text-primary"
+            className="w-full pl-10 pr-4 py-2 bg-bg-secondary dark:bg-dark-bg-secondary border border-border dark:border-dark-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
           />
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex gap-2">
           {(['all', 'configured', 'unconfigured'] as const).map((filter) => (
             <button
               key={filter}
-              onClick={() => setFilterConfigurados(filter)}
-              className={`px-3 py-2 text-sm rounded-xl capitalize transition-colors ${
-                filterConfigurados === filter
+              onClick={() => setFilterConfigured(filter)}
+              className={`px-3 py-2 text-sm rounded-lg capitalize transition-colors ${
+                filterConfigured === filter
                   ? 'bg-primary text-white'
-                  : 'bg-bg-tertiary text-text-secondary dark:bg-dark-bg-tertiary dark:text-dark-text-secondary hover:bg-primary/10'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
-              {
-                { all: 'Todos', configured: 'Configurados', unconfigured: 'Não configurados' }[
-                  filter
-                ]
-              }
+              {filter}
             </button>
           ))}
         </div>
@@ -350,30 +347,28 @@ export function ProvidersTab() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="card-elevated rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary">
-          <p className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">
-            {providers.length}
-          </p>
-          <p className="text-sm text-text-muted dark:text-dark-text-muted">Total de provedores</p>
+        <div className="p-4 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg">
+          <p className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">{providers.length}</p>
+          <p className="text-sm text-gray-500">Total de provedores</p>
         </div>
-        <div className="card-elevated rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary">
+        <div className="p-4 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg">
           <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-            {providers.filter((p) => p.isConfigurados).length}
+            {providers.filter((p) => p.isConfigured).length}
           </p>
-          <p className="text-sm text-text-muted dark:text-dark-text-muted">Configurados</p>
+          <p className="text-sm text-gray-500">Configurados</p>
         </div>
-        <div className="card-elevated rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary">
+        <div className="p-4 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg">
           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-            {providers.filter((p) => p.hasPersonalizado).length}
+            {providers.filter((p) => p.hasOverride).length}
           </p>
-          <p className="text-sm text-text-muted dark:text-dark-text-muted">Personalizados</p>
+          <p className="text-sm text-gray-500">Personalizados</p>
         </div>
       </div>
 
-      {/* Configurados providers */}
+      {/* Configured providers */}
       {configuredProviders.length > 0 && (
         <section>
-          <h4 className="mb-3 text-sm font-semibold text-text-secondary dark:text-dark-text-secondary">
+          <h4 className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-3">
             Provedores configurados ({configuredProviders.length})
           </h4>
           <div className="grid gap-3 md:grid-cols-2">
@@ -383,9 +378,9 @@ export function ProvidersTab() {
       )}
 
       {/* Unconfigured providers */}
-      {unconfiguredProviders.length > 0 && filterConfigurados !== 'configured' && (
+      {unconfiguredProviders.length > 0 && filterConfigured !== 'configured' && (
         <section>
-          <h4 className="mb-3 text-sm font-semibold text-text-secondary dark:text-dark-text-secondary">
+          <h4 className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-3">
             Outros provedores ({unconfiguredProviders.length})
           </h4>
           <div className="grid gap-3 md:grid-cols-2">
@@ -395,7 +390,7 @@ export function ProvidersTab() {
       )}
 
       {filteredProviders.length === 0 && (
-        <div className="py-12 text-center text-text-muted dark:text-dark-text-muted">Nenhum provedor corresponde à busca.</div>
+        <div className="text-center py-12 text-gray-500">Nenhum provedor corresponde à busca.</div>
       )}
 
       {/* Edit Modal */}
@@ -405,7 +400,7 @@ export function ProvidersTab() {
           onClick={() => setEditingProvider(null)}
         >
           <div
-            className="mx-4 max-h-[min(90dvh,780px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-bg-secondary shadow-2xl dark:border-dark-border dark:bg-dark-bg-secondary"
+            className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-6">
@@ -415,22 +410,22 @@ export function ProvidersTab() {
                 </h3>
                 <button
                   onClick={() => setEditingProvider(null)}
-                  className="p-1 text-text-muted dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-gray-300"
+                  className="p-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               <div className="space-y-4">
-                {/* Tipo de provedor */}
+                {/* Provider Type */}
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-                    Tipo de provedor
+                  <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
+                    Provider Type
                   </label>
                   <select
                     value={editForm.providerType}
                     onChange={(e) => setEditForm((f) => ({ ...f, providerType: e.target.value }))}
-                    className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
+                    className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                   >
                     {PROVIDER_TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
@@ -438,14 +433,14 @@ export function ProvidersTab() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-text-muted dark:text-dark-text-muted">
-                    Define a integração utilizada para realizar chamadas à IA.
+                  <p className="mt-1 text-xs text-gray-500">
+                    Determines which API client is used for requests
                   </p>
                 </div>
 
                 {/* Base URL */}
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
+                  <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
                     Base URL
                   </label>
                   <input
@@ -453,10 +448,10 @@ export function ProvidersTab() {
                     value={editForm.baseUrl}
                     onChange={(e) => setEditForm((f) => ({ ...f, baseUrl: e.target.value }))}
                     placeholder="https://api.example.com/v1"
-                    className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 font-mono text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
+                    className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
-                  <p className="mt-1 text-xs text-text-muted dark:text-dark-text-muted">
-                    Endereço da API deste provedor. Deixe vazio para usar o padrão.
+                  <p className="mt-1 text-xs text-gray-500">
+                    API endpoint for this provider (leave empty to use default)
                   </p>
                 </div>
 
@@ -464,10 +459,10 @@ export function ProvidersTab() {
                 <div className="flex items-center justify-between">
                   <div>
                     <label className="text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-                      Ativado
+                      Enabled
                     </label>
-                    <p className="text-xs text-text-muted dark:text-dark-text-muted">
-                      Provedores desativados não aparecem na escolha de modelos.
+                    <p className="text-xs text-gray-500">
+                      Provedores desativados não aparecem na seleção de modelos
                     </p>
                   </div>
                   <button
@@ -486,46 +481,46 @@ export function ProvidersTab() {
 
                 {/* Notes */}
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-                    Observações
+                  <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
+                    Notes
                   </label>
                   <textarea
                     value={editForm.notes}
                     onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
-                    placeholder="Observações opcionais sobre esta configuração..."
+                    placeholder="Optional notes about this configuration..."
                     rows={2}
-                    className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
+                    className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 </div>
 
-                {/* Tipo de cobrança */}
+                {/* Billing Type */}
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-                    Tipo de cobrança
+                  <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
+                    Billing Type
                   </label>
                   <select
                     value={editForm.billingType ?? 'pay-per-use'}
                     onChange={(e) =>
                       setEditForm((f) => ({ ...f, billingType: e.target.value as never }))
                     }
-                    className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
+                    className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                   >
-                    <option value="pay-per-use">Pagamento por uso (API)</option>
+                    <option value="pay-per-use">Por uso (API)</option>
                     <option value="subscription">Assinatura (mensalidade fixa)</option>
                     <option value="free">Gratuito (local ou cota gratuita)</option>
                   </select>
-                  <p className="mt-1 text-xs text-text-muted dark:text-dark-text-muted">
-                    Pagamento por uso: cobrança por token. Assinatura: valor mensal fixo. Gratuito:
-                    sem cobrança por chamada.
+                  <p className="mt-1 text-xs text-gray-500">
+                    Por uso: cobrança por token. Assinatura: mensalidade fixa sem custo por token
+                    adicional. Gratuito: sem cobrança por uso.
                   </p>
                 </div>
 
-                {/* Assinatura details (only if subscription) */}
+                {/* Subscription details (only if subscription) */}
                 {editForm.billingType === 'subscription' && (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-                        Custo mensal (US$)
+                      <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
+                        Monthly Cost (USD)
                       </label>
                       <input
                         type="number"
@@ -541,12 +536,12 @@ export function ProvidersTab() {
                           }))
                         }
                         placeholder="e.g. 20.00"
-                        className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
+                        className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                       />
                     </div>
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-text-secondary dark:text-dark-text-secondary">
-                        Nome do plano
+                      <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
+                        Plan Name
                       </label>
                       <input
                         type="text"
@@ -558,7 +553,7 @@ export function ProvidersTab() {
                           }))
                         }
                         placeholder="e.g. ChatGPT Plus"
-                        className="w-full rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
+                        className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                       />
                     </div>
                   </div>
@@ -568,17 +563,17 @@ export function ProvidersTab() {
               {/* Actions */}
               <div className="flex items-center justify-between mt-6 pt-4 border-t border-border dark:border-dark-border">
                 <button
-                  onClick={() => handleResetPersonalizado(editingProvider)}
+                  onClick={() => handleResetOverride(editingProvider)}
                   className="text-sm text-red-600 hover:text-red-700 dark:text-red-400"
                 >
                   Restaurar padrão
                 </button>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex gap-2">
                   <button
                     onClick={() => setEditingProvider(null)}
                     className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                   >
-                    Cancelar
+                    Cancel
                   </button>
                   <button
                     onClick={handleSaveEdit}
@@ -586,7 +581,7 @@ export function ProvidersTab() {
                     className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary-dark disabled:opacity-50 transition-colors"
                   >
                     <Save className="w-4 h-4" />
-                    {saving ? 'Salvando...' : 'Salvar alterações'}
+                    {saving ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
               </div>
