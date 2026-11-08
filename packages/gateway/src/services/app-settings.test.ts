@@ -302,7 +302,14 @@ describe('bootstrapAstraToolGroups', () => {
     const enabledGroups = mockSet.mock.calls[0]?.[1] as string[];
     expect(mockSet.mock.calls[0]?.[0]).toBe('tool_groups');
     expect(enabledGroups).toHaveLength(14);
-    for (const group of ['finance', 'webFetch', 'media', 'communication', 'devTools', 'codeExecution']) {
+    for (const group of [
+      'finance',
+      'webFetch',
+      'media',
+      'communication',
+      'devTools',
+      'codeExecution',
+    ]) {
       expect(enabledGroups).toContain(group);
     }
     expect(mockSet).toHaveBeenLastCalledWith('astra:all-tool-groups-migrated-v1', true);
