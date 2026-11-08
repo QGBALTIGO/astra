@@ -1764,7 +1764,8 @@ describe('ChannelServiceImpl', () => {
           null,
           expect.stringContaining('channel:'),
           undefined,
-          true
+          true,
+          expect.any(String)
         );
         expect(mockBus.process).toHaveBeenCalledWith(
           expect.anything(),
