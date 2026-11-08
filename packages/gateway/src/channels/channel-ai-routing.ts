@@ -282,7 +282,8 @@ export async function processViaBus(
     null,
     `channel:${message.channelPluginId}:${session.sessionId}`,
     undefined,
-    true
+    true,
+    channelUser.ownpilotUserId
   );
 
   // Load session conversation for context continuity
@@ -301,6 +302,7 @@ export async function processViaBus(
       await conversationsRepo.create({
         id: activeConversationId,
         agentName: 'default',
+        userId: channelUser.ownpilotUserId,
         metadata: {
           source: 'channel',
           platform: message.platform,
@@ -428,10 +430,13 @@ export async function processViaBus(
 /**
  * Legacy fallback: process directly via agent.chat() without the bus.
  */
-export async function processDirectAgent(message: ChannelIncomingMessage): Promise<string> {
+export async function processDirectAgent(
+  message: ChannelIncomingMessage,
+  userId = 'default'
+): Promise<string> {
   const expenseReply = message.attachments?.length
     ? null
-    : await tryExpenseSummaryChannelReply(message, 'default');
+    : await tryExpenseSummaryChannelReply(message, userId);
   if (expenseReply) return expenseReply;
 
   const freeReply = deterministicChannelReply(message.text);
@@ -458,7 +463,8 @@ export async function processDirectAgent(message: ChannelIncomingMessage): Promi
     null,
     `channel:${message.channelPluginId}:${message.platformChatId}`,
     undefined,
-    true
+    true,
+    userId
   );
   const result = await runInExecContext(
     {
