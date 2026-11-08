@@ -281,6 +281,7 @@ export const TOOL_GROUPS: Record<string, ToolGroupConfig> = {
       'query_expenses',
       'export_expenses',
       'expense_summary',
+      'update_expense',
       'delete_expense',
     ],
   },
