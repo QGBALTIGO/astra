@@ -568,4 +568,48 @@ describe('ChannelUsersRepository', () => {
       expect(r).toBeInstanceOf(ChannelUsersRepository);
     });
   });
+  describe('WhatsApp customer scopes', () => {
+    it('moves an old non-owner record out of default and invalidates its sessions', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(
+        makeUserRow({
+          platform: 'whatsapp',
+          platform_user_id: '5521997557364',
+          is_verified: true,
+        })
+      );
+
+      const user = await repo.findOrCreate({
+        platform: 'whatsapp',
+        platformUserId: '5521997557364',
+        ownpilotUserId: 'whatsapp:5521997557364',
+      });
+
+      expect(user.ownpilotUserId).toBe('whatsapp:5521997557364');
+      expect(user.isVerified).toBe(false);
+      expect(mockAdapter.execute).toHaveBeenCalledWith(
+        expect.stringContaining('SET ownpilot_user_id = $1, is_verified = FALSE'),
+        ['whatsapp:5521997557364', 'cu-1']
+      );
+      expect(mockAdapter.execute).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE channel_sessions SET is_active = FALSE'),
+        ['cu-1']
+      );
+    });
+
+    it('does not remap the connected account or other platforms', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(
+        makeUserRow({ platform: 'whatsapp', platform_user_id: '5567981030648' })
+      );
+      const owner = await repo.findOrCreate({
+        platform: 'whatsapp',
+        platformUserId: '5567981030648',
+      });
+      expect(owner.ownpilotUserId).toBe('default');
+      expect(mockAdapter.execute).not.toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE channel_sessions SET is_active = FALSE'),
+        expect.anything()
+      );
+    });
+  });
+
 });
