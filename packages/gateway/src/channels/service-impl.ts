@@ -640,7 +640,39 @@ export class ChannelServiceImpl implements IChannelService {
       // 4. Check verification — whitelist, approval code, or admin approval
       if (!channelUser.isVerified) {
         if (message.platform === 'whatsapp') {
-          // Owner confirmed above — auto-verify
+          if (isWhatsAppGuest) {
+            // SaaS access is opt-in: a random DM cannot consume model tokens.
+            // An explicit trusted list can authorize test/customer phones, while
+            // other numbers must be approved in the operator's Channels panel.
+            const trustedNumbers = (process.env.ASTRA_WHATSAPP_TRUSTED_NUMBERS ?? '')
+              .split(',')
+              .map((number) => number.replace(/[^0-9]/g, ''))
+              .filter(Boolean);
+            const canAutoEnroll =
+              process.env.ASTRA_WHATSAPP_AUTO_ENROLL === 'true' ||
+              trustedNumbers.includes(message.sender.platformUserId);
+            if (!canAutoEnroll) {
+              if (channelUser.status !== 'pending') {
+                await this.usersRepo.updateStatus(channelUser.id, 'pending');
+              }
+              if (channelUser.created) {
+                const api = this.getChannel(message.channelPluginId);
+                await api
+                  ?.sendMessage({
+                    platformChatId: message.platformChatId,
+                    text:
+                      'Olá! Seu número foi cadastrado no Astra. Seu acesso está aguardando autorização. ' +
+                      'Você receberá atendimento após a liberação.',
+                  })
+                  .catch((err) => {
+                    log.warn('Could not send WhatsApp access-pending notice', { error: err });
+                  });
+              }
+              return;
+            }
+          }
+
+          // Owner or explicitly authorized customer — verify using their own scope.
           const verificationSvc = getChannelVerificationService();
           await verificationSvc.verifyViaWhitelist(
             message.platform,
