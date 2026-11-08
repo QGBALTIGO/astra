@@ -267,11 +267,11 @@ export class ChannelUsersRepository extends BaseRepository {
     if (options?.ownpilotUserId) {
       if (options.includeWhatsAppCustomers) {
         conditions.push(
-          `(ownpilot_user_id = ${paramIndex++} OR
+          `(ownpilot_user_id = $${paramIndex++} OR
             (platform = 'whatsapp' AND ownpilot_user_id = 'whatsapp:' || platform_user_id))`
         );
       } else {
-        conditions.push(`ownpilot_user_id = ${paramIndex++}`);
+        conditions.push(`ownpilot_user_id = $${paramIndex++}`);
       }
       params.push(options.ownpilotUserId);
     }
