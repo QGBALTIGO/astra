@@ -1,0 +1,38 @@
+name: Astra Orion final formatting
+on:
+  push:
+    branches:
+      - design/astra-orion-visual-system-20261107
+    paths:
+      - .github/workflows/astra-orion-final-format.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Format
+        run: >-
+          pnpm exec prettier --write packages/ui/src/pages/WorkflowsPage.tsx packages/ui/src/pages/skills/HomeTab.tsx packages/ui/src/pages/mission-control/panels.tsx packages/ui/src/pages/McpServersPage.tsx packages/ui/src/pages/ToolGroupsPage.tsx packages/ui/src/pages/tools/ToolCard.tsx
+      - name: Commit and self-remove
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add packages/ui/src/pages/WorkflowsPage.tsx packages/ui/src/pages/skills/HomeTab.tsx packages/ui/src/pages/mission-control/panels.tsx packages/ui/src/pages/McpServersPage.tsx packages/ui/src/pages/ToolGroupsPage.tsx packages/ui/src/pages/tools/ToolCard.tsx
+          git rm .github/workflows/astra-orion-final-format.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style(astra): format last localization and responsive fixes"
+          git push origin HEAD:design/astra-orion-visual-system-20261107
