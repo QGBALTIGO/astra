@@ -1138,7 +1138,7 @@ describe('ChannelServiceImpl', () => {
             'Test User',
             'whatsapp:5521997557364'
           );
-          expect(mockGetOrCreateChatAgent.mock.calls.map((call) => call[8])).toEqual(
+          expect(mockGetOrCreateChatAgent.mock.calls.map((call) => call[7])).toEqual(
             expect.arrayContaining([
               'whatsapp:5521997557364',
               'whatsapp:5511987654321',
