@@ -17,7 +17,7 @@ import {
   type ResolvedAuth,
   buildSoulPrompt,
 } from '@ownpilot/core/agent';
-import { ToolRegistry, getBaseName } from '@ownpilot/core/tools';
+import { ToolRegistry, getBaseName, EXPENSE_TRACKER_TOOLS } from '@ownpilot/core/tools';
 import { hasProviderService, getProviderService } from '@ownpilot/core/services';
 import type { AIProvider } from '@ownpilot/core/costs';
 import { unsafeToolId } from '@ownpilot/core/types';
@@ -445,7 +445,8 @@ export async function getOrCreateChatAgent(
   pageContext?: { path?: string } | null,
   conversationId?: string,
   gatewayUrl?: string,
-  channelMode = false
+  channelMode = false,
+  userId = 'default'
 ): Promise<Agent> {
   // CLI providers are NOT cached — each request may need fresh MCP session state
   // while still reusing the persistent ~/.ownpilot/workspace directory.
@@ -457,7 +458,8 @@ export async function getOrCreateChatAgent(
       fallback,
       pageContext,
       gatewayUrl,
-      channelMode
+      channelMode,
+      userId
     );
   }
 
@@ -469,7 +471,8 @@ export async function getOrCreateChatAgent(
   const pathSuffix = pageContext?.path ? `|dir_${sanitize(pageContext.path)}` : '';
   const convSuffix = conversationId ? `|conv_${sanitize(conversationId)}` : '';
   const channelSuffix = channelMode ? '|channel' : '';
-  const cacheKey = `chat|${sanitize(provider)}|${sanitize(model)}${fbSuffix}${pathSuffix}${convSuffix}${channelSuffix}`;
+  const userSuffix = userId === 'default' ? '' : `|user_${sanitize(userId)}`;
+  const cacheKey = `chat|${sanitize(provider)}|${sanitize(model)}${fbSuffix}${pathSuffix}${convSuffix}${channelSuffix}${userSuffix}`;
 
   const cached = lruGet(chatAgentCache, cacheKey);
   if (cached) return cached;
@@ -484,7 +487,8 @@ export async function getOrCreateChatAgent(
     fallback,
     pageContext,
     gatewayUrl,
-    channelMode
+    channelMode,
+    userId
   ).finally(() => {
     pendingChatAgents.delete(cacheKey);
   });
@@ -505,7 +509,8 @@ async function createChatAgentInstance(
   fallback?: { provider: string; model: string },
   _pageContext?: { path?: string } | null,
   gatewayUrl?: string,
-  channelMode = false
+  channelMode = false,
+  userId = 'default'
 ): Promise<Agent> {
   // ── CLI Chat Provider path ──
   // CLI providers (cli-claude, cli-codex, cli-gemini) use login-based auth
@@ -537,10 +542,10 @@ async function createChatAgentInstance(
   const tools = new ToolRegistry();
   registerAllTools(tools);
   // Chat, WhatsApp and configured agents must read the same Postgres expenses as the UI.
-  registerExpenseOverrides(tools, 'default');
+  registerExpenseOverrides(tools, userId);
   tools.setConfigCenter(getConfigCenter());
 
-  const userId = 'default';
+  const isWhatsAppCustomer = channelMode && userId.startsWith('whatsapp:');
   registerGatewayTools(tools, userId, false);
 
   const activeCustomToolDefs = await registerDynamicTools(
@@ -549,9 +554,36 @@ async function createChatAgentInstance(
     `chat_${provider}_${model}`,
     false
   );
-  const pluginToolDefs = registerPluginTools(tools, false);
-  const extensionToolDefs = registerExtensionTools(tools, userId, false);
-  const mcpToolDefs = registerMcpTools(tools, false);
+  // Customers must never inherit the operator's shared plugins, extensions or
+  // remote MCP connections (which may contain credentials and admin actions).
+  const pluginToolDefs = isWhatsAppCustomer ? [] : registerPluginTools(tools, false);
+  const extensionToolDefs = isWhatsAppCustomer
+    ? []
+    : registerExtensionTools(tools, userId, false);
+  const mcpToolDefs = isWhatsAppCustomer ? [] : registerMcpTools(tools, false);
+
+  if (isWhatsAppCustomer) {
+    // Fail closed: meta-tools discover ONLY tools in this registry. Keep a
+    // narrowly audited personal-data subset; never expose files, shell, code,
+    // browser, HTTP, system configuration or arbitrary plugin/custom actions.
+    const customerTools = new Set([
+      ...EXPENSE_TRACKER_TOOLS.map((entry) => `core.${entry.definition.name}`),
+      ...MEMORY_TOOLS.map((def) => `core.${def.name}`),
+      ...GOAL_TOOLS.map((def) => `core.${def.name}`),
+      ...PERSONAL_DATA_TOOLS.map((def) => `core.${def.name}`),
+      ...CHANNEL_REMINDER_TOOLS.map((def) => `core.${def.name}`),
+      'search_tools',
+      'get_tool_help',
+      'use_tool',
+      'batch_use_tool',
+    ]);
+    // Receipt recognition may invoke shared model providers; defer it until
+    // the service has a per-customer media and quota policy.
+    customerTools.delete('core.parse_receipt');
+    for (const name of tools.getNames()) {
+      if (!customerTools.has(name)) tools.unregister(name);
+    }
+  }
 
   const chatCoreToolDefs = getToolDefinitions().filter((t) => tools.has(t.name));
   const chatStandardToolDefs = [
@@ -576,7 +608,7 @@ async function createChatAgentInstance(
     ...pluginToolDefs,
     ...extensionToolDefs,
     ...mcpToolDefs,
-  ];
+  ].filter((definition) => tools.has(definition.name));
 
   // Filter by global tool-groups setting
   const enabledGroupIds = getEnabledToolGroupIds();
@@ -585,6 +617,15 @@ async function createChatAgentInstance(
     (tool) => allowedToolNames.has(tool.name) || allowedToolNames.has(getBaseName(tool.name))
   );
   const toolDefs = [...filteredChatTools, ...chatAlwaysIncluded];
+  // A customer needs the personal tools even if the operator disables a global
+  // tool group; the registry whitelist is the actual hard authorization boundary.
+  if (isWhatsAppCustomer) {
+    for (const definition of chatStandardToolDefs) {
+      if (tools.has(definition.name) && !toolDefs.some((tool) => tool.name === definition.name)) {
+        toolDefs.push(definition);
+      }
+    }
+  }
 
   // CLI providers get a compact identity-first prompt (no meta-tools, no namespaces).
   // API providers get the full prompt with tool schemas injected.
@@ -594,7 +635,7 @@ async function createChatAgentInstance(
       ? CHANNEL_SYSTEM_PROMPT
       : BASE_SYSTEM_PROMPT;
   const { systemPrompt: enhancedPrompt } = await injectMemoryIntoPrompt(basePrompt, {
-    userId: 'default',
+    userId,
     tools: isCliProvider ? [] : toolDefs, // CLI tools are discovered via MCP, not injected
     includeProfile: true,
     includeInstructions: true,
