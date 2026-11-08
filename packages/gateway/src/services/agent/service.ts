@@ -557,9 +557,7 @@ async function createChatAgentInstance(
   // Customers must never inherit the operator's shared plugins, extensions or
   // remote MCP connections (which may contain credentials and admin actions).
   const pluginToolDefs = isWhatsAppCustomer ? [] : registerPluginTools(tools, false);
-  const extensionToolDefs = isWhatsAppCustomer
-    ? []
-    : registerExtensionTools(tools, userId, false);
+  const extensionToolDefs = isWhatsAppCustomer ? [] : registerExtensionTools(tools, userId, false);
   const mcpToolDefs = isWhatsAppCustomer ? [] : registerMcpTools(tools, false);
 
   if (isWhatsAppCustomer) {

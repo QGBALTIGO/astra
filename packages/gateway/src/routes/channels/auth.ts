@@ -149,9 +149,7 @@ channelAuthRoutes.get('/users', async (c) => {
   const users = await channelUsersRepo.list({
     // Scope to the authenticated owner — never expose other users' linked accounts.
     ownpilotUserId: userId,
-    ...(process.env.ASTRA_WHATSAPP_MULTIUSER === 'true'
-      ? { includeWhatsAppCustomers: true }
-      : {}),
+    ...(process.env.ASTRA_WHATSAPP_MULTIUSER === 'true' ? { includeWhatsAppCustomers: true } : {}),
     platform: platform ?? undefined,
     isVerified: verified !== undefined ? verified === 'true' : undefined,
     limit,

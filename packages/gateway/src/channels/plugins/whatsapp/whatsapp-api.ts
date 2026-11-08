@@ -322,8 +322,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
           const effectiveJid = this.resolveIncomingJid(msg.key);
           const isSelf = this.isSelfChat(effectiveJid);
           const isInboundDM = effectiveJid?.endsWith('@s.whatsapp.net') && !msg.key.fromMe;
-          const acceptsGuest =
-            process.env.ASTRA_WHATSAPP_MULTIUSER === 'true' && isInboundDM;
+          const acceptsGuest = process.env.ASTRA_WHATSAPP_MULTIUSER === 'true' && isInboundDM;
           if (!isSelf && !acceptsGuest) {
             log.debug('[WhatsApp] Skipping message outside authorized DM handling');
             continue;

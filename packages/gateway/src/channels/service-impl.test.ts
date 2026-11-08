@@ -1093,15 +1093,13 @@ describe('ChannelServiceImpl', () => {
             dmPairingRequests: mockDmPairingRequests as never,
           });
           mockGetOwnerUserId.mockResolvedValue('5567981030648');
-          mockUsersRepo.findOrCreate.mockImplementation(async (input: {
-            ownpilotUserId?: string;
-            platformUserId: string;
-          }) =>
-            createChannelUser({
-              id: `cu-${input.platformUserId}`,
-              ownpilotUserId: input.ownpilotUserId ?? 'default',
-              isVerified: input.platformUserId === '5567981030648',
-            })
+          mockUsersRepo.findOrCreate.mockImplementation(
+            async (input: { ownpilotUserId?: string; platformUserId: string }) =>
+              createChannelUser({
+                id: `cu-${input.platformUserId}`,
+                ownpilotUserId: input.ownpilotUserId ?? 'default',
+                isVerified: input.platformUserId === '5567981030648',
+              })
           );
           mockGetOrCreateChatAgent.mockResolvedValue(
             createMockAgent({
@@ -1142,11 +1140,7 @@ describe('ChannelServiceImpl', () => {
             'whatsapp:5521997557364'
           );
           expect(mockGetOrCreateChatAgent.mock.calls.map((call) => call[7])).toEqual(
-            expect.arrayContaining([
-              'whatsapp:5521997557364',
-              'whatsapp:5511987654321',
-              'default',
-            ])
+            expect.arrayContaining(['whatsapp:5521997557364', 'whatsapp:5511987654321', 'default'])
           );
           expect(channelPlugin.api.sendMessage).toHaveBeenCalledTimes(3);
         } finally {
