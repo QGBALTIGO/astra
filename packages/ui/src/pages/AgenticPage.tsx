@@ -4,7 +4,7 @@
  * Sections: stats bar, inline command bar, executions table,
  * detail modal, capabilities browser.
  */
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react';
 import {
   Play,
   Square,
@@ -34,6 +34,12 @@ import {
 } from '../api/endpoints/agentic';
 import { providersApi } from '../api/endpoints/providers';
 import { useGateway } from '../hooks/useWebSocket';
+import {
+  AGENTIC_STATUS_LABELS,
+  CAPABILITY_TAG_PT_BR,
+  EXECUTOR_KIND_LABELS,
+  localizedCapability,
+} from './agentic-ptbr';
 
 const POLL_MS = 5_000;
 const EXECUTOR_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -102,7 +108,7 @@ function StatusBadge({ status }: { status: string }) {
     <span
       className={`px-2 py-0.5 rounded text-xs font-medium border ${colors[status] ?? 'bg-gray-800 text-gray-400 border-gray-700'}`}
     >
-      {status.replace(/_/g, ' ')}
+      {AGENTIC_STATUS_LABELS[status] ?? status.replace(/_/g, ' ')}
     </span>
   );
 }
@@ -112,7 +118,7 @@ function StatusBadge({ status }: { status: string }) {
 function StatsBar({ stats }: { stats: AgenticStats | null }) {
   if (!stats)
     return (
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
@@ -124,28 +130,28 @@ function StatsBar({ stats }: { stats: AgenticStats | null }) {
   const cards = [
     {
       icon: Play,
-      label: 'Total Executions',
+      label: 'Execuções realizadas',
       value: stats.totalExecutions,
       color: 'text-blue-500',
       bg: 'bg-blue-500/10',
     },
     {
       icon: RefreshCw,
-      label: 'Active Now',
+      label: 'Em andamento',
       value: stats.activeExecutions,
       color: 'text-green-500',
       bg: 'bg-green-500/10',
     },
     {
       icon: DollarSign,
-      label: 'Total Cost',
+      label: 'Custo total',
       value: `$${stats.totalCostUsd.toFixed(4)}`,
       color: 'text-amber-500',
       bg: 'bg-amber-500/10',
     },
     {
       icon: Target,
-      label: 'Success Rate',
+      label: 'Taxa de sucesso',
       value: `${(stats.successRate * 100).toFixed(1)}%`,
       color:
         stats.successRate > 0.8
@@ -157,7 +163,7 @@ function StatsBar({ stats }: { stats: AgenticStats | null }) {
     },
   ];
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
       {cards.map((c) => {
         const Icon = c.icon;
         return (
@@ -165,7 +171,7 @@ function StatsBar({ stats }: { stats: AgenticStats | null }) {
             key={c.label}
             className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl p-4 border border-border dark:border-dark-border"
           >
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               <div className={`p-2 rounded-lg ${c.bg}`}>
                 <Icon className={`w-5 h-5 ${c.color}`} />
               </div>
@@ -283,21 +289,21 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
   };
 
   return (
-    <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl border border-border dark:border-dark-border mb-6">
+    <div className="card-elevated mb-6 overflow-hidden rounded-2xl border border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left"
+        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5"
       >
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="p-2 bg-purple-500/10 rounded-lg">
             <Play className="w-5 h-5 text-purple-500" />
           </div>
           <div>
             <div className="font-semibold text-text-primary dark:text-dark-text-primary">
-              Execute Agentic Task
+              Executar tarefa automatizada
             </div>
             <div className="text-xs text-text-muted dark:text-dark-text-muted">
-              Run a task across claws, coding agents, LLM, sandbox, or auto-route
+              Execute tarefas usando agentes, modelos de IA, programação ou fluxos automatizados.
             </div>
           </div>
         </div>
@@ -314,36 +320,36 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
         >
           <div>
             <label className="block text-xs font-medium text-text-muted dark:text-dark-text-muted mb-1">
-              Task Name (optional)
+              Nome da tarefa (opcional)
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Auto-generated from description if empty"
+              placeholder="Gerado automaticamente pela descrição, se ficar vazio"
               className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg border border-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-text-muted dark:text-dark-text-muted mb-1">
-              Task Description *
+              Descrição da tarefa *
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Research the latest AI trends and compile a report..."
+              placeholder="Ex.: Pesquise novidades sobre IA e prepare um resumo..."
               rows={3}
               className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg border border-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-none"
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-text-muted dark:text-dark-text-muted mb-1">
-              System Prompt (optional)
+              Instruções para IA (opcional)
             </label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="You are a helpful AI assistant..."
+              placeholder="Você é um assistente de IA prestativo..."
               rows={2}
               className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg border border-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-none"
             />
@@ -351,22 +357,22 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-medium text-text-muted dark:text-dark-text-muted mb-1">
-                Priority
+                Prioridade
               </label>
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as typeof priority)}
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg border border-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
               >
-                <option value="low">Low</option>
+                <option value="low">Baixa</option>
                 <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
+                <option value="high">Alta</option>
+                <option value="critical">Crítica</option>
               </select>
             </div>
             <div>
               <label className="block text-xs font-medium text-text-muted dark:text-dark-text-muted mb-1">
-                Provider
+                Provedor
               </label>
               <select
                 value={provider}
@@ -376,10 +382,10 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
                 }}
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg border border-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
               >
-                <option value="">System default</option>
+                <option value="">Padrão do sistema</option>
                 {loadingProviders && (
                   <option value="" disabled>
-                    Loading...
+                    Carregando...
                   </option>
                 )}
                 {providers.map((p) => (
@@ -391,7 +397,7 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-text-muted dark:text-dark-text-muted mb-1">
-                Model
+                Modelo
               </label>
               <select
                 value={model}
@@ -399,11 +405,11 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
                 disabled={!provider || loadingModels}
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg border border-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-40"
               >
-                {!provider && <option value="">Select provider first</option>}
-                {provider && <option value="">Provider default</option>}
+                {!provider && <option value="">Escolha um provedor primeiro</option>}
+                {provider && <option value="">Padrão do provedor</option>}
                 {loadingModels && (
                   <option value="" disabled>
-                    Loading...
+                    Carregando...
                   </option>
                 )}
                 {models.map((m) => (
@@ -415,22 +421,22 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-text-muted dark:text-dark-text-muted mb-1">
-                Trigger
+                Acionamento
               </label>
               <select
                 value={triggerType}
                 onChange={(e) => setTriggerType(e.target.value)}
                 className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg border border-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
               >
-                <option value="immediate">Immediate</option>
-                <option value="interval">Interval</option>
-                <option value="continuous">Continuous</option>
+                <option value="immediate">Imediato</option>
+                <option value="interval">Por intervalo</option>
+                <option value="continuous">Contínuo</option>
               </select>
             </div>
             {triggerType === 'interval' && (
               <div>
                 <label className="block text-xs font-medium text-text-muted dark:text-dark-text-muted mb-1">
-                  Interval (ms)
+                  Intervalo (ms)
                 </label>
                 <input
                   type="number"
@@ -444,7 +450,7 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
             )}
             <div>
               <label className="block text-xs font-medium text-text-muted dark:text-dark-text-muted mb-1">
-                Timeout (ms)
+                Tempo limite (ms)
               </label>
               <input
                 type="number"
@@ -462,7 +468,7 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
               onClick={() => setExpanded(false)}
               className="px-4 py-2 text-sm text-text-muted dark:text-dark-text-muted hover:text-text-primary dark:hover:text-dark-text-primary transition-colors"
             >
-              Cancel
+              Cancelar
             </button>
             <button
               type="submit"
@@ -471,11 +477,11 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
             >
               {running ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin" /> Executing...
+                  <RefreshCw className="w-4 h-4 animate-spin" /> Executando...
                 </>
               ) : (
                 <>
-                  <Play className="w-4 h-4" /> Execute
+                  <Play className="w-4 h-4" /> Executar
                 </>
               )}
             </button>
@@ -524,7 +530,7 @@ function ExecutionRow({
         <div className="flex items-center gap-1">
           <ListChecks className="w-3.5 h-3.5" />
           <span>
-            {exec.completedSteps}/{exec.stepCount} steps
+            {exec.completedSteps}/{exec.stepCount} etapas
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -543,7 +549,7 @@ function ExecutionRow({
         )}
       </div>
       <div className="text-xs text-text-muted dark:text-dark-text-muted hidden lg:block">
-        {new Date(exec.startedAt).toLocaleString()}
+        {new Date(exec.startedAt).toLocaleString('pt-BR')}
       </div>
       {(exec.status === 'running' || exec.status === 'pending') && (
         <button
@@ -552,7 +558,7 @@ function ExecutionRow({
             onCancel(exec.id);
           }}
           className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-500/20 rounded-lg transition-all"
-          title="Cancel"
+          title="Cancelar"
         >
           <Square className="w-4 h-4 text-red-400" />
         </button>
@@ -608,7 +614,7 @@ function ExecutionDetailModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             {exec ? (
               <StatusIcon status={exec.status} className="w-6 h-6" />
             ) : (
@@ -616,7 +622,7 @@ function ExecutionDetailModal({
             )}
             <div>
               <div className="font-semibold text-text-primary dark:text-dark-text-primary">
-                {exec?.taskName ?? 'Loading...'}
+                {exec?.taskName ?? 'Carregando...'}
               </div>
               {exec && <StatusBadge status={exec.status} />}
             </div>
@@ -630,7 +636,7 @@ function ExecutionDetailModal({
                 }}
                 className="px-3 py-1.5 text-xs bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-lg transition-colors"
               >
-                Cancel
+                Cancelar
               </button>
             )}
             <button
@@ -647,27 +653,27 @@ function ExecutionDetailModal({
               <RefreshCw className="w-8 h-8 animate-spin text-purple-500" />
             </div>
           ) : !exec ? (
-            <div className="text-center py-12 text-text-muted">Execution not found</div>
+            <div className="text-center py-12 text-text-muted">Execução não encontrada</div>
           ) : (
             <>
               <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-                <SummaryCard label="Status" value={exec.status.replace(/_/g, ' ')} />
-                <SummaryCard label="Provider" value={exec.provider ?? 'default'} />
-                <SummaryCard label="Model" value={exec.model ?? 'default'} />
-                <SummaryCard label="Cost" value={`${exec.totalCostUsd.toFixed(4)}`} />
+                <SummaryCard label="Estado" value={AGENTIC_STATUS_LABELS[exec.status] ?? exec.status} />
+                <SummaryCard label="Provedor" value={exec.provider ?? 'padrão'} />
+                <SummaryCard label="Modelo" value={exec.model ?? 'padrão'} />
+                <SummaryCard label="Custo (US$)" value={`${exec.totalCostUsd.toFixed(4)}`} />
                 <SummaryCard
-                  label="Duration"
+                  label="Duração"
                   value={
                     exec.totalDurationMs >= 1000
                       ? `${(exec.totalDurationMs / 1000).toFixed(1)}s`
                       : `${exec.totalDurationMs}ms`
                   }
                 />
-                <SummaryCard label="Steps" value={`${exec.completedSteps}/${exec.stepCount}`} />
+                <SummaryCard label="Etapas" value={`${exec.completedSteps}/${exec.stepCount}`} />
               </div>
               {exec.error && (
                 <div className="p-3 bg-red-900/20 border border-red-700/30 rounded-lg text-sm text-red-400">
-                  <div className="font-medium mb-1">Error</div>
+                  <div className="font-medium mb-1">Erro</div>
                   {exec.error}
                 </div>
               )}
@@ -678,7 +684,7 @@ function ExecutionDetailModal({
               )}
               <div>
                 <h3 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary mb-3">
-                  Execution Steps
+                  Etapas da execução
                 </h3>
                 <div className="space-y-2">
                   {exec.steps?.map((s) => {
@@ -690,9 +696,9 @@ function ExecutionDetailModal({
                     return (
                       <div
                         key={s.index}
-                        className="p-3 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg border border-border dark:border-dark-border"
+                        className="min-w-0 rounded-xl border border-border bg-bg-secondary p-3 dark:border-dark-border dark:bg-dark-bg-secondary sm:p-4"
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
                           <div
                             className={`p-1.5 rounded-lg ${s.status === 'completed' ? 'bg-green-500/10' : s.status === 'failed' ? 'bg-red-500/10' : s.status === 'running' ? 'bg-blue-500/10' : 'bg-gray-500/10'}`}
                           >
@@ -703,7 +709,7 @@ function ExecutionDetailModal({
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium">
-                                #{s.index} {s.executorKind.replace(/_/g, ' ')}
+                                #{s.index} {EXECUTOR_KIND_LABELS[s.executorKind] ?? s.executorKind}
                               </span>
                               <StatusBadge status={s.status} />
                             </div>
@@ -726,7 +732,7 @@ function ExecutionDetailModal({
                   })}
                   {(!exec.steps || exec.steps.length === 0) && (
                     <div className="text-center py-4 text-text-muted text-sm">
-                      No step details available
+                      Nenhuma etapa detalhada disponível
                     </div>
                   )}
                 </div>
@@ -764,6 +770,8 @@ function CapabilitiesPanel() {
     }>
   >([]);
   const [kindFilter, setKindFilter] = useState('');
+  const [kindMenuOpen, setKindMenuOpen] = useState(false);
+  const kindMenuRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -783,41 +791,74 @@ function CapabilitiesPanel() {
     })();
   }, [kindFilter]);
 
+  useEffect(() => {
+    if (!kindMenuOpen) return;
+    const closeIfOutside = (event: PointerEvent) => {
+      if (!kindMenuRef.current?.contains(event.target as Node)) setKindMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeIfOutside);
+    return () => document.removeEventListener('pointerdown', closeIfOutside);
+  }, [kindMenuOpen]);
+
   const byKind = new Map<string, typeof caps>();
   for (const cap of caps) {
     const list = byKind.get(cap.executorKind) ?? [];
-    list.push(cap);
+    list.push(localizedCapability(cap));
     byKind.set(cap.executorKind, list);
   }
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-4">
-        <select
-          value={kindFilter}
-          onChange={(e) => setKindFilter(e.target.value)}
-          className="px-3 py-1.5 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-lg border border-border dark:border-dark-border text-xs"
-        >
-          <option value="">All Executor Kinds</option>
-          {[
-            'claw',
-            'soul_heartbeat',
-            'crew',
-            'coding_agent',
-            'workflow',
-            'trigger',
-            'channel',
-            'direct_llm',
-            'sandbox_code',
-            'tool_catalog',
-          ].map((k) => (
-            <option key={k} value={k}>
-              {k.replace(/_/g, ' ')}
-            </option>
-          ))}
-        </select>
+      <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:w-80" ref={kindMenuRef} onKeyDown={(event) => {
+          if (event.key === 'Escape') setKindMenuOpen(false);
+        }}>
+          <button
+            type="button"
+            aria-label="Filtrar por tipo de executor"
+            aria-expanded={kindMenuOpen}
+            aria-controls="agentic-executor-options"
+            aria-haspopup="listbox"
+            onClick={() => setKindMenuOpen((open) => !open)}
+            className="flex min-h-11 w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-border bg-bg-tertiary px-3 py-2.5 text-left text-sm font-medium text-text-primary transition-colors hover:border-primary/40 dark:border-dark-border dark:bg-dark-bg-tertiary dark:text-dark-text-primary"
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {kindFilter ? EXECUTOR_KIND_LABELS[kindFilter] ?? kindFilter : 'Todos os tipos de executor'}
+            </span>
+            <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${kindMenuOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {kindMenuOpen && (
+            <div
+              id="agentic-executor-options"
+              role="listbox"
+              aria-label="Tipos de executor"
+              className="absolute inset-x-0 top-full z-30 mt-2 max-h-[min(320px,55dvh)] overflow-y-auto rounded-xl border border-border bg-bg-secondary p-1.5 shadow-xl dark:border-dark-border dark:bg-dark-bg-secondary"
+            >
+              {[
+                ['', 'Todos os tipos'],
+                ...Object.entries(EXECUTOR_KIND_LABELS),
+              ].map(([kind, label]) => (
+                <button
+                  key={kind || 'all'}
+                  role="option"
+                  aria-selected={kindFilter === kind}
+                  type="button"
+                  onClick={() => {
+                    setKindFilter(kind);
+                    setKindMenuOpen(false);
+                  }}
+                  className={`flex min-h-10 w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors ${kindFilter === kind
+                    ? 'bg-primary/10 font-semibold text-primary'
+                    : 'text-text-secondary hover:bg-bg-tertiary dark:text-dark-text-secondary dark:hover:bg-dark-bg-tertiary'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <span className="text-xs text-text-muted dark:text-dark-text-muted">
-          {caps.length} capabilities
+          {caps.length} {caps.length === 1 ? 'capacidade disponível' : 'capacidades disponíveis'}
         </span>
       </div>
       {loading ? (
@@ -825,40 +866,40 @@ function CapabilitiesPanel() {
           <RefreshCw className="w-6 h-6 animate-spin text-purple-500" />
         </div>
       ) : caps.length === 0 ? (
-        <div className="text-center py-8 text-text-muted text-sm">No capabilities found</div>
+        <div className="text-center py-8 text-text-muted text-sm">Nenhuma capacidade encontrada</div>
       ) : (
         <div className="space-y-4">
           {Array.from(byKind.entries()).map(([kind, items]) => (
             <div key={kind}>
               <h4 className="text-xs font-semibold text-text-muted dark:text-dark-text-muted uppercase tracking-wider mb-2">
-                {kind.replace(/_/g, ' ')} ({items.length})
+                {EXECUTOR_KIND_LABELS[kind] ?? kind} ({items.length})
               </h4>
               <div className="space-y-2">
                 {items.map((cap) => (
                   <div
                     key={cap.id}
-                    className="p-3 bg-bg-secondary dark:bg-dark-bg-secondary rounded-lg border border-border dark:border-dark-border"
+                    className="min-w-0 rounded-xl border border-border bg-bg-secondary p-3 dark:border-dark-border dark:bg-dark-bg-secondary sm:p-4"
                   >
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                       <span className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
                         {cap.name}
                       </span>
                       {cap.requiresApproval && (
                         <span className="px-1.5 py-0.5 text-[10px] bg-amber-900/30 text-amber-400 rounded">
-                          requires approval
+                          Exige aprovação
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-text-muted dark:text-dark-text-muted mb-2">
+                    <div className="mb-2 text-sm leading-relaxed text-text-muted dark:text-dark-text-muted">
                       {cap.description}
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {cap.tags.slice(0, 6).map((t) => (
+                      {cap.tags.filter((tag) => CAPABILITY_TAG_PT_BR[tag]).slice(0, 4).map((t) => (
                         <span
                           key={t}
                           className="px-1.5 py-0.5 text-[10px] bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-muted rounded"
                         >
-                          {t}
+                          {CAPABILITY_TAG_PT_BR[t]}
                         </span>
                       ))}
                     </div>
@@ -930,33 +971,33 @@ export function AgenticPage() {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
   }> = [
-    { id: 'executions', label: 'Executions', icon: ListChecks },
-    { id: 'capabilities', label: 'Capabilities', icon: Brain },
+    { id: 'executions', label: 'Execuções', icon: ListChecks },
+    { id: 'capabilities', label: 'Capacidades', icon: Brain },
   ];
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6">
+    <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-7">
       {selectedId && (
         <ExecutionDetailModal executionId={selectedId} onClose={() => setSelectedId(null)} />
       )}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="p-2.5 bg-purple-500/10 rounded-xl">
             <Brain className="w-6 h-6 text-purple-500" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-text-primary dark:text-dark-text-primary">
-              Agentic Command Center
+              Central de tarefas automatizadas
             </h1>
             <p className="text-sm text-text-muted dark:text-dark-text-muted">
-              Unified task execution across all agent types
+              Gerencie tarefas executadas por agentes, modelos de IA e ferramentas.
             </p>
           </div>
         </div>
         <button
           onClick={fetchData}
           className="p-2 hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded-lg transition-colors"
-          title="Refresh"
+          title="Atualizar"
         >
           <RefreshCw className={`w-5 h-5 text-text-muted ${loading ? 'animate-spin' : ''}`} />
         </button>
@@ -965,7 +1006,7 @@ export function AgenticPage() {
       <StatsBar stats={stats} />
       <CommandBar onExecute={fetchData} />
 
-      <div className="flex items-center gap-1 mb-4 border-b border-border dark:border-dark-border">
+      <div className="mb-5 grid min-w-0 grid-cols-2 gap-2 border-b border-border pb-2 dark:border-dark-border sm:flex sm:items-center">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -973,7 +1014,7 @@ export function AgenticPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${isActive ? 'text-purple-500 border-purple-500' : 'text-text-muted dark:text-dark-text-muted border-transparent hover:text-text-primary dark:hover:text-dark-text-primary'}`}
+              className={`flex min-w-0 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors sm:justify-start ${isActive ? 'bg-primary/10 text-primary dark:bg-primary/15' : 'text-text-muted dark:text-dark-text-muted hover:bg-bg-tertiary hover:text-text-primary dark:hover:bg-dark-bg-tertiary dark:hover:text-dark-text-primary'}`}
             >
               <Icon className="w-4 h-4" />
               {tab.label}
@@ -986,13 +1027,13 @@ export function AgenticPage() {
         <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl border border-border dark:border-dark-border overflow-hidden">
           <div className="hidden md:flex items-center gap-4 px-4 py-2 text-xs font-medium text-text-muted dark:text-dark-text-muted border-b border-border dark:border-dark-border bg-bg-tertiary/50">
             <div className="w-5" />
-            <div className="flex-1">Task</div>
+            <div className="flex-1">Tarefa</div>
             <div className="flex items-center gap-4">
-              <span className="w-20 text-right">Progress</span>
-              <span className="w-20 text-right">Cost</span>
-              <span className="w-20 text-right">Duration</span>
+              <span className="w-20 text-right">Progresso</span>
+              <span className="w-20 text-right">Custo</span>
+              <span className="w-20 text-right">Duração</span>
             </div>
-            <div className="w-36 text-right hidden lg:block">Started</div>
+            <div className="w-36 text-right hidden lg:block">Início</div>
             <div className="w-8" />
           </div>
           {loading ? (
@@ -1003,10 +1044,10 @@ export function AgenticPage() {
             <div className="text-center py-16">
               <Brain className="w-12 h-12 mx-auto text-text-muted/30 mb-3" />
               <div className="text-text-muted dark:text-dark-text-muted text-sm">
-                No executions yet
+                Nenhuma execução registrada
               </div>
               <div className="text-text-muted/60 text-xs mt-1">
-                Run a task using the command bar above
+                Use o painel acima para criar sua primeira tarefa.
               </div>
             </div>
           ) : (
@@ -1025,7 +1066,7 @@ export function AgenticPage() {
               {total > limit && (
                 <div className="flex items-center justify-between px-4 py-3 text-xs text-text-muted border-t border-border dark:border-dark-border">
                   <span>
-                    {offset + 1}-{Math.min(offset + limit, total)} of {total}
+                    {offset + 1}–{Math.min(offset + limit, total)} de {total}
                   </span>
                   <div className="flex gap-2">
                     <button
@@ -1033,14 +1074,14 @@ export function AgenticPage() {
                       onClick={() => setOffset(Math.max(0, offset - limit))}
                       className="px-3 py-1 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded disabled:opacity-30"
                     >
-                      Previous
+                      Anterior
                     </button>
                     <button
                       disabled={offset + limit >= total}
                       onClick={() => setOffset(offset + limit)}
                       className="px-3 py-1 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded disabled:opacity-30"
                     >
-                      Next
+                      Próxima
                     </button>
                   </div>
                 </div>
@@ -1049,7 +1090,7 @@ export function AgenticPage() {
           )}
         </div>
       ) : (
-        <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl border border-border dark:border-dark-border p-5">
+        <div className="card-elevated min-w-0 rounded-2xl border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary sm:p-5">
           <CapabilitiesPanel />
         </div>
       )}
