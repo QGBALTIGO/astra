@@ -1013,7 +1013,7 @@ export function McpServersPage() {
               <div className="text-center py-8 space-y-2 border border-dashed border-border dark:border-dark-border rounded-xl">
                 <Link className="w-8 h-8 mx-auto text-text-muted dark:text-dark-text-muted opacity-40" />
                 <p className="text-sm text-text-muted dark:text-dark-text-muted">
-                  No external MCP servers configured
+                  Nenhum servidor MCP externo configurado
                 </p>
                 <p className="text-xs text-text-muted dark:text-dark-text-muted">
                   Add an MCP server or use a preset below
