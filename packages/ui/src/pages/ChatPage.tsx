@@ -859,7 +859,7 @@ export function ChatPage() {
             <button
               onClick={handleNewChat}
               className="px-2 py-1 text-xs text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded-md transition-colors"
-              title="New session"
+              title="Nova sessão"
             >
               +
             </button>
@@ -867,7 +867,7 @@ export function ChatPage() {
         )}
 
         {/* Session context bar — visible only in web mode */}
-        {!isChannelMode && (
+        {!isChannelMode && messages.length > 0 && (
           <ContextBar
             sessionInfo={sessionInfo}
             defaultMaxTokens={
@@ -905,7 +905,7 @@ export function ChatPage() {
               <button
                 onClick={disableAutoCompactPrompt}
                 className="px-2 py-1 rounded-md text-yellow-700/80 dark:text-yellow-300/70 hover:bg-yellow-100 dark:hover:bg-yellow-900/40"
-                title="Stop showing this banner. You can still compact manually from the context bar."
+                title="Não mostrar este aviso novamente. Você ainda poderá resumir a conversa manualmente."
               >
                 Não perguntar novamente
               </button>
