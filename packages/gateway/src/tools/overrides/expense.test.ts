@@ -19,23 +19,27 @@ type Handler = (args: unknown) => Promise<{ content: string; isError: boolean }>
 
 /**
  * Minimal fake of the ToolRegistry interface surface that registerExpenseOverrides
- * actually uses: `get(name)` returning { definition } and `register(def, handler)`.
+ * actually uses: `get(name)` and `updateExecutor(name, handler)`.
  * We avoid pulling in the real ToolRegistry so the test stays focused.
  */
 function makeFakeRegistry(existing: string[]): {
   get: ReturnType<typeof vi.fn>;
   register: ReturnType<typeof vi.fn>;
+  updateExecutor: ReturnType<typeof vi.fn>;
   handlers: Map<string, Handler>;
 } {
   const handlers = new Map<string, Handler>();
-  const register = vi.fn((def: { name: string }, handler: Handler) => {
-    handlers.set(def.name, handler);
+  const register = vi.fn();
+  const updateExecutor = vi.fn((name: string, handler: Handler) => {
+    if (!existing.includes(name)) return false;
+    handlers.set(name, handler);
+    return true;
   });
   const get = vi.fn((name: string) => {
     if (!existing.includes(name)) return undefined;
     return { definition: { name, description: `${name} def` } };
   });
-  return { get, register, handlers };
+  return { get, register, updateExecutor, handlers };
 }
 
 const DB_TOOLS = [
@@ -58,7 +62,8 @@ describe('registerExpenseOverrides', () => {
 
     registerExpenseOverrides(registry as never, 'user-1');
 
-    expect(registry.register).toHaveBeenCalledTimes(7);
+    expect(registry.updateExecutor).toHaveBeenCalledTimes(7);
+    expect(registry.register).not.toHaveBeenCalled();
     for (const name of DB_TOOLS) {
       expect(registry.handlers.has(name)).toBe(true);
     }
@@ -77,15 +82,15 @@ describe('registerExpenseOverrides', () => {
 
     registerExpenseOverrides(registry as never, 'user-1');
 
-    expect(registry.register).toHaveBeenCalledTimes(2);
+    expect(registry.updateExecutor).toHaveBeenCalledTimes(2);
   });
 
-  it('produces no-op registrations when none of the expected tools are present', () => {
+  it('does nothing when no expense executor is registered', () => {
     const registry = makeFakeRegistry([]);
 
     registerExpenseOverrides(registry as never, 'user-1');
 
-    expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.updateExecutor).not.toHaveBeenCalled();
   });
 
   it('forwards tool name, args, and userId to executeExpenseTool; serializes success', async () => {
@@ -132,13 +137,13 @@ describe('registerExpenseOverrides', () => {
     expect(result.content).toBe('Expense operation failed');
   });
 
-  it('passes through the existing tool definition when re-registering', () => {
+  it('replaces an existing executor instead of registering a duplicate', () => {
     const registry = makeFakeRegistry(['add_expense']);
 
     registerExpenseOverrides(registry as never, 'user-1');
 
-    const [def] = registry.register.mock.calls[0]!;
-    expect((def as { name: string }).name).toBe('add_expense');
-    expect((def as { description: string }).description).toBe('add_expense def');
+    expect(registry.updateExecutor).toHaveBeenCalledWith('add_expense', expect.any(Function));
+    expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.get('add_expense').definition.description).toBe('add_expense def');
   });
 });
