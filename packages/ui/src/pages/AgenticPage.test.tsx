@@ -126,7 +126,7 @@ const defaultExecutions = [
   {
     id: 'exec-1',
     taskName: 'Research AI',
-    status: 'Concluída',
+    status: 'completed',
     summary: 'Completed 1/1 steps',
     totalCostUsd: 0.005,
     totalDurationMs: 150,
@@ -135,13 +135,13 @@ const defaultExecutions = [
     startedAt: '2026-06-15T10:00:00Z',
     completedAt: '2026-06-15T10:01:00Z',
     steps: [
-      { index: 1, executorKind: 'claw', capabilityId: 'c1', status: 'Concluída', durationMs: 150 },
+      { index: 1, executorKind: 'claw', capabilityId: 'c1', status: 'completed', durationMs: 150 },
     ],
   },
   {
     id: 'exec-2',
     taskName: 'Fix login bug',
-    status: 'Em execução',
+    status: 'running',
     summary: 'In progress',
     totalCostUsd: 0.01,
     totalDurationMs: 3000,
@@ -150,12 +150,12 @@ const defaultExecutions = [
     startedAt: '2026-06-15T10:05:00Z',
     completedAt: null,
     steps: [
-      { index: 1, executorKind: 'claw', capabilityId: 'c1', status: 'Concluída', durationMs: 100 },
+      { index: 1, executorKind: 'claw', capabilityId: 'c1', status: 'completed', durationMs: 100 },
       {
         index: 2,
         executorKind: 'coding_agent',
         capabilityId: 'c2',
-        status: 'Em execução',
+        status: 'running',
         durationMs: 2900,
       },
     ],
@@ -289,7 +289,7 @@ describe('AgenticPage', () => {
   it('shows form fields and execute button when expanded', async () => {
     mockExecute.mockResolvedValue({
       id: 'exec-3',
-      status: 'Concluída',
+      status: 'completed',
       summary: 'Done',
       totalCostUsd: 0,
       totalDurationMs: 50,
@@ -479,7 +479,7 @@ describe('AgenticPage', () => {
   it('keeps the execute button disabled until description is filled', async () => {
     mockExecute.mockResolvedValue({
       id: 'exec-x',
-      status: 'Concluída',
+      status: 'completed',
       summary: 'Done',
       totalCostUsd: 0,
       totalDurationMs: 50,
@@ -814,7 +814,7 @@ describe('AgenticPage', () => {
           index: 1,
           executorKind: 'direct_llm',
           capabilityId: 'cap-b',
-          status: 'Concluída',
+          status: 'completed',
           durationMs: 500,
           costUsd: 0.005,
           output: { ok: true },
@@ -887,7 +887,7 @@ describe('AgenticPage', () => {
   it('renders a Cancel button for running executions and flips status after click', async () => {
     // Make the default lookup return a running execution so the cancel
     // branch (status === 'Em execução' || 'pending') is reachable.
-    const runningExec = { ...defaultExecutions[0], status: 'Em execução', summary: 'Working...' };
+    const runningExec = { ...defaultExecutions[0], status: 'running', summary: 'Working...' };
     mockGet.mockResolvedValueOnce(runningExec);
     mockCancel.mockResolvedValueOnce({ id: 'exec-1', status: 'cancelled' });
     const container = render(<AgenticPage />);
