@@ -96,4 +96,65 @@ describe('WhatsAppChannelAPI', () => {
 
     expect(mockEmit).not.toHaveBeenCalled();
   });
+  it('routes inbound DMs from distinct phones only when multi-user mode is enabled', async () => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    try {
+      const api = new WhatsAppChannelAPI({ my_phone: '5567981030648' }, 'channel.whatsapp');
+      (api as any).sock = { user: { id: '5567981030648:0@s.whatsapp.net' } };
+
+      for (const [id, phone] of [
+        ['guest-1', '5521997557364'],
+        ['guest-2', '5511987654321'],
+      ]) {
+        await (api as any).handleIncomingMessage({
+          key: {
+            remoteJid: `${phone}@s.whatsapp.net`,
+            id,
+            fromMe: false,
+          },
+          pushName: phone,
+          message: { conversation: 'Quanto gastei este mês?' },
+          messageTimestamp: 1700000000,
+        });
+      }
+
+      expect(mockEmit).toHaveBeenCalledTimes(2);
+      const senders = mockEmit.mock.calls.map((call) => {
+        const data = call[0] as {
+          message: {
+            sender: { platformUserId: string };
+            metadata: { isSelfChat: boolean; fromMe: boolean };
+          };
+        };
+        expect(data.message.metadata).toMatchObject({ isSelfChat: false, fromMe: false });
+        return data.message.sender.platformUserId;
+      });
+      expect(senders).toEqual(['5521997557364', '5511987654321']);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('never routes outgoing manual messages to customers or unresolved LIDs', async () => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    try {
+      const api = new WhatsAppChannelAPI({ my_phone: '5567981030648' }, 'channel.whatsapp');
+      (api as any).sock = { user: { id: '5567981030648:0@s.whatsapp.net' } };
+
+      await (api as any).handleIncomingMessage({
+        key: { remoteJid: '5521997557364@s.whatsapp.net', id: 'manual', fromMe: true },
+        message: { conversation: 'Não responder' },
+        messageTimestamp: 1700000000,
+      });
+      await (api as any).handleIncomingMessage({
+        key: { remoteJid: '243060956995782@lid', id: 'lid', fromMe: false },
+        message: { conversation: 'Identidade não resolvida' },
+        messageTimestamp: 1700000000,
+      });
+      expect(mockEmit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
 });
