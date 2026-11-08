@@ -397,7 +397,7 @@ export function AIModelsTab() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Error/Success messages */}
       {error && (
         <div className="p-4 bg-error/10 border border-error/20 rounded-lg flex items-center gap-2 text-error">
@@ -463,11 +463,11 @@ export function AIModelsTab() {
                 </button>
               </div>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {localProviders.map((lp) => (
                   <div
                     key={lp.id}
-                    className={`card-elevated p-3 rounded-lg border transition-all ${
+                    className={`card-elevated p-4 rounded-2xl border transition-colors ${
                       lp.isEnabled
                         ? 'border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary'
                         : 'border-border/50 dark:border-dark-border/50 bg-bg-secondary/50 dark:bg-dark-bg-secondary/50 opacity-60'
@@ -719,13 +719,13 @@ export function AIModelsTab() {
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 xl:grid-cols-4">
             {availableProviders.map((provider) => {
               const docsHref = safeHref(provider.docsUrl);
               return (
                 <div
                   key={provider.id}
-                  className={`card-elevated p-3 rounded-lg border ${
+                  className={`card-elevated p-4 rounded-2xl border ${
                     provider.isConfigured
                       ? 'border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary'
                       : 'border-border dark:border-dark-border bg-bg-primary dark:bg-dark-bg-primary'
