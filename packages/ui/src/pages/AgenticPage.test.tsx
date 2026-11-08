@@ -693,11 +693,11 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(container.textContent).toContain('requires approval');
+    expect(container.textContent).toContain('Exige aprovação');
   });
 
   it('renders at most six tag chips per capability, even with longer tag arrays', async () => {
-    const manyTags = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+    const manyTags = ['autonomous', 'continuous', 'background', 'persistent', 'agent', 'research', 'code', 'monitoring', 'scheduled'];
     mockCapabilities.mockResolvedValue({
       capabilities: [
         {
@@ -723,14 +723,12 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    // 6 tag chips from the capability render; we assert text content presence
-    // rather than counting DOM nodes because the select background also
-    // uses bg-bg-tertiary.
-    expect(container.textContent).toContain('a');
-    expect(container.textContent).toContain('f');
-    expect(container.textContent).not.toContain('>g<');
-    expect(container.textContent).not.toContain('>h<');
-    expect(container.textContent).not.toContain('>i<');
+    // Keep the four most relevant translated tags to avoid noisy mobile cards.
+    expect(container.textContent).toContain('autônomo');
+    expect(container.textContent).toContain('contínuo');
+    expect(container.textContent).toContain('segundo plano');
+    expect(container.textContent).toContain('persistente');
+    expect(container.textContent).not.toContain('monitoramento');
   });
 
   it('groups capabilities by executor-kind and renders each group heading', async () => {
@@ -768,9 +766,9 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(container.textContent).toContain('claw (1)');
-    expect(container.textContent).toContain('direct llm (1)');
-    expect(container.textContent).toContain('2 capabilities');
+    expect(container.textContent).toContain('Agente autônomo (1)');
+    expect(container.textContent).toContain('Conversa com IA (1)');
+    expect(container.textContent).toContain('2 capacidades disponíveis');
   });
 
   // ── ExecutionDetailModal render states ──
@@ -834,7 +832,7 @@ describe('AgenticPage', () => {
     });
     // Top-level error block
     expect(container.textContent).toContain('Top-level failure');
-    expect(container.textContent).toContain('Error');
+    expect(container.textContent).toContain('Erro');
     // Summary
     expect(container.textContent).toContain('Partial progress before failure');
     // Step error
@@ -845,7 +843,7 @@ describe('AgenticPage', () => {
     // Step duration >= 1000ms
     expect(container.textContent).toContain('1.2s');
     // Status badge for failed step
-    expect(container.textContent).toContain('failed');
+    expect(container.textContent).toContain('Falhou');
   });
 
   it('renders the no-step-details fallback when an execution has no steps', async () => {
@@ -865,7 +863,7 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(container.textContent).toContain('No step details available');
+    expect(container.textContent).toContain('Nenhuma etapa detalhada disponível');
   });
 
   it('renders the Execution not found state when the API returns no record', async () => {
@@ -881,12 +879,12 @@ describe('AgenticPage', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(container.textContent).toContain('Execution not found');
+    expect(container.textContent).toContain('Execução não encontrada');
   });
 
   it('renders a Cancel button for running executions and flips status after click', async () => {
     // Make the default lookup return a running execution so the cancel
-    // branch (status === 'Em execução' || 'pending') is reachable.
+    // branch (status === 'running' || 'pending') is reachable.
     const runningExec = { ...defaultExecutions[0], status: 'running', summary: 'Working...' };
     mockGet.mockResolvedValueOnce(runningExec);
     mockCancel.mockResolvedValueOnce({ id: 'exec-1', status: 'cancelled' });
@@ -903,7 +901,7 @@ describe('AgenticPage', () => {
     });
 
     const cancelButton = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Cancel'
+      (b) => b.textContent?.trim() === 'Cancelar'
     );
     expect(cancelButton).toBeDefined();
 
@@ -916,6 +914,6 @@ describe('AgenticPage', () => {
 
     expect(mockCancel).toHaveBeenCalledWith('exec-1');
     // The badge should now show 'cancelled' after the click
-    expect(container.textContent).toContain('cancelled');
+    expect(container.textContent).toContain('Cancelada');
   });
 });
