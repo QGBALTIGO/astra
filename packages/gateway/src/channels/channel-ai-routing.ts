@@ -401,7 +401,15 @@ export async function processViaBus(
 /**
  * Legacy fallback: process directly via agent.chat() without the bus.
  */
-export async function processDirectAgent(message: ChannelIncomingMessage): Promise<string> {
+export async function processDirectAgent(
+  message: ChannelIncomingMessage,
+  userId = 'default'
+): Promise<string> {
+  const expenseReply = message.attachments?.length
+    ? null
+    : await tryAnswerRecordedExpenses(message.text, userId);
+  if (expenseReply) return expenseReply;
+
   const freeReply = deterministicChannelReply(message.text);
   if (freeReply && !message.attachments?.length) return freeReply;
 
@@ -426,7 +434,8 @@ export async function processDirectAgent(message: ChannelIncomingMessage): Promi
     null,
     `channel:${message.channelPluginId}:${message.platformChatId}`,
     undefined,
-    true
+    true,
+    userId
   );
   const result = await runInExecContext(
     {
