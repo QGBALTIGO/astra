@@ -35,7 +35,7 @@ const POPULAR_APPS: ComposioApp[] = [
   {
     slug: 'googlecalendar',
     name: 'Google Calendar',
-    description: 'Create and manage calendar events',
+    description: 'Criar e gerenciar compromissos na agenda',
     categories: ['productivity'],
   },
   {
