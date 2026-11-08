@@ -191,6 +191,12 @@ vi.mock('./prompt.js', () => ({
   CHANNEL_SYSTEM_PROMPT: 'Astra é um assistente em português do Brasil.',
 }));
 
+// These tests mock the agent registry; expense overrides are tested against a real
+// ToolRegistry in tools/overrides/expense.test.ts.
+vi.mock('../../tools/overrides/expense.js', () => ({
+  registerExpenseOverrides: vi.fn(),
+}));
+
 vi.mock('../../tools/agent-tool-registry.js', () => ({
   registerGatewayTools: vi.fn(),
   registerDynamicTools: vi.fn(async () => []),
