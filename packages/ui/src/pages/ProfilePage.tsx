@@ -564,7 +564,7 @@ export function ProfilePage() {
                 </div>
               ) : (
                 <p className="text-sm text-text-muted dark:text-dark-text-muted italic">
-                  No memories yet. Add some to help your AI remember important things.
+                  Nenhuma memória cadastrada. Adicione informações importantes para personalizar seu assistente.
                 </p>
               )}
             </SectionCard>
