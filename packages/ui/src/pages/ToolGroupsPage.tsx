@@ -57,11 +57,13 @@ function ToolGroupCard({
               </span>
             )}
           </div>
-          <p className="text-xs text-text-muted mt-0.5 truncate">{group.description === 'Create dynamic tables for any data structure'
-            ? 'Crie tabelas dinâmicas para organizar informações'
-            : group.description === 'Create and manage user-created tools'
-              ? 'Crie e gerencie ferramentas personalizadas'
-              : group.description}</p>
+          <p className="text-xs text-text-muted mt-0.5 truncate">
+            {group.description === 'Create dynamic tables for any data structure'
+              ? 'Crie tabelas dinâmicas para organizar informações'
+              : group.description === 'Create and manage user-created tools'
+                ? 'Crie e gerencie ferramentas personalizadas'
+                : group.description}
+          </p>
         </div>
 
         {/* Toggle */}

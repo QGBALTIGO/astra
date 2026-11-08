@@ -45,8 +45,7 @@ const FEATURES: Feature[] = [
     icon: Globe,
     color: 'text-emerald-500 bg-emerald-500/10',
     title: 'Biblioteca npm',
-    description:
-      'Encontre habilidades da comunidade no npm por palavra-chave, autor ou categoria.',
+    description: 'Encontre habilidades da comunidade no npm por palavra-chave, autor ou categoria.',
   },
   {
     icon: Wrench,
@@ -111,8 +110,7 @@ const STEPS: Step[] = [
   {
     n: 3,
     title: 'Sua IA aprende novas habilidades',
-    detail:
-      "As habilidades instaladas são disponibilizadas ao assistente automaticamente.",
+    detail: 'As habilidades instaladas são disponibilizadas ao assistente automaticamente.',
   },
   {
     n: 4,
@@ -179,8 +177,7 @@ export function HomeTab() {
       {/* Features grid */}
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-primary dark:text-dark-text-primary uppercase tracking-wide flex items-center gap-2">
-          <Zap className="w-4 h-4 text-primary" />
-          O que são habilidades?
+          <Zap className="w-4 h-4 text-primary" />O que são habilidades?
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {FEATURES.map((f) => (
@@ -287,9 +284,10 @@ export function HomeTab() {
           Sobre o formato SKILL.md
         </p>
         <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-          As habilidades seguem o padrão aberto <span className="font-semibold">AgentSkills.io</span>,
-          com metadados em YAML e instruções em Markdown. O Astra também aceita o formato nativo
-          com ferramentas e seções adicionais. Ambos são compatíveis.
+          As habilidades seguem o padrão aberto{' '}
+          <span className="font-semibold">AgentSkills.io</span>, com metadados em YAML e instruções
+          em Markdown. O Astra também aceita o formato nativo com ferramentas e seções adicionais.
+          Ambos são compatíveis.
         </p>
       </div>
 

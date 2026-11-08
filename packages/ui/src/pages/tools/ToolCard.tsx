@@ -21,7 +21,8 @@ export function ToolCard({ tool, onClick }: ToolCardProps) {
             {tool.name}
           </h4>
           <p className="text-xs text-text-muted dark:text-dark-text-muted line-clamp-2 mt-0.5">
-            {tool.description === 'Create a folder (directory) in the workspace. Can create nested folders.'
+            {tool.description ===
+            'Create a folder (directory) in the workspace. Can create nested folders.'
               ? 'Crie pastas e subpastas no seu ambiente de arquivos.'
               : tool.description}
           </p>
