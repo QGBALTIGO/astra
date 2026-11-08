@@ -538,8 +538,10 @@ export class ChannelServiceImpl implements IChannelService {
       if (message.text.startsWith('/connect ')) {
         // A customer must never claim channel ownership or link to an admin identity.
         // Only self-chat messages originated by the connected account may pair.
-        if (whatsappMultiUser &&
-            (message.metadata?.isSelfChat !== true || message.metadata?.fromMe !== true)) {
+        if (
+          whatsappMultiUser &&
+          (message.metadata?.isSelfChat !== true || message.metadata?.fromMe !== true)
+        ) {
           return;
         }
         const submittedKey = message.text.slice('/connect '.length).trim();
