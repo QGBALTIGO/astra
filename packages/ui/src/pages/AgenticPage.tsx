@@ -289,10 +289,10 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
   };
 
   return (
-    <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl border border-border dark:border-dark-border mb-6">
+    <div className="card-elevated mb-6 overflow-hidden rounded-2xl border border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left"
+        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5"
       >
         <div className="flex min-w-0 items-center gap-3">
           <div className="p-2 bg-purple-500/10 rounded-lg">
@@ -468,7 +468,7 @@ function CommandBar({ onExecute }: { onExecute: () => void }) {
               onClick={() => setExpanded(false)}
               className="px-4 py-2 text-sm text-text-muted dark:text-dark-text-muted hover:text-text-primary dark:hover:text-dark-text-primary transition-colors"
             >
-              Cancel
+              Cancelar
             </button>
             <button
               type="submit"
@@ -530,7 +530,7 @@ function ExecutionRow({
         <div className="flex items-center gap-1">
           <ListChecks className="w-3.5 h-3.5" />
           <span>
-            {exec.completedSteps}/{exec.stepCount} steps
+            {exec.completedSteps}/{exec.stepCount} etapas
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -1027,7 +1027,7 @@ export function AgenticPage() {
         <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl border border-border dark:border-dark-border overflow-hidden">
           <div className="hidden md:flex items-center gap-4 px-4 py-2 text-xs font-medium text-text-muted dark:text-dark-text-muted border-b border-border dark:border-dark-border bg-bg-tertiary/50">
             <div className="w-5" />
-            <div className="flex-1">Task</div>
+            <div className="flex-1">Tarefa</div>
             <div className="flex items-center gap-4">
               <span className="w-20 text-right">Progresso</span>
               <span className="w-20 text-right">Custo</span>
