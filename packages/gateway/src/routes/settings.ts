@@ -559,4 +559,3 @@ settingsRoutes.put('/max-llm-concurrency', async (c) => {
     return apiError(c, { code: ERROR_CODES.INTERNAL_ERROR, message: getErrorMessage(err) }, 500);
   }
 });
-

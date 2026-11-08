@@ -7,7 +7,7 @@ import type { ResolvedProviderConfig, ProviderConfig } from './configs/index.js'
 import type { CompletionRequest, Message, StreamChunk } from '../types.js';
 import type { Result } from '../../types/result.js';
 import type { InternalError } from '../../types/errors.js';
-import { OpenAICompatibleProvider } from './openai-compatible.js';
+import { OpenAICompatibleProvider, providerRateLimitRetryDelayMs } from './openai-compatible.js';
 
 // Mock configs module — vi.hoisted ensures the fns exist before the hoisted vi.mock runs
 const { mockLoadProviderConfig, mockResolveProviderConfig } = vi.hoisted(() => ({
@@ -137,6 +137,23 @@ afterEach(() => {
 // ===========================================================================
 // Tests
 // ===========================================================================
+
+describe('providerRateLimitRetryDelayMs', () => {
+  it('reads fractional Retry-After seconds and adds a small safety margin', () => {
+    const headers = { get: (name: string) => (name === 'retry-after' ? '4.6425' : null) };
+    expect(providerRateLimitRetryDelayMs(headers, '')).toBe(4743);
+  });
+
+  it('reads Groq-style retry hints from the error body', () => {
+    const headers = { get: () => null };
+    expect(providerRateLimitRetryDelayMs(headers, 'Please try again in 2.5s.')).toBe(2600);
+  });
+
+  it('refuses an unbounded provider wait', () => {
+    const headers = { get: () => '60' };
+    expect(providerRateLimitRetryDelayMs(headers, '')).toBeNull();
+  });
+});
 
 describe('OpenAICompatibleProvider', () => {
   // -------------------------------------------------------------------------
@@ -558,6 +575,49 @@ describe('OpenAICompatibleProvider', () => {
       }
     });
 
+    it('retries one 429 after the provider delay and succeeds', async () => {
+      const provider = new OpenAICompatibleProvider(mockConfig);
+      const rateLimited = {
+        ok: false,
+        status: 429,
+        headers: { get: (name: string) => (name === 'retry-after' ? '0' : null) },
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve('{"error":{"message":"Rate limited"}}'),
+        body: null,
+      };
+      const success = {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: () =>
+          Promise.resolve({
+            id: 'retry-ok',
+            choices: [{ message: { content: 'Recovered' }, finish_reason: 'stop' }],
+          }),
+        text: () => Promise.resolve(''),
+        body: null,
+      };
+      const fetchMock = vi.fn().mockResolvedValueOnce(rateLimited).mockResolvedValueOnce(success);
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await provider.complete(makeRequest());
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.content).toBe('Recovered');
+    });
+
+    it('does not retry a non-rate-limit provider error', async () => {
+      const provider = new OpenAICompatibleProvider(mockConfig);
+      const fetchMock = mockFetchResponse({ error: { message: 'Bad tool call' } }, false, 400);
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await provider.complete(makeRequest());
+
+      expect(result.ok).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('returns InternalError when response has no choices', async () => {
       const provider = new OpenAICompatibleProvider(mockConfig);
       vi.stubGlobal('fetch', mockFetchResponse({ choices: [] }));
@@ -648,6 +708,35 @@ describe('OpenAICompatibleProvider', () => {
           error: expect.objectContaining({ code: 'INTERNAL_ERROR' }),
         })
       );
+    });
+
+    it('retries a 429 before any stream chunks are emitted', async () => {
+      const provider = new OpenAICompatibleProvider(mockConfig);
+      const rateLimited = {
+        ok: false,
+        status: 429,
+        headers: { get: () => null },
+        body: null,
+        text: () => Promise.resolve('Please try again in 0s'),
+      };
+      const recovered = {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        body: createSSEStream([
+          'data: {"id":"x","choices":[{"delta":{"content":"Recovered"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+        text: () => Promise.resolve(''),
+      };
+      const fetchMock = vi.fn().mockResolvedValueOnce(rateLimited).mockResolvedValueOnce(recovered);
+      vi.stubGlobal('fetch', fetchMock);
+
+      const chunks: Array<Result<StreamChunk, InternalError>> = [];
+      for await (const chunk of provider.stream(makeRequest())) chunks.push(chunk);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(chunks.some((chunk) => chunk.ok && chunk.value.content === 'Recovered')).toBe(true);
     });
 
     it('yields error when no model is specified', async () => {

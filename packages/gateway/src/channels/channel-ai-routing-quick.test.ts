@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSchedule = vi.hoisted(() => vi.fn());
+const mockExpense = vi.hoisted(() => vi.fn());
 vi.mock('../tools/channel-reminder-tools.js', () => ({
   executeChannelReminderTool: mockSchedule,
+}));
+vi.mock('../tools/expense-tools.js', () => ({
+  executeExpenseTool: mockExpense,
 }));
 
 import {
   deterministicChannelReply,
+  expenseSummaryPeriodForChannel,
+  processDirectAgent,
+  processViaBus,
+  tryExpenseSummaryChannelReply,
   tryScheduleRelativeChannelReminder,
 } from './channel-ai-routing.js';
 
@@ -28,6 +36,110 @@ describe('Astra respostas gratuitas e instantâneas', () => {
   ])('encaminha solicitação contextual %s à IA', (message) => {
     expect(deterministicChannelReply(message)).toBeNull();
   });
+});
+
+describe('Consulta financeira direta e read-only pelo canal', () => {
+  const message = {
+    id: 'incoming-finance-1',
+    channelPluginId: 'channel.whatsapp',
+    platformChatId: 'chat-123',
+    text: 'Quanto gastei esse mês?',
+  };
+
+  beforeEach(() => {
+    mockExpense.mockReset();
+    mockExpense.mockResolvedValue({
+      success: true,
+      result: {
+        period: 'this_month',
+        count: 1,
+        totalAmount: 50,
+        byCurrency: { BRL: 50 },
+      },
+    });
+  });
+
+  it.each([
+    ['Quanto gastei esse mês?', 'this_month'],
+    ['Quanto gastei hoje?', 'today'],
+    ['Qual o total dos meus gastos nesta semana?', 'this_week'],
+    ['Resumo de despesas do mês passado', 'last_month'],
+    ['Quanto gastamos neste ano?', 'this_year'],
+  ])('reconhece o período em %s', (text, period) => {
+    expect(expenseSummaryPeriodForChannel(text)).toBe(period);
+  });
+
+  it('não intercepta uma frase que não pede um total inequívoco', () => {
+    expect(expenseSummaryPeriodForChannel('Anote que gastei 50 reais hoje')).toBeNull();
+    expect(expenseSummaryPeriodForChannel('Mostre minhas compras recentes')).toBeNull();
+  });
+
+  it('consulta o resumo mensal no banco e formata em pt-BR', async () => {
+    const response = await tryExpenseSummaryChannelReply(message, 'default');
+
+    expect(mockExpense).toHaveBeenCalledWith(
+      'expense_summary',
+      { period: 'this_month' },
+      'default'
+    );
+    expect(response).toContain('R$\u00a050,00');
+    expect(response).toContain('neste mês');
+    expect(response).toContain('1 lançamento');
+  });
+
+  it('mantém moedas diferentes separadas', async () => {
+    mockExpense.mockResolvedValueOnce({
+      success: true,
+      result: { count: 2, byCurrency: { BRL: 50, USD: 10 } },
+    });
+
+    const response = await tryExpenseSummaryChannelReply(message, 'default');
+
+    expect(response).toContain('R$\u00a050,00');
+    expect(response).toContain('US$\u00a010,00');
+    expect(response).toContain('sem conversão');
+  });
+
+  it('não expõe erro interno nem afirma sucesso se o banco falhar', async () => {
+    mockExpense.mockResolvedValueOnce({ success: false, error: 'password leaked in DB error' });
+
+    const response = await tryExpenseSummaryChannelReply(message, 'default');
+
+    expect(response).toBe(
+      'Não consegui consultar seus gastos agora. Nenhum registro foi alterado.'
+    );
+    expect(response).not.toContain('password');
+  });
+
+  it.each(['channel.whatsapp', 'channel.telegram'])(
+    'intercepta a consulta no fluxo %s antes do provedor de IA',
+    async (channelPluginId) => {
+      const bus = { process: vi.fn() };
+      const response = await processViaBus(
+        bus as never,
+        { ...message, channelPluginId, attachments: [] } as never,
+        { sessionId: 'session-1', conversationId: null },
+        { ownpilotUserId: 'default' },
+        { sessionsRepo: {} as never, getChannel: () => undefined }
+      );
+
+      expect(response).toContain('R$\u00a050,00');
+      expect(bus.process).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['channel.whatsapp', 'channel.telegram'])(
+    'também intercepta a consulta no fallback legado %s',
+    async (channelPluginId) => {
+      const response = await processDirectAgent({
+        ...message,
+        channelPluginId,
+        attachments: [],
+      } as never);
+
+      expect(response).toContain('R$\u00a050,00');
+    }
+  );
 });
 
 describe('Agendamento direto e gratuito pelo canal', () => {

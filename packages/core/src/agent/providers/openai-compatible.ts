@@ -42,6 +42,51 @@ import { getLog } from '../../services/get-log.js';
 
 const log = getLog('OpenAICompatible');
 
+const DEFAULT_RATE_LIMIT_RETRY_MS = 1_000;
+const MAX_RATE_LIMIT_RETRY_MS = 10_000;
+const RATE_LIMIT_RETRY_MARGIN_MS = 100;
+
+/**
+ * Resolve a bounded retry delay from an OpenAI-compatible 429 response.
+ * Providers vary between Retry-After headers and messages such as
+ * "Please try again in 4.6425s", so support both without sleeping forever.
+ */
+export function providerRateLimitRetryDelayMs(
+  headers: Pick<Headers, 'get'>,
+  errorText: string,
+  now = Date.now()
+): number | null {
+  const retryAfter = headers.get('retry-after');
+  let delayMs: number | undefined;
+
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      delayMs = seconds * 1_000;
+    } else {
+      const retryAt = Date.parse(retryAfter);
+      if (Number.isFinite(retryAt)) delayMs = Math.max(0, retryAt - now);
+    }
+  }
+
+  if (delayMs === undefined) {
+    const bodyHint = errorText.match(
+      /(?:try again in|retry after)\s*([\d.]+)\s*(milliseconds?|ms|seconds?|secs?|s)\b/i
+    );
+    if (bodyHint) {
+      const amount = Number(bodyHint[1]);
+      const unit = bodyHint[2]?.toLowerCase() ?? 's';
+      if (Number.isFinite(amount) && amount >= 0) {
+        delayMs = unit.startsWith('m') ? amount : amount * 1_000;
+      }
+    }
+  }
+
+  delayMs ??= DEFAULT_RATE_LIMIT_RETRY_MS;
+  const withMargin = Math.ceil(delayMs + RATE_LIMIT_RETRY_MARGIN_MS);
+  return withMargin <= MAX_RATE_LIMIT_RETRY_MS ? withMargin : null;
+}
+
 /**
  * Build the Authorization header from either the new `resolvedAuth`
  * discriminated union or the legacy `apiKey` field. All supported auth
@@ -210,29 +255,13 @@ export class OpenAICompatibleProvider implements IProvider {
     const body = this.buildRequestBody(request, model, false);
 
     try {
-      const fetchOptions = this.createFetchOptions(body);
-      // Inject conversation ID for session resume (Bridge uses this for --resume)
-      if (request.metadata?.conversationId) {
-        (fetchOptions.headers as Record<string, string>)['X-Conversation-Id'] =
-          request.metadata.conversationId;
-      }
-      // Inject X-Runtime header for bridge multi-provider routing
-      // Provider name 'bridge-opencode' → X-Runtime: opencode
-      if (this.providerId.startsWith('bridge-')) {
-        (fetchOptions.headers as Record<string, string>)['X-Runtime'] = this.providerId.replace(
-          'bridge-',
-          ''
-        );
-      }
-      await this.assertBaseUrlSafe();
-      const response = await fetch(
-        `${this.config.baseUrl}${this.config.endpoint ?? '/chat/completions'}`,
-        fetchOptions
+      const { response, errorText: rateLimitErrorText } = await this.fetchChatCompletion(
+        body,
+        request
       );
-      this.clearRequestTimeout();
 
       if (!response.ok) {
-        const errorText = await response.text();
+        const errorText = rateLimitErrorText ?? (await response.text());
         return err(
           new InternalError(`${this.providerId} API error: ${response.status} - ${errorText}`)
         );
@@ -297,27 +326,13 @@ export class OpenAICompatibleProvider implements IProvider {
     const body = this.buildRequestBody(request, model, true);
 
     try {
-      const fetchOptions = this.createFetchOptions(body);
-      if (request.metadata?.conversationId) {
-        (fetchOptions.headers as Record<string, string>)['X-Conversation-Id'] =
-          request.metadata.conversationId;
-      }
-      // Inject X-Runtime header for bridge multi-provider routing (streaming path)
-      if (this.providerId.startsWith('bridge-')) {
-        (fetchOptions.headers as Record<string, string>)['X-Runtime'] = this.providerId.replace(
-          'bridge-',
-          ''
-        );
-      }
-      await this.assertBaseUrlSafe();
-      const response = await fetch(
-        `${this.config.baseUrl}${this.config.endpoint ?? '/chat/completions'}`,
-        fetchOptions
+      const { response, errorText: rateLimitErrorText } = await this.fetchChatCompletion(
+        body,
+        request
       );
-      this.clearRequestTimeout();
 
       if (!response.ok || !response.body) {
-        const errorText = await response.text().catch(() => '');
+        const errorText = rateLimitErrorText ?? (await response.text().catch(() => ''));
         yield err(
           new InternalError(
             `${this.providerId} stream error: ${response.status}${errorText ? ` - ${errorText}` : ''}`
@@ -654,6 +669,48 @@ export class OpenAICompatibleProvider implements IProvider {
       body: JSON.stringify(body),
       signal: this.abortController.signal,
     };
+  }
+
+  /**
+   * Send a chat request and retry exactly once for a short provider-directed
+   * 429 delay. A fresh AbortController and timeout are created for each attempt.
+   * Non-429 failures are never retried here.
+   */
+  private async fetchChatCompletion(
+    body: unknown,
+    request: CompletionRequest
+  ): Promise<{ response: Response; errorText?: string }> {
+    await this.assertBaseUrlSafe();
+    const url = `${this.config.baseUrl}${this.config.endpoint ?? '/chat/completions'}`;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const fetchOptions = this.createFetchOptions(body);
+      if (request.metadata?.conversationId) {
+        (fetchOptions.headers as Record<string, string>)['X-Conversation-Id'] =
+          request.metadata.conversationId;
+      }
+      if (this.providerId.startsWith('bridge-')) {
+        (fetchOptions.headers as Record<string, string>)['X-Runtime'] = this.providerId.replace(
+          'bridge-',
+          ''
+        );
+      }
+
+      const response = await fetch(url, fetchOptions);
+      this.clearRequestTimeout();
+      if (response.status !== 429) return { response };
+
+      const errorText = await response.text().catch(() => '');
+      if (attempt === 1) return { response, errorText };
+
+      const delayMs = providerRateLimitRetryDelayMs(response.headers, errorText);
+      if (delayMs === null) return { response, errorText };
+
+      log.warn(`Rate limited by ${this.providerId}; retrying once in ${delayMs}ms`);
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    throw new Error('Unreachable provider retry state');
   }
 
   private parseToolCalls(toolCalls: unknown): ToolCall[] | undefined {
