@@ -88,6 +88,89 @@ export async function tryScheduleRelativeChannelReminder(
   );
 }
 
+
+/**
+ * Answer simple, explicit expense-total questions from the *real* PostgreSQL
+ * ledger without spending Groq tokens. No inference from chat history/memory.
+ * A verified channel user ID is required, and permissions are checked first.
+ */
+export async function tryAnswerRecordedExpenses(
+  text: string,
+  userId: string
+): Promise<string | null> {
+  const normalized = text.trim().toLocaleLowerCase('pt-BR').replace(/[?.!]+\s*$/u, '');
+  const match = normalized.match(
+    /^quanto\s+(?:eu\s+)?(?:já\s+)?gastei\s+(hoje|(?:esse|este|neste|nesse)\s+m[eê]s|(?:no\s+)?m[eê]s\s+passado|(?:essa|esta|nesta|nessa)\s+semana)$/u
+  );
+  if (!match) return null;
+
+  const phrase = match[1]!;
+  const period =
+    phrase === 'hoje' ? 'today' :
+    phrase.includes('passado') ? 'last_month' :
+    phrase.includes('semana') ? 'this_week' : 'this_month';
+  const label =
+    period === 'today' ? 'hoje' :
+    period === 'last_month' ? 'no mês passado' :
+    period === 'this_week' ? 'nesta semana' : 'neste mês';
+
+  try {
+    const { checkToolPermission } = await import('../services/tool/permission.js');
+    const permission = await checkToolPermission(userId, 'core.expense_summary', {
+      source: 'chat',
+    });
+    if (!permission.allowed) {
+      return 'O acesso aos registros financeiros ainda não foi habilitado nesta conta.';
+    }
+
+    const { executeExpenseTool } = await import('../tools/expense-tools.js');
+    const result = await executeExpenseTool('expense_summary', { period }, userId);
+    if (!result.success) {
+      return 'Não consegui consultar o financeiro agora. Nenhum total foi calculado.';
+    }
+    const summary = result.result as {
+      count?: number;
+      totalAmount?: number;
+      byCurrency?: Record<string, number>;
+    };
+    const count = Number(summary?.count ?? 0);
+    if (!Number.isFinite(count) || count <= 0) {
+      return 'Não encontrei despesas salvas no financeiro ' + label +
+        '. Valores mencionados na conversa não entram no total até serem registrados.';
+    }
+
+    const currencies = Object.entries(summary.byCurrency ?? {}).filter(
+      ([currency, amount]) => /^[A-Z]{3}$/.test(currency) && Number.isFinite(amount)
+    );
+    const format = (value: number, currency: string): string =>
+      new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency,
+      }).format(value);
+
+    if (currencies.length > 1) {
+      return '💰 Seus gastos ' + label + ' (' + count +
+        ' lançamentos) estão em moedas diferentes:\n' +
+        currencies.map(([currency, total]) => '• ' + format(total, currency)).join('\n') +
+        '\nNão somei moedas diferentes sem conversão.';
+    }
+
+    if (currencies.length === 1) {
+      const [currency, amount] = currencies[0]!;
+      return '💰 Gastos registrados ' + label + ': ' + format(amount, currency) +
+        ' (' + count + (count === 1 ? ' lançamento).' : ' lançamentos).');
+    }
+    if (typeof summary.totalAmount === 'number' && Number.isFinite(summary.totalAmount)) {
+      return '💰 Gastos registrados ' + label + ': ' +
+        format(summary.totalAmount, 'BRL') +
+        ' (' + count + (count === 1 ? ' lançamento).' : ' lançamentos).');
+    }
+    return 'Não foi possível calcular um total confiável a partir dos registros de ' + label + '.';
+  } catch {
+    return 'Não consegui consultar os registros financeiros agora. Tente novamente.';
+  }
+}
+
 interface ApprovalChannelApi extends ChannelPluginAPI {
   requestApproval(
     chatId: string,
@@ -120,6 +203,11 @@ export async function processViaBus(
   },
   progress?: { update(text: string): void }
 ): Promise<string> {
+  const expenseReply = message.attachments?.length
+    ? null
+    : await tryAnswerRecordedExpenses(message.text, channelUser.ownpilotUserId);
+  if (expenseReply) return expenseReply;
+
   const reminderReply = message.attachments?.length
     ? null
     : await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId);
