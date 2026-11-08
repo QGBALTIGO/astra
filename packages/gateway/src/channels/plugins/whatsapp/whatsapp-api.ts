@@ -1355,6 +1355,9 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         platformMessageId: messageId,
         jid: remoteJid,
         isGroup,
+        // Origin is trusted Baileys metadata, not the content of the message.
+        isSelfChat: !isGroup && this.isSelfChat(remoteJid),
+        fromMe: msg.key.fromMe === true,
         pushName: msg.pushName || undefined,
         // For groups: store participant JID so we know who sent it
         ...(isGroup && { participant: participantJid }),
