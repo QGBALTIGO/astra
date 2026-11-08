@@ -568,6 +568,20 @@ describe('ChannelUsersRepository', () => {
       expect(r).toBeInstanceOf(ChannelUsersRepository);
     });
   });
+  describe('operator customer listing', () => {
+    it('includes only canonical scoped WhatsApp customers with the owner', async () => {
+      mockAdapter.query.mockResolvedValueOnce([]);
+      await repo.list({ ownpilotUserId: 'default', includeWhatsAppCustomers: true });
+
+      const sql = mockAdapter.query.mock.calls[0]![0] as string;
+      const params = mockAdapter.query.mock.calls[0]![1] as unknown[];
+      expect(sql).toContain("platform = 'whatsapp'");
+      expect(sql).toContain("ownpilot_user_id = 'whatsapp:' || platform_user_id");
+      expect(sql).toContain('ownpilot_user_id = $1');
+      expect(params[0]).toBe('default');
+    });
+  });
+
   describe('WhatsApp customer scopes', () => {
     it('moves an old non-owner record out of default and invalidates its sessions', async () => {
       mockAdapter.queryOne.mockResolvedValueOnce(
