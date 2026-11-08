@@ -86,11 +86,8 @@ describe('registerExpenseOverrides', () => {
     const handler = registry.handlers.get('core.add_expense')!;
     const result = await handler({ amount: 12, description: 'café' });
 
-    expect(mockExecuteExpenseTool).toHaveBeenCalledWith(
-      'add_expense',
-      { amount: 12, description: 'café' },
-      'user-42'
-    );
+    const expectedArgs = { amount: 12, description: 'café' };
+    expect(mockExecuteExpenseTool).toHaveBeenCalledWith('add_expense', expectedArgs, 'user-42');
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.content)).toEqual({ id: 'exp-1', amount: 12 });
   });
@@ -131,16 +128,11 @@ describe('registerExpenseOverrides', () => {
     expect(registry.get('parse_receipt')?.executor).toBe(originalReceiptExecutor);
 
     mockExecuteExpenseTool.mockResolvedValue({ success: true, result: { totalAmount: 50 } });
-    const result = await registry.get('expense_summary')!.executor(
-      { period: 'this_month' },
-      { userId: 'user-42', conversationId: 'test', callId: 'test' } as never
-    );
+    const args = { period: 'this_month' };
+    const context = { userId: 'user-42', conversationId: 'test', callId: 'test' } as never;
+    const result = await registry.get('expense_summary')!.executor(args, context);
 
-    expect(mockExecuteExpenseTool).toHaveBeenCalledWith(
-      'expense_summary',
-      { period: 'this_month' },
-      'user-42'
-    );
+    expect(mockExecuteExpenseTool).toHaveBeenCalledWith('expense_summary', args, 'user-42');
     expect(JSON.parse(result.content as string)).toEqual({ totalAmount: 50 });
   });
 });
