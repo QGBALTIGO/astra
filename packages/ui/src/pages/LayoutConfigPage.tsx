@@ -77,12 +77,12 @@ export function LayoutConfigPage() {
             }}
             className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
           >
-            <Plus className="w-3 h-3" /> New Group
+            <Plus className="w-3 h-3" /> Novo grupo
           </button>
         </div>
 
         <p className="text-xs text-text-muted dark:text-dark-text-muted">
-          Create reusable groups from any items. Add them to header zones or sidebar.
+          Crie grupos com seus atalhos preferidos para usá-los no cabeçalho ou no menu lateral.
         </p>
 
         {/* Existing custom groups */}
@@ -97,12 +97,12 @@ export function LayoutConfigPage() {
                   {group.label}
                 </span>
                 <span className="text-text-muted dark:text-dark-text-muted">
-                  {group.items.length} items
+                  {group.items.length} itens
                 </span>
                 <button
                   onClick={() => removeCustomGroup(group.id)}
                   className="w-5 h-5 flex items-center justify-center rounded hover:bg-error/10 hover:text-error transition-colors text-text-muted dark:text-dark-text-muted"
-                  title="Delete group"
+                  title="Excluir grupo"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -113,17 +113,17 @@ export function LayoutConfigPage() {
 
         {config.customGroups.length === 0 && !showCreateGroup && (
           <p className="text-xs text-text-muted dark:text-dark-text-muted italic py-2">
-            No custom groups yet. Click "New Group" to create one.
+            Nenhum grupo personalizado. Selecione Novo grupo para começar.
           </p>
         )}
 
         {/* Create group form */}
         {showCreateGroup && (
           <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3">
-            <p className="text-xs font-medium text-primary">New Custom Group</p>
+            <p className="text-xs font-medium text-primary">Novo grupo personalizado</p>
             <input
               type="text"
-              placeholder="Group name..."
+              placeholder="Nome do grupo..."
               value={newGroupName}
               onChange={(e) => setNewGroupName(e.target.value)}
               autoFocus
@@ -166,7 +166,7 @@ export function LayoutConfigPage() {
                 onClick={() => setShowCreateGroup(false)}
                 className="px-2.5 py-1 text-xs rounded text-text-muted dark:text-dark-text-muted hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
               >
-                Cancel
+                Cancelar
               </button>
               <button
                 onClick={() => {
@@ -178,7 +178,7 @@ export function LayoutConfigPage() {
                 disabled={!newGroupName.trim() || newGroupItems.size === 0}
                 className="px-2.5 py-1 text-xs rounded font-medium bg-primary text-white hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Create ({newGroupItems.size})
+                Criar ({newGroupItems.size})
               </button>
             </div>
           </div>
