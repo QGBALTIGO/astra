@@ -30,6 +30,7 @@ import type { SandboxSettings } from '@ownpilot/core/workspace';
 import { getDataDirectoryInfo } from '../paths/index.js';
 import { getMigrationStatus } from '../paths/migration.js';
 import { getLlmSemaphore } from '../services/llm/semaphore.js';
+import { invalidateAgentCache } from '../services/agent/cache.js';
 import { DEFAULT_MAX_LLM_CONCURRENCY } from '../config/defaults.js';
 import {
   API_KEY_PREFIX,
@@ -493,6 +494,11 @@ settingsRoutes.put('/tool-groups', async (c) => {
     const enabledGroupIds = [...enabledSet];
     await settingsRepo.set(TOOL_GROUPS_KEY, enabledGroupIds);
 
+    // Tool availability is captured when an agent instance is created. Clear
+    // cached agents so web chat and channel sessions (WhatsApp/Telegram) pick
+    // up the new group selection on their very next message.
+    invalidateAgentCache();
+
     return apiResponse(c, { enabledGroupIds });
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('Validation failed:'))
@@ -553,3 +559,4 @@ settingsRoutes.put('/max-llm-concurrency', async (c) => {
     return apiError(c, { code: ERROR_CODES.INTERNAL_ERROR, message: getErrorMessage(err) }, 500);
   }
 });
+

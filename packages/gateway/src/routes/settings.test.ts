@@ -15,7 +15,7 @@ import { errorHandler } from '../middleware/error-handler.js';
 // without the temporal-dead-zone problem hoisting normally creates.
 // ---------------------------------------------------------------------------
 
-const { mockSettingsRepo, mockLocalProvidersRepo } = vi.hoisted(() => ({
+const { mockSettingsRepo, mockLocalProvidersRepo, mockInvalidateAgentCache } = vi.hoisted(() => ({
   mockSettingsRepo: {
     get: vi.fn(),
     set: vi.fn(),
@@ -28,11 +28,16 @@ const { mockSettingsRepo, mockLocalProvidersRepo } = vi.hoisted(() => ({
     getProvider: vi.fn(),
     getDefault: vi.fn(),
   },
+  mockInvalidateAgentCache: vi.fn(),
 }));
 
 vi.mock('../db/repositories/index.js', () => ({
   settingsRepo: mockSettingsRepo,
   localProvidersRepo: mockLocalProvidersRepo,
+}));
+
+vi.mock('../services/agent/cache.js', () => ({
+  invalidateAgentCache: mockInvalidateAgentCache,
 }));
 
 vi.mock('@ownpilot/core/agent', async (importOriginal) => {
@@ -1121,6 +1126,7 @@ describe('Settings Routes', () => {
       // alwaysOn groups should be automatically included
       expect(json.data.enabledGroupIds).toContain('core');
       expect(mockSettingsRepo.set).toHaveBeenCalled();
+      expect(mockInvalidateAgentCache).toHaveBeenCalledOnce();
     });
   });
 
@@ -1149,3 +1155,4 @@ describe('Settings Routes', () => {
     });
   });
 });
+
