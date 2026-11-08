@@ -34,6 +34,10 @@ for (const width of [320, 375, 390, 430, 768, 1024]) {
     await options.getByRole('option', { name: 'Agente autônomo' }).click();
     await expect(filter).toContainText('Agente autônomo');
     await expect(options).toHaveCount(0);
+    await filter.click();
+    await expect(options).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(options).toHaveCount(0);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - window.innerWidth
     );
