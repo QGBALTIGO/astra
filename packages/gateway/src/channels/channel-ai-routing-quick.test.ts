@@ -129,16 +129,10 @@ describe('Consultas financeiras reais, sem IA', () => {
     const response = await tryAnswerRecordedExpenses(text, 'canal-user-1');
     expect(response).toContain('R$');
     expect(response).toContain('50,00');
-    expect(mockFinancePermission).toHaveBeenCalledWith(
-      'canal-user-1',
-      'core.expense_summary',
-      { source: 'chat' }
-    );
-    expect(mockExpenseTool).toHaveBeenCalledWith(
-      'expense_summary',
-      { period },
-      'canal-user-1'
-    );
+    expect(mockFinancePermission).toHaveBeenCalledWith('canal-user-1', 'core.expense_summary', {
+      source: 'chat',
+    });
+    expect(mockExpenseTool).toHaveBeenCalledWith('expense_summary', { period }, 'canal-user-1');
   });
 
   it('diferencia valor dito no chat de lançamento salvo no banco', async () => {

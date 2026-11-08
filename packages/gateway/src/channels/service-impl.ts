@@ -1101,7 +1101,10 @@ export class ChannelServiceImpl implements IChannelService {
     );
   }
 
-  private async processDirectAgent(message: ChannelIncomingMessage, userId: string): Promise<string> {
+  private async processDirectAgent(
+    message: ChannelIncomingMessage,
+    userId: string
+  ): Promise<string> {
     return processDirectAgentImpl(message, userId);
   }
 

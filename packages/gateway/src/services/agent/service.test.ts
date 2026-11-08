@@ -1402,8 +1402,12 @@ describe('getOrCreateChatAgent', () => {
       expect.any(String),
       expect.objectContaining({ userId: 'verified-user-two' })
     );
-    expect([...chatAgentCache.keys()].some((key) => key.includes('user_verified-user-one'))).toBe(true);
-    expect([...chatAgentCache.keys()].some((key) => key.includes('user_verified-user-two'))).toBe(true);
+    expect([...chatAgentCache.keys()].some((key) => key.includes('user_verified-user-one'))).toBe(
+      true
+    );
+    expect([...chatAgentCache.keys()].some((key) => key.includes('user_verified-user-two'))).toBe(
+      true
+    );
   });
 
   it('keeps web Groq limits unchanged and isolates external sessions', async () => {

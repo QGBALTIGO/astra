@@ -280,12 +280,7 @@ describe('Astra personal finance tool activation', () => {
       mockGet.mockImplementation((key: string) =>
         key === 'tool_groups' ? ['core', 'personalData', 'memory'] : undefined
       );
-      expect(getEnabledToolGroupIds()).toEqual([
-        'core',
-        'personalData',
-        'memory',
-        'finance',
-      ]);
+      expect(getEnabledToolGroupIds()).toEqual(['core', 'personalData', 'memory', 'finance']);
       expect(getEnabledToolGroupIds()).not.toContain('codeExecution');
       expect(getEnabledToolGroupIds()).not.toContain('devTools');
       expect(getEnabledToolGroupIds()).not.toContain('communication');

@@ -1582,9 +1582,11 @@ describe('agent-tools helpers', () => {
           result: { tasks: [] },
         });
         const { reg } = captureGatewayExecutors(false);
-        const registered = vi.mocked(reg.register).mock.calls.find(
-          ([definition]) => (definition as { name: string }).name === 'list_tasks'
-        );
+        const registered = vi
+          .mocked(reg.register)
+          .mock.calls.find(
+            ([definition]) => (definition as { name: string }).name === 'list_tasks'
+          );
         expect(registered).toBeDefined();
         const handler = registered![1] as (args: unknown, context: unknown) => Promise<unknown>;
         const result = await handler({}, {});
