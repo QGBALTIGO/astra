@@ -7,6 +7,7 @@ import { Brain, CheckCircle2, X, Clock, RefreshCw } from '../icons';
 import { agenticApi, type AgenticExecution, type AgenticStats } from '../../api/endpoints/agentic';
 import { useGateway } from '../../hooks/useWebSocket';
 import { Skeleton } from '../Skeleton';
+import { AGENTIC_STATUS_LABELS } from '../../pages/agentic-ptbr';
 
 const POLL_MS = 5_000;
 
@@ -26,7 +27,7 @@ export function AgenticExecutionsWidget() {
       setTotal(execData.total);
       setStats(statsData);
     } catch {
-      setError('Could not load');
+      setError('Não foi possível carregar as tarefas automatizadas.');
     } finally {
       setIsLoading(false);
     }
@@ -59,39 +60,39 @@ export function AgenticExecutionsWidget() {
   const hasActive = activeCount > 0;
 
   return (
-    <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl border border-border dark:border-dark-border p-4">
+    <div className="card-elevated border border-border bg-bg-secondary p-4 dark:border-dark-border dark:bg-dark-bg-secondary sm:p-5">
       {/* ── Header ── */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <Link
           to="/agentic"
-          className="flex items-center gap-2 text-text-primary dark:text-dark-text-primary hover:text-purple-500 transition-colors"
+          className="flex items-center gap-2 text-text-primary dark:text-dark-text-primary hover:text-primary transition-colors"
         >
           <div
-            className={`p-1.5 rounded-lg ${hasActive ? 'bg-purple-500/20' : 'bg-purple-500/10'}`}
+            className={`p-1.5 rounded-lg ${hasActive ? 'bg-primary/20' : 'bg-primary/10'}`}
           >
             <Brain
-              className={`w-4 h-4 ${hasActive ? 'text-purple-500 animate-pulse' : 'text-purple-500'}`}
+              className={`w-4 h-4 ${hasActive ? 'text-primary animate-pulse' : 'text-primary'}`}
             />
           </div>
-          <span className="font-semibold text-sm">Agentic Tasks</span>
+          <span className="font-semibold text-sm">Tarefas automatizadas</span>
           {hasActive && (
             <span
               className="w-2 h-2 rounded-full bg-green-500 animate-pulse"
-              title={`${activeCount} active`}
+              title={`${activeCount} em andamento`}
             />
           )}
         </Link>
         <Link
           to="/agentic"
-          className="text-xs text-purple-500 hover:text-purple-400 transition-colors"
+          className="text-xs font-semibold text-primary hover:underline transition-colors"
         >
-          {total > 0 ? `View all (${total})` : 'Open'}
+          {total > 0 ? `Ver todas (${total})` : 'Abrir'}
         </Link>
       </div>
 
       {/* ── Mini Stats ── */}
       {stats && !isLoading && (
-        <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
           <div className="px-2 py-1.5 rounded-lg bg-bg-tertiary/50 dark:bg-dark-bg-tertiary/50">
             <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Total</div>
             <div className="text-sm font-semibold text-text-primary dark:text-dark-text-primary">
@@ -99,7 +100,7 @@ export function AgenticExecutionsWidget() {
             </div>
           </div>
           <div className="px-2 py-1.5 rounded-lg bg-bg-tertiary/50 dark:bg-dark-bg-tertiary/50">
-            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Success</div>
+            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Sucesso</div>
             <div
               className="text-sm font-semibold"
               style={{
@@ -115,7 +116,7 @@ export function AgenticExecutionsWidget() {
             </div>
           </div>
           <div className="px-2 py-1.5 rounded-lg bg-bg-tertiary/50 dark:bg-dark-bg-tertiary/50">
-            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Active</div>
+            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Em andamento</div>
             <div className="text-sm font-semibold text-blue-500">{stats.activeExecutions}</div>
           </div>
         </div>
@@ -135,9 +136,9 @@ export function AgenticExecutionsWidget() {
       ) : executions.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-6 text-text-muted dark:text-dark-text-muted">
           <Brain className="w-8 h-8 opacity-30" />
-          <div className="text-xs">No tasks yet</div>
-          <Link to="/agentic" className="text-xs text-purple-500 hover:text-purple-400">
-            Run your first task →
+          <div className="text-xs">Nenhuma tarefa automatizada</div>
+          <Link to="/agentic" className="text-sm font-medium text-primary hover:underline">
+            Criar primeira tarefa
           </Link>
         </div>
       ) : (
@@ -185,7 +186,7 @@ export function AgenticExecutionsWidget() {
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-text-muted dark:text-dark-text-muted">
                     <span>
-                      {e.completedSteps}/{e.stepCount} steps
+                      {e.completedSteps}/{e.stepCount} etapas
                     </span>
                     <span>·</span>
                     <span>${e.totalCostUsd.toFixed(4)}</span>
@@ -206,15 +207,7 @@ export function AgenticExecutionsWidget() {
                             : 'bg-gray-800 text-gray-400'
                   }`}
                 >
-                  {isRunning
-                    ? 'running'
-                    : isCompleted
-                      ? 'done'
-                      : isFailed
-                        ? 'failed'
-                        : isPartial
-                          ? 'partial'
-                          : e.status}
+                  {AGENTIC_STATUS_LABELS[e.status] ?? e.status}
                 </div>
               </Link>
             );
