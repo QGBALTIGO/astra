@@ -156,5 +156,4 @@ describe('WhatsAppChannelAPI', () => {
       vi.unstubAllEnvs();
     }
   });
-
 });
