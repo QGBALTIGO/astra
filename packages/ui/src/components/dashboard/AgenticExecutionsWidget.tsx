@@ -67,9 +67,7 @@ export function AgenticExecutionsWidget() {
           to="/agentic"
           className="flex items-center gap-2 text-text-primary dark:text-dark-text-primary hover:text-primary transition-colors"
         >
-          <div
-            className={`p-1.5 rounded-lg ${hasActive ? 'bg-primary/20' : 'bg-primary/10'}`}
-          >
+          <div className={`p-1.5 rounded-lg ${hasActive ? 'bg-primary/20' : 'bg-primary/10'}`}>
             <Brain
               className={`w-4 h-4 ${hasActive ? 'text-primary animate-pulse' : 'text-primary'}`}
             />
@@ -116,7 +114,9 @@ export function AgenticExecutionsWidget() {
             </div>
           </div>
           <div className="px-2 py-1.5 rounded-lg bg-bg-tertiary/50 dark:bg-dark-bg-tertiary/50">
-            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">Em andamento</div>
+            <div className="text-[10px] text-text-muted dark:text-dark-text-muted">
+              Em andamento
+            </div>
             <div className="text-sm font-semibold text-blue-500">{stats.activeExecutions}</div>
           </div>
         </div>

@@ -697,7 +697,17 @@ describe('AgenticPage', () => {
   });
 
   it('renders at most six tag chips per capability, even with longer tag arrays', async () => {
-    const manyTags = ['autonomous', 'continuous', 'background', 'persistent', 'agent', 'research', 'code', 'monitoring', 'scheduled'];
+    const manyTags = [
+      'autonomous',
+      'continuous',
+      'background',
+      'persistent',
+      'agent',
+      'research',
+      'code',
+      'monitoring',
+      'scheduled',
+    ];
     mockCapabilities.mockResolvedValue({
       capabilities: [
         {

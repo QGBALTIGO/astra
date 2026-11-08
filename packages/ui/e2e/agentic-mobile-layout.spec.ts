@@ -6,7 +6,9 @@ for (const width of [320, 375, 390, 430, 768, 1024]) {
     await page.setViewportSize({ width, height: 812 });
     await page.goto('/agentic');
 
-    await expect(page.getByRole('heading', { name: 'Central de tarefas automatizadas' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Central de tarefas automatizadas' })
+    ).toBeVisible();
     await page.getByRole('button', { name: 'Capacidades' }).click();
 
     const filter = page.getByRole('button', { name: 'Filtrar por tipo de executor' });
