@@ -30,6 +30,19 @@ for (const width of [320, 375, 390, 430, 768, 1024, 1100]) {
       expect(rect!.width).toBeGreaterThan(60);
       boxes.push(rect!);
     }
+    // The header '+' previously overlapped workspace/model selectors on iPhone.
+    const newChat = header.getByRole('button', { name: 'Nova conversa' });
+    await expect(newChat).toBeVisible();
+    const newChatRect = await newChat.boundingBox();
+    expect(newChatRect).not.toBeNull();
+    expect(newChatRect!.x).toBeGreaterThanOrEqual(-1);
+    expect(newChatRect!.x + newChatRect!.width).toBeLessThanOrEqual(width + 1);
+    if (width < 1280) {
+      expect(newChatRect!.y + newChatRect!.height).toBeLessThanOrEqual(
+        Math.min(boxes[0]!.y, boxes[1]!.y) + 2
+      );
+    }
+
     // Both controls must be separately tappable (not laid over each other).
     expect(boxes[0]!.x + boxes[0]!.width).toBeLessThanOrEqual(boxes[1]!.x + 2);
 
