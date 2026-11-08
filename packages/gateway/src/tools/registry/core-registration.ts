@@ -107,7 +107,7 @@ export function registerGatewayTools(tools: ToolRegistry, userId: string, trace:
     {
       definitions: PERSONAL_DATA_TOOLS,
       executor: executePersonalDataTool as ToolExecutor,
-      needsUserId: false,
+      needsUserId: true,
     },
     { definitions: CONFIG_TOOLS, executor: executeConfigTool as ToolExecutor, needsUserId: false },
     { definitions: TRIGGER_TOOLS, executor: executeTriggerTool, needsUserId: true },
