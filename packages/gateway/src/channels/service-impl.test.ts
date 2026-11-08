@@ -30,6 +30,7 @@ const mockGetServiceRegistry = vi.hoisted(() => vi.fn());
 
 const mockUsersRepo = vi.hoisted(() => ({
   findOrCreate: vi.fn(),
+  updateStatus: vi.fn().mockResolvedValue(undefined),
 }));
 
 const mockSessionsRepo = vi.hoisted(() => ({
@@ -1076,6 +1077,7 @@ describe('ChannelServiceImpl', () => {
     describe('WhatsApp multi-user routing', () => {
       it('assigns a unique private scope to each customer while preserving the owner', async () => {
         vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+        vi.stubEnv('ASTRA_WHATSAPP_AUTO_ENROLL', 'true');
         try {
           service.dispose();
           channelPlugin = createChannelPlugin({
@@ -1144,6 +1146,50 @@ describe('ChannelServiceImpl', () => {
             ])
           );
           expect(channelPlugin.api.sendMessage).toHaveBeenCalledTimes(3);
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      });
+
+      it('saves a new customer as pending until owner approval', async () => {
+        vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+        vi.stubEnv('ASTRA_WHATSAPP_AUTO_ENROLL', 'false');
+        vi.stubEnv('ASTRA_WHATSAPP_TRUSTED_NUMBERS', '');
+        try {
+          service.dispose();
+          channelPlugin = createChannelPlugin({ id: 'channel.whatsapp', platform: 'whatsapp' });
+          registry = createMockPluginRegistry([channelPlugin]);
+          service = new ChannelServiceImpl(registry as never, {
+            usersRepo: mockUsersRepo as never,
+            sessionsRepo: mockSessionsRepo as never,
+            verificationService: mockVerificationService as never,
+            dmPairingRequests: mockDmPairingRequests as never,
+          });
+          mockGetOwnerUserId.mockResolvedValue('5567981030648');
+          mockUsersRepo.findOrCreate.mockResolvedValue({
+            ...createChannelUser({
+              ownpilotUserId: 'whatsapp:5521997557364',
+              isVerified: false,
+            }),
+            status: 'active',
+            created: true,
+          });
+          await service.processIncomingMessage(
+            createIncomingMessage({
+              channelPluginId: 'channel.whatsapp',
+              platform: 'whatsapp',
+              platformChatId: '5521997557364',
+              sender: { platformUserId: '5521997557364', platform: 'whatsapp' },
+              metadata: { fromMe: false, isSelfChat: false },
+            })
+          );
+
+          expect(mockUsersRepo.updateStatus).toHaveBeenCalledWith('cu-1', 'pending');
+          expect(mockVerificationService.verifyViaWhitelist).not.toHaveBeenCalled();
+          expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ text: expect.stringContaining('aguardando autorização') })
+          );
         } finally {
           vi.unstubAllEnvs();
         }
