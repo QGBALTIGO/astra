@@ -107,7 +107,9 @@ export function registerGatewayTools(tools: ToolRegistry, userId: string, trace:
     {
       definitions: PERSONAL_DATA_TOOLS,
       executor: executePersonalDataTool as ToolExecutor,
-      needsUserId: false,
+      // Task, note, calendar and contact repositories are scoped by userId.
+      // Without this flag they all silently read/write the global 'default' user.
+      needsUserId: true,
     },
     { definitions: CONFIG_TOOLS, executor: executeConfigTool as ToolExecutor, needsUserId: false },
     { definitions: TRIGGER_TOOLS, executor: executeTriggerTool, needsUserId: true },
