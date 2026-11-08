@@ -507,7 +507,7 @@ export function ChannelsPage() {
           {isLoading ? (
             <div className="p-6 space-y-4">
               <div className="flex flex-col sm:flex-row gap-4">
-                <div className="w-full sm:w-72 space-y-2">
+                <div className="w-full space-y-2 sm:w-72">
                   {[1, 2, 3].map((i) => (
                     <div
                       key={i}
@@ -520,7 +520,7 @@ export function ChannelsPage() {
             </div>
           ) : (
             /* Main content */
-            <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
               {/* Sidebar — channel list */}
               <div className="max-h-64 w-full shrink-0 overflow-y-auto border-b border-border bg-bg-secondary dark:border-dark-border dark:bg-dark-bg-secondary md:max-h-none md:w-72 md:border-b-0 md:border-r">
                 {channels.length === 0 ? (
