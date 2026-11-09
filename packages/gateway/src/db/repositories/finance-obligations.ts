@@ -124,7 +124,7 @@ export class FinanceObligationsRepository extends BaseRepository {
     if (!validCents(amountCents) || amountCents === 0 || !/^[a-f0-9]{64}$/i.test(sourceKey)) {
       throw new Error('Invalid financing payment');
     }
-    return this.transaction(async () => {
+    return this.transaction(async (): Promise<PaymentOutcome> => {
       // Lock the owner-scoped liability so concurrent payments cannot overpay.
       const account = await this.queryOne<FinanceRow>(
         [
