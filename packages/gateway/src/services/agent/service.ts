@@ -36,6 +36,7 @@ import { getAgentMessagesRepository } from '../../db/repositories/agents/message
 import { getLog } from '../log.js';
 import { BASE_SYSTEM_PROMPT, CHANNEL_SYSTEM_PROMPT, CLI_SYSTEM_PROMPT } from './prompt.js';
 import { registerExpenseOverrides } from '../../tools/overrides/expense.js';
+import { FINANCING_TOOLS } from '../../tools/financing-tools.js';
 import {
   registerGatewayTools,
   registerDynamicTools,
@@ -210,6 +211,7 @@ async function createAgentFromRecord(record: AgentRecord): Promise<Agent> {
     ...NOTIFICATION_TOOLS,
     ...EVENT_TOOLS,
     ...SOUL_COMMUNICATION_TOOLS,
+    ...FINANCING_TOOLS,
   ];
 
   // These tools ALWAYS bypass toolGroup filtering:
@@ -570,6 +572,7 @@ async function createChatAgentInstance(
       ...GOAL_TOOLS.map((def) => `core.${def.name}`),
       ...PERSONAL_DATA_TOOLS.map((def) => `core.${def.name}`),
       ...CHANNEL_REMINDER_TOOLS.map((def) => `core.${def.name}`),
+      ...FINANCING_TOOLS.map((def) => `core.${def.name}`),
       'search_tools',
       'get_tool_help',
       'use_tool',
@@ -600,6 +603,7 @@ async function createChatAgentInstance(
     ...SOUL_COMMUNICATION_TOOLS,
   ];
   const chatAlwaysIncluded = [
+    ...(channelMode ? FINANCING_TOOLS : []),
     ...DYNAMIC_TOOL_DEFINITIONS,
     ...CHANNEL_REMINDER_TOOLS,
     ...activeCustomToolDefs,
