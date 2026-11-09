@@ -80,6 +80,7 @@ function makeDb(expenses: ExpenseEntry[] = []): ExpenseDatabase {
       travel: { color: '#F7DC6F' },
       subscription: { color: '#BB8FCE' },
       housing: { color: '#85C1E9' },
+      electronics: { color: '#73C6B6' },
       other: { color: '#AEB6BF' },
     },
   };
