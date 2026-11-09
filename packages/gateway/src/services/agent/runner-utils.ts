@@ -49,6 +49,7 @@ import { AGENT_DEFAULT_MAX_TOKENS, AGENT_DEFAULT_TEMPERATURE } from '../../confi
 import { getLlmSemaphore } from '../llm/semaphore.js';
 import { getGatewayExtensionService } from '../extension/accessor.js';
 import { getProviderMetricsRepository } from '../../db/repositories/costs/provider-metrics.js';
+import { parseAstraFallbackChain } from './fallback-chain.js';
 
 const log = getLog('AgentRunnerUtils');
 
@@ -238,36 +239,55 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
   // honored on failover). The compaction summarizer inherits failover too,
   // since it shares this provider instance.
   let providerInstance: IProvider = createProvider(agentProviderConfig);
-  if (opts.fallbackProvider && opts.fallbackModel) {
+  if ((opts.fallbackProvider && opts.fallbackModel) || process.env.ASTRA_FALLBACK_CHAIN?.trim()) {
+    const requestedFallback =
+      opts.fallbackProvider && opts.fallbackModel
+        ? { provider: opts.fallbackProvider, model: opts.fallbackModel }
+        : undefined;
+    const candidates = parseAstraFallbackChain(
+      process.env.ASTRA_FALLBACK_CHAIN,
+      opts.provider,
+      requestedFallback
+    );
+
     try {
-      const fbResolvedAuth = await resolveAuthForRequest(opts.fallbackProvider);
-      const fbApiKey = fbResolvedAuth?.value ?? (await getProviderApiKey(opts.fallbackProvider));
-      if (fbApiKey) {
-        const fbConfig = loadProviderConfig(opts.fallbackProvider);
-        const fbType = NATIVE_PROVIDERS.has(opts.fallbackProvider)
-          ? opts.fallbackProvider
-          : 'openai';
+      const fallbacks: ProviderConfig[] = [];
+      for (const candidate of candidates) {
+        const fbResolvedAuth = await resolveAuthForRequest(candidate.provider);
+        const fbApiKey =
+          fbResolvedAuth?.value ?? (await getProviderApiKey(candidate.provider));
+        const fbConfig = loadProviderConfig(candidate.provider);
+        if (!fbApiKey || (!fbConfig?.baseUrl && !NATIVE_PROVIDERS.has(candidate.provider))) {
+          continue;
+        }
+        fallbacks.push({
+          id: candidate.provider,
+          provider: (NATIVE_PROVIDERS.has(candidate.provider)
+            ? candidate.provider
+            : (fbConfig?.type ?? 'openai-compatible')) as AIProvider,
+          apiKey: fbApiKey,
+          resolvedAuth: fbResolvedAuth,
+          baseUrl: fbConfig?.baseUrl,
+          headers: fbConfig?.headers,
+          defaultModel: { model: candidate.model },
+          maxRetries: 0,
+        });
+      }
+
+      if (fallbacks.length > 0) {
         providerInstance = createFallbackProvider({
-          primary: agentProviderConfig,
-          fallbacks: [
-            {
-              provider: fbType as AIProvider,
-              apiKey: fbApiKey,
-              resolvedAuth: fbResolvedAuth,
-              baseUrl: fbConfig?.baseUrl,
-              headers: fbConfig?.headers,
-              defaultModel: { model: opts.fallbackModel },
-            },
-          ],
-          onFallback: (failed, error, next) => {
-            log.warn(
-              `[${opts.name}] Provider fallback: ${String(failed)} -> ${String(next)}: ${error.message}`
-            );
+          primary: { ...agentProviderConfig, id: opts.provider, maxRetries: 0 },
+          fallbacks,
+          onFallback: (failed, _error, next) => {
+            // Never log error bodies; some upstream APIs echo private messages.
+            log.warn(`[${opts.name}] AI failover: ${String(failed)} -> ${String(next)}`);
           },
         });
       }
     } catch (fbErr) {
-      log.warn(`[${opts.name}] Failed to build fallback provider: ${getErrorMessage(fbErr)}`);
+      log.warn(
+        `[${opts.name}] Fallback setup error: ${fbErr instanceof Error ? fbErr.name : 'error'}`
+      );
     }
   }
 
