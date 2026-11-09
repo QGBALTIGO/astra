@@ -1398,9 +1398,7 @@ describe('getOrCreateChatAgent', () => {
 
     expect(a).not.toBe(b);
     expect(b).not.toBe(c);
-    const configs = mockCreateAgent.mock.calls.map(
-      ([config]) => config as ChatAgentTestConfig
-    );
+    const configs = mockCreateAgent.mock.calls.map(([config]) => config as ChatAgentTestConfig);
     expect(configs[0]?.model.maxTokens).toBe(8192);
     expect(configs[0]?.memory.maxTokens).toBeGreaterThan(2048);
     expect(configs[1]?.model.maxTokens).toBe(768);
