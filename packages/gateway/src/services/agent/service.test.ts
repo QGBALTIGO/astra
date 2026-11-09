@@ -1350,8 +1350,9 @@ describe('getOrCreateChatAgent', () => {
     );
 
     const config = mockCreateAgent.mock.calls.at(-1)?.[0] as
-      { model: { maxTokens: number }; systemPrompt: string; tools: string[] } | undefined;
+      { model: { maxTokens: number }; memory: { maxTokens: number }; systemPrompt: string; tools: string[] } | undefined;
     expect(config?.model.maxTokens).toBe(768);
+    expect(config?.memory.maxTokens).toBe(2048);
     expect(mockInjectMemoryIntoPrompt).toHaveBeenCalledWith(
       expect.stringContaining('português do Brasil'),
       expect.objectContaining({ includeToolDescriptions: false })
@@ -1392,11 +1393,14 @@ describe('getOrCreateChatAgent', () => {
     expect(a).not.toBe(b);
     expect(b).not.toBe(c);
     const configs = mockCreateAgent.mock.calls.map(
-      ([config]) => config as { model: { maxTokens: number } }
+      ([config]) => config as { model: { maxTokens: number }; memory: { maxTokens: number } }
     );
     expect(configs[0]?.model.maxTokens).toBe(8192);
+    expect(configs[0]?.memory.maxTokens).toBeGreaterThan(2048);
     expect(configs[1]?.model.maxTokens).toBe(768);
+    expect(configs[1]?.memory.maxTokens).toBe(2048);
     expect(configs[2]?.model.maxTokens).toBe(768);
+    expect(configs[2]?.memory.maxTokens).toBe(2048);
   });
 
   it('returns cached chat agent', async () => {
