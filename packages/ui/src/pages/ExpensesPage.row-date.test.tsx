@@ -149,6 +149,19 @@ describe('ExpensesPage row date (America/New_York)', () => {
     expect(meta).toContain('13/09/2026');
   });
 
+  it.each([
+    ['other', 'Outros'],
+    ['shopping', 'Compras'],
+    ['electronics', 'Eletrônicos'],
+    ['transport', 'Transporte'],
+    ['food', 'Alimentação'],
+  ])('shows %s expenses as %s without changing the stored category', async (code, label) => {
+    const stored = expense({ date: '2026-09-13', category: code as ExpenseEntry['category'] });
+    await mount([stored]);
+    expect(rowMetaText()).toContain(label);
+    expect(stored.category).toBe(code);
+  });
+
   it('CONTROL: UTC rendering is identical before and after the fix', async () => {
     // At UTC the old code was accidentally correct; this guards against the
     // local-anchored fix changing anything for UTC users.

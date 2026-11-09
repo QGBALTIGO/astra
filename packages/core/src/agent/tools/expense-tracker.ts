@@ -32,6 +32,7 @@ export type ExpenseCategory =
   | 'travel'
   | 'subscription'
   | 'housing'
+  | 'electronics'
   | 'other';
 
 /**
@@ -99,6 +100,7 @@ const DEFAULT_CATEGORIES: ExpenseDatabase['categories'] = {
   travel: { color: '#F7DC6F' },
   subscription: { color: '#BB8FCE' },
   housing: { color: '#85C1E9' },
+  electronics: { color: '#73C6B6' },
   other: { color: '#AEB6BF' },
 };
 
@@ -227,6 +229,7 @@ export const addExpenseTool: ToolDefinition = {
           'travel',
           'subscription',
           'housing',
+          'electronics',
           'other',
         ],
       },
@@ -346,6 +349,7 @@ export const batchAddExpensesTool: ToolDefinition = {
                 'travel',
                 'subscription',
                 'housing',
+                'electronics',
                 'other',
               ],
             },
@@ -536,6 +540,7 @@ export const queryExpensesTool: ToolDefinition = {
           'travel',
           'subscription',
           'housing',
+          'electronics',
           'other',
         ],
       },
@@ -983,6 +988,7 @@ const updateExpenseTool: ToolDefinition = {
           'travel',
           'subscription',
           'housing',
+          'electronics',
           'other',
         ],
         description: 'New category',

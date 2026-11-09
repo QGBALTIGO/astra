@@ -35,6 +35,7 @@ const VALID_CATEGORIES: readonly ExpenseCategory[] = [
   'travel',
   'subscription',
   'housing',
+  'electronics',
   'other',
 ];
 
@@ -58,6 +59,7 @@ const CATEGORY_COLORS: Record<ExpenseCategory, string> = {
   travel: '#F7DC6F',
   subscription: '#BB8FCE',
   housing: '#85C1E9',
+  electronics: '#73C6B6',
   other: '#AEB6BF',
 };
 

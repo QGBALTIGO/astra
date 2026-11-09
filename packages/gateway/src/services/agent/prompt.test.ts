@@ -303,6 +303,12 @@ describe('CHANNEL_SYSTEM_PROMPT', () => {
     expect(CHANNEL_SYSTEM_PROMPT).toContain('use_tool');
   });
 
+  it('requires category labels in pt-BR and keeps English IDs internal', () => {
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('categorias SEMPRE em português');
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('electronics=Eletrônicos');
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('categoryCode é apenas identificador interno');
+  });
+
   it('still requires confirmed payments and real tool success', () => {
     expect(CHANNEL_SYSTEM_PROMPT).toContain('Só dê baixa após pagamento confirmado');
     expect(CHANNEL_SYSTEM_PROMPT).toContain('sem retorno explícito de sucesso');

@@ -9,6 +9,7 @@
 
 import type { ToolRegistry } from '@ownpilot/core/tools';
 import { executeExpenseTool } from '../expense-tools.js';
+import { presentExpenseToolResult } from '../expense-presentation.js';
 import { getLog } from '../../services/log.js';
 
 const log = getLog('ExpenseOverrides');
@@ -41,7 +42,7 @@ export function registerExpenseOverrides(tools: ToolRegistry, userId: string): v
       const result = await executeExpenseTool(toolName, args as Record<string, unknown>, userId);
       return {
         content: result.success
-          ? JSON.stringify(result.result)
+          ? JSON.stringify(presentExpenseToolResult(toolName, result.result))
           : String(result.error ?? 'Expense operation failed'),
         isError: !result.success,
       };

@@ -92,6 +92,34 @@ describe('registerExpenseOverrides', () => {
     expect(JSON.parse(result.content)).toEqual({ id: 'exp-1', amount: 12 });
   });
 
+  it('sends Portuguese categories to the assistant without changing stored IDs', async () => {
+    const registry = makeFakeRegistry(['query_expenses']);
+    const storedExpenses = [
+      {
+        id: 'exp-1',
+        date: '2026-11-09',
+        amount: 98.8,
+        currency: 'BRL',
+        category: 'shopping',
+        description: 'floricultura',
+      },
+    ];
+    mockExecuteExpenseTool.mockResolvedValue({
+      success: true,
+      result: { expenses: storedExpenses, count: 1, message: 'Found 1 expense(s).' },
+    });
+    registerExpenseOverrides(registry as never, 'user-1');
+
+    const result = await registry.handlers.get('core.query_expenses')!({});
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content)).toEqual({
+      expenses: [{ ...storedExpenses[0], category: 'Compras', categoryCode: 'shopping' }],
+      count: 1,
+      message: '1 despesa(s) encontrada(s).',
+    });
+    expect(storedExpenses[0]?.category).toBe('shopping');
+  });
+
   it('reports an underlying execution failure without pretending success', async () => {
     const registry = makeFakeRegistry(['delete_expense']);
     mockExecuteExpenseTool.mockResolvedValue({ success: false, error: 'not found' });

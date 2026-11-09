@@ -35,17 +35,18 @@ import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
 
 const CATEGORY_LABELS: Record<string, string> = {
-  food: 'Food',
-  transport: 'Transport',
-  utilities: 'Utilities',
-  entertainment: 'Entertainment',
-  shopping: 'Shopping',
-  health: 'Health',
-  education: 'Education',
-  travel: 'Travel',
-  subscription: 'Subscription',
-  housing: 'Housing',
-  other: 'Other',
+  food: 'Alimentação',
+  transport: 'Transporte',
+  utilities: 'Contas e serviços',
+  entertainment: 'Entretenimento',
+  shopping: 'Compras',
+  health: 'Saúde',
+  education: 'Educação',
+  travel: 'Viagens',
+  subscription: 'Assinaturas',
+  housing: 'Moradia',
+  electronics: 'Eletrônicos',
+  other: 'Outros',
 };
 
 const FALLBACK_CATEGORY_COLOR = '#AEB6BF';
@@ -433,7 +434,7 @@ export function ExpensesPage() {
           {summaryData && summaryData.summary.topCategories.length > 0 && (
             <div className="bg-bg-secondary dark:bg-dark-bg-secondary rounded-xl p-6 border border-border dark:border-dark-border">
               <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-4">
-                By Category
+                Por categoria
               </h2>
               <div className="space-y-3">
                 {summaryData.summary.topCategories.map((cat) => (
@@ -694,7 +695,7 @@ function ExpenseFormModal({
           </div>
           <div>
             <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
-              Category
+              Categoria
             </label>
             <select
               value={formData.category}
