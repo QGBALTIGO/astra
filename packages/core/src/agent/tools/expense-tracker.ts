@@ -349,6 +349,7 @@ export const batchAddExpensesTool: ToolDefinition = {
                 'travel',
                 'subscription',
                 'housing',
+                'electronics',
                 'other',
               ],
             },
