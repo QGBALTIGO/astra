@@ -63,7 +63,7 @@ function amountToCents(value: unknown, allowZero = false): number | null {
 export async function executeFinancingTool(
   toolName: string,
   args: Record<string, unknown>,
-  userId: string
+  userId = 'default'
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   const name = typeof args.name === 'string' ? args.name.trim() : '';
   if (!name || !userId) {
