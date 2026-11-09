@@ -81,7 +81,9 @@ describe('expense categories presented in Brazilian Portuguese', () => {
       categoryCode: 'transport',
       category: 'Transporte',
     });
-    expect(presentExpenseToolResult('batch_add_expenses', { added: 1, expenses: [expense] })).toEqual({
+    expect(
+      presentExpenseToolResult('batch_add_expenses', { added: 1, expenses: [expense] })
+    ).toEqual({
       added: 1,
       expenses: [{ ...expense, categoryCode: 'transport', category: 'Transporte' }],
     });
