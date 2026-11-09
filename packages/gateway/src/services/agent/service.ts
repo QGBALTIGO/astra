@@ -784,7 +784,10 @@ async function createChatAgentInstance(
         const fbApiKey =
           fbResolvedAuth?.value ?? (await getProviderApiKey(candidate.provider));
         const fbConfig = loadProviderConfig(candidate.provider);
-        if (!fbApiKey || !fbConfig?.baseUrl) continue;
+        // Native providers (e.g. Anthropic, Google) have built-in endpoints.
+        if (!fbApiKey || (!fbConfig?.baseUrl && !NATIVE_PROVIDERS.has(candidate.provider))) {
+          continue;
+        }
 
         const fbType = NATIVE_PROVIDERS.has(candidate.provider)
           ? candidate.provider
@@ -795,7 +798,7 @@ async function createChatAgentInstance(
           provider: fbType as AIProvider,
           apiKey: fbApiKey,
           resolvedAuth: fbResolvedAuth,
-          baseUrl: fbConfig.baseUrl,
+          baseUrl: fbConfig?.baseUrl,
           headers: fbConfig.headers,
           defaultModel: { model: candidate.model },
           // A second retry against the same exhausted key delays WhatsApp
