@@ -791,7 +791,7 @@ async function createChatAgentInstance(
 
         const fbType = NATIVE_PROVIDERS.has(candidate.provider)
           ? candidate.provider
-          : (fbConfig.type ?? 'openai-compatible');
+          : (fbConfig?.type ?? 'openai-compatible');
 
         usableFallbacks.push({
           id: candidate.provider,
@@ -799,7 +799,7 @@ async function createChatAgentInstance(
           apiKey: fbApiKey,
           resolvedAuth: fbResolvedAuth,
           baseUrl: fbConfig?.baseUrl,
-          headers: fbConfig.headers,
+          headers: fbConfig?.headers,
           defaultModel: { model: candidate.model },
           // A second retry against the same exhausted key delays WhatsApp
           // responses and wastes quota. Use the next configured provider.
