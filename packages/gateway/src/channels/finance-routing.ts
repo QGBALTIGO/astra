@@ -26,7 +26,8 @@ function normalize(text: string): string {
 
 /** Parse explicit Brazilian currency: 72 mil, 72.000, 930, 470,50. */
 export function parseBrlCents(raw: string, multiplier?: string): number | null {
-  const compact = raw.replace(/\s/g, '');
+  // WhatsApp sentences often put a comma immediately after the amount.
+  const compact = raw.replace(/\s/g, '').replace(/[.,]+$/g, '');
   let normalized: string;
   if (/^\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(compact)) {
     normalized = compact.replace(/\./g, '').replace(',', '.');
