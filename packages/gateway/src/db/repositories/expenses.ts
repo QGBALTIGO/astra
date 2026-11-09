@@ -23,6 +23,7 @@ export type ExpenseCategory =
   | 'travel'
   | 'subscription'
   | 'housing'
+  | 'electronics'
   | 'other';
 
 interface Expense {
