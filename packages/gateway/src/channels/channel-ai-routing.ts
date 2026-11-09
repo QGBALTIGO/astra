@@ -16,6 +16,7 @@ import type { StreamCallbacks } from '@ownpilot/core/services';
 import type { ChannelSessionsRepository } from '../db/repositories/channels/sessions.js';
 import { truncate } from '../utils/common.js';
 import { stripInternalTags } from './normalizers/base.js';
+import { tryFinancingChannelReply } from './finance-routing.js';
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -231,6 +232,11 @@ export async function processViaBus(
   },
   progress?: { update(text: string): void }
 ): Promise<string> {
+  const financingReply = message.attachments?.length
+    ? null
+    : await tryFinancingChannelReply(message, channelUser.ownpilotUserId);
+  if (financingReply) return financingReply;
+
   const reminderReply = message.attachments?.length
     ? null
     : await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId);
@@ -434,6 +440,11 @@ export async function processDirectAgent(
   message: ChannelIncomingMessage,
   userId = 'default'
 ): Promise<string> {
+  const financingReply = message.attachments?.length
+    ? null
+    : await tryFinancingChannelReply(message, userId);
+  if (financingReply) return financingReply;
+
   const expenseReply = message.attachments?.length
     ? null
     : await tryExpenseSummaryChannelReply(message, userId);
