@@ -330,3 +330,57 @@ describe('bootstrapAstraToolGroups', () => {
     expect(mockSet).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe('Astra Railway AI credentials', () => {
+  const previous = {
+    onlyGroq: process.env.ASTRA_ONLY_GROQ,
+    google: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    zai: process.env.ZHIPU_API_KEY,
+    cloudflare: process.env.CLOUDFLARE_API_TOKEN,
+    account: process.env.CLOUDFLARE_ACCOUNT_ID,
+  };
+
+  afterEach(() => {
+    const saved = [
+      ['ASTRA_ONLY_GROQ', previous.onlyGroq],
+      ['GOOGLE_GENERATIVE_AI_API_KEY', previous.google],
+      ['ZHIPU_API_KEY', previous.zai],
+      ['CLOUDFLARE_API_TOKEN', previous.cloudflare],
+      ['CLOUDFLARE_ACCOUNT_ID', previous.account],
+    ] as const;
+    for (const [key, val] of saved) {
+      if (val === undefined) delete process.env[key];
+      else process.env[key] = val;
+    }
+  });
+
+  it('reads configured Gemini and Z.AI keys without storing them in git or Postgres', async () => {
+    process.env.ASTRA_ONLY_GROQ = 'false';
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test-gemini-key';
+    process.env.ZHIPU_API_KEY = 'test-zai-key';
+    const { getApiKey, getConfiguredProviderIds } = await import('./app-settings.js');
+    mockGetByPrefix.mockResolvedValue([]);
+    expect(await getApiKey('google')).toBe('test-gemini-key');
+    expect(await getApiKey('zai')).toBe('test-zai-key');
+    const configured = await getConfiguredProviderIds();
+    expect(configured.has('google')).toBe(true);
+    expect(configured.has('zai')).toBe(true);
+  });
+
+  it('preserves Groq-only mode until multi-model rollout is explicitly enabled', async () => {
+    process.env.ASTRA_ONLY_GROQ = 'true';
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test-gemini-key';
+    const { getApiKey } = await import('./app-settings.js');
+    expect(await getApiKey('google')).toBeUndefined();
+  });
+
+  it('does not claim Cloudflare can be used without its Account ID', async () => {
+    process.env.ASTRA_ONLY_GROQ = 'false';
+    process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare-key';
+    delete process.env.CLOUDFLARE_ACCOUNT_ID;
+    const { getApiKey } = await import('./app-settings.js');
+    mockGet.mockResolvedValue(undefined);
+    expect(await getApiKey('cloudflare-workers-ai')).toBeUndefined();
+  });
+});
