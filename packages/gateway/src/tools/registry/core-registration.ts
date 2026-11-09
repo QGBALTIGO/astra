@@ -27,6 +27,7 @@ import { executeGoalTool } from '../goal-tools.js';
 import { executeCustomDataTool } from '../custom-data-tools.js';
 import { executePersonalDataTool } from '../personal-data-tools.js';
 import { CHANNEL_REMINDER_TOOLS, executeChannelReminderTool } from '../channel-reminder-tools.js';
+import { FINANCING_TOOLS, executeFinancingTool } from '../financing-tools.js';
 import {
   executeCustomToolTool,
   executeActiveCustomTool,
@@ -98,6 +99,7 @@ import {
 export function registerGatewayTools(tools: ToolRegistry, userId: string, trace: boolean): void {
   const groups: ToolGroup[] = [
     { definitions: MEMORY_TOOLS, executor: executeMemoryTool, needsUserId: true },
+    { definitions: FINANCING_TOOLS, executor: executeFinancingTool, needsUserId: true },
     { definitions: GOAL_TOOLS, executor: executeGoalTool, needsUserId: true },
     {
       definitions: CUSTOM_DATA_TOOLS,
