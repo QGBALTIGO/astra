@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BASE_SYSTEM_PROMPT, CLI_SYSTEM_PROMPT } from './prompt.js';
+import { BASE_SYSTEM_PROMPT, CHANNEL_SYSTEM_PROMPT, CLI_SYSTEM_PROMPT } from './prompt.js';
 
 describe('agent-prompt', () => {
   // ---------------------------------------------------------------------------
@@ -293,5 +293,18 @@ describe('agent-prompt', () => {
     it('does not contain tab characters (uses spaces)', () => {
       expect(BASE_SYSTEM_PROMPT).not.toContain('\t');
     });
+  });
+});
+
+describe('CHANNEL_SYSTEM_PROMPT', () => {
+  it('uses direct channel tools for common tasks without unnecessary discovery', () => {
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('Prefira ferramentas diretas');
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('search_tools');
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('use_tool');
+  });
+
+  it('still requires confirmed payments and real tool success', () => {
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('Só dê baixa após pagamento confirmado');
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('sem retorno explícito de sucesso');
   });
 });
