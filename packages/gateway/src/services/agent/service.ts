@@ -601,9 +601,9 @@ async function createChatAgentInstance(
     ...NOTIFICATION_TOOLS,
     ...EVENT_TOOLS,
     ...SOUL_COMMUNICATION_TOOLS,
-    ...FINANCING_TOOLS,
   ];
   const chatAlwaysIncluded = [
+    ...(channelMode ? FINANCING_TOOLS : []),
     ...DYNAMIC_TOOL_DEFINITIONS,
     ...CHANNEL_REMINDER_TOOLS,
     ...activeCustomToolDefs,
