@@ -12,6 +12,8 @@ const CRITICAL_TABLES = [
   'cli_providers',
   'ui_sessions',
   'expenses',
+  'finance_obligations',
+  'finance_obligation_payments',
   'usage_records',
   'edge_devices',
   'edge_commands',
@@ -29,6 +31,8 @@ describe('PostgreSQL schema bundle', () => {
 
   it('includes expenses and usage indexes for financial routes', () => {
     expect(INDEXES_SQL).toContain('idx_expenses_user_date');
+    expect(INDEXES_SQL).toContain('idx_finance_obligations_user');
+    expect(INDEXES_SQL).toContain('idx_finance_payments_account');
     expect(INDEXES_SQL).toContain('idx_usage_records_timestamp');
     expect(INDEXES_SQL).toContain('idx_edge_devices_user');
     expect(INDEXES_SQL).toContain('idx_edge_commands_device');
