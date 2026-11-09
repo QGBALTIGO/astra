@@ -1336,6 +1336,13 @@ describe('getOrCreateDefaultAgent', () => {
 // =============================================================================
 
 describe('getOrCreateChatAgent', () => {
+  type ChatAgentTestConfig = {
+    model: { maxTokens: number };
+    memory: { maxTokens: number };
+    systemPrompt: string;
+    tools: string[];
+  };
+
   it('uses a compact Portuguese prompt and 768 output tokens for Groq channels', async () => {
     const { agent } = makeMockAgent();
     mockCreateAgent.mockReturnValue(agent);
@@ -1349,9 +1356,9 @@ describe('getOrCreateChatAgent', () => {
       true
     );
 
-    const config = mockCreateAgent.mock.calls.at(-1)?.[0] as
-      { model: { maxTokens: number }; systemPrompt: string; tools: string[] } | undefined;
+    const config = mockCreateAgent.mock.calls.at(-1)?.[0] as ChatAgentTestConfig | undefined;
     expect(config?.model.maxTokens).toBe(768);
+    expect(config?.memory.maxTokens).toBe(2048);
     expect(mockInjectMemoryIntoPrompt).toHaveBeenCalledWith(
       expect.stringContaining('português do Brasil'),
       expect.objectContaining({ includeToolDescriptions: false })
@@ -1391,12 +1398,13 @@ describe('getOrCreateChatAgent', () => {
 
     expect(a).not.toBe(b);
     expect(b).not.toBe(c);
-    const configs = mockCreateAgent.mock.calls.map(
-      ([config]) => config as { model: { maxTokens: number } }
-    );
+    const configs = mockCreateAgent.mock.calls.map(([config]) => config as ChatAgentTestConfig);
     expect(configs[0]?.model.maxTokens).toBe(8192);
+    expect(configs[0]?.memory.maxTokens).toBeGreaterThan(2048);
     expect(configs[1]?.model.maxTokens).toBe(768);
+    expect(configs[1]?.memory.maxTokens).toBe(2048);
     expect(configs[2]?.model.maxTokens).toBe(768);
+    expect(configs[2]?.memory.maxTokens).toBe(2048);
   });
 
   it('returns cached chat agent', async () => {
