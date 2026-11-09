@@ -671,11 +671,19 @@ async function createChatAgentInstance(
     modelMaxOutput,
     channelMode && provider === 'groq' ? 768 : Number.POSITIVE_INFINITY
   );
-  const memoryMaxTokens = router.computeMemoryMaxTokens({
+  const computedMemoryMaxTokens = router.computeMemoryMaxTokens({
     ctxWindow,
     systemPromptTokens,
     outputBuffer,
   });
+  // The model's context window is not the provider's tokens-per-minute quota.
+  // Keep conversational history bounded for Groq channels: even a 128K context
+  // window can exceed the organisation's TPM cap on a single WhatsApp message.
+  // Persistent conversation history and long-term memories are not deleted.
+  const memoryMaxTokens =
+    channelMode && provider === 'groq'
+      ? Math.min(computedMemoryMaxTokens, 2_048)
+      : computedMemoryMaxTokens;
 
   const config: AgentConfig = {
     name: isCliProvider
