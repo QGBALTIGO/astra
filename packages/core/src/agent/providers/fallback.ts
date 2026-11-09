@@ -110,18 +110,22 @@ export class FallbackProvider implements IProvider {
 
   // ── Circuit Breaker ─────────────────────────────────────────────
 
-  private getCircuit(providerType: string): CircuitBreakerEntry {
-    let entry = this.circuits.get(providerType);
+  private getCircuit(provider: IProvider): CircuitBreakerEntry {
+    // OpenAI-compatible transports all report the same type. Identifying a
+    // circuit by type would let one broken API block every healthy backup.
+    const index = this.getAllProviders().indexOf(provider);
+    const circuitId = index < 0 ? `unknown:${provider.type}` : `slot:${index}`;
+    let entry = this.circuits.get(circuitId);
     if (!entry) {
       entry = { state: 'closed', failureCount: 0, lastFailureTime: 0, lastSuccessTime: 0 };
-      this.circuits.set(providerType, entry);
+      this.circuits.set(circuitId, entry);
     }
     return entry;
   }
 
   /** Returns true if the provider should be skipped */
   private isCircuitOpen(provider: IProvider): boolean {
-    const circuit = this.getCircuit(provider.type);
+    const circuit = this.getCircuit(provider);
     if (circuit.state === 'closed') return false;
     if (circuit.state === 'open') {
       // Check if cooldown has elapsed → transition to half-open
@@ -137,7 +141,7 @@ export class FallbackProvider implements IProvider {
   }
 
   private recordSuccess(provider: IProvider): void {
-    const circuit = this.getCircuit(provider.type);
+    const circuit = this.getCircuit(provider);
     if (circuit.state !== 'closed') {
       log.info(`CircuitBreaker ${provider.type}: ${circuit.state} → closed`);
     }
@@ -147,7 +151,7 @@ export class FallbackProvider implements IProvider {
   }
 
   private recordFailure(provider: IProvider): void {
-    const circuit = this.getCircuit(provider.type);
+    const circuit = this.getCircuit(provider);
     circuit.failureCount++;
     circuit.lastFailureTime = Date.now();
 
@@ -297,11 +301,11 @@ export class FallbackProvider implements IProvider {
       }
 
       this.currentProviderIndex = i;
+      let hasYielded = false;
 
       try {
         log.info(`Stream: Trying provider ${i + 1}/${providers.length}: ${provider.type}`);
 
-        let hasYielded = false;
         let hasError = false;
         let lastError: InternalError | null = null;
 
@@ -365,6 +369,12 @@ export class FallbackProvider implements IProvider {
         log.error(`Stream: Provider ${provider.type} threw exception: ${errorObj.message}`);
         this.recordFailure(provider);
 
+        // A failed network stream after sending output is not replayable:
+        // doing so could concatenate two responses or duplicate tool calls.
+        if (hasYielded) {
+          yield err(new InternalError('Stream interrupted after partial output'));
+          return;
+        }
         if (i < providers.length - 1) {
           continue;
         }
