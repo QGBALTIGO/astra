@@ -117,7 +117,8 @@ export async function loadApiKeysToEnvironment(): Promise<void> {
     const sanitizedProvider = sanitizeProviderName(provider);
     if (sanitizedProvider) {
       const envVarName = `${sanitizedProvider}_API_KEY`;
-      process.env[envVarName] = setting.value as string;
+      // A private Railway variable must take precedence over a stale DB key.
+      process.env[envVarName] ??= setting.value as string;
     }
   }
 }
@@ -303,12 +304,18 @@ export async function getDefaultModel(provider?: string): Promise<string | null>
   if (process.env.ASTRA_ONLY_GROQ === 'true') {
     return process.env.GROQ_API_KEY ? process.env.ASTRA_GROQ_MODEL || 'openai/gpt-oss-120b' : null;
   }
+  // Keep the legacy DB-first behavior unless Astra explicitly pins a Groq
+  // primary via deployment configuration.
+  const savedModel = await settingsRepo.get<string>(DEFAULT_MODEL_KEY);
+  if (process.env.ASTRA_PRIMARY_PROVIDER === 'groq' && process.env.ASTRA_GROQ_MODEL) {
+    return process.env.ASTRA_GROQ_MODEL;
+  }
+  if (savedModel) return savedModel;
+
   const actualProvider = provider ?? (await getDefaultProvider());
   if (actualProvider === 'groq' && process.env.ASTRA_GROQ_MODEL) {
     return process.env.ASTRA_GROQ_MODEL;
   }
-  const savedModel = await settingsRepo.get<string>(DEFAULT_MODEL_KEY);
-  if (savedModel) return savedModel;
   if (!actualProvider) return null;
 
   const defaultModel = getDefaultModelForProvider(actualProvider);
