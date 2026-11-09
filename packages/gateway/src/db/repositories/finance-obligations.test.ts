@@ -45,9 +45,7 @@ describe('Financing repository: separate user balances', () => {
   });
 
   it('creates the opening balance without creating an expense', async () => {
-    mockAdapter.queryOne
-      .mockResolvedValueOnce({ id: 'fin-1' })
-      .mockResolvedValueOnce(dbRow);
+    mockAdapter.queryOne.mockResolvedValueOnce({ id: 'fin-1' }).mockResolvedValueOnce(dbRow);
     const repo = new FinanceObligationsRepository('whatsapp:5521997557364');
     const result = await repo.createOrFind('carro', 7_200_000, 93_000);
 
@@ -58,37 +56,29 @@ describe('Financing repository: separate user balances', () => {
       expect.arrayContaining(['whatsapp:5521997557364', 'carro', 7_200_000, 93_000])
     );
     expect(mockAdapter.queryOne.mock.calls[1]![0]).toContain('o.user_id = $1');
-    expect(mockAdapter.queryOne.mock.calls[1]![1]).toEqual([
-      'whatsapp:5521997557364',
-      'carro',
-    ]);
+    expect(mockAdapter.queryOne.mock.calls[1]![1]).toEqual(['whatsapp:5521997557364', 'carro']);
     expect(mockAdapter.execute).not.toHaveBeenCalled();
   });
 
   it('does not overwrite an existing financing on repeated setup', async () => {
     mockAdapter.queryOne.mockResolvedValueOnce(null).mockResolvedValueOnce(dbRow);
-    const result = await new FinanceObligationsRepository(
-      'whatsapp:5521997557364'
-    ).createOrFind('carro', 7_200_000, 93_000);
+    const result = await new FinanceObligationsRepository('whatsapp:5521997557364').createOrFind(
+      'carro',
+      7_200_000,
+      93_000
+    );
     expect(result.created).toBe(false);
     expect(result.balance.paidCents).toBe(93_000);
   });
 
   it('does not let a user query another customer financing', async () => {
     await new FinanceObligationsRepository('whatsapp:5511987654321').find('carro');
-    expect(mockAdapter.queryOne.mock.calls[0]![1]).toEqual([
-      'whatsapp:5511987654321',
-      'carro',
-    ]);
+    expect(mockAdapter.queryOne.mock.calls[0]![1]).toEqual(['whatsapp:5511987654321', 'carro']);
   });
 
   it('rejects financing with an opening balance above the principal', async () => {
     await expect(
-      new FinanceObligationsRepository('whatsapp:user').createOrFind(
-        'carro',
-        100_000,
-        200_000
-      )
+      new FinanceObligationsRepository('whatsapp:user').createOrFind('carro', 100_000, 200_000)
     ).rejects.toThrow('Invalid financing');
     expect(mockAdapter.queryOne).not.toHaveBeenCalled();
   });
@@ -111,9 +101,11 @@ describe('Financing repository: separate user balances', () => {
       .mockResolvedValueOnce(dbRow)
       .mockResolvedValueOnce({ id: 'already-paid' })
       .mockResolvedValueOnce(dbRow);
-    const result = await new FinanceObligationsRepository(
-      'whatsapp:5521997557364'
-    ).recordPayment('carro', 47_000, 'b'.repeat(64));
+    const result = await new FinanceObligationsRepository('whatsapp:5521997557364').recordPayment(
+      'carro',
+      47_000,
+      'b'.repeat(64)
+    );
     expect(result.status).toBe('duplicate');
     expect(mockAdapter.execute).not.toHaveBeenCalled();
   });
@@ -123,9 +115,11 @@ describe('Financing repository: separate user balances', () => {
       .mockResolvedValueOnce(dbRow)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(dbRow);
-    const result = await new FinanceObligationsRepository(
-      'whatsapp:5521997557364'
-    ).recordPayment('carro', 7_200_000, 'c'.repeat(64));
+    const result = await new FinanceObligationsRepository('whatsapp:5521997557364').recordPayment(
+      'carro',
+      7_200_000,
+      'c'.repeat(64)
+    );
     expect(result.status).toBe('exceeds');
     expect(mockAdapter.execute).not.toHaveBeenCalled();
   });

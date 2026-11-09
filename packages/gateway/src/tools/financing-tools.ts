@@ -103,9 +103,12 @@ export async function executeFinancingTool(
         }
         const sourceKey = createHash('sha256')
           .update(
-            [userId, context.channelPluginId, context.platformChatId, context.channelMessageId].join(
-              '|'
-            )
+            [
+              userId,
+              context.channelPluginId,
+              context.platformChatId,
+              context.channelMessageId,
+            ].join('|')
           )
           .digest('hex');
         const result = await repo.recordPayment(name, amount, sourceKey);

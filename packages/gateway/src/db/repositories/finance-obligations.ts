@@ -24,8 +24,7 @@ export interface FinanceBalance {
 }
 
 export type PaymentOutcome =
-  | { status: 'missing' }
-  | { status: 'duplicate' | 'exceeds' | 'recorded'; balance: FinanceBalance };
+  { status: 'missing' } | { status: 'duplicate' | 'exceeds' | 'recorded'; balance: FinanceBalance };
 
 function validCents(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0 && value <= 9_000_000_000_000;

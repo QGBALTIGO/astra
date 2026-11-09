@@ -41,9 +41,7 @@ export function parseBrlCents(raw: string, multiplier?: string): number | null {
   const number = Number(normalized);
   const value = number * (multiplier && /^(?:mil|k)$/.test(multiplier) ? 1000 : 1);
   const cents = Math.round(value * 100);
-  return Number.isSafeInteger(cents) && cents > 0 && cents <= 9_000_000_000_000
-    ? cents
-    : null;
+  return Number.isSafeInteger(cents) && cents > 0 && cents <= 9_000_000_000_000 ? cents : null;
 }
 
 function safeName(name: string): string | null {
