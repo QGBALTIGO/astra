@@ -79,6 +79,7 @@ import {
   MAX_CHAT_AGENT_CACHE_SIZE,
 } from './cache.js';
 import { getLLMRouter, getConfigCenter } from '@ownpilot/core/services';
+import { parseAstraFallbackChain } from './fallback-chain.js';
 import {
   AGENT_DEFAULT_MAX_TOKENS,
   AGENT_DEFAULT_TEMPERATURE,
@@ -765,39 +766,68 @@ async function createChatAgentInstance(
     log.info(
       `Created CLI chat provider: ${provider} (${cliBinary}) model=${model} correlationId=${correlationId}`
     );
-  } else if (fallback) {
-    // Build FallbackProvider if a backup model is configured
+  } else if (fallback || process.env.ASTRA_FALLBACK_CHAIN?.trim()) {
+    // One agent, one conversation and one tool registry. Only the LLM
+    // transport is switched; retries never repeat already executed tools.
+    const candidates = parseAstraFallbackChain(
+      process.env.ASTRA_FALLBACK_CHAIN,
+      provider,
+      fallback
+    );
+
     try {
-      const fbResolvedAuth = await resolveAuthForRequest(fallback.provider);
-      const fbApiKey = fbResolvedAuth?.value ?? (await getProviderApiKey(fallback.provider));
-      if (fbApiKey) {
-        const fbConfig = loadProviderConfig(fallback.provider);
-        const fbType = NATIVE_PROVIDERS.has(fallback.provider) ? fallback.provider : 'openai';
+      const usableFallbacks = [];
+      for (const candidate of candidates) {
+        // A candidate is available only when credentials AND a supported
+        // endpoint have been configured. Never use a catalog's paid default.
+        const fbResolvedAuth = await resolveAuthForRequest(candidate.provider);
+        const fbApiKey =
+          fbResolvedAuth?.value ?? (await getProviderApiKey(candidate.provider));
+        const fbConfig = loadProviderConfig(candidate.provider);
+        if (!fbApiKey || !fbConfig?.baseUrl) continue;
+
+        const fbType = NATIVE_PROVIDERS.has(candidate.provider)
+          ? candidate.provider
+          : (fbConfig.type ?? 'openai-compatible');
+
+        usableFallbacks.push({
+          id: candidate.provider,
+          provider: fbType as AIProvider,
+          apiKey: fbApiKey,
+          resolvedAuth: fbResolvedAuth,
+          baseUrl: fbConfig.baseUrl,
+          headers: fbConfig.headers,
+          defaultModel: { model: candidate.model },
+          // A second retry against the same exhausted key delays WhatsApp
+          // responses and wastes quota. Use the next configured provider.
+          maxRetries: 0,
+        });
+      }
+
+      if (usableFallbacks.length > 0) {
         providerInstance = createFallbackProvider({
           primary: {
+            id: provider,
             provider: providerType as AIProvider,
             apiKey: apiKey!,
             resolvedAuth,
             baseUrl,
             headers: providerConfig?.headers,
+            maxRetries: 0,
           },
-          fallbacks: [
-            {
-              provider: fbType as AIProvider,
-              apiKey: fbApiKey,
-              resolvedAuth: fbResolvedAuth,
-              baseUrl: fbConfig?.baseUrl,
-              headers: fbConfig?.headers,
-              defaultModel: { model: fallback.model },
-            },
-          ],
-          onFallback: (failed, error, next) => {
-            log.warn(`Fallback triggered: ${String(failed)} -> ${String(next)}: ${error.message}`);
+          fallbacks: usableFallbacks,
+          onFallback: (failed, _error, next) => {
+            // Deliberately exclude exception text, API keys and user prompts.
+            log.warn(`Astra failover activated (${String(failed)} -> ${String(next)})`);
           },
         });
       }
     } catch (fbErr) {
-      log.warn(`Failed to build fallback provider: ${String(fbErr)}`);
+      // A bad optional backup must never prevent the healthy primary from
+      // answering; only the sanitized error class is logged.
+      log.warn(
+        `Could not initialize Astra fallback: ${fbErr instanceof Error ? fbErr.name : 'error'}`
+      );
     }
   }
 
