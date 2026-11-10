@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { BASE_SYSTEM_PROMPT, CHANNEL_SYSTEM_PROMPT, CLI_SYSTEM_PROMPT } from './prompt.js';
+import {
+  BASE_SYSTEM_PROMPT,
+  CHANNEL_SYSTEM_PROMPT,
+  CLI_SYSTEM_PROMPT,
+  withChannelAccessFacts,
+} from './prompt.js';
+import {
+  ASTRA_CHANNEL_ACCESS_FACTS,
+  ASTRA_CUSTOMER_LOGIN_URL,
+  ASTRA_SITE_URL,
+} from '../../channels/astra-access.js';
 
 describe('agent-prompt', () => {
   // ---------------------------------------------------------------------------
@@ -297,6 +307,21 @@ describe('agent-prompt', () => {
 });
 
 describe('CHANNEL_SYSTEM_PROMPT', () => {
+  it.each([CHANNEL_SYSTEM_PROMPT, CLI_SYSTEM_PROMPT])(
+    'adds the same official access facts while preserving the provider prompt',
+    (basePrompt) => {
+      const prompt = withChannelAccessFacts(basePrompt);
+      expect(prompt.startsWith(basePrompt)).toBe(true);
+      expect(prompt).toContain(ASTRA_CHANNEL_ACCESS_FACTS);
+      expect(prompt).toContain(ASTRA_CUSTOMER_LOGIN_URL);
+      expect(prompt).toContain(ASTRA_SITE_URL);
+      expect(prompt).toContain('número de WhatsApp autorizado');
+      expect(prompt).toContain('código de 6 dígitos');
+      expect(prompt).toContain('Não ofereça login por e-mail/senha nem aplicativo móvel próprio');
+      expect(prompt).toContain('nunca ao painel ou login de outro serviço');
+    }
+  );
+
   it('uses direct channel tools for common tasks without unnecessary discovery', () => {
     expect(CHANNEL_SYSTEM_PROMPT).toContain('Prefira ferramentas diretas');
     expect(CHANNEL_SYSTEM_PROMPT).toContain('search_tools');

@@ -79,6 +79,10 @@ export interface ChannelOutgoingMessage {
   text: string;
   /** URL action. Transports without native URL buttons render a text link before sending. */
   urlButton?: { label: string; url: string };
+  /** Copy action. The text must also contain the code for clients without button support. */
+  copyCode?: { label: string; code: string };
+  /** Do not begin sending at or after this deadline (e.g. an expiring access code). */
+  sendBefore?: Date;
   /** Attachments to send */
   attachments?: ChannelAttachment[];
   /** Reply-to message ID */

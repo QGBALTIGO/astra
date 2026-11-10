@@ -1,12 +1,19 @@
 /**
  * System prompts for all agents.
  *
- * Extracted from agents.ts — leaf module with no internal dependencies.
+ * Extracted from agents.ts. Uses only pure, shared Astra access facts.
  *
  * Two variants:
  * - BASE_SYSTEM_PROMPT: Full prompt for API-based providers (meta-tools, namespaces, full tool docs)
  * - CLI_SYSTEM_PROMPT: Compact prompt for CLI providers (MCP direct tools, identity-first)
  */
+
+import { ASTRA_CHANNEL_ACCESS_FACTS } from '../../channels/astra-access.js';
+
+/** Apply channel facts to either an API or CLI provider's base prompt. */
+export function withChannelAccessFacts(systemPrompt: string): string {
+  return `${systemPrompt}\n\n${ASTRA_CHANNEL_ACCESS_FACTS}`;
+}
 
 /**
  * Base system prompt used for all agents.

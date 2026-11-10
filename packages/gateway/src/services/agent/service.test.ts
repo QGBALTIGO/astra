@@ -162,6 +162,7 @@ const mockGetDefaultProvider = vi.fn();
 const mockGetDefaultModel = vi.fn();
 const mockGetConfiguredProviderIds = vi.fn(async () => new Set<string>());
 const mockGetEnabledToolGroupIds = vi.fn(() => [] as string[]);
+const mockIsCliChatProvider = vi.fn(() => false);
 
 vi.mock('../app-settings.js', () => ({
   resolveDefaultProviderAndModel: (...args: unknown[]) =>
@@ -174,10 +175,17 @@ vi.mock('../app-settings.js', () => ({
 }));
 
 vi.mock('../cli/chat-provider.js', () => ({
-  isCliChatProvider: vi.fn(() => false),
+  isCliChatProvider: (...args: unknown[]) => mockIsCliChatProvider(...args),
   getCliBinaryFromProviderId: vi.fn(() => '/usr/bin/test'),
   createCliChatProvider: vi.fn(() => ({})),
   getCliChatProviderDefinition: vi.fn(() => null),
+}));
+
+vi.mock('../../mcp/workspace.js', () => ({
+  createTempWorkspace: vi.fn(async () => ({ dir: '/tmp/astra-cli-prompt-test' })),
+}));
+vi.mock('../ui-session.js', () => ({
+  createMcpSession: vi.fn(async () => ({ token: 'synthetic-mcp-session' })),
 }));
 
 vi.mock('../extension/service.js', () => ({
@@ -186,7 +194,8 @@ vi.mock('../extension/service.js', () => ({
   })),
 }));
 
-vi.mock('./prompt.js', () => ({
+vi.mock('./prompt.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./prompt.js')>()),
   BASE_SYSTEM_PROMPT: 'Test system prompt',
   CHANNEL_SYSTEM_PROMPT: 'Astra é um assistente em português do Brasil.',
 }));
@@ -423,6 +432,7 @@ beforeEach(() => {
   }));
   mockHasServiceRegistry.mockReturnValue(false);
   mockHasProviderService.mockReturnValue(false);
+  mockIsCliChatProvider.mockReturnValue(false);
   mockGetConfiguredProviderIds.mockResolvedValue(new Set<string>());
   mockGetByAgentId.mockResolvedValue(null);
   mockCountUnread.mockResolvedValue(0);
@@ -1342,6 +1352,41 @@ describe('getOrCreateChatAgent', () => {
     systemPrompt: string;
     tools: string[];
   };
+
+  it.each([false, true])('includes official access facts in a channel (CLI: %s)', async (isCli) => {
+    const { agent } = makeMockAgent();
+    mockCreateAgent.mockReturnValue(agent);
+    mockIsCliChatProvider.mockReturnValue(isCli);
+
+    await mod.getOrCreateChatAgent(
+      isCli ? 'cli-codex' : 'openai',
+      'test-model',
+      undefined,
+      null,
+      'channel:whatsapp:access-facts',
+      undefined,
+      true
+    );
+
+    const config = mockCreateAgent.mock.calls.at(-1)?.[0] as ChatAgentTestConfig;
+    expect(config.systemPrompt).toContain(
+      'https://astra-gateway-production.up.railway.app/cliente/entrar'
+    );
+    expect(config.systemPrompt).toContain('https://astraacessor.vercel.app');
+    expect(config.systemPrompt).toContain('número de WhatsApp autorizado');
+    expect(config.systemPrompt).toContain('código de 6 dígitos');
+    expect(config.systemPrompt).toContain('Não ofereça login por e-mail/senha');
+    expect(config.systemPrompt).not.toContain('astra.ai/dashboard');
+    expect(config.systemPrompt).toContain(isCli ? 'MCP tools' : 'português do Brasil');
+  });
+
+  it('does not add customer-portal instructions to the admin web agent', async () => {
+    mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+    await mod.getOrCreateChatAgent('openai', 'test-model');
+
+    const config = mockCreateAgent.mock.calls.at(-1)?.[0] as ChatAgentTestConfig;
+    expect(config.systemPrompt).toBe('Test system prompt');
+  });
 
   it('uses a compact Portuguese prompt and 768 output tokens for Groq channels', async () => {
     const { agent } = makeMockAgent();

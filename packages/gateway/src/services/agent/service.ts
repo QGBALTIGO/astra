@@ -34,7 +34,12 @@ import { localProvidersRepo } from '../../db/repositories/local-providers.js';
 import { getSoulsRepository } from '../../db/repositories/souls.js';
 import { getAgentMessagesRepository } from '../../db/repositories/agents/messages.js';
 import { getLog } from '../log.js';
-import { BASE_SYSTEM_PROMPT, CHANNEL_SYSTEM_PROMPT, CLI_SYSTEM_PROMPT } from './prompt.js';
+import {
+  BASE_SYSTEM_PROMPT,
+  CHANNEL_SYSTEM_PROMPT,
+  CLI_SYSTEM_PROMPT,
+  withChannelAccessFacts,
+} from './prompt.js';
 import { registerExpenseOverrides } from '../../tools/overrides/expense.js';
 import { FINANCING_TOOLS } from '../../tools/financing-tools.js';
 import {
@@ -639,7 +644,10 @@ async function createChatAgentInstance(
     : channelMode
       ? CHANNEL_SYSTEM_PROMPT
       : BASE_SYSTEM_PROMPT;
-  const { systemPrompt: enhancedPrompt } = await injectMemoryIntoPrompt(basePrompt, {
+  // The CLI prompt takes precedence above, but access instructions belong to
+  // every channel provider, including CLI-backed agents.
+  const channelPrompt = channelMode ? withChannelAccessFacts(basePrompt) : basePrompt;
+  const { systemPrompt: enhancedPrompt } = await injectMemoryIntoPrompt(channelPrompt, {
     userId,
     tools: isCliProvider ? [] : toolDefs, // CLI tools are discovered via MCP, not injected
     includeProfile: true,
