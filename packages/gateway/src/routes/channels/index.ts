@@ -12,6 +12,7 @@
  */
 
 import { Hono } from 'hono';
+import { LOCAL_OWNER_ID } from '../../config/defaults.js';
 import { getChannelService, hasChannelService } from '@ownpilot/core/channels';
 import { getDefaultPluginRegistry } from '@ownpilot/core/plugins';
 import { ChannelMessagesRepository } from '../../db/repositories/channels/messages.js';
@@ -29,6 +30,8 @@ import { pagination } from '../../middleware/pagination.js';
 import { refreshChannelApi } from '../../plugins/init.js';
 import { wsGateway } from '../../ws/server.js';
 import { getLog } from '../../services/log.js';
+import { getOwnerUserId } from '../../services/pairing-service.js';
+import { requireChannelAccessAdmin, serializeChannelUser } from './auth.js';
 import {
   normalizeAndValidateEntryData,
   validateRequiredFields,
@@ -104,7 +107,7 @@ channelRoutes.get('/status', (c) => {
 /**
  * GET /pairing - Return per-channel pairing keys and owner status
  */
-channelRoutes.get('/pairing', async (c) => {
+channelRoutes.get('/pairing', requireChannelAccessAdmin, async (c) => {
   const { getPairingKey, getOwnerUserId } = await import('../../services/pairing-service.js');
   const service = getChannelService();
   const channelList = service.listChannels();
@@ -131,7 +134,7 @@ channelRoutes.get('/pairing', async (c) => {
 /**
  * POST /dm-pairing/approve - Approve a pending DM sender by code
  */
-channelRoutes.post('/dm-pairing/approve', async (c) => {
+channelRoutes.post('/dm-pairing/approve', requireChannelAccessAdmin, async (c) => {
   const body = await c.req.json<{ code: string; platform: string }>();
 
   if (!body.code || typeof body.code !== 'string') {
@@ -174,7 +177,7 @@ channelRoutes.post('/dm-pairing/approve', async (c) => {
 /**
  * POST /dm-pairing/deny - Deny a pending DM sender
  */
-channelRoutes.post('/dm-pairing/deny', async (c) => {
+channelRoutes.post('/dm-pairing/deny', requireChannelAccessAdmin, async (c) => {
   const body = await c.req.json<{ platform: string; platformUserId: string }>();
 
   if (!body.platform || typeof body.platform !== 'string') {
@@ -218,7 +221,7 @@ channelRoutes.post('/dm-pairing/deny', async (c) => {
 /**
  * GET /dm-pairing/pending/:platform - List pending DM senders
  */
-channelRoutes.get('/dm-pairing/pending/:platform', async (c) => {
+channelRoutes.get('/dm-pairing/pending/:platform', requireChannelAccessAdmin, async (c) => {
   const platform = c.req.param('platform');
 
   if (!hasChannelService()) {
@@ -370,7 +373,7 @@ channelRoutes.post('/:id/reconnect', async (c) => {
 /**
  * POST /:id/revoke-owner - Revoke ownership and rotate pairing key
  */
-channelRoutes.post('/:id/revoke-owner', async (c) => {
+channelRoutes.post('/:id/revoke-owner', requireChannelAccessAdmin, async (c) => {
   const pluginId = c.req.param('id');
   const { revokeOwnership, getPairingKey } = await import('../../services/pairing-service.js');
   const service = getChannelService();
@@ -548,14 +551,24 @@ channelRoutes.get('/:id/qr', (c) => {
 });
 
 /**
- * GET /:id/users - List users who have interacted with a channel
+ * GET /:id/users - List channel users, including customers authorized before their first message
  */
-channelRoutes.get('/:id/users', async (c) => {
+channelRoutes.get('/:id/users', requireChannelAccessAdmin, async (c) => {
   const pluginId = c.req.param('id');
   const platform = pluginId.split('.')[1] ?? '';
 
   try {
-    const channelUsers = await channelUsersRepo.list({ platform, limit: 100, offset: 0 });
+    const { limit, offset } = getPaginationParams(c, 100);
+    const [channelUsers, ownerPhone] = await Promise.all([
+      channelUsersRepo.list({
+        platform,
+        ownpilotUserId: LOCAL_OWNER_ID,
+        ...(platform === 'whatsapp' ? { includeWhatsAppCustomers: true } : {}),
+        limit,
+        offset,
+      }),
+      platform === 'whatsapp' ? getOwnerUserId('whatsapp') : Promise.resolve(null),
+    ]);
 
     // Get DM pairing pending codes for these users
     const pendingMap = new Map<string, { code: string; expiresAt: Date }>();
@@ -577,14 +590,7 @@ channelRoutes.get('/:id/users', async (c) => {
 
     return apiResponse(c, {
       users: channelUsers.map((u) => ({
-        id: u.id,
-        platform: u.platform,
-        platformUserId: u.platformUserId,
-        platformUsername: u.platformUsername,
-        displayName: u.displayName,
-        isVerified: u.isVerified,
-        isBlocked: u.isBlocked,
-        lastSeenAt: u.lastSeenAt.toISOString(),
+        ...serializeChannelUser(u, ownerPhone),
         ...(pendingMap.has(u.platformUserId) && !u.isVerified
           ? {
               pendingPairingCode: pendingMap.get(u.platformUserId)!.code,
@@ -593,6 +599,8 @@ channelRoutes.get('/:id/users', async (c) => {
           : {}),
       })),
       count: channelUsers.length,
+      limit,
+      offset,
     });
   } catch (error) {
     return apiError(

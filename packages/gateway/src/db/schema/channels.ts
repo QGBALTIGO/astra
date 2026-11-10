@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS channel_users (
   is_verified BOOLEAN NOT NULL DEFAULT FALSE,
   verified_at TIMESTAMP,
   verification_method TEXT,
+  access_expires_at TIMESTAMPTZ,
+  access_granted_at TIMESTAMPTZ,
+  access_source TEXT CHECK(access_source IN ('manual', 'cakto')),
   is_blocked BOOLEAN NOT NULL DEFAULT FALSE,
   status TEXT NOT NULL DEFAULT 'active',
   metadata JSONB DEFAULT '{}',
@@ -96,6 +99,13 @@ DO $$ BEGIN
     ALTER TABLE channel_users ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
   END IF;
 END $$;
+
+-- Nullable access fields preserve previously verified users as unlimited.
+-- These statements also upgrade existing installations and are safe on every boot.
+ALTER TABLE channel_users ADD COLUMN IF NOT EXISTS access_expires_at TIMESTAMPTZ;
+ALTER TABLE channel_users ADD COLUMN IF NOT EXISTS access_granted_at TIMESTAMPTZ;
+ALTER TABLE channel_users ADD COLUMN IF NOT EXISTS access_source TEXT
+  CHECK(access_source IN ('manual', 'cakto'));
 
 -- Resolve any historical active-code collisions before enforcing uniqueness.
 -- Keep the newest request claimable and invalidate older ambiguous requests.

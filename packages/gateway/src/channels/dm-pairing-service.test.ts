@@ -162,9 +162,8 @@ describe('DmPairingService', () => {
   });
 
   it.each([
-    ['whatsapp', 'whatsapp:5511999990001'],
     ['telegram', 'workspace-user-2'],
-    ['whatsapp', 'default'],
+    ['telegram', 'default'],
   ])(
     'preserves the existing %s identity %s when approving a sender',
     async (platform, ownpilotUserId) => {
@@ -183,6 +182,40 @@ describe('DmPairingService', () => {
       expect(users.markVerified).toHaveBeenCalledWith('channel-user-1', ownpilotUserId, 'admin');
     }
   );
+
+  it('rejects WhatsApp codes without consuming them or reactivating a revoked sender', async () => {
+    const { service, requests, users } = createHarness();
+    requests.consumeByCode.mockResolvedValue({ platformUserId: '5511999990001' });
+    users.findByPlatform.mockResolvedValue({
+      id: 'channel-user-1',
+      ownpilotUserId: 'whatsapp:5511999990001',
+      isVerified: false,
+      accessSource: 'manual',
+    });
+
+    await expect(service.approvePendingSender('whatsapp', '654321')).resolves.toEqual({
+      success: false,
+      error: expect.stringContaining('gestão de acessos do WhatsApp'),
+    });
+    expect(requests.consumeByCode).not.toHaveBeenCalled();
+    expect(users.updateStatus).not.toHaveBeenCalled();
+    expect(users.markVerified).not.toHaveBeenCalled();
+  });
+
+  it('does not generate or advertise independent WhatsApp pairing approvals', async () => {
+    const { service, requests, users } = createHarness();
+
+    await expect(
+      service.generateDmPairingCode('channel.whatsapp', 'whatsapp', '5511999990001', 'owner')
+    ).rejects.toThrow('gestão de acessos do WhatsApp');
+    await expect(service.getPendingSenders('whatsapp')).resolves.toEqual(new Set());
+    await expect(service.listPendingSenders('whatsapp')).resolves.toEqual([]);
+
+    expect(requests.create).not.toHaveBeenCalled();
+    expect(requests.listPending).not.toHaveBeenCalled();
+    expect(users.updateStatus).not.toHaveBeenCalled();
+    expect(mockBroadcast).not.toHaveBeenCalled();
+  });
 
   it('denies a sender and consumes an existing token', async () => {
     const { service, requests, users } = createHarness();

@@ -5,6 +5,9 @@ const mock = vi.hoisted(() => ({
   markDelivered: vi.fn(),
   markFailed: vi.fn(),
   send: vi.fn(),
+  getChannel: vi.fn(),
+  findByPlatform: vi.fn(),
+  owner: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
@@ -18,8 +21,12 @@ vi.mock('../db/repositories/channel-reminders.js', () => ({
   },
 }));
 vi.mock('@ownpilot/core/channels', () => ({
-  getChannelService: () => ({ send: mock.send }),
+  getChannelService: () => ({ send: mock.send, getChannel: mock.getChannel }),
 }));
+vi.mock('../db/repositories/channels/users.js', () => ({
+  channelUsersRepo: { findByPlatform: mock.findByPlatform },
+}));
+vi.mock('./pairing-service.js', () => ({ getOwnerUserId: mock.owner }));
 vi.mock('./log.js', () => ({
   getLog: () => ({ info: mock.info, warn: mock.warn, error: mock.error }),
 }));
@@ -48,6 +55,9 @@ describe('ChannelReminderWorker', () => {
     mock.send.mockResolvedValue('telegram-message-123');
     mock.markDelivered.mockResolvedValue(undefined);
     mock.markFailed.mockResolvedValue(undefined);
+    mock.getChannel.mockReturnValue({ getPlatform: () => 'telegram' });
+    mock.findByPlatform.mockResolvedValue(null);
+    mock.owner.mockResolvedValue(null);
   });
   afterEach(() => {
     stopChannelReminderWorker();
@@ -93,5 +103,82 @@ describe('ChannelReminderWorker', () => {
     const result = await dispatchDueChannelReminders();
     expect(result).toEqual({ claimed: 2, delivered: 1, failed: 1 });
     expect(mock.markDelivered).toHaveBeenCalledWith('two', 'done');
+  });
+
+  const phone = '5521999991234';
+  const subscriber = {
+    id: 'customer-1',
+    platform: 'whatsapp',
+    platformUserId: phone,
+    ownpilotUserId: `whatsapp:${phone}`,
+    isVerified: true,
+    isBlocked: false,
+    status: 'active',
+    accessSource: 'manual',
+    accessExpiresAt: new Date('2099-01-01T00:00:00Z'),
+  };
+
+  it.each([
+    ['missing', null],
+    ['expired', { ...subscriber, accessExpiresAt: new Date('2000-01-01T00:00:00Z') }],
+    ['revoked', { ...subscriber, isVerified: false }],
+    ['blocked', { ...subscriber, isBlocked: true }],
+    ['pending', { ...subscriber, status: 'pending' }],
+    ['wrong identity', { ...subscriber, ownpilotUserId: 'default' }],
+  ])('does not deliver or retry a reminder for a %s WhatsApp subscriber', async (_label, user) => {
+    mock.getChannel.mockReturnValue({ getPlatform: () => 'whatsapp' });
+    mock.findByPlatform.mockResolvedValue(user);
+    mock.claimDue.mockResolvedValue([
+      {
+        ...makeReminder('subscriber-reminder'),
+        userId: subscriber.ownpilotUserId,
+        platformChatId: phone,
+        channelPluginId: 'channel.whatsapp',
+      },
+    ]);
+
+    const result = await dispatchDueChannelReminders();
+
+    expect(result).toEqual({ claimed: 1, delivered: 0, failed: 1 });
+    expect(mock.send).not.toHaveBeenCalled();
+    expect(mock.markDelivered).not.toHaveBeenCalled();
+    expect(mock.markFailed).toHaveBeenCalledWith(
+      'subscriber-reminder',
+      5,
+      'channel_access_inactive'
+    );
+  });
+
+  it('delivers after checking a subscriber with a current authorization', async () => {
+    mock.getChannel.mockReturnValue({ getPlatform: () => 'whatsapp' });
+    mock.findByPlatform.mockResolvedValue(subscriber);
+    mock.claimDue.mockResolvedValue([
+      {
+        ...makeReminder('active-reminder'),
+        userId: subscriber.ownpilotUserId,
+        platformChatId: `${phone}@s.whatsapp.net`,
+        channelPluginId: 'channel.whatsapp',
+      },
+    ]);
+
+    expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 1, failed: 0 });
+    expect(mock.findByPlatform).toHaveBeenCalledWith('whatsapp', phone);
+    expect(mock.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not deliver a subscriber reminder to a different phone', async () => {
+    mock.getChannel.mockReturnValue({ getPlatform: () => 'whatsapp' });
+    mock.findByPlatform.mockResolvedValue(subscriber);
+    mock.claimDue.mockResolvedValue([
+      {
+        ...makeReminder('wrong-recipient'),
+        userId: subscriber.ownpilotUserId,
+        platformChatId: '5521999995678',
+        channelPluginId: 'channel.whatsapp',
+      },
+    ]);
+
+    expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 0, failed: 1 });
+    expect(mock.send).not.toHaveBeenCalled();
   });
 });

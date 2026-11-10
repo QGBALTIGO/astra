@@ -6,21 +6,102 @@
  */
 
 import { LOCAL_OWNER_ID } from '../../config/defaults.js';
-import { Hono } from 'hono';
+import { Hono, type Context, type MiddlewareHandler } from 'hono';
+import { z } from 'zod';
 import { getChannelVerificationService } from '../../channels/auth/verification.js';
+import {
+  ChannelAccessError,
+  channelUserAccessStatus,
+  getChannelAccessService,
+} from '../../channels/channel-access-service.js';
 import { channelUsersRepo, type ChannelUserEntity } from '../../db/repositories/channels/users.js';
 import { getPaginationParams, apiResponse, apiError, ERROR_CODES } from '../helpers.js';
+import { getOwnerUserId } from '../../services/pairing-service.js';
 import { wsGateway } from '../../ws/server.js';
 
 export const channelAuthRoutes = new Hono();
 
+// Use only context established by authentication middleware. A signed customer
+// JWT whose subject starts with "apikey:" must not impersonate a validated key.
+export const requireChannelAccessAdmin: MiddlewareHandler = async (c, next) => {
+  const userId = c.get('userId');
+  if (!userId) {
+    return apiError(
+      c,
+      { code: ERROR_CODES.UNAUTHORIZED, message: 'Autenticação necessária.' },
+      401
+    );
+  }
+  if (
+    userId !== LOCAL_OWNER_ID &&
+    !(userId.startsWith('apikey:') && !c.get('jwtPayload') && !c.get('sessionAuthenticated'))
+  ) {
+    return apiError(
+      c,
+      { code: ERROR_CODES.ACCESS_DENIED, message: 'Apenas o proprietário pode gerenciar acessos.' },
+      403
+    );
+  }
+  return next();
+};
+channelAuthRoutes.use('*', requireChannelAccessAdmin);
+
+const durationSchema = z.number().int().min(1).max(366);
+const grantAccessSchema = z
+  .object({
+    platform: z.literal('whatsapp'),
+    phoneNumber: z.string().min(1).max(64),
+    displayName: z.string().trim().max(120).optional(),
+    durationDays: durationSchema.nullable().optional().default(30),
+  })
+  .strict();
+const renewAccessSchema = z
+  .object({ durationDays: durationSchema.optional().default(30) })
+  .strict();
+
+function accessError(c: Context, error: unknown) {
+  if (error instanceof ChannelAccessError) {
+    return apiError(c, { code: error.code, message: error.message }, error.status);
+  }
+  throw error;
+}
+
+export function serializeChannelUser(user: ChannelUserEntity, whatsAppOwner: string | null) {
+  const dateOrNull = (date?: Date | null) =>
+    date && Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  return {
+    id: user.id,
+    ownpilotUserId: user.ownpilotUserId,
+    platform: user.platform,
+    platformUserId: user.platformUserId,
+    platformUsername: user.platformUsername,
+    displayName: user.displayName,
+    isVerified: user.isVerified,
+    verificationMethod: user.verificationMethod,
+    isBlocked: user.isBlocked,
+    accessExpiresAt: dateOrNull(user.accessExpiresAt),
+    accessGrantedAt: dateOrNull(user.accessGrantedAt),
+    accessSource: user.accessSource ?? null,
+    accessStatus: channelUserAccessStatus(user),
+    hasInteracted: user.metadata?.hasInteracted !== false,
+    isOwner:
+      user.ownpilotUserId === LOCAL_OWNER_ID ||
+      (user.platform === 'whatsapp' && user.platformUserId === whatsAppOwner),
+    firstSeenAt: user.firstSeenAt.toISOString(),
+    lastSeenAt: user.lastSeenAt.toISOString(),
+  };
+}
+
+function broadcastAccessChanged() {
+  wsGateway.broadcast('data:changed', { entity: 'channel', action: 'updated' });
+}
+
 function canManageChannelUser(user: ChannelUserEntity, ownerUserId: string): boolean {
   if (user.ownpilotUserId === ownerUserId) return true;
-  // Customer records live in their own data scope, but the single WhatsApp
-  // account owner must still be able to approve/block/revoke subscriptions.
+  // Customer records live in their own data scope. The authenticated owner can
+  // manage them independently of the connection or inbound multi-user setting.
   return (
     ownerUserId === LOCAL_OWNER_ID &&
-    process.env.ASTRA_WHATSAPP_MULTIUSER === 'true' &&
     user.platform === 'whatsapp' &&
     user.ownpilotUserId === `whatsapp:${user.platformUserId}`
   );
@@ -136,6 +217,33 @@ channelAuthRoutes.post('/unblock/:platform/:platformUserId', async (c) => {
   return apiResponse(c, { unblocked });
 });
 
+/** Register and authorize a customer before their first WhatsApp message. */
+channelAuthRoutes.post('/users', async (c) => {
+  const parsed = grantAccessSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return apiError(
+      c,
+      {
+        code: ERROR_CODES.INVALID_INPUT,
+        message:
+          'Informe WhatsApp, número, nome opcional e validade de 1 a 366 dias (ou sem vencimento).',
+      },
+      400
+    );
+  }
+  try {
+    const { phoneNumber, displayName, durationDays } = parsed.data;
+    const user = await getChannelAccessService().grantWhatsAppAccess(
+      { phoneNumber, displayName, durationDays },
+      'manual'
+    );
+    broadcastAccessChanged();
+    return apiResponse(c, { user: serializeChannelUser(user, null) });
+  } catch (error) {
+    return accessError(c, error);
+  }
+});
+
 /**
  * GET /channels/auth/users
  * List all channel users with optional filters.
@@ -149,27 +257,18 @@ channelAuthRoutes.get('/users', async (c) => {
   const users = await channelUsersRepo.list({
     // Scope to the authenticated owner — never expose other users' linked accounts.
     ownpilotUserId: userId,
-    ...(process.env.ASTRA_WHATSAPP_MULTIUSER === 'true' ? { includeWhatsAppCustomers: true } : {}),
+    includeWhatsAppCustomers: true,
     platform: platform ?? undefined,
     isVerified: verified !== undefined ? verified === 'true' : undefined,
     limit,
     offset,
   });
+  const whatsAppOwner = users.some((user) => user.platform === 'whatsapp')
+    ? await getOwnerUserId('whatsapp')
+    : null;
 
   return apiResponse(c, {
-    users: users.map((u) => ({
-      id: u.id,
-      ownpilotUserId: u.ownpilotUserId,
-      platform: u.platform,
-      platformUserId: u.platformUserId,
-      platformUsername: u.platformUsername,
-      displayName: u.displayName,
-      isVerified: u.isVerified,
-      verificationMethod: u.verificationMethod,
-      isBlocked: u.isBlocked,
-      firstSeenAt: u.firstSeenAt.toISOString(),
-      lastSeenAt: u.lastSeenAt.toISOString(),
-    })),
+    users: users.map((user) => serializeChannelUser(user, whatsAppOwner)),
     count: users.length,
     limit,
     offset,
@@ -177,6 +276,43 @@ channelAuthRoutes.get('/users', async (c) => {
 });
 
 // ==========================================================================
+
+/** Explicitly extend an expiry; an existing unlimited grant stays unlimited. */
+channelAuthRoutes.post('/users/:id/renew', async (c) => {
+  const id = c.req.param('id');
+  const owned = await getOwnedChannelUserById(id, LOCAL_OWNER_ID);
+  if (!owned || owned.platform !== 'whatsapp') {
+    return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, 404);
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse((await c.req.text()) || '{}');
+  } catch {
+    return apiError(c, { code: ERROR_CODES.INVALID_INPUT, message: 'JSON inválido.' }, 400);
+  }
+  const parsed = renewAccessSchema.safeParse(body);
+  if (!parsed.success) {
+    return apiError(
+      c,
+      {
+        code: ERROR_CODES.INVALID_INPUT,
+        message: 'A validade deve ser um número inteiro entre 1 e 366 dias.',
+      },
+      400
+    );
+  }
+  try {
+    const user = await getChannelAccessService().renewWhatsAppAccess(
+      id,
+      parsed.data.durationDays,
+      'manual'
+    );
+    broadcastAccessChanged();
+    return apiResponse(c, { user: serializeChannelUser(user, null) });
+  } catch (error) {
+    return accessError(c, error);
+  }
+});
 // ID-based user management endpoints
 // ==========================================================================
 
@@ -192,14 +328,22 @@ channelAuthRoutes.post('/users/:id/approve', async (c) => {
     return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, 404);
   }
 
-  const service = getChannelVerificationService();
-  const approved = await service.approveUser(id);
+  if (owned.platform === 'whatsapp') {
+    // The old snapshot-based approval flow could race a revocation. WhatsApp
+    // grants must use the explicit authorization UI and its persistent service.
+    return apiError(
+      c,
+      { code: 'CONFLICT', message: 'Use "Autorizar número" para gerenciar o acesso ao WhatsApp.' },
+      409
+    );
+  }
 
+  const approved = await getChannelVerificationService().approveUser(id);
   if (!approved) {
     return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, 404);
   }
-
   const user = await channelUsersRepo.getById(id);
+
   wsGateway.broadcast('data:changed', { entity: 'channel', action: 'updated' });
   wsGateway.broadcast('channel:user:approved', {
     channelId: '',
@@ -260,11 +404,17 @@ channelAuthRoutes.post('/users/:id/unverify', async (c) => {
     return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, 404);
   }
 
-  const service = getChannelVerificationService();
-  const result = await service.unverifyUser(id);
-
-  if (!result) {
-    return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, 404);
+  if (owned.platform === 'whatsapp') {
+    try {
+      await getChannelAccessService().revokeWhatsAppAccess(id);
+    } catch (error) {
+      return accessError(c, error);
+    }
+  } else {
+    const result = await getChannelVerificationService().unverifyUser(id);
+    if (!result) {
+      return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, 404);
+    }
   }
 
   wsGateway.broadcast('data:changed', { entity: 'channel', action: 'updated' });

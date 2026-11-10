@@ -4,13 +4,19 @@
  * Tests for channel user verification, blocking, and listing.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
 
 // ─── Mock Dependencies ──────────────────────────────────────────
 // Use vi.hoisted() so mock objects are available before vi.mock() hoisting
 
-const { mockVerificationService, mockChannelUsersRepo, mockWsGateway } = vi.hoisted(() => ({
+const {
+  mockVerificationService,
+  mockChannelUsersRepo,
+  mockWsGateway,
+  mockAccessService,
+  mockOwnerLookup,
+} = vi.hoisted(() => ({
   mockVerificationService: {
     generateToken: vi.fn(),
     isVerified: vi.fn(),
@@ -30,6 +36,12 @@ const { mockVerificationService, mockChannelUsersRepo, mockWsGateway } = vi.hois
   mockWsGateway: {
     broadcast: vi.fn(),
   },
+  mockAccessService: {
+    grantWhatsAppAccess: vi.fn(),
+    renewWhatsAppAccess: vi.fn(),
+    revokeWhatsAppAccess: vi.fn(),
+  },
+  mockOwnerLookup: vi.fn(),
 }));
 
 vi.mock('../../channels/auth/verification.js', () => ({
@@ -43,11 +55,17 @@ vi.mock('../../db/repositories/channels/users.js', () => ({
 vi.mock('../../ws/server.js', () => ({
   wsGateway: mockWsGateway,
 }));
+vi.mock('../../services/pairing-service.js', () => ({ getOwnerUserId: mockOwnerLookup }));
+vi.mock('../../channels/channel-access-service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../channels/channel-access-service.js')>();
+  return { ...actual, getChannelAccessService: () => mockAccessService };
+});
 
 // ─── Import route ───────────────────────────────────────────────
 
 import { channelAuthRoutes } from './auth.js';
 import { errorHandler } from '../../middleware/error-handler.js';
+import { ChannelAccessError } from '../../channels/channel-access-service.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -63,6 +81,8 @@ function mockUser(overrides: Record<string, unknown> = {}) {
     verificationMethod: 'pin',
     verifiedAt: new Date('2024-06-01'),
     isBlocked: false,
+    status: 'active',
+    metadata: {},
     firstSeenAt: new Date('2024-01-01'),
     lastSeenAt: new Date('2024-06-15'),
     ...overrides,
@@ -77,8 +97,13 @@ describe('Channel Auth Routes', () => {
   beforeEach(() => {
     app = new Hono();
     app.onError(errorHandler);
+    app.use('*', async (c, next) => {
+      c.set('userId', 'default');
+      await next();
+    });
     app.route('/auth', channelAuthRoutes);
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    mockOwnerLookup.mockResolvedValue(null);
   });
 
   // ─── POST /generate-token ────────────────────────────────────
@@ -280,6 +305,7 @@ describe('Channel Auth Routes', () => {
 
       expect(mockChannelUsersRepo.list).toHaveBeenCalledWith({
         ownpilotUserId: 'default',
+        includeWhatsAppCustomers: true,
         platform: 'telegram',
         isVerified: true,
         limit: 10,
@@ -309,70 +335,77 @@ describe('Channel Auth Routes', () => {
   });
 
   describe('WhatsApp subscriber administration', () => {
-    it('lists scoped WhatsApp customers in operator mode', async () => {
-      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
-      try {
-        mockChannelUsersRepo.list.mockResolvedValue([]);
-        await app.request('/auth/users?platform=whatsapp');
-        expect(mockChannelUsersRepo.list).toHaveBeenCalledWith(
-          expect.objectContaining({
-            ownpilotUserId: 'default',
-            includeWhatsAppCustomers: true,
-            platform: 'whatsapp',
-          })
-        );
-      } finally {
-        vi.unstubAllEnvs();
-      }
-    });
-
-    it('allows the operator to approve a canonical customer scope', async () => {
-      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
-      try {
-        mockVerificationService.approveUser.mockResolvedValue(true);
-        mockChannelUsersRepo.getById.mockResolvedValue(
-          mockUser({
-            id: 'customer-1',
-            platform: 'whatsapp',
-            platformUserId: '5521997557364',
-            ownpilotUserId: 'whatsapp:5521997557364',
-            isVerified: false,
-          })
-        );
-        const res = await app.request('/auth/users/customer-1/approve', { method: 'POST' });
-        expect(res.status).toBe(200);
-        expect(mockVerificationService.approveUser).toHaveBeenCalledWith('customer-1');
-      } finally {
-        vi.unstubAllEnvs();
-      }
-    });
-
-    it('refuses forged tenant scopes and other-platform identities', async () => {
-      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
-      try {
-        for (const forgedUser of [
-          mockUser({
-            platform: 'telegram',
-            platformUserId: '5521997557364',
-            ownpilotUserId: 'whatsapp:5521997557364',
-          }),
-          mockUser({
-            platform: 'whatsapp',
-            platformUserId: '5521997557364',
-            ownpilotUserId: 'whatsapp:another-customer',
-          }),
-        ]) {
-          mockChannelUsersRepo.getById.mockResolvedValueOnce(forgedUser);
-          const res = await app.request('/auth/users/u-1/approve', { method: 'POST' });
-          expect(res.status).toBe(404);
+    it.each(['true', 'false'])(
+      'lists scoped WhatsApp customers with inbound mode=%s',
+      async (mode) => {
+        vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', mode);
+        try {
+          mockChannelUsersRepo.list.mockResolvedValue([]);
+          await app.request('/auth/users?platform=whatsapp');
+          expect(mockChannelUsersRepo.list).toHaveBeenCalledWith(
+            expect.objectContaining({
+              ownpilotUserId: 'default',
+              includeWhatsAppCustomers: true,
+              platform: 'whatsapp',
+            })
+          );
+        } finally {
+          vi.unstubAllEnvs();
         }
+      }
+    );
+
+    it('directs unmanaged WhatsApp approval to explicit authorization without granting from a stale snapshot', async () => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      try {
+        const customer = mockUser({
+          id: 'customer-1',
+          platform: 'whatsapp',
+          platformUserId: '5521997557364',
+          ownpilotUserId: 'whatsapp:5521997557364',
+          isVerified: false,
+        });
+        mockChannelUsersRepo.getById.mockResolvedValue(customer);
+        const res = await app.request('/auth/users/customer-1/approve', { method: 'POST' });
+        expect(res.status).toBe(409);
+        expect((await res.json()).error.message).toContain('Autorizar número');
+        expect(mockAccessService.grantWhatsAppAccess).not.toHaveBeenCalled();
         expect(mockVerificationService.approveUser).not.toHaveBeenCalled();
+        expect(mockWsGateway.broadcast).not.toHaveBeenCalled();
       } finally {
         vi.unstubAllEnvs();
       }
     });
 
-    it('keeps customer management disabled in self-chat mode', async () => {
+    it.each(['true', 'false'])(
+      'refuses forged tenant scopes and other-platform identities with inbound mode=%s',
+      async (mode) => {
+        vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', mode);
+        try {
+          for (const forgedUser of [
+            mockUser({
+              platform: 'telegram',
+              platformUserId: '5521997557364',
+              ownpilotUserId: 'whatsapp:5521997557364',
+            }),
+            mockUser({
+              platform: 'whatsapp',
+              platformUserId: '5521997557364',
+              ownpilotUserId: 'whatsapp:another-customer',
+            }),
+          ]) {
+            mockChannelUsersRepo.getById.mockResolvedValueOnce(forgedUser);
+            const res = await app.request('/auth/users/u-1/approve', { method: 'POST' });
+            expect(res.status).toBe(404);
+          }
+          expect(mockVerificationService.approveUser).not.toHaveBeenCalled();
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      }
+    );
+
+    it('permits owner administration of canonical customers independently of self-chat mode', async () => {
       vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'false');
       try {
         mockChannelUsersRepo.getById.mockResolvedValue(
@@ -382,8 +415,10 @@ describe('Channel Auth Routes', () => {
             ownpilotUserId: 'whatsapp:5521997557364',
           })
         );
-        const res = await app.request('/auth/users/u-1/approve', { method: 'POST' });
-        expect(res.status).toBe(404);
+        const res = await app.request('/auth/users/u-1/block', { method: 'POST' });
+        expect(res.status).toBe(200);
+        expect(mockChannelUsersRepo.block).toHaveBeenCalledWith('u-1');
+        expect(process.env.ASTRA_WHATSAPP_MULTIUSER).toBe('false');
       } finally {
         vi.unstubAllEnvs();
       }
@@ -518,6 +553,288 @@ describe('Channel Auth Routes', () => {
 
       expect(res.status).toBe(404);
       expect(mockVerificationService.unverifyUser).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('administrative authentication', () => {
+    function authenticatedApp(context: { userId?: string; jwt?: boolean; session?: boolean }) {
+      const guarded = new Hono();
+      guarded.onError(errorHandler);
+      guarded.use('*', async (c, next) => {
+        if (context.userId) c.set('userId', context.userId);
+        if (context.jwt) c.set('jwtPayload', { sub: context.userId });
+        if (context.session) c.set('sessionAuthenticated', true);
+        await next();
+      });
+      guarded.route('/auth', channelAuthRoutes);
+      return guarded;
+    }
+
+    it('does not turn an unauthenticated request or raw API-key header into owner access', async () => {
+      const res = await authenticatedApp({}).request('/auth/users', {
+        headers: { Authorization: 'Bearer apikey:forged...', 'X-User-Id': 'default' },
+      });
+      expect(res.status).toBe(401);
+      expect(mockChannelUsersRepo.list).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { userId: 'whatsapp:5511999991234', jwt: true },
+      { userId: 'apikey:spoofed...', jwt: true },
+      { userId: 'whatsapp:5511999991234', session: true },
+      { userId: 'apikey:spoofed...', session: true },
+    ])(
+      'rejects customer or mislabelled session identity %j on all administrative routes',
+      async (context) => {
+        const guarded = authenticatedApp(context);
+        for (const [url, method] of [
+          ['/auth/users', 'GET'],
+          ['/auth/users', 'POST'],
+          ['/auth/users/cu-1/renew', 'POST'],
+          ['/auth/users/cu-1/unverify', 'POST'],
+          ['/auth/users/cu-1/approve', 'POST'],
+          ['/auth/generate-token', 'POST'],
+        ]) {
+          expect((await guarded.request(url!, { method })).status).toBe(403);
+        }
+        expect(mockAccessService.grantWhatsAppAccess).not.toHaveBeenCalled();
+        expect(mockChannelUsersRepo.getById).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each([
+      { userId: 'default', session: true },
+      { userId: 'default', jwt: true },
+      { userId: 'apikey:validated...' },
+    ])('accepts established owner context %j', async (context) => {
+      mockChannelUsersRepo.list.mockResolvedValue([]);
+      expect((await authenticatedApp(context).request('/auth/users')).status).toBe(200);
+    });
+  });
+
+  describe('manual WhatsApp access API', () => {
+    const customer = () =>
+      mockUser({
+        id: 'customer-1',
+        platform: 'whatsapp',
+        platformUserId: '5511999991234',
+        ownpilotUserId: 'whatsapp:5511999991234',
+        accessSource: 'manual',
+        accessGrantedAt: new Date('2026-11-10T12:00:00Z'),
+        accessExpiresAt: new Date('2099-12-10T12:00:00Z'),
+        metadata: { manualPreauthorized: true, hasInteracted: false },
+      });
+    const request = (body: unknown, path = '/auth/users') =>
+      app.request(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    beforeEach(() => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      mockAccessService.grantWhatsAppAccess.mockResolvedValue(customer());
+      mockAccessService.renewWhatsAppAccess.mockResolvedValue(customer());
+      mockAccessService.revokeWhatsAppAccess.mockResolvedValue({
+        ...customer(),
+        isVerified: false,
+      });
+      mockChannelUsersRepo.getById.mockResolvedValue(customer());
+    });
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('creates a default 30-day grant with server-controlled source and returns its full status', async () => {
+      const res = await request({
+        platform: 'whatsapp',
+        phoneNumber: '(11) 99999-1234',
+        displayName: 'Ana',
+      });
+      expect(res.status).toBe(200);
+      expect(mockAccessService.grantWhatsAppAccess).toHaveBeenCalledWith(
+        { phoneNumber: '(11) 99999-1234', displayName: 'Ana', durationDays: 30 },
+        'manual'
+      );
+      expect((await res.json()).data.user).toMatchObject({
+        ownpilotUserId: 'whatsapp:5511999991234',
+        accessSource: 'manual',
+        accessStatus: 'active',
+        accessExpiresAt: '2099-12-10T12:00:00.000Z',
+        accessGrantedAt: '2026-11-10T12:00:00.000Z',
+        isOwner: false,
+        hasInteracted: false,
+      });
+      expect(mockWsGateway.broadcast).toHaveBeenCalledWith('data:changed', expect.any(Object));
+      expect(mockWsGateway.broadcast).not.toHaveBeenCalledWith(
+        'channel:user:approved',
+        expect.anything()
+      );
+    });
+
+    it('accepts explicit unlimited duration while rejecting caller-supplied privileged fields', async () => {
+      expect(
+        (await request({ platform: 'whatsapp', phoneNumber: '5511999991234', durationDays: null }))
+          .status
+      ).toBe(200);
+      expect(mockAccessService.grantWhatsAppAccess).toHaveBeenLastCalledWith(
+        expect.objectContaining({ durationDays: null }),
+        'manual'
+      );
+      mockAccessService.grantWhatsAppAccess.mockClear();
+      for (const forged of [
+        { source: 'cakto' },
+        { accessSource: 'cakto' },
+        { ownpilotUserId: 'default' },
+        { accessExpiresAt: '2099-01-01' },
+        { accessGrantedAt: '2020-01-01' },
+      ]) {
+        const res = await request({
+          platform: 'whatsapp',
+          phoneNumber: '5511999991234',
+          ...forged,
+        });
+        expect(res.status).toBe(400);
+      }
+      expect(mockAccessService.grantWhatsAppAccess).not.toHaveBeenCalled();
+    });
+
+    it.each([0, -1, 367, 1.5, '30'])(
+      'rejects invalid duration %s before persistence',
+      async (durationDays) => {
+        expect(
+          (await request({ platform: 'whatsapp', phoneNumber: '5511999991234', durationDays }))
+            .status
+        ).toBe(400);
+        expect(mockAccessService.grantWhatsAppAccess).not.toHaveBeenCalled();
+      }
+    );
+
+    it('allows preauthorization while customer receiving is disabled without changing that setting', async () => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'false');
+      expect((await request({ platform: 'whatsapp', phoneNumber: '5511999991234' })).status).toBe(
+        200
+      );
+      expect(mockAccessService.grantWhatsAppAccess).toHaveBeenCalledWith(
+        expect.objectContaining({ phoneNumber: '5511999991234', durationDays: 30 }),
+        'manual'
+      );
+      expect((await app.request('/auth/users/customer-1/renew', { method: 'POST' })).status).toBe(
+        200
+      );
+      expect(
+        (await app.request('/auth/users/customer-1/unverify', { method: 'POST' })).status
+      ).toBe(200);
+      expect(process.env.ASTRA_WHATSAPP_MULTIUSER).toBe('false');
+    });
+
+    it('surfaces normalization and owner conflicts without broadcasting success', async () => {
+      mockAccessService.grantWhatsAppAccess.mockRejectedValueOnce(
+        new ChannelAccessError('Número inválido', 400)
+      );
+      expect((await request({ platform: 'whatsapp', phoneNumber: 'invalid' })).status).toBe(400);
+      mockAccessService.grantWhatsAppAccess.mockRejectedValueOnce(
+        new ChannelAccessError('Número do proprietário', 409, 'CONFLICT')
+      );
+      expect((await request({ platform: 'whatsapp', phoneNumber: '5511999991234' })).status).toBe(
+        409
+      );
+      expect(mockWsGateway.broadcast).not.toHaveBeenCalled();
+    });
+
+    it('does not report a successful grant when the database fails', async () => {
+      mockAccessService.grantWhatsAppAccess.mockRejectedValue(new Error('database offline'));
+      expect((await request({ platform: 'whatsapp', phoneNumber: '5511999991234' })).status).toBe(
+        500
+      );
+      expect(mockWsGateway.broadcast).not.toHaveBeenCalled();
+    });
+
+    it('reports a blocked number as a conflict with an unblock instruction, never an authorized result', async () => {
+      mockAccessService.grantWhatsAppAccess.mockRejectedValue(
+        new ChannelAccessError(
+          'Este número está bloqueado. Desbloqueie-o antes de autorizar o acesso.',
+          409,
+          'CONFLICT'
+        )
+      );
+      const res = await request({ platform: 'whatsapp', phoneNumber: '5511999991234' });
+      expect(res.status).toBe(409);
+      const payload = await res.json();
+      expect(payload.success).toBe(false);
+      expect(payload.error.message).toContain('Desbloqueie');
+      expect(payload.data).toBeUndefined();
+      expect(mockWsGateway.broadcast).not.toHaveBeenCalled();
+    });
+
+    it('renews for 30 days by default and cannot clear expiry or change source through the request', async () => {
+      expect((await app.request('/auth/users/customer-1/renew', { method: 'POST' })).status).toBe(
+        200
+      );
+      expect(mockAccessService.renewWhatsAppAccess).toHaveBeenCalledWith(
+        'customer-1',
+        30,
+        'manual'
+      );
+      mockAccessService.renewWhatsAppAccess.mockClear();
+      for (const body of [
+        { durationDays: null },
+        { durationDays: 30, source: 'cakto' },
+        { accessExpiresAt: null },
+      ]) {
+        expect((await request(body, '/auth/users/customer-1/renew')).status).toBe(400);
+      }
+      expect(mockAccessService.renewWhatsAppAccess).not.toHaveBeenCalled();
+    });
+
+    it('revokes WhatsApp through the persistent access service instead of the generic verifier', async () => {
+      expect(
+        (await app.request('/auth/users/customer-1/unverify', { method: 'POST' })).status
+      ).toBe(200);
+      expect(mockAccessService.revokeWhatsAppAccess).toHaveBeenCalledWith('customer-1');
+      expect(mockVerificationService.unverifyUser).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { isVerified: false, accessSource: 'manual' },
+      { accessExpiresAt: new Date('2020-01-01') },
+    ])('does not reactivate managed/expired access via legacy approve: %j', async (overrides) => {
+      mockChannelUsersRepo.getById.mockResolvedValue({ ...customer(), ...overrides });
+      expect((await app.request('/auth/users/customer-1/approve', { method: 'POST' })).status).toBe(
+        409
+      );
+      expect(mockAccessService.grantWhatsAppAccess).not.toHaveBeenCalled();
+      expect(mockVerificationService.approveUser).not.toHaveBeenCalled();
+    });
+
+    it('rejects legacy WhatsApp approval even for already active grants', async () => {
+      expect((await app.request('/auth/users/customer-1/approve', { method: 'POST' })).status).toBe(
+        409
+      );
+      expect(mockAccessService.grantWhatsAppAccess).not.toHaveBeenCalled();
+      expect(mockVerificationService.approveUser).not.toHaveBeenCalled();
+    });
+
+    it('lists preauthorized numbers and marks a claimed owner even with a former customer scope', async () => {
+      mockChannelUsersRepo.list.mockResolvedValue([
+        customer(),
+        {
+          ...customer(),
+          id: 'owner',
+          platformUserId: '5511888881234',
+          ownpilotUserId: 'whatsapp:5511888881234',
+          metadata: {},
+        },
+      ]);
+      mockOwnerLookup.mockResolvedValue('5511888881234');
+      const res = await app.request('/auth/users?platform=whatsapp');
+      expect(res.status).toBe(200);
+      const data = (await res.json()).data;
+      expect(data.users[0]).toMatchObject({
+        hasInteracted: false,
+        accessStatus: 'active',
+        isOwner: false,
+      });
+      expect(data.users[1]).toMatchObject({ hasInteracted: true, isOwner: true });
+      expect(mockOwnerLookup).toHaveBeenCalledOnce();
     });
   });
 

@@ -25,6 +25,8 @@ const SIZE_CLASSES = {
 
 export interface ModalProps {
   onClose: () => void;
+  /** Accessible name for the dialog, independent of decorative header content. */
+  ariaLabel?: string;
   /** Header title (h3). Omit together with headerContent for a headerless body. */
   title?: ReactNode;
   /** Extra header content below the title (e.g. filter chips, step tabs). */
@@ -41,6 +43,7 @@ export interface ModalProps {
 
 export function Modal({
   onClose,
+  ariaLabel,
   title,
   headerContent,
   size = '2xl',
@@ -62,6 +65,7 @@ export function Modal({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
+        aria-label={ariaLabel}
         className={`w-full ${SIZE_CLASSES[size]} bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-xl shadow-xl max-h-[90vh] overflow-hidden flex flex-col`}
       >
         {(title || headerContent) && (

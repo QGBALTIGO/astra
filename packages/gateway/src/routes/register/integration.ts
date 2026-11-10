@@ -34,8 +34,8 @@ export function registerIntegrationRoutes(app: Hono): void {
   app.route('/webhooks', webhookRoutes);
 
   // Channels
-  app.route('/api/v1/channels', channelRoutes);
   app.route('/api/v1/channels/auth', channelAuthRoutes);
+  app.route('/api/v1/channels', channelRoutes);
 
   // Channel Bridges (UCP cross-channel bridging)
   app.route('/api/v1/bridges', bridgeRoutes);

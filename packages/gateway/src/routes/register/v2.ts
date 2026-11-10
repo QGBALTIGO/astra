@@ -185,8 +185,8 @@ export function registerV2Routes(app: Hono): void {
   app.route('/webhooks', webhookRoutes);
 
   // Channels
-  app.route('/api/v2/channels', channelRoutes);
   app.route('/api/v2/channels/auth', channelAuthRoutes);
+  app.route('/api/v2/channels', channelRoutes);
 
   // Bridges
   app.route('/api/v2/bridges', bridgeRoutes);

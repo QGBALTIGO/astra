@@ -35,6 +35,8 @@ import type {
   Channel,
   ChannelMessage,
   ChannelUser,
+  ChannelUsersPage,
+  AuthorizeWhatsAppUserInput,
   ChannelStats,
   AIBriefing,
   DailyBriefingData,
@@ -434,8 +436,16 @@ export const channelsApi = {
     apiClient.delete<{ deleted: number }>('/channels/messages', {
       params: channelId ? { channelId } : undefined,
     }),
-  getUsers: (channelId: string) =>
-    apiClient.get<{ users: ChannelUser[]; count: number }>(`/channels/${channelId}/users`),
+  getUsers: (channelId: string, params?: { limit?: number; offset?: number }) =>
+    params
+      ? apiClient.get<ChannelUsersPage>(`/channels/${channelId}/users`, { params })
+      : apiClient.get<ChannelUsersPage>(`/channels/${channelId}/users`),
+  authorizeWhatsAppUser: (body: AuthorizeWhatsAppUserInput) =>
+    apiClient.post<{ user: ChannelUser }>('/channels/auth/users', body),
+  renewUserAccess: (userId: string, durationDays = 30) =>
+    apiClient.post<{ user: ChannelUser }>(`/channels/auth/users/${userId}/renew`, { durationDays }),
+  revokeUserAccess: (userId: string) =>
+    apiClient.post<{ unverified: boolean }>(`/channels/auth/users/${userId}/unverify`),
   getStats: (channelId: string) => apiClient.get<ChannelStats>(`/channels/${channelId}/stats`),
   reconnect: (channelId: string) =>
     apiClient.post<{ pluginId: string; status: string }>(`/channels/${channelId}/reconnect`),

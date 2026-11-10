@@ -33,6 +33,7 @@ import {
 } from '../components/icons';
 import type { Channel, ChannelUser, ChannelStats } from '../api/types';
 import { timeAgo, getStatusColor, getStatusBg, StatusIcon, PlatformIcon } from './channels-helpers';
+import { WhatsAppAccessPanel } from './channels-whatsapp-access';
 
 // ============================================================================
 // Channel Detail Panel
@@ -41,6 +42,9 @@ import { timeAgo, getStatusColor, getStatusBg, StatusIcon, PlatformIcon } from '
 export function ChannelDetail({
   channel,
   users,
+  usersHasMore,
+  usersLoadingMore,
+  onLoadMoreUsers,
   stats,
   isLoading,
   actionLoading,
@@ -55,10 +59,14 @@ export function ChannelDetail({
   onUnblockUser,
   onDeleteUser,
   onDenyUser,
+  onUsersChanged,
   channelPlatform,
 }: {
   channel: Channel;
   users: ChannelUser[];
+  usersHasMore?: boolean;
+  usersLoadingMore?: boolean;
+  onLoadMoreUsers?: () => void;
   stats: ChannelStats | null;
   isLoading: boolean;
   actionLoading: string | null;
@@ -73,6 +81,7 @@ export function ChannelDetail({
   onUnblockUser: (userId: string) => void;
   onDeleteUser: (userId: string) => void;
   onDenyUser: (userId: string, platformUserId: string) => void;
+  onUsersChanged: () => void;
   channelPlatform: string; // e.g. 'telegram', 'whatsapp' — used for DM pairing approval
 }) {
   const toast = useToast();
@@ -168,162 +177,176 @@ export function ChannelDetail({
       )}
 
       {/* Users section */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <Users className="w-4 h-4 text-text-muted dark:text-dark-text-muted" />
-          <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
-            Usuários ({users.length})
-          </h3>
-        </div>
-
-        {isLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="h-10 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded animate-pulse"
-              />
-            ))}
+      {isWhatsApp ? (
+        <WhatsAppAccessPanel
+          users={users}
+          isLoading={isLoading}
+          hasMore={usersHasMore}
+          isLoadingMore={usersLoadingMore}
+          onLoadMore={onLoadMoreUsers}
+          onChanged={onUsersChanged}
+          onBlockUser={onBlockUser}
+          onUnblockUser={onUnblockUser}
+          onDeleteUser={onDeleteUser}
+        />
+      ) : (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Users className="w-4 h-4 text-text-muted dark:text-dark-text-muted" />
+            <h3 className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
+              Usuários ({users.length})
+            </h3>
           </div>
-        ) : users.length === 0 ? (
-          <p className="text-xs text-text-muted dark:text-dark-text-muted italic py-3">
-            Nenhum usuário interagiu com este canal ainda.
-          </p>
-        ) : (
-          <div className="border border-border dark:border-dark-border rounded-lg overflow-hidden">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-bg-tertiary dark:bg-dark-bg-tertiary">
-                  <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
-                    User
-                  </th>
-                  <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
-                    Situação
-                  </th>
-                  <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
-                    Last Seen
-                  </th>
-                  <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
-                    Ações
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border dark:divide-dark-border">
-                {users.map((user) => (
-                  <tr
-                    key={user.id}
-                    className="hover:bg-bg-tertiary/50 dark:hover:bg-dark-bg-tertiary/50"
-                  >
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">
-                          {(user.displayName ?? user.platformUsername ?? user.platformUserId)
-                            .charAt(0)
-                            .toUpperCase()}
+
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="h-10 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded animate-pulse"
+                />
+              ))}
+            </div>
+          ) : users.length === 0 ? (
+            <p className="text-xs text-text-muted dark:text-dark-text-muted italic py-3">
+              Nenhum usuário interagiu com este canal ainda.
+            </p>
+          ) : (
+            <div className="border border-border dark:border-dark-border rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-bg-tertiary dark:bg-dark-bg-tertiary">
+                    <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
+                      User
+                    </th>
+                    <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
+                      Situação
+                    </th>
+                    <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
+                      Last Seen
+                    </th>
+                    <th className="text-left px-3 py-2 font-medium text-text-secondary dark:text-dark-text-secondary">
+                      Ações
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border dark:divide-dark-border">
+                  {users.map((user) => (
+                    <tr
+                      key={user.id}
+                      className="hover:bg-bg-tertiary/50 dark:hover:bg-dark-bg-tertiary/50"
+                    >
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">
+                            {(user.displayName ?? user.platformUsername ?? user.platformUserId)
+                              .charAt(0)
+                              .toUpperCase()}
+                          </div>
+                          <div>
+                            <span className="font-medium text-text-primary dark:text-dark-text-primary">
+                              {user.displayName ?? user.platformUsername ?? user.platformUserId}
+                            </span>
+                            {user.platformUsername && user.displayName && (
+                              <span className="ml-1 text-text-muted dark:text-dark-text-muted">
+                                @{user.platformUsername}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-medium text-text-primary dark:text-dark-text-primary">
-                            {user.displayName ?? user.platformUsername ?? user.platformUserId}
-                          </span>
-                          {user.platformUsername && user.displayName && (
-                            <span className="ml-1 text-text-muted dark:text-dark-text-muted">
-                              @{user.platformUsername}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1.5">
+                          {user.isBlocked ? (
+                            <span className="flex items-center gap-1 px-1.5 py-0.5 bg-error/10 text-error rounded text-[10px] font-medium">
+                              <AlertTriangle className="w-2.5 h-2.5" />
+                              Bloqueado
+                            </span>
+                          ) : user.isVerified ? (
+                            <span className="flex items-center gap-1 px-1.5 py-0.5 bg-success/10 text-success rounded text-[10px] font-medium">
+                              <Shield className="w-2.5 h-2.5" />
+                              Verified
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 bg-warning/10 text-warning rounded text-[10px] font-medium">
+                              Pending
                             </span>
                           )}
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-1.5">
-                        {user.isBlocked ? (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 bg-error/10 text-error rounded text-[10px] font-medium">
-                            <AlertTriangle className="w-2.5 h-2.5" />
-                            Bloqueado
-                          </span>
-                        ) : user.isVerified ? (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 bg-success/10 text-success rounded text-[10px] font-medium">
-                            <Shield className="w-2.5 h-2.5" />
-                            Verified
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 bg-warning/10 text-warning rounded text-[10px] font-medium">
-                            Pending
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-text-muted dark:text-dark-text-muted">
-                      {timeAgo(user.lastSeenAt)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-1">
-                        {/* Pending: show pairing code badge + Approve (code-based) + Block + Delete */}
-                        {!user.isVerified && !user.isBlocked && (
-                          <>
-                            {user.pendingPairingCode ? (
-                              <span
-                                className="flex items-center gap-1 px-1.5 py-0.5 bg-warning/10 text-warning rounded text-[10px] font-medium mr-1"
-                                title={`Código de vinculação: ${user.pendingPairingCode}`}
+                      </td>
+                      <td className="px-3 py-2 text-text-muted dark:text-dark-text-muted">
+                        {timeAgo(user.lastSeenAt)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1">
+                          {/* Pending: show pairing code badge + Approve (code-based) + Block + Delete */}
+                          {!user.isVerified && !user.isBlocked && (
+                            <>
+                              {user.pendingPairingCode ? (
+                                <span
+                                  className="flex items-center gap-1 px-1.5 py-0.5 bg-warning/10 text-warning rounded text-[10px] font-medium mr-1"
+                                  title={`Código de vinculação: ${user.pendingPairingCode}`}
+                                >
+                                  <Key className="w-2.5 h-2.5" />
+                                  {user.pendingPairingCode}
+                                </span>
+                              ) : null}
+                              <button
+                                onClick={() =>
+                                  onApproveUser(user.id, user.pendingPairingCode, channelPlatform)
+                                }
+                                title="Aprovar"
+                                className="p-1 rounded hover:bg-success/10 text-success transition-colors"
                               >
-                                <Key className="w-2.5 h-2.5" />
-                                {user.pendingPairingCode}
-                              </span>
-                            ) : null}
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => onDenyUser(user.id, user.platformUserId)}
+                                title="Recusar"
+                                className="p-1 rounded hover:bg-error/10 text-error transition-colors"
+                              >
+                                <ShieldAlert className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                          {/* Verified: Block + Delete */}
+                          {!user.isBlocked && user.isVerified && (
                             <button
-                              onClick={() =>
-                                onApproveUser(user.id, user.pendingPairingCode, channelPlatform)
-                              }
-                              title="Aprovar"
-                              className="p-1 rounded hover:bg-success/10 text-success transition-colors"
-                            >
-                              <ShieldCheck className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => onDenyUser(user.id, user.platformUserId)}
-                              title="Recusar"
-                              className="p-1 rounded hover:bg-error/10 text-error transition-colors"
+                              onClick={() => onBlockUser(user.id)}
+                              title="Bloquear"
+                              className="p-1 rounded hover:bg-warning/10 text-warning transition-colors"
                             >
                               <ShieldAlert className="w-3.5 h-3.5" />
                             </button>
-                          </>
-                        )}
-                        {/* Verified: Block + Delete */}
-                        {!user.isBlocked && user.isVerified && (
+                          )}
+                          {/* Blocked: Unblock */}
+                          {user.isBlocked && (
+                            <button
+                              onClick={() => onUnblockUser(user.id)}
+                              title="Desbloquear"
+                              className="p-1 rounded hover:bg-primary/10 text-primary transition-colors"
+                            >
+                              <Unlock className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {/* Always: Delete */}
                           <button
-                            onClick={() => onBlockUser(user.id)}
-                            title="Bloquear"
-                            className="p-1 rounded hover:bg-warning/10 text-warning transition-colors"
+                            onClick={() => onDeleteUser(user.id)}
+                            title="Excluir"
+                            className="p-1 rounded hover:bg-error/10 text-error transition-colors"
                           >
-                            <ShieldAlert className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        )}
-                        {/* Blocked: Unblock */}
-                        {user.isBlocked && (
-                          <button
-                            onClick={() => onUnblockUser(user.id)}
-                            title="Desbloquear"
-                            className="p-1 rounded hover:bg-primary/10 text-primary transition-colors"
-                          >
-                            <Unlock className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {/* Always: Delete */}
-                        <button
-                          onClick={() => onDeleteUser(user.id)}
-                          title="Excluir"
-                          className="p-1 rounded hover:bg-error/10 text-error transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Actions */}
       <div className="border-t border-border dark:border-dark-border pt-4">

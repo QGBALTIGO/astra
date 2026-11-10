@@ -17,6 +17,8 @@ import { wsGateway } from '../ws/server.js';
 import { getLog } from '../services/log.js';
 
 const log = getLog('DmPairingService');
+const WHATSAPP_MANUAL_ACCESS_MESSAGE =
+  'Autorize ou renove este número na gestão de acessos do WhatsApp. Códigos de pareamento não concedem acesso.';
 
 export class DmPairingService {
   constructor(
@@ -29,6 +31,7 @@ export class DmPairingService {
    * Used to determine whether a non-owner DM gets the pairing flow.
    */
   async getPendingSenders(platform: string): Promise<Set<string>> {
+    if (platform === 'whatsapp') return new Set();
     const tokens = await this.dmPairingRequests.listPending(platform);
     return new Set(tokens.map((t) => t.platformUserId));
   }
@@ -43,6 +46,9 @@ export class DmPairingService {
     senderUserId: string,
     _ownerUserId: string
   ): Promise<string> {
+    if (platform === 'whatsapp') {
+      throw new Error(WHATSAPP_MANUAL_ACCESS_MESSAGE);
+    }
     // SECURITY (EXPOSE-004): the 6-digit code is a one-time pairing
     // credential — an attacker who can predict it gains DM access. Use
     // crypto.randomInt (CSPRNG); non-cryptographic PRNG output would be predictable from
@@ -88,6 +94,11 @@ export class DmPairingService {
     platform: string,
     code: string
   ): Promise<{ success: boolean; error?: string }> {
+    // Old/unconsumed codes must not bypass expiry or a manual revocation.
+    // Leave the token untouched so this endpoint cannot grant WhatsApp access.
+    if (platform === 'whatsapp') {
+      return { success: false, error: WHATSAPP_MANUAL_ACCESS_MESSAGE };
+    }
     const token = await this.dmPairingRequests.consumeByCode(code, platform);
     if (!token) {
       return { success: false, error: 'Invalid or expired code.' };
@@ -144,6 +155,7 @@ export class DmPairingService {
       expiresAt: Date;
     }>
   > {
+    if (platform === 'whatsapp') return [];
     const tokens = await this.dmPairingRequests.listPending(platform);
     const result = [];
     for (const token of tokens) {

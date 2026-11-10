@@ -214,6 +214,20 @@ function getApprovalApi(api: ChannelPluginAPI | undefined): ApprovalChannelApi |
   return typeof requestApproval === 'function' ? (api as ApprovalChannelApi) : null;
 }
 
+export type ChannelAccessCheck = () => Promise<boolean>;
+
+const INACTIVE_CHANNEL_ACCESS_REPLY =
+  'O acesso deste número está inativo. Peça ao administrador para autorizar ou renovar seu acesso.';
+
+/** A WhatsApp turn needs a fresh, server-owned access decision, including after queueing. */
+async function canProcessChannelMessage(
+  message: ChannelIncomingMessage,
+  isAccessAllowed?: ChannelAccessCheck
+): Promise<boolean> {
+  if (isAccessAllowed) return isAccessAllowed();
+  return message.platform !== 'whatsapp';
+}
+
 /**
  * Process a channel message through the MessageBus pipeline.
  * Returns the assistant's response text.
@@ -230,9 +244,13 @@ export async function processViaBus(
   deps: {
     sessionsRepo: ChannelSessionsRepository;
     getChannel: (id: string) => ChannelPluginAPI | undefined;
+    isAccessAllowed?: ChannelAccessCheck;
   },
   progress?: { update(text: string): void }
 ): Promise<string> {
+  if (!(await canProcessChannelMessage(message, deps.isAccessAllowed))) {
+    return INACTIVE_CHANNEL_ACCESS_REPLY;
+  }
   const financingReply = message.attachments?.length
     ? null
     : await tryFinancingChannelReply(message, channelUser.ownpilotUserId);
@@ -273,6 +291,9 @@ export async function processViaBus(
 
 async function processViaBusInSession(...args: Parameters<typeof processViaBus>): Promise<string> {
   const [bus, message, session, channelUser, deps, progress] = args;
+  if (!(await canProcessChannelMessage(message, deps.isAccessAllowed))) {
+    return INACTIVE_CHANNEL_ACCESS_REPLY;
+  }
   const { getOrCreateChatAgent, isDemoMode } = await import('../services/agent/service.js');
   const { resolveForChannel, inferProviderForModel } =
     await import('../services/llm/model-routing.js');
@@ -473,8 +494,12 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
  */
 export async function processDirectAgent(
   message: ChannelIncomingMessage,
-  userId = 'default'
+  userId = 'default',
+  isAccessAllowed?: ChannelAccessCheck
 ): Promise<string> {
+  if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
+    return INACTIVE_CHANNEL_ACCESS_REPLY;
+  }
   const financingReply = message.attachments?.length
     ? null
     : await tryFinancingChannelReply(message, userId);
@@ -495,14 +520,18 @@ export async function processDirectAgent(
 
   return runInSessionLane(
     JSON.stringify(['channel-direct', message.channelPluginId, message.platformChatId, userId]),
-    () => processDirectAgentInSession(message, userId)
+    () => processDirectAgentInSession(message, userId, isAccessAllowed)
   );
 }
 
 async function processDirectAgentInSession(
   message: ChannelIncomingMessage,
-  userId: string
+  userId: string,
+  isAccessAllowed?: ChannelAccessCheck
 ): Promise<string> {
+  if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
+    return INACTIVE_CHANNEL_ACCESS_REPLY;
+  }
   const { getOrCreateChatAgent, isDemoMode } = await import('../services/agent/service.js');
   const { resolveForChannel } = await import('../services/llm/model-routing.js');
 

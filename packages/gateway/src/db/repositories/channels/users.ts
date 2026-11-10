@@ -12,6 +12,8 @@ import { BaseRepository, parseJsonField } from '../base.js';
 // Entity Types
 // ============================================================================
 
+export type ChannelAccessSource = 'manual' | 'cakto';
+
 export interface ChannelUserEntity {
   id: string;
   ownpilotUserId: string;
@@ -23,6 +25,9 @@ export interface ChannelUserEntity {
   isVerified: boolean;
   verifiedAt?: Date;
   verificationMethod?: 'pin' | 'oauth' | 'whitelist' | 'admin';
+  accessExpiresAt?: Date | null;
+  accessGrantedAt?: Date | null;
+  accessSource?: ChannelAccessSource | null;
   isBlocked: boolean;
   status: 'active' | 'pending';
   metadata: Record<string, unknown>;
@@ -55,6 +60,9 @@ interface ChannelUserRow {
   is_verified: boolean;
   verified_at: string | null;
   verification_method: string | null;
+  access_expires_at?: string | null;
+  access_granted_at?: string | null;
+  access_source?: ChannelAccessSource | null;
   is_blocked: boolean;
   status: string;
   metadata: string | Record<string, unknown>;
@@ -74,6 +82,9 @@ function rowToEntity(row: ChannelUserRow): ChannelUserEntity {
     isVerified: row.is_verified,
     verifiedAt: row.verified_at ? new Date(row.verified_at) : undefined,
     verificationMethod: row.verification_method as ChannelUserEntity['verificationMethod'],
+    accessExpiresAt: row.access_expires_at ? new Date(row.access_expires_at) : null,
+    accessGrantedAt: row.access_granted_at ? new Date(row.access_granted_at) : null,
+    accessSource: row.access_source ?? null,
     isBlocked: row.is_blocked,
     status: (row.status as ChannelUserEntity['status']) ?? 'active',
     metadata: parseJsonField(row.metadata, {}),
@@ -184,7 +195,9 @@ export class ChannelUsersRepository extends BaseRepository {
         `UPDATE channel_users SET last_seen_at = NOW(),
           display_name = COALESCE($1, display_name),
           platform_username = COALESCE($2, platform_username),
-          avatar_url = COALESCE($3, avatar_url)
+          avatar_url = COALESCE($3, avatar_url),
+          metadata = CASE WHEN metadata->>'hasInteracted' = 'false'
+            THEN metadata || '{"hasInteracted":true}'::jsonb ELSE metadata END
          WHERE id = $4`,
         [
           input.displayName ?? null,
@@ -193,7 +206,14 @@ export class ChannelUsersRepository extends BaseRepository {
           existing.id,
         ]
       );
-      return { ...existing, lastSeenAt: new Date(), created: false };
+      return {
+        ...existing,
+        ...(existing.metadata.hasInteracted === false
+          ? { metadata: { ...existing.metadata, hasInteracted: true } }
+          : {}),
+        lastSeenAt: new Date(),
+        created: false,
+      };
     }
     const entity = await this.create(input);
     return { ...entity, created: true };
@@ -210,7 +230,9 @@ export class ChannelUsersRepository extends BaseRepository {
     await this.execute(
       `UPDATE channel_users SET is_verified = TRUE, verified_at = NOW(),
         verification_method = $1, ownpilot_user_id = $2, status = 'active'
-       WHERE id = $3`,
+       WHERE id = $3
+         AND (platform <> 'whatsapp' OR
+           (access_source IS NULL AND ownpilot_user_id = $2))`,
       [method, ownpilotUserId, id]
     );
   }
@@ -219,10 +241,114 @@ export class ChannelUsersRepository extends BaseRepository {
    * Revoke verification for a channel user.
    */
   async unverify(id: string): Promise<void> {
-    await this.execute(
-      `UPDATE channel_users SET is_verified = FALSE, verified_at = NULL, verification_method = NULL WHERE id = $1`,
-      [id]
+    await this.transaction(async () => {
+      await this.execute(
+        `UPDATE channel_users SET is_verified = FALSE, verified_at = NULL, verification_method = NULL,
+          access_source = CASE WHEN platform = 'whatsapp' THEN COALESCE(access_source, 'manual')
+            ELSE access_source END
+         WHERE id = $1`,
+        [id]
+      );
+      await this.execute(
+        `UPDATE channel_sessions SET is_active = FALSE WHERE channel_user_id = $1`,
+        [id]
+      );
+    });
+  }
+
+  /**
+   * Explicit, persistent WhatsApp authorization. The unique platform identity
+   * and conditional upsert prevent duplicate records or reassignment of owner
+   * data, even when two administrators submit the same number concurrently.
+   */
+  async grantWhatsAppAccess(input: {
+    phoneNumber: string;
+    displayName?: string;
+    expiresAt: Date | null;
+    grantedAt: Date;
+    source: ChannelAccessSource;
+  }): Promise<ChannelUserEntity | null> {
+    const row = await this.queryOne<ChannelUserRow>(
+      `INSERT INTO channel_users (
+        id, ownpilot_user_id, platform, platform_user_id, display_name,
+        is_verified, verified_at, verification_method, status,
+        access_expires_at, access_granted_at, access_source, metadata
+       ) VALUES ($1, $2, 'whatsapp', $3, $4, TRUE, $5::timestamptz, 'admin', 'active',
+         $6::timestamptz, $5::timestamptz, $7, $8::jsonb)
+       ON CONFLICT (platform, platform_user_id) DO UPDATE SET
+        display_name = COALESCE(EXCLUDED.display_name, channel_users.display_name),
+        is_verified = TRUE, verified_at = EXCLUDED.verified_at,
+        verification_method = 'admin', status = 'active',
+        access_expires_at = CASE
+          WHEN EXCLUDED.access_expires_at IS NULL THEN NULL
+          WHEN channel_users.access_expires_at IS NULL
+            AND channel_users.is_verified THEN NULL
+          WHEN channel_users.is_verified THEN GREATEST(channel_users.access_expires_at, EXCLUDED.access_expires_at)
+          ELSE EXCLUDED.access_expires_at END,
+        access_granted_at = EXCLUDED.access_granted_at,
+        access_source = EXCLUDED.access_source
+       WHERE channel_users.ownpilot_user_id = EXCLUDED.ownpilot_user_id
+         AND NOT channel_users.is_blocked
+       RETURNING *`,
+      [
+        randomUUID(),
+        `whatsapp:${input.phoneNumber}`,
+        input.phoneNumber,
+        input.displayName ?? null,
+        input.grantedAt.toISOString(),
+        input.expiresAt?.toISOString() ?? null,
+        input.source,
+        JSON.stringify({ manualPreauthorized: input.source === 'manual', hasInteracted: false }),
+      ]
     );
+    return row ? rowToEntity(row) : null;
+  }
+
+  /** Extend the stored expiry atomically; this is the only operation that adds days. */
+  async renewWhatsAppAccess(
+    id: string,
+    durationDays: number,
+    source: ChannelAccessSource,
+    now: Date
+  ): Promise<ChannelUserEntity | null> {
+    // Incrementing an expiry is not safe to replay after an ambiguous connection
+    // loss. The adapter deliberately disables automatic retries in transactions.
+    return this.transaction(async () => {
+      const row = await this.queryOne<ChannelUserRow>(
+        `UPDATE channel_users SET
+        access_expires_at = CASE
+          WHEN access_expires_at IS NULL AND (is_verified OR access_source IS NOT NULL) THEN NULL
+          ELSE GREATEST(COALESCE(access_expires_at, $2::timestamptz), $2::timestamptz)
+            + $3::integer * INTERVAL '1 day' END,
+        access_granted_at = $2::timestamptz, access_source = $4,
+        is_verified = TRUE, verified_at = $2::timestamptz, verification_method = 'admin', status = 'active'
+       WHERE id = $1 AND platform = 'whatsapp'
+         AND ownpilot_user_id = 'whatsapp:' || platform_user_id
+       RETURNING *`,
+        [id, now.toISOString(), durationDays, source]
+      );
+      return row ? rowToEntity(row) : null;
+    });
+  }
+
+  /** Retain revocation and expiry history while invalidating active sessions. */
+  async revokeWhatsAppAccess(id: string): Promise<ChannelUserEntity | null> {
+    return this.transaction(async () => {
+      const row = await this.queryOne<ChannelUserRow>(
+        `UPDATE channel_users SET is_verified = FALSE, verified_at = NULL,
+          verification_method = NULL, access_source = COALESCE(access_source, 'manual')
+         WHERE id = $1 AND platform = 'whatsapp'
+           AND ownpilot_user_id = 'whatsapp:' || platform_user_id
+         RETURNING *`,
+        [id]
+      );
+      if (!row) return null;
+      await this.execute(
+        `UPDATE channel_sessions SET is_active = FALSE WHERE channel_user_id = $1`,
+        [id]
+      );
+      return rowToEntity(row);
+    });
   }
 
   /**

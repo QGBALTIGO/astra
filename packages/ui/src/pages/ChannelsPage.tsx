@@ -5,7 +5,7 @@
  * message stats, users, and provides connect/disconnect/reconnect actions.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
 import { channelsApi } from '../api/endpoints/misc';
 import { useGateway } from '../hooks/useWebSocket';
@@ -15,7 +15,7 @@ import { useDialog } from '../components/ConfirmDialog';
 import { ChannelSetupModal } from '../components/ChannelSetupModal';
 import { PageHomeTab } from '../components/PageHomeTab';
 import { Plus, Activity, Send, Home, MessageSquare, Globe, Inbox, Bot } from '../components/icons';
-import type { Channel, ChannelUser, ChannelStats } from '../api/types';
+import type { Channel, ChannelUser, ChannelStats, ChannelUsersPage } from '../api/types';
 import { ChannelDetail, PairingBanner } from './channels-detail';
 import { timeAgo, getStatusColor, getStatusBg, StatusIcon, PlatformIcon } from './channels-helpers';
 
@@ -32,6 +32,34 @@ const TAB_LABELS: Record<TabId, string> = {
   home: 'Início',
   channels: 'Canais',
 };
+
+const USERS_PAGE_SIZE = 100;
+
+function loadedUsersState(pages: Map<number, ChannelUsersPage>) {
+  const ordered = [...pages.values()].sort((a, b) => a.offset - b.offset);
+  const usersById = new Map<string, ChannelUser>();
+  for (const page of ordered) {
+    for (const user of page.users) {
+      // Activity can move a number between offset pages while they are loading.
+      if (!usersById.has(user.id)) usersById.set(user.id, user);
+    }
+  }
+  const last = ordered.at(-1);
+  return {
+    users: [...usersById.values()],
+    hasMore: Boolean(last && last.count >= last.limit),
+    nextOffset: last ? last.offset + last.count : 0,
+  };
+}
+
+function normalizeUsersPage(page: ChannelUsersPage, offset: number): ChannelUsersPage {
+  return {
+    ...page,
+    count: page.count ?? page.users.length,
+    limit: page.limit ?? USERS_PAGE_SIZE,
+    offset: page.offset ?? offset,
+  };
+}
 
 // ============================================================================
 // Main Component
@@ -77,6 +105,30 @@ export function ChannelsPage() {
   const [stats, setStats] = useState<ChannelStats | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [usersHasMore, setUsersHasMore] = useState(false);
+  const [usersLoadingMore, setUsersLoadingMore] = useState(false);
+  const selectedIdRef = useRef(selectedId);
+  const detailRequestRef = useRef(0);
+  const selectionVersionRef = useRef(0);
+  const usersPagesRef = useRef(new Map<number, ChannelUsersPage>());
+  const usersLoadingMoreRef = useRef(false);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+    // A previous channel's request must not replace the newly selected access list.
+    detailRequestRef.current += 1;
+    selectionVersionRef.current += 1;
+    usersPagesRef.current.clear();
+    usersLoadingMoreRef.current = false;
+    setUsers([]);
+    setStats(null);
+    setUsersHasMore(false);
+    setUsersLoadingMore(false);
+    return () => {
+      detailRequestRef.current += 1;
+      selectionVersionRef.current += 1;
+    };
+  }, [selectedId]);
 
   const selectedChannel = channels.find((ch) => ch.id === selectedId) ?? null;
 
@@ -103,24 +155,79 @@ export function ChannelsPage() {
   }, [loadChannels]);
 
   // ---- Load detail when selection changes ----
+  const publishLoadedUsers = useCallback(() => {
+    const loaded = loadedUsersState(usersPagesRef.current);
+    setUsers(loaded.users);
+    setUsersHasMore(loaded.hasMore);
+  }, []);
+
   const loadDetail = useCallback(
     async (channelId: string) => {
-      setDetailLoading(true);
+      if (selectedIdRef.current !== channelId) return;
+      const requestId = ++detailRequestRef.current;
+      if (usersPagesRef.current.size === 0) setDetailLoading(true);
+      // Refresh the loaded window without dropping numbers from later pages.
+      const offsets = usersPagesRef.current.size ? [...usersPagesRef.current.keys()] : [0];
       try {
-        const [usersResp, statsResp] = await Promise.all([
-          channelsApi.getUsers(channelId),
+        const [pages, statsResp] = await Promise.all([
+          Promise.all(
+            offsets.map(async (offset) =>
+              normalizeUsersPage(
+                await channelsApi.getUsers(channelId, { limit: USERS_PAGE_SIZE, offset }),
+                offset
+              )
+            )
+          ),
           channelsApi.getStats(channelId),
         ]);
-        setUsers(usersResp.users);
-        setStats(statsResp);
+        if (requestId === detailRequestRef.current && selectedIdRef.current === channelId) {
+          for (const page of pages) usersPagesRef.current.set(page.offset, page);
+          publishLoadedUsers();
+          setStats(statsResp);
+        }
       } catch {
-        toast.error('Não foi possível carregar detalhes do canal');
+        if (requestId === detailRequestRef.current && selectedIdRef.current === channelId) {
+          toast.error('Não foi possível carregar detalhes do canal');
+        }
       } finally {
-        setDetailLoading(false);
+        if (requestId === detailRequestRef.current && selectedIdRef.current === channelId) {
+          setDetailLoading(false);
+        }
       }
     },
-    [toast]
+    [toast, publishLoadedUsers]
   );
+
+  const loadMoreUsers = useCallback(async () => {
+    const channelId = selectedIdRef.current;
+    const loaded = loadedUsersState(usersPagesRef.current);
+    if (!channelId || !loaded.hasMore || usersLoadingMoreRef.current) return;
+    const selectionVersion = selectionVersionRef.current;
+    usersLoadingMoreRef.current = true;
+    setUsersLoadingMore(true);
+    try {
+      const page = normalizeUsersPage(
+        await channelsApi.getUsers(channelId, {
+          limit: USERS_PAGE_SIZE,
+          offset: loaded.nextOffset,
+        }),
+        loaded.nextOffset
+      );
+      if (selectionVersion === selectionVersionRef.current && selectedIdRef.current === channelId) {
+        usersPagesRef.current.set(page.offset, page);
+        publishLoadedUsers();
+      }
+    } catch {
+      if (selectionVersion === selectionVersionRef.current && selectedIdRef.current === channelId) {
+        toast.error('Não foi possível carregar mais números. Tente novamente.');
+      }
+    } finally {
+      if (selectionVersion === selectionVersionRef.current && selectedIdRef.current === channelId) {
+        usersLoadingMoreRef.current = false;
+        setUsersLoadingMore(false);
+      }
+    }
+  }, [toast, publishLoadedUsers]);
 
   useEffect(() => {
     if (selectedId) {
@@ -592,8 +699,12 @@ export function ChannelsPage() {
               <div className="min-h-0 flex-1 overflow-y-auto bg-bg-primary dark:bg-dark-bg-primary">
                 {selectedChannel ? (
                   <ChannelDetail
+                    key={selectedChannel.id}
                     channel={selectedChannel}
                     users={users}
+                    usersHasMore={usersHasMore}
+                    usersLoadingMore={usersLoadingMore}
+                    onLoadMoreUsers={loadMoreUsers}
                     stats={stats}
                     isLoading={detailLoading}
                     actionLoading={actionLoading}
@@ -608,6 +719,7 @@ export function ChannelsPage() {
                     onUnblockUser={handleUnblockUser}
                     onDeleteUser={handleDeleteUser}
                     onDenyUser={handleDenyUser}
+                    onUsersChanged={() => void loadDetail(selectedChannel.id)}
                     channelPlatform={
                       selectedChannel.id.includes('.')
                         ? selectedChannel.id.split('.')[1]!

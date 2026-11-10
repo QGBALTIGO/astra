@@ -1640,6 +1640,17 @@ describe('edgeApi', () => {
 // ---------------------------------------------------------------------------
 
 describe('channelsApi', () => {
+  it('passes the requested users page and preserves pagination metadata', async () => {
+    const page = { users: [], count: 0, limit: 100, offset: 200 };
+    mockGet.mockResolvedValueOnce(page);
+    expect(await channelsApi.getUsers('channel.whatsapp', { limit: 100, offset: 200 })).toEqual(
+      page
+    );
+    expect(mockGet).toHaveBeenCalledWith('/channels/channel.whatsapp/users', {
+      params: { limit: 100, offset: 200 },
+    });
+  });
+
   it('inbox passes optional params', async () => {
     mockGet.mockResolvedValueOnce({ messages: [], total: 0, unreadCount: 0 });
     await channelsApi.inbox({ limit: 50, channelId: 'ch-1' });

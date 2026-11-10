@@ -117,10 +117,19 @@ describe('Consulta financeira direta e read-only pelo canal', () => {
       const bus = { process: vi.fn() };
       const response = await processViaBus(
         bus as never,
-        { ...message, channelPluginId, attachments: [] } as never,
+        {
+          ...message,
+          channelPluginId,
+          platform: channelPluginId.split('.')[1],
+          attachments: [],
+        } as never,
         { sessionId: 'session-1', conversationId: null },
         { ownpilotUserId: 'default' },
-        { sessionsRepo: {} as never, getChannel: () => undefined }
+        {
+          sessionsRepo: {} as never,
+          getChannel: () => undefined,
+          isAccessAllowed: async () => true,
+        }
       );
 
       expect(response).toContain('R$\u00a050,00');
@@ -131,11 +140,16 @@ describe('Consulta financeira direta e read-only pelo canal', () => {
   it.each(['channel.whatsapp', 'channel.telegram'])(
     'também intercepta a consulta no fallback legado %s',
     async (channelPluginId) => {
-      const response = await processDirectAgent({
-        ...message,
-        channelPluginId,
-        attachments: [],
-      } as never);
+      const response = await processDirectAgent(
+        {
+          ...message,
+          channelPluginId,
+          platform: channelPluginId.split('.')[1],
+          attachments: [],
+        } as never,
+        'default',
+        async () => true
+      );
 
       expect(response).toContain('R$\u00a050,00');
     }

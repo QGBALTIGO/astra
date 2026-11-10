@@ -4,6 +4,9 @@
  */
 import { getChannelService } from '@ownpilot/core/channels';
 import { channelRemindersRepo } from '../db/repositories/channel-reminders.js';
+import { channelUsersRepo } from '../db/repositories/channels/users.js';
+import { isChannelUserAccessActive } from '../channels/channel-access-service.js';
+import { getOwnerUserId } from './pairing-service.js';
 import { getLog } from './log.js';
 
 const log = getLog('ChannelReminderWorker');
@@ -26,7 +29,34 @@ export async function dispatchDueChannelReminders(): Promise<{
     claimed = entries.length;
     for (const entry of entries) {
       try {
-        const id = await getChannelService().send(entry.channelPluginId, {
+        const channels = getChannelService();
+        if (
+          channels.getChannel(entry.channelPluginId)?.getPlatform() === 'whatsapp' &&
+          entry.userId.startsWith('whatsapp:')
+        ) {
+          const phone = entry.userId.slice('whatsapp:'.length);
+          const recipient = entry.platformChatId
+            .replace(/@s\.whatsapp\.net$/, '')
+            .replace(/^\+/, '');
+          const user = await channelUsersRepo.findByPlatform('whatsapp', phone);
+          const ownerPhone = await getOwnerUserId('whatsapp');
+          const currentOwner =
+            ownerPhone === phone && user?.isVerified && !user.isBlocked && user.status === 'active';
+          if (
+            recipient !== phone ||
+            user?.ownpilotUserId !== entry.userId ||
+            (!currentOwner && !isChannelUserAccessActive(user))
+          ) {
+            // A subscription ending is not a transport failure. Keep the
+            // reminder for the user's history, but do not retry an old alert
+            // after a later renewal or deliver it to another identity.
+            await channelRemindersRepo.markFailed(entry.id, 5, 'channel_access_inactive');
+            failed++;
+            log.info('Lembrete retido por acesso inativo', { reminderId: entry.id });
+            continue;
+          }
+        }
+        const id = await channels.send(entry.channelPluginId, {
           platformChatId: entry.platformChatId,
           text: `⏰ Lembrete: ${entry.title}`,
         });
