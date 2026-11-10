@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
   testDir: '.',
@@ -21,8 +22,9 @@ export default defineConfig({
     { name: 'webkit-touch', use: { browserName: 'webkit' } },
   ],
   webServer: {
-    command: 'npx vite --port 8199',
-    port: 8199,
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    command: 'npx vite --port 8199 --strictPort',
+    url: 'http://localhost:8199/cliente/entrar',
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },
