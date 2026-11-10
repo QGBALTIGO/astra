@@ -1,10 +1,22 @@
 import { expect, test } from '@playwright/test';
-import type { Locator, Page } from '@playwright/test';
+import type { Locator, Page, TestInfo } from '@playwright/test';
 import type { AuthorizeWhatsAppUserInput, Channel, ChannelUser } from '../src/api/types/channels';
 
 const CHANNEL_ID = 'channel.whatsapp';
 const OWNER_PHONE = '5567999994321';
 const DAY_MS = 86_400_000;
+// Anchor the API prefix: Vite serves JavaScript under /src/api/, which must
+// never receive a JSON fixture in place of the real application module.
+const API_REQUEST_PATTERN = /^https?:\/\/[^/]+\/api\/v1(?:\/|$)/;
+
+test('WhatsApp API fixtures do not intercept Vite source modules', () => {
+  for (const path of ['/api/v1/auth/status', '/api/v1/channels/channel.whatsapp/users?limit=100']) {
+    expect(API_REQUEST_PATTERN.test(`http://localhost:8199${path}`)).toBe(true);
+  }
+  for (const path of ['/src/api/client.ts', '/src/api/endpoints/misc.ts', '/src/App.tsx']) {
+    expect(API_REQUEST_PATTERN.test(`http://localhost:8199${path}`)).toBe(false);
+  }
+});
 
 interface AccessMutation {
   path: string;
@@ -61,7 +73,7 @@ async function mockAccessApi(page: Page) {
   await page.addInitScript(() => localStorage.setItem('theme', 'dark'));
   // Do not connect the app's live channel socket to the CI gateway.
   await page.routeWebSocket('**/ws*', () => {});
-  await page.route('**/api/**', async (route) => {
+  await page.route(API_REQUEST_PATTERN, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname.replace(/^\/api\/v1/, '');
@@ -168,9 +180,13 @@ async function expectHorizontalFit(page: Page, elements: Locator[]) {
   }
 }
 
-async function openAccessPanel(page: Page) {
+async function openAccessPanel(page: Page, testInfo: TestInfo, screen: string) {
   // Explicit tab makes this independent of the home preference saved by auth.setup.
-  await page.goto('/channels?tab=channels');
+  await page.goto('/channels?tab=channels', { waitUntil: 'domcontentloaded' });
+  await page.screenshot({
+    path: testInfo.outputPath(`whatsapp-access-start-${screen}.png`),
+    fullPage: true,
+  });
   const panel = page.getByRole('region', { name: 'Acesso ao WhatsApp' });
   await expect(panel.getByText('Cliente com prazo', { exact: true })).toBeVisible();
   await expect(panel.getByText('Cliente expirado', { exact: true })).toBeVisible();
@@ -193,7 +209,7 @@ for (const screen of [
       page,
     }, testInfo) => {
       const api = await mockAccessApi(page);
-      const panel = await openAccessPanel(page);
+      const panel = await openAccessPanel(page, testInfo, screen.name);
       const authorize = panel.getByRole('button', { name: 'Autorizar número', exact: true });
       await expectHorizontalFit(page, [panel, authorize]);
       await authorize.click();
@@ -244,9 +260,9 @@ for (const screen of [
 
     test('supports unlimited access and confirms renewal and revocation without deleting the row', async ({
       page,
-    }) => {
+    }, testInfo) => {
       const api = await mockAccessApi(page);
-      const panel = await openAccessPanel(page);
+      const panel = await openAccessPanel(page, testInfo, screen.name);
       const ownerRow = panel.getByRole('listitem').filter({ hasText: 'Proprietário de teste' });
       await expect(ownerRow.getByRole('button')).toHaveCount(0);
       await panel.getByRole('button', { name: 'Autorizar número', exact: true }).click();
