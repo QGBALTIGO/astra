@@ -26,6 +26,15 @@ html .astra-customer :is(input, select, textarea):focus {
 html .astra-customer .ac-search:focus-within {
   border-color: var(--ac-muted);
 }
+html .astra-customer select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2394a3b8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  padding-right: 36px !important;
+}
 
 /* One joined date navigator: previous | date | next, then a separate Today.
    Explicit zero intrinsic minimums stop WebKit's date field covering an arrow. */
@@ -43,7 +52,10 @@ html .astra-customer .ac-agenda-date-nav > label {
   width: 100%;
   min-width: 0;
 }
-html .astra-customer .ac-agenda-date-nav input[type='date'] {
+html
+  .astra-customer
+  .ac-agenda-date-nav
+  input:not([type='checkbox']):not([type='radio']):not([type='color']) {
   display: block;
   box-sizing: border-box;
   width: 100%;
