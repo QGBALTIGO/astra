@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   PersonalMemoryStore,
@@ -432,7 +433,7 @@ describe('WhatsApp personal memory partitioning', () => {
       await getPersonalMemoryStore(user);
       const fsMock = await import('node:fs/promises');
       expect(vi.mocked(fsMock.mkdir)).toHaveBeenCalledWith(
-        '/tmp/astra-test-persistent-volume/personal/' + hashed,
+        join('/tmp/astra-test-persistent-volume', 'personal', hashed),
         { recursive: true }
       );
     } finally {
