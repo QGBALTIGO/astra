@@ -19,6 +19,7 @@ import { getProviderApiKey, loadProviderConfig } from '../../services/agent/cach
 import { getLog } from '../../services/log.js';
 import { getErrorMessage } from '../../utils/common.js';
 import { isWithinDirectory } from '../../utils/file-safety.js';
+import { audioApiUrl } from '../../services/multimodal/transcription.js';
 
 const log = getLog('AudioOverrides');
 
@@ -292,6 +293,8 @@ function getDefaultAudioBaseUrl(providerType: string): string {
       return 'https://api.elevenlabs.io';
     case 'local':
       return 'http://127.0.0.1:2022';
+    case 'groq':
+      return 'https://api.groq.com/openai/v1';
     default:
       return 'https://api.openai.com';
   }
@@ -429,7 +432,7 @@ export async function callOpenAITTS(
   speed: number,
   format: string
 ): Promise<Buffer> {
-  const url = `${baseUrl}/v1/audio/speech`;
+  const url = audioApiUrl(baseUrl, 'speech');
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -646,11 +649,11 @@ export async function callWhisperTranscribe(
   filename: string,
   opts: { language?: string; prompt?: string; responseFormat?: string }
 ): Promise<WhisperResult> {
-  const url = `${baseUrl}/v1/audio/transcriptions`;
+  const url = audioApiUrl(baseUrl, 'transcriptions');
 
   const formData = new FormData();
   formData.append('file', new Blob([new Uint8Array(audioBuffer)]), filename);
-  formData.append('model', 'whisper-1');
+  formData.append('model', baseUrl.includes('api.groq.com') ? 'whisper-large-v3-turbo' : 'whisper-1');
   if (opts.language) formData.append('language', opts.language);
   if (opts.prompt) formData.append('prompt', opts.prompt);
 
@@ -665,8 +668,7 @@ export async function callWhisperTranscribe(
   });
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Whisper API ${response.status}: ${errText.slice(0, 500)}`);
+    throw new Error('Whisper API ' + response.status);
   }
 
   if (format === 'text') {
@@ -733,11 +735,11 @@ const translateAudioOverride: ToolExecutor = async (
     const filename = path.basename(source);
 
     // Call Whisper Translation API
-    const url = `${config.baseUrl}/v1/audio/translations`;
+    const url = audioApiUrl(config.baseUrl, 'translations');
 
     const formData = new FormData();
     formData.append('file', new Blob([new Uint8Array(audioBuffer)]), filename);
-    formData.append('model', 'whisper-1');
+    formData.append('model', config.baseUrl.includes('api.groq.com') ? 'whisper-large-v3' : 'whisper-1');
     if (prompt) formData.append('prompt', prompt);
 
     const format = responseFormat === 'text' ? 'text' : 'verbose_json';
@@ -750,8 +752,7 @@ const translateAudioOverride: ToolExecutor = async (
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Whisper Translation API ${response.status}: ${errText.slice(0, 500)}`);
+      throw new Error('Whisper Translation API ' + response.status);
     }
 
     if (format === 'text') {
