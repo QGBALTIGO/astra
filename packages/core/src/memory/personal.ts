@@ -16,7 +16,7 @@
  * - History: Important events, milestones, experiences
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getLog } from '../services/get-log.js';
@@ -253,7 +253,16 @@ export class PersonalMemoryStore {
     assertSafeUserId(userId);
     this.userId = userId;
     const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? '.';
-    this.storageDir = storageDir ?? path.join(homeDir, '.ownpilot', 'personal', userId);
+    const legacyDir = path.join(homeDir, '.ownpilot', 'personal', userId);
+    // Preserve the existing location for legacy users. Newly introduced
+    // opaque WhatsApp partitions can be created directly on the persistent
+    // Railway data volume without migrating or touching owner memories.
+    const volume = process.env.OWNPILOT_DATA_DIR;
+    const durableWhatsAppDir =
+      /^wa_[a-f0-9]{48}$/.test(userId) && volume && path.isAbsolute(volume)
+        ? path.join(volume, 'personal', userId)
+        : legacyDir;
+    this.storageDir = storageDir ?? durableWhatsAppDir;
   }
 
   /**
@@ -865,12 +874,33 @@ const PERSONAL_STORE_CACHE_MAX = 1000;
 const personalStoreCache = new Map<string, PersonalMemoryStore>();
 
 /**
+ * The authenticated WhatsApp channel uses "whatsapp:<E164>" as its database
+ * owner key. Personal memories use directory names; never use a raw phone
+ * number as a directory and do not silently weaken the path validator.
+ *
+ * This mapping changes neither the SQL user_id nor existing sessions. Previously
+ * invalid WhatsApp keys could not create a memory directory, so there is no
+ * valid legacy partition to migrate for that key format.
+ */
+export function personalMemoryPartitionId(userId: string): string {
+  if (/^whatsapp:[1-9][0-9]{9,14}$/.test(userId)) {
+    return 'wa_' + createHash('sha256')
+      .update('astra-whatsapp-personal-memory-v1:')
+      .update(userId)
+      .digest('hex')
+      .slice(0, 48);
+  }
+  assertSafeUserId(userId);
+  return userId;
+}
+
+/**
  * Get or create personal memory store for a user
  */
 export async function getPersonalMemoryStore(userId: string): Promise<PersonalMemoryStore> {
   let store = personalStoreCache.get(userId);
   if (!store) {
-    store = createPersonalMemoryStore(userId);
+    store = createPersonalMemoryStore(personalMemoryPartitionId(userId));
     await store.initialize();
     // Insertion order is preserved by Map, so the first key is the oldest.
     // Evict from the front when we exceed the cap.

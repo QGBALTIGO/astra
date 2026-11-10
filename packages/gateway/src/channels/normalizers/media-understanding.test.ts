@@ -4,6 +4,7 @@ import {
   formatImageFinding,
   inspectWhatsAppImage,
   parseImageFinding,
+  parseOcrReceipt,
   transcribeWhatsAppAudio,
   type ImageFinding,
 } from './media-understanding.js';
@@ -57,6 +58,33 @@ describe('OCR WhatsApp do Astra', () => {
   });
 });
 
+describe('OCR field interpretation', () => {
+  it('extracts a single monetary value from a Pix receipt but never proves bank settlement', () => {
+    const result = parseOcrReceipt(
+      'COMPROVANTE PIX\nVALOR R$ 78,90\nDATA 10/11/2026\nCPF 123.456.789-00'
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        kind: 'payment_receipt',
+        amount: 'R$ 78,90',
+        date: '10/11/2026',
+      })
+    );
+    expect(formatImageFinding(result!)).toContain('NÃO confirma recebimento');
+    expect(JSON.stringify(result)).not.toContain('123.456.789-00');
+  });
+
+  it('does not choose an arbitrary total when multiple values appear on the receipt', () => {
+    const result = parseOcrReceipt('CUPOM FISCAL R$ 12,00 DESCONTO R$ 2,00 TOTAL R$ 10,00');
+    expect(result?.amount).toBe('');
+    expect(result?.summary).toContain('múltiplos valores');
+  });
+
+  it('does not fabricate financial fields for ordinary image text', () => {
+    expect(parseOcrReceipt('Uma árvore em uma paisagem bonita')).toBeNull();
+  });
+});
+
 describe('WhatsApp media normalization', () => {
   it('transcribes OGG/Opus and never forwards audio base64 to the text model', async () => {
     const transcribe = vi.fn().mockResolvedValue('Gastei R$ 85,90 hoje');
@@ -100,7 +128,7 @@ describe('WhatsApp media normalization', () => {
     expect(result.attachments).toBeUndefined();
   });
 
-  it('can read photos sent as documents without removing unrelated PDFs', async () => {
+  it('analyzes attached PDF text without sending PDF base64 to the language model', async () => {
     const result = await enrichWhatsAppMedia(
       {
         platform: 'whatsapp',
@@ -116,12 +144,47 @@ describe('WhatsApp media normalization', () => {
           { type: 'file', mimeType: 'application/pdf', data: 'data:application/pdf;base64,PDF' },
         ],
       },
-      { inspect: vi.fn().mockResolvedValue(payment) }
+      {
+        inspect: vi.fn().mockResolvedValue(payment),
+        extractPdf: vi.fn().mockResolvedValue('Texto do PDF reconhecido'),
+      }
     );
     expect(result.text).toContain('R$ 85,90');
-    expect(result.attachments).toEqual([
-      { type: 'file', mimeType: 'application/pdf', data: 'data:application/pdf;base64,PDF' },
-    ]);
+    expect(result.text).toContain('Texto do PDF reconhecido');
+    expect(result.attachments).toBeUndefined();
+  });
+
+  it('processes a PDF sent without other attachments and never forwards raw bytes', async () => {
+    const extractPdf = vi.fn().mockResolvedValue('[Documento PDF] Valor aparente: R$ 30,00');
+    const result = await enrichWhatsAppMedia(
+      {
+        platform: 'whatsapp',
+        attachments: [{ type: 'file', mimeType: 'application/pdf', data: Buffer.from('%PDF-1.5') }],
+      } as never,
+      {
+        text: '[Attachment]',
+        attachments: [
+          { type: 'file', mimeType: 'application/pdf', data: 'data:application/pdf;base64,SECRET' },
+        ],
+      },
+      { extractPdf }
+    );
+    expect(result.text).toContain('R$ 30,00');
+    expect(result.text).not.toContain('SECRET');
+    expect(result.attachments).toBeUndefined();
+    expect(extractPdf).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an unreadable PDF without inventing its contents', async () => {
+    const result = await enrichWhatsAppMedia(
+      {
+        platform: 'whatsapp',
+        attachments: [{ type: 'file', mimeType: 'application/pdf', data: Buffer.from('%PDF-1.5') }],
+      } as never,
+      { text: '[Attachment]' },
+      { extractPdf: vi.fn().mockResolvedValue(null) }
+    );
+    expect(result.text).toContain('Não consegui extrair');
   });
 
   it('gives a safe response when the provider fails', async () => {
@@ -179,7 +242,7 @@ describe('API transport', () => {
     expect(options.headers).toEqual(expect.objectContaining({ Authorization: 'Bearer test-key' }));
     const form = options.body as FormData;
     expect(form.get('model')).toBe('whisper-large-v3-turbo');
-    expect(form.get('language')).toBe('pt');
+    expect(form.get('language')).toBeNull(); // Detect language instead of forcing Portuguese
     expect((form.get('file') as File).name).toBe('audio.ogg');
   });
 

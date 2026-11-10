@@ -149,6 +149,7 @@ export const TOOL_GROUPS: Record<string, ToolGroupConfig> = {
       'format_json',
       'count_text',
       'transform_text',
+      'translate_text',
       'run_regex',
       'compare_text',
       // Conversion & encoding

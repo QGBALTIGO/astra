@@ -36,6 +36,7 @@ import { getAgentMessagesRepository } from '../../db/repositories/agents/message
 import { getLog } from '../log.js';
 import { BASE_SYSTEM_PROMPT, CHANNEL_SYSTEM_PROMPT, CLI_SYSTEM_PROMPT } from './prompt.js';
 import { registerExpenseOverrides } from '../../tools/overrides/expense.js';
+import { TRANSLATE_TEXT_DEFINITION, translateTextExecutor } from '../../tools/translation-tool.js';
 import { FINANCING_TOOLS } from '../../tools/financing-tools.js';
 import {
   registerGatewayTools,
@@ -174,6 +175,9 @@ async function createAgentFromRecord(record: AgentRecord): Promise<Agent> {
   // Register all gateway domain tools (memory, goals, etc.) with tracing
   const userId = 'default';
   registerGatewayTools(tools, userId, true);
+  // The same standalone translator is discoverable by standard assistant agents.
+  const translationToolDef = { ...TRANSLATE_TEXT_DEFINITION, name: 'core.translate_text' };
+  tools.register(translationToolDef, translateTextExecutor);
 
   // Register dynamic tools (CRUD meta-tools, special meta-tools, active custom tools)
   const activeCustomToolDefs = await registerDynamicTools(tools, userId, record.id, true);
@@ -200,6 +204,7 @@ async function createAgentFromRecord(record: AgentRecord): Promise<Agent> {
   const coreToolDefs = getToolDefinitions().filter((t) => tools.has(t.name));
   const standardToolDefs = [
     ...coreToolDefs,
+    translationToolDef,
     ...MEMORY_TOOLS,
     ...GOAL_TOOLS,
     ...CUSTOM_DATA_TOOLS,
@@ -550,6 +555,9 @@ async function createChatAgentInstance(
 
   const isWhatsAppCustomer = channelMode && userId.startsWith('whatsapp:');
   registerGatewayTools(tools, userId, false);
+  // Chat/WhatsApp have their own registry, separate from the shared panel registry.
+  const chatTranslationToolDef = { ...TRANSLATE_TEXT_DEFINITION, name: 'core.translate_text' };
+  tools.register(chatTranslationToolDef, translateTextExecutor);
 
   const activeCustomToolDefs = await registerDynamicTools(
     tools,
@@ -574,6 +582,7 @@ async function createChatAgentInstance(
       ...PERSONAL_DATA_TOOLS.map((def) => `core.${def.name}`),
       ...CHANNEL_REMINDER_TOOLS.map((def) => `core.${def.name}`),
       ...FINANCING_TOOLS.map((def) => `core.${def.name}`),
+      'core.translate_text',
       'search_tools',
       'get_tool_help',
       'use_tool',
@@ -590,6 +599,7 @@ async function createChatAgentInstance(
   const chatCoreToolDefs = getToolDefinitions().filter((t) => tools.has(t.name));
   const chatStandardToolDefs = [
     ...chatCoreToolDefs,
+    chatTranslationToolDef,
     ...MEMORY_TOOLS,
     ...GOAL_TOOLS,
     ...CUSTOM_DATA_TOOLS,

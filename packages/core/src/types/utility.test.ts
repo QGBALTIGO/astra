@@ -10,11 +10,22 @@ import { sleep, withTimeout, retry } from './utility.js';
 describe('Utility Functions', () => {
   describe('sleep', () => {
     it('should resolve after specified milliseconds', async () => {
-      const start = Date.now();
-      await sleep(50);
-      const elapsed = Date.now() - start;
-      expect(elapsed).toBeGreaterThanOrEqual(45); // Allow small variance
-      expect(elapsed).toBeLessThan(100);
+      // Virtual time validates the actual scheduling contract without relying
+      // on Windows CI runner load or host wall-clock scheduling jitter.
+      vi.useFakeTimers();
+      try {
+        let resolved = false;
+        const scheduled = sleep(50).then(() => {
+          resolved = true;
+        });
+        await vi.advanceTimersByTimeAsync(49);
+        expect(resolved).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(scheduled).resolves.toBeUndefined();
+        expect(resolved).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('should resolve immediately with 0ms', async () => {

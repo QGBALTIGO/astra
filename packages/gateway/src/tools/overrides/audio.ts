@@ -19,6 +19,8 @@ import { getProviderApiKey, loadProviderConfig } from '../../services/agent/cach
 import { getLog } from '../../services/log.js';
 import { getErrorMessage } from '../../utils/common.js';
 import { isWithinDirectory } from '../../utils/file-safety.js';
+import { audioApiUrl, transcribeAstraAudio } from '../../services/multimodal/transcription.js';
+import { translateAstraText } from '../../services/multimodal/translation.js';
 
 const log = getLog('AudioOverrides');
 
@@ -292,6 +294,8 @@ function getDefaultAudioBaseUrl(providerType: string): string {
       return 'https://api.elevenlabs.io';
     case 'local':
       return 'http://127.0.0.1:2022';
+    case 'groq':
+      return 'https://api.groq.com/openai/v1';
     default:
       return 'https://api.openai.com';
   }
@@ -429,7 +433,7 @@ export async function callOpenAITTS(
   speed: number,
   format: string
 ): Promise<Buffer> {
-  const url = `${baseUrl}/v1/audio/speech`;
+  const url = audioApiUrl(baseUrl, 'speech');
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -646,11 +650,14 @@ export async function callWhisperTranscribe(
   filename: string,
   opts: { language?: string; prompt?: string; responseFormat?: string }
 ): Promise<WhisperResult> {
-  const url = `${baseUrl}/v1/audio/transcriptions`;
+  const url = audioApiUrl(baseUrl, 'transcriptions');
 
   const formData = new FormData();
   formData.append('file', new Blob([new Uint8Array(audioBuffer)]), filename);
-  formData.append('model', 'whisper-1');
+  formData.append(
+    'model',
+    baseUrl.includes('api.groq.com') ? 'whisper-large-v3-turbo' : 'whisper-1'
+  );
   if (opts.language) formData.append('language', opts.language);
   if (opts.prompt) formData.append('prompt', opts.prompt);
 
@@ -665,8 +672,7 @@ export async function callWhisperTranscribe(
   });
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Whisper API ${response.status}: ${errText.slice(0, 500)}`);
+    throw new Error('Whisper API ' + response.status);
   }
 
   if (format === 'text') {
@@ -699,6 +705,8 @@ const translateAudioOverride: ToolExecutor = async (
   const source = params.source as string;
   const prompt = params.prompt as string | undefined;
   const responseFormat = (params.responseFormat as string) || 'json';
+  const targetLanguage = ((params.targetLanguage as string | undefined) || 'en').toLowerCase();
+  const sourceLanguage = (params.sourceLanguage as string | undefined) || 'auto';
 
   if (!source) {
     return { content: { error: 'Audio source path is required' }, isError: true };
@@ -712,6 +720,17 @@ const translateAudioOverride: ToolExecutor = async (
   try {
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
+
+    // Match speech_to_text workspace authorization. This tool must not
+    // turn an LLM-supplied path into a read of another user's private audio.
+    const workDir = _context?.workspaceDir || '.';
+    const resolvedSource = path.resolve(source);
+    if (!isWithinDirectory(workDir, resolvedSource)) {
+      return {
+        content: { error: 'Source path must be within the workspace directory' },
+        isError: true,
+      };
+    }
 
     const ext = path.extname(source).slice(1).toLowerCase();
     if (!SUPPORTED_INPUT_FORMATS.includes(ext)) {
@@ -732,12 +751,69 @@ const translateAudioOverride: ToolExecutor = async (
     const audioBuffer = await fs.readFile(source);
     const filename = path.basename(source);
 
-    // Call Whisper Translation API
-    const url = `${config.baseUrl}/v1/audio/translations`;
+    // Non-English target: transcribe in the original language and translate
+    // the resulting text. The shared STT cache prevents repeat paid calls.
+    // No provider translation endpoint can translate directly to arbitrary languages.
+    if (targetLanguage !== 'en' && targetLanguage !== 'en-us' && targetLanguage !== 'english') {
+      const mimeByExt: Record<string, string> = {
+        mp3: 'audio/mpeg',
+        mpga: 'audio/mpeg',
+        mpeg: 'audio/mpeg',
+        mp4: 'audio/mp4',
+        m4a: 'audio/x-m4a',
+        wav: 'audio/wav',
+        webm: 'audio/webm',
+        ogg: 'audio/ogg',
+        flac: 'audio/flac',
+      };
+      const mime = mimeByExt[ext];
+      if (!mime) {
+        return { content: { error: 'Unsupported audio format' }, isError: true };
+      }
+      const transcript = await transcribeAstraAudio(new Uint8Array(audioBuffer), mime, {
+        scope: _context?.userId,
+        language: sourceLanguage,
+      });
+      if (!transcript) {
+        return {
+          content: { error: 'Não consegui transcrever o áudio para tradução.' },
+          isError: true,
+        };
+      }
+      const translated = await translateAstraText(transcript.text, targetLanguage, {
+        sourceLanguage: transcript.language ?? sourceLanguage,
+        scope: _context?.userId,
+        allowExternal: true,
+      });
+      if (!translated) {
+        return {
+          content: { error: 'Não consegui traduzir o texto transcrito.' },
+          isError: true,
+        };
+      }
+      return {
+        content: {
+          success: true,
+          text: translated.text,
+          originalLanguage: transcript.language ?? sourceLanguage,
+          targetLanguage: translated.targetLanguage,
+          transcriptionEngine: transcript.engine,
+          translationEngine: translated.engine,
+          source,
+        },
+        isError: false,
+      };
+    }
+
+    // English-target legacy endpoint (Groq whisper-large-v3 or OpenAI Whisper)
+    const url = audioApiUrl(config.baseUrl, 'translations');
 
     const formData = new FormData();
     formData.append('file', new Blob([new Uint8Array(audioBuffer)]), filename);
-    formData.append('model', 'whisper-1');
+    formData.append(
+      'model',
+      config.baseUrl.includes('api.groq.com') ? 'whisper-large-v3' : 'whisper-1'
+    );
     if (prompt) formData.append('prompt', prompt);
 
     const format = responseFormat === 'text' ? 'text' : 'verbose_json';
@@ -750,8 +826,7 @@ const translateAudioOverride: ToolExecutor = async (
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Whisper Translation API ${response.status}: ${errText.slice(0, 500)}`);
+      throw new Error('Whisper Translation API ' + response.status);
     }
 
     if (format === 'text') {

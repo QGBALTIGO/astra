@@ -43,6 +43,7 @@ import {
 } from '../../tools/index.js';
 import { CONFIG_TOOLS, executeConfigTool } from '../../tools/config-tools.js';
 import { getErrorMessage } from '../../utils/common.js';
+import { TRANSLATE_TEXT_DEFINITION, translateTextExecutor } from '../../tools/translation-tool.js';
 
 // ============================================================================
 // Result type from gateway executors
@@ -333,5 +334,16 @@ export function createSkillToolProvider(userId: string): ToolProvider {
         definition: def,
         executor: wrapGatewayExecutor(def, executeSkillTool, userId),
       })),
+  };
+}
+
+/**
+ * Shared translation tool provider for dashboard, background automation,
+ * and agent tool discovery. Channel agents use the same definition/executor.
+ */
+export function createTranslationToolProvider(): ToolProvider {
+  return {
+    name: 'astra-translation',
+    getTools: () => [{ definition: TRANSLATE_TEXT_DEFINITION, executor: translateTextExecutor }],
   };
 }

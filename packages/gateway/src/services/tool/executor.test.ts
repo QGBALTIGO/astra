@@ -349,7 +349,7 @@ describe('Tool Executor', () => {
       expect(createEdgeToolProvider).toHaveBeenCalledWith('user-1');
       expect(createSkillToolProvider).toHaveBeenCalledWith('user-1');
 
-      expect(mockToolRegistry.registerProvider).toHaveBeenCalledTimes(15);
+      expect(mockToolRegistry.registerProvider).toHaveBeenCalledTimes(16);
       expect(mockToolRegistry.registerProvider).toHaveBeenCalledWith(mockMemoryProvider);
       expect(mockToolRegistry.registerProvider).toHaveBeenCalledWith(mockGoalProvider);
       expect(mockToolRegistry.registerProvider).toHaveBeenCalledWith(mockCustomDataProvider);

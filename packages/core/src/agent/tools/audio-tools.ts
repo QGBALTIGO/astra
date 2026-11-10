@@ -323,8 +323,9 @@ export const speechToTextExecutor: ToolExecutor = async (
 
 export const translateAudioTool: ToolDefinition = {
   name: 'translate_audio',
-  brief: 'Translate audio from any language to English',
-  description: 'Translate audio from any language to English text',
+  brief: 'Traduza áudio para português, inglês, espanhol e outros idiomas',
+  description:
+    'Translate an audio file to the requested target language (default English). Detect the source language automatically and preserve values and names.',
   parameters: {
     type: 'object',
     properties: {
@@ -336,6 +337,15 @@ export const translateAudioTool: ToolDefinition = {
         type: 'string',
         description: 'Optional context for better translation',
       },
+      targetLanguage: {
+        type: 'string',
+        description: 'Destination language (pt-BR, en, es, fr, etc). Defaults to English.',
+      },
+      sourceLanguage: {
+        type: 'string',
+        description: 'Optional original language or auto for detection.',
+      },
+
       model: {
         type: 'string',
         description: 'Whisper model',

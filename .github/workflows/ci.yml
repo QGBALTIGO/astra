@@ -173,6 +173,21 @@ jobs:
       - name: Test (core, cli, ui)
         run: pnpm --filter @ownpilot/core --filter @ownpilot/cli --filter @ownpilot/ui test
 
+  docker-multimodal-smoke:
+    name: Docker image, non-root runtime, local OCR and PDF smoke
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Build the same production Docker stage used by Railway
+        run: docker build --target production -t astra-multimodal:ci .
+      - name: Verify UID, mounted data path, OCR binaries and extraction
+        run: |
+          docker run --rm astra-multimodal:ci sh -c \
+            'test "$(id -u)" = 1001 && test -w /app/data && command -v tesseract && command -v pdftotext'
+          docker run --rm astra-multimodal:ci node scripts/astra-multimodal-smoke.mjs
+
   coverage:
     name: Coverage report
     # Coverage instrumentation slows the suite down, so PRs skip it.
@@ -252,6 +267,16 @@ jobs:
           POSTGRES_PASSWORD: ownpilot_ci_password
           POSTGRES_DB: ownpilot
         run: pnpm --filter @ownpilot/gateway exec tsx scripts/migration-smoke-test.ts
+
+      - name: Integration smoke — real PostgreSQL channel assets and isolated senders
+        env:
+          NODE_ENV: test
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: '5432'
+          POSTGRES_USER: ownpilot
+          POSTGRES_PASSWORD: ownpilot_ci_password
+          POSTGRES_DB: ownpilot
+        run: pnpm --filter @ownpilot/gateway exec tsx scripts/channel-asset-integration-smoke.ts
 
   gateway-boot-smoke-test:
     name: Gateway boot smoke test

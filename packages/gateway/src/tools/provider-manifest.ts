@@ -23,6 +23,7 @@ import {
   createBrowserToolProvider,
   createEdgeToolProvider,
   createSkillToolProvider,
+  createTranslationToolProvider,
 } from '../services/tool-providers/index.js';
 
 interface ProviderEntry {
@@ -55,6 +56,7 @@ const GATEWAY_PROVIDER_MANIFEST: ProviderEntry[] = [
   { name: 'browser', factory: createBrowserToolProvider },
   { name: 'edge', factory: createEdgeToolProvider },
   { name: 'skill', factory: createSkillToolProvider },
+  { name: 'astra-translation', factory: (_uid) => createTranslationToolProvider() },
 ];
 
 /**

@@ -15,7 +15,10 @@ vi.mock('../expense-tools.js', () => ({
   executeExpenseTool: (...args: unknown[]) => mockExecuteExpenseTool(...args),
 }));
 
-type Handler = (args: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
+type Handler = (
+  args: Record<string, unknown>,
+  context?: { userId?: string }
+) => Promise<{ content: string; isError: boolean }>;
 
 function makeFakeRegistry(existing: string[]) {
   const handlers = new Map<string, Handler>();
@@ -90,6 +93,25 @@ describe('registerExpenseOverrides', () => {
     expect(mockExecuteExpenseTool).toHaveBeenCalledWith('add_expense', expectedArgs, 'user-42');
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.content)).toEqual({ id: 'exp-1', amount: 12 });
+  });
+
+  it('uses the authenticated execution user for each call in a shared registry', async () => {
+    const registry = makeFakeRegistry(['add_expense', 'query_expenses']);
+    mockExecuteExpenseTool.mockResolvedValue({ success: true, result: {} });
+    registerExpenseOverrides(registry as never, 'default');
+
+    const add = registry.handlers.get('core.add_expense')!;
+    const query = registry.handlers.get('core.query_expenses')!;
+    await add({ amount: 21, description: 'Synthetic A' }, { userId: 'whatsapp:99999999991' });
+    await query({}, { userId: 'whatsapp:99999999992' });
+
+    expect(mockExecuteExpenseTool).toHaveBeenNthCalledWith(
+      1, 'add_expense', { amount: 21, description: 'Synthetic A' }, 'whatsapp:99999999991'
+    );
+    expect(mockExecuteExpenseTool).toHaveBeenNthCalledWith(
+      2, 'query_expenses', {}, 'whatsapp:99999999992'
+    );
+    expect(mockExecuteExpenseTool.mock.calls.every((call) => call[2] !== 'default')).toBe(true);
   });
 
   it('sends Portuguese categories to the assistant without changing stored IDs', async () => {
