@@ -43,7 +43,11 @@ function normalizedMime(mime: string): string {
 
 function safeString(value: unknown, max = 180): string {
   return typeof value === 'string'
-    ? value.replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
+    ? value
+        .replace(/[\u0000-\u001f\u007f<>]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, max)
     : '';
 }
 
@@ -51,7 +55,10 @@ function safeString(value: unknown, max = 180): string {
 export function parseImageFinding(source: unknown): ImageFinding | null {
   let parsed: unknown = source;
   if (typeof source === 'string') {
-    const unwrapped = source.trim().replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\s*\x60{3}$/, '');
+    const unwrapped = source
+      .trim()
+      .replace(/^\x60{3}(?:json)?\s*/i, '')
+      .replace(/\s*\x60{3}$/, '');
     try {
       parsed = JSON.parse(unwrapped);
     } catch {
