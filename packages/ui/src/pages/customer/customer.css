@@ -1976,7 +1976,7 @@
 }
 .astra-customer .ac-toast {
   position: fixed;
-  z-index: 120;
+  z-index: 90;
   top: 20px;
   right: 24px;
   display: flex;
@@ -2559,6 +2559,13 @@
   }
   .astra-customer .ac-section-total {
     font-size: 19px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .astra-customer .ac-card-heading:has(> .ac-section-total) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
   .astra-customer .ac-distribution-top {
     font-size: 12px;
