@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChannelAssetStore } from './channel-asset-store.js';
+import { ChannelAssetStore, resolveChannelAssetBaseDir } from './channel-asset-store.js';
 
 describe('ChannelAssetStore', () => {
   let baseDir: string;
@@ -25,6 +25,22 @@ describe('ChannelAssetStore', () => {
 
   afterEach(async () => {
     await rm(baseDir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+
+  it('writes to the existing Railway volume instead of /app/.ownpilot in production', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('OWNPILOT_DATA_DIR', '/app/data');
+    expect(resolveChannelAssetBaseDir()).toBe('/app/data/tmp/channel-assets');
+    vi.stubEnv('OWNPILOT_DATA_DIR', '');
+    expect(resolveChannelAssetBaseDir()).toBe('/app/data/tmp/channel-assets');
+  });
+
+  it('honors the configured absolute data directory and refuses relative traversal', () => {
+    vi.stubEnv('OWNPILOT_DATA_DIR', baseDir);
+    expect(resolveChannelAssetBaseDir()).toBe(join(baseDir, 'tmp', 'channel-assets'));
+    vi.stubEnv('OWNPILOT_DATA_DIR', '../private');
+    expect(() => resolveChannelAssetBaseDir()).toThrow('absolute path');
   });
 
   it('stores binary attachments on disk and returns asset references', async () => {
