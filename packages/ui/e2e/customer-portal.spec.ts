@@ -636,11 +636,14 @@ for (const screen of [
       await expect(
         page.getByText('Seu acesso está em modo de consulta.', { exact: true })
       ).toBeVisible();
-      await expect(page.getByRole('alert')).toContainText(
-        'Não foi possível carregar seu resumo agora'
-      );
+      const summaryError = page
+        .locator('section')
+        .filter({ has: page.getByRole('heading', { name: 'Últimas transações', exact: true }) })
+        .getByRole('alert');
+      await expect(summaryError).toHaveCount(1);
+      await expect(summaryError).toContainText('Não foi possível carregar seu resumo agora');
       api.allowSummary();
-      await page.getByRole('alert').getByRole('button', { name: 'Tentar novamente' }).click();
+      await summaryError.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
       await expectPaidExpenses(page, '182,50');
       await navigate(page, 'Transações', 'Transações');
       await expect(page.getByRole('button', { name: 'Adicionar', exact: true })).toBeDisabled();
