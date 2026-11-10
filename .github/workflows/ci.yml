@@ -20,6 +20,41 @@ permissions:
   contents: read
 
 jobs:
+
+  astra-format-once:
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/astra-free-llm-failover-20261109' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Format six changed Astra files on PR branch only
+        run: |
+          pnpm exec prettier --write \
+            packages/core/src/agent/providers/fallback.test.ts \
+            packages/gateway/src/services/agent/fallback-chain.test.ts \
+            packages/gateway/src/services/agent/fallback-chain.ts \
+            packages/gateway/src/services/agent/runner-utils.ts \
+            packages/gateway/src/services/agent/service.ts \
+            packages/gateway/src/services/app-settings.test.ts
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add packages/core/src/agent/providers/fallback.test.ts packages/gateway/src/services/agent/fallback-chain.test.ts packages/gateway/src/services/agent/fallback-chain.ts packages/gateway/src/services/agent/runner-utils.ts packages/gateway/src/services/agent/service.ts packages/gateway/src/services/app-settings.test.ts
+            git commit -m "style(astra): apply Prettier to free-tier failover changes"
+            git push origin HEAD:${{ github.head_ref }}
+          fi
   build-and-test:
     # Chromium from Playwright 1.58.2 does not support the ubuntu-26.04 runner.
     # Pin to the same supported image as the isolated Astra UI audit.
