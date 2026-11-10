@@ -65,7 +65,7 @@ jobs:
           set -eu
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/workflows/ci.yml packages/core/src/agent packages/core/src/types/utility.test.ts \
+          git add packages/core/src/agent packages/core/src/types/utility.test.ts \
             packages/gateway/src scripts/astra-multimodal-smoke.mjs docs/astra-multimodal.md
           if git diff --cached --quiet; then
             echo 'No formatting differences'
