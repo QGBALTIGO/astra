@@ -84,7 +84,7 @@ describe('WhatsApp profile-picture compatibility', () => {
     expect(f.query).toHaveBeenCalledTimes(1);
     expect(f.query.mock.calls[0]?.[1]).toBe(3000);
     const iq = f.query.mock.calls[0]![0];
-    expect(iq.attrs.to).toBe('s.whatsapp.net');
+    expect(iq.attrs.to).toBe('@s.whatsapp.net');
     const decoded = await decodeBinaryNode(encodeBinaryNode(iq));
     expect(decoded.attrs).toMatchObject({
       target: PHONE,
