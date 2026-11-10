@@ -17,9 +17,10 @@ const ALLOWED_FREE_MODELS: Readonly<Record<string, ReadonlySet<string>>> = {
 };
 
 function isAllowedFreeRoute(route: AstraFallbackRoute): boolean {
-  return ALLOWED_FREE_MODELS[route.provider]?.has(route.model) === true ||
-    (route.provider === 'openrouter' &&
-      /^[a-z0-9._/-]+:free$/.test(route.model));
+  return (
+    ALLOWED_FREE_MODELS[route.provider]?.has(route.model) === true ||
+    (route.provider === 'openrouter' && /^[a-z0-9._/-]+:free$/.test(route.model))
+  );
 }
 
 /**

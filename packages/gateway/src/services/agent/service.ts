@@ -781,8 +781,7 @@ async function createChatAgentInstance(
         // A candidate is available only when credentials AND a supported
         // endpoint have been configured. Never use a catalog's paid default.
         const fbResolvedAuth = await resolveAuthForRequest(candidate.provider);
-        const fbApiKey =
-          fbResolvedAuth?.value ?? (await getProviderApiKey(candidate.provider));
+        const fbApiKey = fbResolvedAuth?.value ?? (await getProviderApiKey(candidate.provider));
         const fbConfig = loadProviderConfig(candidate.provider);
         // Native providers (e.g. Anthropic, Google) have built-in endpoints.
         if (!fbApiKey || (!fbConfig?.baseUrl && !NATIVE_PROVIDERS.has(candidate.provider))) {

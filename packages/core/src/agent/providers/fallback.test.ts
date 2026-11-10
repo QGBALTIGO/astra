@@ -688,7 +688,6 @@ describe('createProviderWithFallbacks', () => {
   });
 });
 
-
 describe('Astra multi-provider resilience', () => {
   it('keeps circuits independent when several vendors are OpenAI-compatible', async () => {
     const primary = makeMockProvider('openai-compatible');

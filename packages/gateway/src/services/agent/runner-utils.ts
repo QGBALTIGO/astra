@@ -254,8 +254,7 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
       const fallbacks: ProviderConfig[] = [];
       for (const candidate of candidates) {
         const fbResolvedAuth = await resolveAuthForRequest(candidate.provider);
-        const fbApiKey =
-          fbResolvedAuth?.value ?? (await getProviderApiKey(candidate.provider));
+        const fbApiKey = fbResolvedAuth?.value ?? (await getProviderApiKey(candidate.provider));
         const fbConfig = loadProviderConfig(candidate.provider);
         if (!fbApiKey || (!fbConfig?.baseUrl && !NATIVE_PROVIDERS.has(candidate.provider))) {
           continue;

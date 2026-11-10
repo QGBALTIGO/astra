@@ -331,7 +331,6 @@ describe('bootstrapAstraToolGroups', () => {
   });
 });
 
-
 describe('Astra Railway AI credentials', () => {
   const previous = {
     onlyGroq: process.env.ASTRA_ONLY_GROQ,
