@@ -8,6 +8,8 @@ import { channelUsersRepo } from '../db/repositories/channels/users.js';
 import { isChannelUserAccessActive } from '../channels/channel-access-service.js';
 import { getOwnerUserId } from './pairing-service.js';
 import { getLog } from './log.js';
+import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
+import { resolveCustomerPhone } from './customer-identity.js';
 
 const log = getLog('ChannelReminderWorker');
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -30,21 +32,24 @@ export async function dispatchDueChannelReminders(): Promise<{
     for (const entry of entries) {
       try {
         const channels = getChannelService();
-        if (
-          channels.getChannel(entry.channelPluginId)?.getPlatform() === 'whatsapp' &&
-          entry.userId.startsWith('whatsapp:')
-        ) {
-          const phone = entry.userId.slice('whatsapp:'.length);
-          const recipient = entry.platformChatId
-            .replace(/@s\.whatsapp\.net$/, '')
-            .replace(/^\+/, '');
+        const api = channels.getChannel(entry.channelPluginId);
+        let platformChatId = entry.platformChatId;
+        if (api?.getPlatform() === 'whatsapp' && entry.userId.startsWith('whatsapp:')) {
+          const account = await customerAccountsRepo.getByDataUserId(entry.userId);
+          const phone = account?.phoneNumber ?? entry.userId.slice('whatsapp:'.length);
+          const recipient = entry.platformChatId.includes('@')
+            ? entry.platformChatId.match(
+                /^([1-9][0-9]{9,14})(?::[0-9]+)?@(?:s\.whatsapp\.net|c\.us)$/
+              )?.[1]
+            : entry.platformChatId.replace(/[^0-9]/g, '');
+          const alias = account && recipient ? await resolveCustomerPhone(recipient) : null;
           const user = await channelUsersRepo.findByPlatform('whatsapp', phone);
           const ownerPhone = await getOwnerUserId('whatsapp');
           const currentOwner =
             ownerPhone === phone && user?.isVerified && !user.isBlocked && user.status === 'active';
           if (
-            recipient !== phone ||
-            user?.ownpilotUserId !== entry.userId ||
+            (account ? alias?.accountId !== account.id : recipient !== phone) ||
+            user?.ownpilotUserId !== `whatsapp:${phone}` ||
             (!currentOwner && !isChannelUserAccessActive(user))
           ) {
             // A subscription ending is not a transport failure. Keep the
@@ -55,9 +60,16 @@ export async function dispatchDueChannelReminders(): Promise<{
             log.info('Lembrete retido por acesso inativo', { reminderId: entry.id });
             continue;
           }
+          // Resolve again at dispatch so a queued reminder follows a verified
+          // number change without changing the immutable data identity.
+          platformChatId = phone;
+        }
+        if (api && api.getStatus() !== 'connected') {
+          await channelRemindersRepo.deferDisconnected(entry.id);
+          continue;
         }
         const id = await channels.send(entry.channelPluginId, {
-          platformChatId: entry.platformChatId,
+          platformChatId,
           text: `⏰ Lembrete: ${entry.title}`,
         });
         await channelRemindersRepo.markDelivered(entry.id, String(id ?? 'enviado'));

@@ -118,6 +118,20 @@ describe('CalendarRepository', () => {
       expect(params[6]).toBe('2025-01-20T11:00:00.000Z');
     });
 
+    it('normalizes explicit customer offsets before writing timestamp columns', async () => {
+      mockAdapter.execute.mockResolvedValueOnce({ changes: 1 });
+      mockAdapter.queryOne.mockResolvedValueOnce(makeEventRow());
+      await repo.create({
+        title: 'Consulta',
+        timezone: 'America/Campo_Grande',
+        startTime: '2026-11-11T09:00:00-04:00',
+        endTime: '2026-11-11T10:00:00-04:00',
+      });
+      const params = mockAdapter.execute.mock.calls[0]![1] as unknown[];
+      expect(params[5]).toBe('2026-11-11T13:00:00.000Z');
+      expect(params[6]).toBe('2026-11-11T14:00:00.000Z');
+    });
+
     it('should store all optional fields', async () => {
       const row = makeEventRow({
         description: 'Weekly standup',

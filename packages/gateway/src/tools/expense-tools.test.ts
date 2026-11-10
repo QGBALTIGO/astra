@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const mockAccount = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock('../db/repositories/customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: mockAccount },
+}));
 
 // ── Mocks ──
 
@@ -26,6 +30,25 @@ beforeEach(() => {
 });
 
 describe('executeExpenseTool', () => {
+  it('uses a WhatsApp customer timezone for creation and today totals', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-11T02:00:00Z'));
+    mockAccount
+      .mockResolvedValueOnce({ timeZone: 'America/Campo_Grande' })
+      .mockResolvedValueOnce({ timeZone: 'America/Campo_Grande' });
+    try {
+      await executeExpenseTool(
+        'add_expense',
+        { amount: 10, description: 'Café' },
+        'whatsapp:5511999990101'
+      );
+      expect(mockRepo.create).toHaveBeenCalledWith(expect.objectContaining({ date: '2026-11-10' }));
+      await executeExpenseTool('expense_summary', { period: 'today' }, 'whatsapp:5511999990101');
+      expect(mockRepo.getSummary).toHaveBeenCalledWith('2026-11-10', '2026-11-10');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('add_expense creates an expense', async () => {
     const result = await executeExpenseTool(
       'add_expense',

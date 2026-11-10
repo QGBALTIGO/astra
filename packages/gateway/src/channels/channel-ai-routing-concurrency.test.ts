@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
+vi.mock('../db/repositories/customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: vi.fn().mockResolvedValue(null) },
+}));
 
 const mocks = vi.hoisted(() => ({
   getAgent: vi.fn(),

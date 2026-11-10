@@ -4,6 +4,9 @@ const mock = vi.hoisted(() => ({
   claimDue: vi.fn(),
   markDelivered: vi.fn(),
   markFailed: vi.fn(),
+  deferDisconnected: vi.fn(),
+  getAccount: vi.fn(),
+  resolvePhone: vi.fn(),
   send: vi.fn(),
   getChannel: vi.fn(),
   findByPlatform: vi.fn(),
@@ -18,6 +21,7 @@ vi.mock('../db/repositories/channel-reminders.js', () => ({
     claimDue: mock.claimDue,
     markDelivered: mock.markDelivered,
     markFailed: mock.markFailed,
+    deferDisconnected: mock.deferDisconnected,
   },
 }));
 vi.mock('@ownpilot/core/channels', () => ({
@@ -26,6 +30,10 @@ vi.mock('@ownpilot/core/channels', () => ({
 vi.mock('../db/repositories/channels/users.js', () => ({
   channelUsersRepo: { findByPlatform: mock.findByPlatform },
 }));
+vi.mock('../db/repositories/customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: mock.getAccount },
+}));
+vi.mock('./customer-identity.js', () => ({ resolveCustomerPhone: mock.resolvePhone }));
 vi.mock('./pairing-service.js', () => ({ getOwnerUserId: mock.owner }));
 vi.mock('./log.js', () => ({
   getLog: () => ({ info: mock.info, warn: mock.warn, error: mock.error }),
@@ -55,8 +63,14 @@ describe('ChannelReminderWorker', () => {
     mock.send.mockResolvedValue('telegram-message-123');
     mock.markDelivered.mockResolvedValue(undefined);
     mock.markFailed.mockResolvedValue(undefined);
-    mock.getChannel.mockReturnValue({ getPlatform: () => 'telegram' });
+    mock.getChannel.mockReturnValue({
+      getPlatform: () => 'telegram',
+      getStatus: () => 'connected',
+    });
     mock.findByPlatform.mockResolvedValue(null);
+    mock.getAccount.mockResolvedValue(null);
+    mock.resolvePhone.mockResolvedValue(null);
+    mock.deferDisconnected.mockResolvedValue(undefined);
     mock.owner.mockResolvedValue(null);
   });
   afterEach(() => {
@@ -126,7 +140,10 @@ describe('ChannelReminderWorker', () => {
     ['pending', { ...subscriber, status: 'pending' }],
     ['wrong identity', { ...subscriber, ownpilotUserId: 'default' }],
   ])('does not deliver or retry a reminder for a %s WhatsApp subscriber', async (_label, user) => {
-    mock.getChannel.mockReturnValue({ getPlatform: () => 'whatsapp' });
+    mock.getChannel.mockReturnValue({
+      getPlatform: () => 'whatsapp',
+      getStatus: () => 'connected',
+    });
     mock.findByPlatform.mockResolvedValue(user);
     mock.claimDue.mockResolvedValue([
       {
@@ -150,7 +167,10 @@ describe('ChannelReminderWorker', () => {
   });
 
   it('delivers after checking a subscriber with a current authorization', async () => {
-    mock.getChannel.mockReturnValue({ getPlatform: () => 'whatsapp' });
+    mock.getChannel.mockReturnValue({
+      getPlatform: () => 'whatsapp',
+      getStatus: () => 'connected',
+    });
     mock.findByPlatform.mockResolvedValue(subscriber);
     mock.claimDue.mockResolvedValue([
       {
@@ -167,7 +187,10 @@ describe('ChannelReminderWorker', () => {
   });
 
   it('does not deliver a subscriber reminder to a different phone', async () => {
-    mock.getChannel.mockReturnValue({ getPlatform: () => 'whatsapp' });
+    mock.getChannel.mockReturnValue({
+      getPlatform: () => 'whatsapp',
+      getStatus: () => 'connected',
+    });
     mock.findByPlatform.mockResolvedValue(subscriber);
     mock.claimDue.mockResolvedValue([
       {
@@ -179,6 +202,87 @@ describe('ChannelReminderWorker', () => {
     ]);
 
     expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 0, failed: 1 });
+    expect(mock.send).not.toHaveBeenCalled();
+  });
+
+  it.each(['', '@s.whatsapp.net', '@c.us', ':2@s.whatsapp.net'])(
+    'follows a verified phone change for address suffix %s while keeping the original data scope',
+    async (suffix) => {
+      const currentPhone = '5521999995678';
+      mock.getChannel.mockReturnValue({
+        getPlatform: () => 'whatsapp',
+        getStatus: () => 'connected',
+      });
+      mock.getAccount.mockResolvedValue({
+        id: 'account-1',
+        phoneNumber: currentPhone,
+        dataUserId: subscriber.ownpilotUserId,
+      });
+      mock.resolvePhone.mockResolvedValue({
+        accountId: 'account-1',
+        retired: true,
+        isCurrent: false,
+      });
+      mock.findByPlatform.mockResolvedValue({
+        ...subscriber,
+        platformUserId: currentPhone,
+        ownpilotUserId: `whatsapp:${currentPhone}`,
+      });
+      mock.claimDue.mockResolvedValue([
+        {
+          ...makeReminder('changed-number'),
+          userId: subscriber.ownpilotUserId,
+          platformChatId: phone + suffix,
+          channelPluginId: 'channel.whatsapp',
+        },
+      ]);
+      expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 1, failed: 0 });
+      expect(mock.send).toHaveBeenCalledWith(
+        'channel.whatsapp',
+        expect.objectContaining({ platformChatId: currentPhone })
+      );
+      expect(mock.findByPlatform).toHaveBeenCalledWith('whatsapp', currentPhone);
+    }
+  );
+
+  it('never retargets a reminder whose stored recipient belongs to another account', async () => {
+    mock.getChannel.mockReturnValue({
+      getPlatform: () => 'whatsapp',
+      getStatus: () => 'connected',
+    });
+    mock.getAccount.mockResolvedValue({ id: 'account-1', phoneNumber: phone });
+    mock.resolvePhone.mockResolvedValue({ accountId: 'account-2' });
+    mock.findByPlatform.mockResolvedValue(subscriber);
+    mock.claimDue.mockResolvedValue([
+      {
+        ...makeReminder('cross-account'),
+        userId: subscriber.ownpilotUserId,
+        platformChatId: '5521999995678',
+        channelPluginId: 'channel.whatsapp',
+      },
+    ]);
+    await dispatchDueChannelReminders();
+    expect(mock.send).not.toHaveBeenCalled();
+    expect(mock.markFailed).toHaveBeenCalledWith('cross-account', 5, 'channel_access_inactive');
+  });
+
+  it('waits through a disconnection without exhausting delivery attempts', async () => {
+    mock.getChannel.mockReturnValue({
+      getPlatform: () => 'whatsapp',
+      getStatus: () => 'disconnected',
+    });
+    mock.findByPlatform.mockResolvedValue(subscriber);
+    mock.claimDue.mockResolvedValue([
+      {
+        ...makeReminder('reconnect'),
+        userId: subscriber.ownpilotUserId,
+        platformChatId: phone,
+        channelPluginId: 'channel.whatsapp',
+      },
+    ]);
+    expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 0, failed: 0 });
+    expect(mock.deferDisconnected).toHaveBeenCalledWith('reconnect');
+    expect(mock.markFailed).not.toHaveBeenCalled();
     expect(mock.send).not.toHaveBeenCalled();
   });
 });

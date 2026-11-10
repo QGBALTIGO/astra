@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+const mockAccount = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock('./customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: mockAccount },
+}));
 
 const mockAdapter = vi.hoisted(() => ({
   type: 'postgres' as const,
@@ -139,5 +143,47 @@ describe('Financing repository: separate user balances', () => {
     ).rejects.toThrow('INSERT expense failed');
     expect(mockAdapter.transaction).toHaveBeenCalledTimes(1);
     expect(mockAdapter.execute).not.toHaveBeenCalled();
+  });
+
+  it('records a payment on the customer local day and uses the same scoped expense ledger', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-11T02:00:00Z'));
+    mockAccount.mockResolvedValueOnce({ timeZone: 'America/Campo_Grande' });
+    mockAdapter.queryOne
+      .mockResolvedValueOnce(dbRow)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(dbRow)
+      .mockResolvedValueOnce({
+        id: 'exp-payment',
+        user_id: dbRow.user_id,
+        date: '2026-11-10',
+        amount: '470.00',
+        category: 'transport',
+        currency: 'BRL',
+        description: 'Pagamento de carro',
+        tags: [],
+        source: 'financing',
+        created_at: new Date(),
+        updated_at: new Date(),
+      })
+      .mockResolvedValueOnce({ ...dbRow, additional_paid_cents: '47000' });
+    try {
+      const outcome = await new FinanceObligationsRepository(dbRow.user_id).recordPayment(
+        'carro',
+        47_000,
+        'e'.repeat(64)
+      );
+      expect(outcome).toMatchObject({ status: 'recorded', balance: { paidCents: 140_000 } });
+      const insert = mockAdapter.queryOne.mock.calls.find(([sql]) =>
+        String(sql).startsWith('INSERT INTO expenses')
+      )!;
+      expect(insert[1]).toEqual(expect.arrayContaining([dbRow.user_id, '2026-11-10', 470]));
+      expect(mockAdapter.execute).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO finance_obligation_payments'),
+        expect.arrayContaining([dbRow.user_id, 'exp-payment'])
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

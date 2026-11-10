@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelUserEntity } from '../db/repositories/channels/users.js';
 
 vi.mock('../db/repositories/channels/users.js', () => ({ channelUsersRepo: {} }));
+vi.mock('../services/customer-identity.js', () => ({
+  resolveCustomerPhone: vi.fn().mockResolvedValue(null),
+}));
 vi.mock('../services/pairing-service.js', () => ({ getOwnerUserId: vi.fn() }));
 
 import {

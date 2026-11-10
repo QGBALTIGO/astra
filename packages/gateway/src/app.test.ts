@@ -6,6 +6,11 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+const mockCustomerAuthenticate = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock('./services/customer-auth.js', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, getCustomerAuthService: () => ({ authenticate: mockCustomerAuthenticate }) };
+});
 
 // Mock middleware modules
 const mockRequestId = vi.fn().mockImplementation((c, next) => next());
@@ -136,6 +141,7 @@ describe('createApp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authSeenPaths.length = 0;
+    mockCustomerAuthenticate.mockResolvedValue(null);
     delete process.env.NODE_ENV;
     delete process.env.UI_PORT;
     delete process.env.CORS_ORIGINS;
@@ -164,6 +170,77 @@ describe('createApp', () => {
       const app = createApp(customConfig);
       const res = await app.request('/api/v1/agents');
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe('customer authentication boundary', () => {
+    const customer = {
+      accountId: 'account-1',
+      dataUserId: 'whatsapp:5511999990001',
+      phoneNumber: '5511999990001',
+      displayName: 'Ana',
+      timeZone: 'America/Campo_Grande',
+      currency: 'BRL',
+      theme: 'system',
+      hideAmounts: false,
+      access: { status: 'active', expiresAt: '2099-01-01T00:00:00Z', canWrite: true },
+    };
+
+    it('never grants a customer API implicit owner access, even with auth disabled', async () => {
+      const app = createApp({ auth: { type: 'none' } });
+      const response = await app.request('/api/v1/customer/profile');
+      expect(response.status).toBe(401);
+      expect(mockUiSessionMiddleware).not.toHaveBeenCalled();
+      expect(response.headers.get('cache-control')).toBe('no-store');
+    });
+
+    it('accepts only the dedicated customer session before owner authentication', async () => {
+      mockCustomerAuthenticate.mockResolvedValue({ customer, sessionId: 'customer-session-1' });
+      const app = createApp();
+      const response = await app.request('/api/v1/customer/profile', {
+        headers: { cookie: 'astra_customer_session=private-token' },
+      });
+      expect(response.status).toBe(200);
+      expect((await response.json()).data.profile).toEqual(customer);
+      expect(mockCustomerAuthenticate).toHaveBeenCalledExactlyOnceWith('private-token');
+      expect(authSeenPaths).not.toContain('/api/v1/customer/profile');
+      expect(mockUiSessionMiddleware).not.toHaveBeenCalled();
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    });
+
+    it('does not bypass owner authentication when a customer cookie is sent to an admin endpoint', async () => {
+      const app = createApp();
+      await app.request('/api/v1/settings', {
+        headers: { cookie: 'astra_customer_session=private-token' },
+      });
+      expect(authSeenPaths).toContain('/api/v1/settings');
+      expect(mockCustomerAuthenticate).not.toHaveBeenCalled();
+    });
+
+    it('terminates unknown customer paths without falling into the owner router', async () => {
+      mockCustomerAuthenticate.mockResolvedValue({ customer, sessionId: 'customer-session-1' });
+      const app = createApp();
+      const response = await app.request('/api/v1/customer/admin/settings', {
+        headers: { cookie: 'astra_customer_session=private-token' },
+      });
+      expect(response.status).toBe(404);
+      expect(authSeenPaths).toEqual([]);
+    });
+
+    it('blocks cross-origin customer writes before their payload or account is used', async () => {
+      const app = createApp();
+      const response = await app.request('/api/v1/customer/finance/transactions', {
+        method: 'POST',
+        headers: {
+          cookie: 'astra_customer_session=private-token',
+          origin: 'https://foreign.example',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ amount: 10 }),
+      });
+      expect(response.status).toBe(403);
+      expect(mockCustomerAuthenticate).not.toHaveBeenCalled();
+      expect(mockUiSessionMiddleware).not.toHaveBeenCalled();
     });
   });
 

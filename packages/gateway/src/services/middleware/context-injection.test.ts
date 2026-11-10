@@ -3,6 +3,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+const mockCustomerAccount = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock('../../db/repositories/customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: mockCustomerAccount },
+}));
 import type {
   NormalizedMessage,
   MessageProcessingResult,
@@ -140,6 +144,7 @@ describe('createContextInjectionMiddleware', () => {
   let middleware: ReturnType<typeof createContextInjectionMiddleware>;
 
   beforeEach(() => {
+    mockCustomerAccount.mockResolvedValue(null);
     vi.clearAllMocks();
     clearInjectionCache();
     middleware = createContextInjectionMiddleware();
@@ -990,6 +995,28 @@ describe('createContextInjectionMiddleware', () => {
       '\n\n---\n\n## Current Context\n- Current time: Jan 01, 2025, 10:00\n- Day: Wednesday';
     const PROMPT_WITH_TC = STATIC_PART + TIME_BLOCK;
     const ORCHESTRATOR = '\n---\n## User Context (from memory)\n- Memory X';
+
+    it('refreshes the approved customer zone from the stable data scope on every turn', async () => {
+      mockCustomerAccount.mockResolvedValue({ timeZone: 'America/Campo_Grande' });
+      const agent = createAgent({
+        getConversation: vi.fn().mockReturnValue({ systemPrompt: PROMPT_WITH_TC }),
+      });
+      mockBuildEnhancedSystemPrompt.mockResolvedValue({
+        prompt: PROMPT_WITH_TC + ORCHESTRATOR,
+        stats: { memoriesUsed: 1, goalsUsed: 0 },
+      });
+      const ctx = createContext({
+        store: { agent, userId: 'whatsapp:original-phone', agentId: 'agent-1' },
+      });
+      await middleware(createMessage(), ctx, vi.fn().mockResolvedValue(createNextResult()));
+      expect(agent.updateSystemPrompt.mock.calls[0][0]).toContain(
+        "User's timezone: America/Campo_Grande"
+      );
+      mockCustomerAccount.mockResolvedValue({ timeZone: 'Asia/Tokyo' });
+      await middleware(createMessage(), ctx, vi.fn().mockResolvedValue(createNextResult()));
+      expect(agent.updateSystemPrompt.mock.calls[1][0]).toContain("User's timezone: Asia/Tokyo");
+      expect(mockCustomerAccount).toHaveBeenNthCalledWith(2, 'whatsapp:original-phone');
+    });
 
     it('places orchestratorSuffix BEFORE ## Current Context when marker is present', async () => {
       // Agent has a prompt with ## Current Context

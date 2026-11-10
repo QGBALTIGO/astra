@@ -67,6 +67,7 @@ export interface TaskQuery extends StandardQuery {
   parentId?: string | null;
   dueBefore?: string;
   dueAfter?: string;
+  includeUndated?: boolean;
 }
 
 interface TaskRow {
@@ -290,12 +291,12 @@ export class TasksRepository extends BaseRepository {
     }
 
     if (query.dueBefore) {
-      sql += ` AND due_date <= $${paramIndex++}`;
+      sql += ` AND (due_date <= $${paramIndex++}${query.includeUndated ? ' OR due_date IS NULL' : ''})`;
       params.push(query.dueBefore);
     }
 
     if (query.dueAfter) {
-      sql += ` AND due_date >= $${paramIndex++}`;
+      sql += ` AND (due_date >= $${paramIndex++}${query.includeUndated ? ' OR due_date IS NULL' : ''})`;
       params.push(query.dueAfter);
     }
 

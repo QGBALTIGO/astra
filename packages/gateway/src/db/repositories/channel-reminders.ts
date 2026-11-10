@@ -141,6 +141,17 @@ export class ChannelRemindersRepository extends BaseRepository {
     );
   }
 
+  /** A disconnected adapter has not attempted delivery; preserve retries. */
+  async deferDisconnected(id: string): Promise<void> {
+    await this.execute(
+      `UPDATE channel_reminders SET status = 'pending',
+      attempts = GREATEST(0, attempts - 1), next_attempt_at = NOW() + INTERVAL '30 seconds',
+      leased_until = NULL, updated_at = NOW()
+      WHERE id = $1 AND status = 'sending'`,
+      [id]
+    );
+  }
+
   async markFailed(id: string, attempts: number, reason: string): Promise<void> {
     const retrySeconds = Math.min(300, Math.max(15, 15 * 2 ** Math.max(0, attempts - 1)));
     await this.execute(

@@ -13,20 +13,17 @@ if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
   });
 }
 
-import { StrictMode } from 'react';
+import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router';
-import { App } from './App';
-import { WebSocketProvider } from './hooks/useWebSocket';
-import { ThemeProvider } from './hooks/useTheme';
-import { ChatProvider } from './hooks/useChatStore';
-import { SidebarChatProvider } from './hooks/useSidebarChat';
-import { AuthProvider } from './hooks/useAuth';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { DialogProvider } from './components/ConfirmDialog';
-import { ToastProvider } from './components/ToastProvider';
 import './index.css';
-import { installPtBrUi } from './i18n/ptBR';
+
+// Customer pages never mount or import the owner authentication, chat or socket
+// providers. Their dedicated HttpOnly cookie is the only portal credential.
+const Application = lazy(() =>
+  /^\/cliente(?:\/|$)/.test(window.location.pathname)
+    ? import('./pages/customer/CustomerApp').then((module) => ({ default: module.CustomerApp }))
+    : import('./AdminApp').then((module) => ({ default: module.AdminApp }))
+);
 
 // A PWA antiga pode solicitar um chunk removido apos um deploy.
 // Recarregue so uma vez para recuperar o HTML atual, sem loops.
@@ -43,28 +40,16 @@ window.addEventListener('vite:preloadError', (event) => {
   }
 });
 
-installPtBrUi();
-
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary>
-      <ThemeProvider>
-        <BrowserRouter>
-          <AuthProvider>
-            <WebSocketProvider>
-              <ChatProvider>
-                <SidebarChatProvider>
-                  <DialogProvider>
-                    <ToastProvider>
-                      <App />
-                    </ToastProvider>
-                  </DialogProvider>
-                </SidebarChatProvider>
-              </ChatProvider>
-            </WebSocketProvider>
-          </AuthProvider>
-        </BrowserRouter>
-      </ThemeProvider>
-    </ErrorBoundary>
+    <Suspense
+      fallback={
+        <div role="status" style={{ padding: 32 }}>
+          Carregando o Astra…
+        </div>
+      }
+    >
+      <Application />
+    </Suspense>
   </StrictMode>
 );

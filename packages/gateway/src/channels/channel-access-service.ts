@@ -190,6 +190,15 @@ export class ChannelAccessService {
   ) {}
 
   private async assertCustomer(phoneNumber: string, existing: ChannelUserEntity | null) {
+    const { resolveCustomerPhone } = await import('../services/customer-identity.js');
+    const alias = await resolveCustomerPhone(phoneNumber);
+    if (alias && (!alias.isCurrent || alias.retired)) {
+      throw new ChannelAccessError(
+        'Este número foi substituído em uma conta. Use o telefone atual do cliente.',
+        409,
+        'CONFLICT'
+      );
+    }
     if (
       (await this.ownerLookup('whatsapp')) === phoneNumber ||
       existing?.ownpilotUserId === LOCAL_OWNER_ID

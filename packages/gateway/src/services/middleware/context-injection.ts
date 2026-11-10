@@ -25,6 +25,7 @@ import type { RequestRouting } from './request-preprocessor.js';
 import { buildPageContextSection, type PageContext } from './page-context-section.js';
 import { getLog } from '../log.js';
 import { SoulsRepository } from '../../db/repositories/souls.js';
+import { customerAccountsRepo } from '../../db/repositories/customer-accounts.js';
 
 const log = getLog('Middleware:ContextInjection');
 
@@ -119,6 +120,9 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
     const cacheKey = `${userId}|${agentId}`;
 
     try {
+      const customerAccount = userId.startsWith('whatsapp:')
+        ? await customerAccountsRepo.getByDataUserId(userId)
+        : null;
       const currentSystemPrompt =
         agent.getConversation().systemPrompt || 'You are a helpful AI assistant.';
 
@@ -221,10 +225,11 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
         splitIdx > 0
           ? (() => {
               // Build a fresh ## Current Context block (rounded to hour)
-              const tc = getTimeContext();
+              const tc = getTimeContext(customerAccount?.timeZone);
               const rounded = new Date(tc.currentTime);
-              rounded.setMinutes(0, 0, 0);
+              if (!customerAccount) rounded.setMinutes(0, 0, 0);
               const timeStr = rounded.toLocaleString(undefined, {
+                timeZone: customerAccount?.timeZone,
                 year: 'numeric',
                 month: 'short',
                 day: 'numeric',
@@ -236,7 +241,10 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
                 `\n\n---\n\n## Current Context` +
                 `\n- Current time: ${timeStr}` +
                 `\n- Day: ${tc.dayOfWeek}` +
-                `\n- User's timezone: ${tc.timezone ?? 'Unknown'}`;
+                `\n- User's timezone: ${tc.timezone ?? 'Unknown'}` +
+                (customerAccount
+                  ? '\n- Use este fuso para hoje, amanhã, compromissos e lembretes. Salve horários absolutos como ISO 8601 com o offset correto; o painel compartilha os mesmos registros.'
+                  : '');
 
               // Preserve sections after ## Current Context in base prompt
               // (## Code Execution, ## File Operations added by the chat route)

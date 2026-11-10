@@ -32,6 +32,7 @@ import { registerAutomationRoutes } from './routes/register/automation.js';
 import { registerIntegrationRoutes } from './routes/register/integration.js';
 import { registerOpenApiRoutes } from './routes/openapi.js';
 import { registerV2Routes } from './routes/register/v2.js';
+import { customerRoutes } from './routes/customer/index.js';
 import {
   RATE_LIMIT_WINDOW_MS,
   RATE_LIMIT_MAX_REQUESTS,
@@ -213,13 +214,14 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
     '/api/*',
     cors({
       origin: fullConfig.corsOrigins ?? [],
-      allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowHeaders: [
         'Content-Type',
         'Authorization',
         'X-API-Key',
         'X-Request-ID',
         'X-Session-Token',
+        'Idempotency-Key',
       ],
       exposeHeaders: ['X-Request-ID', 'X-Response-Time'],
       maxAge: SECONDS_PER_DAY,
@@ -265,6 +267,10 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
     app.use('/api/*', createRateLimitMiddleware(fullConfig.rateLimit));
     app.use('/webhooks/*', createRateLimitMiddleware(fullConfig.rateLimit));
   }
+
+  // Customer sessions have their own namespace and never set owner/API auth.
+  // Mount after global security/rate limits and before all owner middleware.
+  app.route('/api/v1/customer', customerRoutes);
 
   // ORDER MATTERS - Authentication middleware sequence:
   // 1. UI session (bypasses API auth for logged-in web UI users)

@@ -50,6 +50,7 @@ import {
 import { channelAccessNotificationsRepo } from '../db/repositories/channel-access-notifications.js';
 import { buildAccessMessage } from './channel-access-messages.js';
 import { getWhatsAppAccessMessageSettings } from './channel-access-message-settings.js';
+import { resolveCustomerPhone } from '../services/customer-identity.js';
 import {
   channelSessionsRepo,
   type ChannelSessionsRepository,
@@ -503,6 +504,12 @@ export class ChannelServiceImpl implements IChannelService {
         log.warn('Ignoring unresolvable WhatsApp customer identity');
         return;
       }
+      if (isWhatsAppGuest) {
+        const alias = await resolveCustomerPhone(message.sender.platformUserId);
+        // Retired phones stay reserved. A later holder must never recreate the
+        // old customer's identity or read its historical data.
+        if (alias && (!alias.isCurrent || alias.retired)) return;
+      }
 
       // 1. Find or create channel user
       const channelUser = await this.usersRepo.findOrCreate({
@@ -580,7 +587,14 @@ export class ChannelServiceImpl implements IChannelService {
         return;
       }
 
+      let dataUserId = channelUser.ownpilotUserId;
       if (isWhatsAppGuest) {
+        const identity = await resolveCustomerPhone(message.sender.platformUserId, {
+          provision: true,
+        });
+        if (!identity?.isCurrent || identity.retired) return;
+        dataUserId = identity.dataUserId;
+        whatsappUserId = dataUserId;
         // A message previously answered by the access gate must not become a
         // new AI request when WhatsApp replays it after approval or reconnect.
         if (wasInboundAccessNoticeHandled(channelUser, message.id)) return;
@@ -984,7 +998,7 @@ export class ChannelServiceImpl implements IChannelService {
           `channel:${message.channelPluginId}:${channelUser.id}`,
           undefined,
           true,
-          channelUser.ownpilotUserId
+          dataUserId
         );
         const systemPrompt = agent.getConversation().systemPrompt;
         const conv = agent.getMemory().create(systemPrompt);
@@ -997,12 +1011,12 @@ export class ChannelServiceImpl implements IChannelService {
         await conversationsRepo.create({
           id: conversationId,
           agentName: 'default',
-          userId: channelUser.ownpilotUserId,
+          userId: dataUserId,
           metadata: {
             source: 'channel',
             platform: message.platform,
             channelUserId: channelUser.id,
-            ownpilotUserId: channelUser.ownpilotUserId,
+            ownpilotUserId: dataUserId,
             displayName: message.sender.displayName,
           },
         });
@@ -1043,7 +1057,7 @@ export class ChannelServiceImpl implements IChannelService {
       const sessionSvc = tryGetSessionService();
       if (sessionSvc) {
         const unified = sessionSvc.getOrCreate({
-          userId: channelUser.ownpilotUserId,
+          userId: dataUserId,
           source: 'channel',
           channelPluginId: message.channelPluginId,
           platformChatId: message.platformChatId,
@@ -1102,22 +1116,19 @@ export class ChannelServiceImpl implements IChannelService {
             conversationId: session.conversationId,
             context: session.context,
           },
-          channelUser,
+          { ownpilotUserId: dataUserId },
           progress ?? undefined
         );
       } else {
         // Legacy fallback: direct agent.chat()
-        responseText = await this.processDirectAgent(message, channelUser.ownpilotUserId);
+        responseText = await this.processDirectAgent(message, dataUserId);
       }
 
       // A grant may expire or be revoked while the model is running. Do not
       // disclose its response after access or the persisted identity changes.
       if (
         message.platform === 'whatsapp' &&
-        !(await this.isWhatsAppAccessAllowed(
-          message.sender.platformUserId,
-          channelUser.ownpilotUserId
-        ))
+        !(await this.isWhatsAppAccessAllowed(message.sender.platformUserId, dataUserId))
       ) {
         await progress?.cancel().catch((err) => {
           log.debug('Progress cancellation failed after access changed', { error: err });
@@ -1289,17 +1300,16 @@ export class ChannelServiceImpl implements IChannelService {
   private async isWhatsAppAccessAllowed(platformUserId: string, userId: string): Promise<boolean> {
     const owner = await getOwnerUserId('whatsapp');
     const user = await this.usersRepo.findByPlatform('whatsapp', platformUserId);
-    if (
-      !user ||
-      user.ownpilotUserId !== userId ||
-      !user.isVerified ||
-      user.isBlocked ||
-      user.status === 'pending'
-    ) {
+    if (!user || !user.isVerified || user.isBlocked || user.status === 'pending') {
       return false;
     }
-    if (owner === platformUserId) return true;
-    return userId === `whatsapp:${platformUserId}` && isChannelUserAccessActive(user);
+    if (owner === platformUserId) return user.ownpilotUserId === userId;
+    if (user.ownpilotUserId !== `whatsapp:${platformUserId}` || !isChannelUserAccessActive(user))
+      return false;
+    const identity = await resolveCustomerPhone(platformUserId);
+    return identity
+      ? identity.isCurrent && !identity.retired && identity.dataUserId === userId
+      : userId === `whatsapp:${platformUserId}`;
   }
 
   private async assertOutgoingAccess(api: ChannelPluginAPI, platformChatId: string): Promise<void> {
@@ -1311,6 +1321,10 @@ export class ChannelServiceImpl implements IChannelService {
     )?.[1];
     const phone = platformChatId.includes('@') ? jidPhone : platformChatId.replace(/[^0-9]/g, '');
     if (!phone) return;
+    const alias = await resolveCustomerPhone(phone);
+    if (alias && (!alias.isCurrent || alias.retired)) {
+      throw new Error('Este telefone foi substituído. Use o número atual do cliente.');
+    }
     const owner = await getOwnerUserId('whatsapp');
     const user = await this.usersRepo.findByPlatform('whatsapp', phone);
     // Administrative messages to contacts without a customer grant still work.

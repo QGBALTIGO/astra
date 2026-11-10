@@ -41,6 +41,13 @@ const mockUsersRepo = vi.hoisted(() => ({
 const mockAccessNoticeClaim = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 const mockQueueAccessLifecycle = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 const mockAccessMessageSettings = vi.hoisted(() => vi.fn());
+const mockResolveCustomerPhone = vi.hoisted(() => vi.fn());
+vi.mock('../services/customer-identity.js', () => ({
+  resolveCustomerPhone: mockResolveCustomerPhone,
+}));
+vi.mock('../db/repositories/customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: vi.fn().mockResolvedValue(null) },
+}));
 
 const mockSessionsRepo = vi.hoisted(() => ({
   getById: vi.fn().mockResolvedValue(null),
@@ -479,6 +486,18 @@ describe('ChannelServiceImpl', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUsersRepo.getById.mockResolvedValue(null);
+    mockResolveCustomerPhone.mockImplementation(
+      async (phone: string, options?: { provision?: boolean }) =>
+        options?.provision
+          ? {
+              accountId: `account:${phone}`,
+              dataUserId: `whatsapp:${phone}`,
+              phoneNumber: phone,
+              isCurrent: true,
+              retired: false,
+            }
+          : null
+    );
     mockAccessNoticeClaim.mockResolvedValue(null);
     mockQueueAccessLifecycle.mockResolvedValue(null);
     mockAccessMessageSettings.mockResolvedValue({
@@ -1152,6 +1171,21 @@ describe('ChannelServiceImpl', () => {
       }
     );
 
+    it('blocks a retired phone even when a concurrent transfer removed its channel-user row', async () => {
+      mockResolveCustomerPhone.mockResolvedValue({
+        accountId: 'stable-account',
+        dataUserId: `whatsapp:${phone}`,
+        phoneNumber: '5521999997890',
+        isCurrent: false,
+        retired: true,
+      });
+      mockUsersRepo.findByPlatform.mockResolvedValue(null);
+      await expect(
+        service.send('channel.whatsapp', { platformChatId: phone, text: 'Private reminder' })
+      ).rejects.toThrow('telefone foi substituído');
+      expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+    });
+
     it.each([phone, '+55 (11) 99999-0001', `${phone}@s.whatsapp.net`, `${phone}:2@s.whatsapp.net`])(
       'checks the canonical recipient for %s before sending to a revoked grant',
       async (platformChatId) => {
@@ -1713,6 +1747,44 @@ describe('ChannelServiceImpl', () => {
         expect(mockAutoClaimOwnership).not.toHaveBeenCalled();
         expect(mockClaimOwnership).not.toHaveBeenCalled();
         expect(mockVerificationService.verifyViaWhitelist).not.toHaveBeenCalled();
+      });
+
+      it('keeps the original data scope after a verified customer changes their phone', async () => {
+        const historicalScope = 'whatsapp:5521999997890';
+        mockResolveCustomerPhone.mockResolvedValue({
+          accountId: 'stable-account',
+          dataUserId: historicalScope,
+          phoneNumber: customerPhone,
+          isCurrent: true,
+          retired: false,
+        });
+        await service.processIncomingMessage(message);
+        expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
+          expect.objectContaining({ ownpilotUserId: customerScope })
+        );
+        expect(mockGetOrCreateChatAgent.mock.calls.map((call) => call[7])).toContain(
+          historicalScope
+        );
+        expect(mockGetOrCreateChatAgent.mock.calls.map((call) => call[7])).not.toContain(
+          customerScope
+        );
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: 'Resposta privada' })
+        );
+      });
+
+      it('does not recreate a customer or route messages from a retired phone alias', async () => {
+        mockResolveCustomerPhone.mockResolvedValue({
+          accountId: 'stable-account',
+          dataUserId: customerScope,
+          phoneNumber: '5521999997890',
+          isCurrent: false,
+          retired: true,
+        });
+        await service.processIncomingMessage(message);
+        expect(mockUsersRepo.findOrCreate).not.toHaveBeenCalled();
+        expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
       });
 
       it.each([

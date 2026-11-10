@@ -6,6 +6,8 @@
 import { randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
 import { ExpensesRepository } from './expenses.js';
+import { customerAccountsRepo } from './customer-accounts.js';
+import { customerLocalDay } from '../../services/customer-date.js';
 
 interface FinanceRow {
   id: string;
@@ -146,8 +148,14 @@ export class FinanceObligationsRepository extends BaseRepository {
       if (!balance) throw new Error('Financing disappeared during payment');
       if (amountCents > balance.remainingCents) return { status: 'exceeds', balance };
 
+      const customerScope = this.userId.startsWith('whatsapp:');
+      const customerAccount = customerScope
+        ? await customerAccountsRepo.getByDataUserId(this.userId)
+        : null;
       const expense = await new ExpensesRepository(this.userId).create({
-        date: localDay(new Date()),
+        date: customerScope
+          ? customerLocalDay(new Date(), customerAccount?.timeZone ?? 'America/Campo_Grande')
+          : localDay(new Date()),
         amount: amountCents / 100,
         currency: 'BRL',
         category: /carro|moto|veiculo|automovel/i.test(financeNameKey(name))

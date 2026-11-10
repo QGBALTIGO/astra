@@ -34,7 +34,10 @@ function presentExpense(value: unknown): unknown {
     // Keep the underlying ID for future tool calls; present the localized
     // category in the normal field so the model doesn't repeat English codes.
     categoryCode: value.category,
-    category: expenseCategoryLabelPtBr(value.category),
+    category:
+      typeof value.categoryName === 'string' && value.categoryName.trim()
+        ? value.categoryName
+        : expenseCategoryLabelPtBr(value.category),
   };
 }
 

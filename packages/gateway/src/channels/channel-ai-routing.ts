@@ -18,6 +18,8 @@ import { truncate } from '../utils/common.js';
 import { stripInternalTags } from './normalizers/base.js';
 import { tryExpenseRecordChannelReply, tryFinancingChannelReply } from './finance-routing.js';
 import { runInSessionLane } from '../services/agent/session-lane.js';
+import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
+import { withCustomerClock } from '../services/customer-date.js';
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -562,6 +564,13 @@ async function processDirectAgentInSession(
   const { enrichWhatsAppMedia } = await import('./normalizers/media-understanding.js');
   const incoming = await getNormalizer(message.platform).normalizeIncoming(message);
   const interpreted = await enrichWhatsAppMedia(message, incoming);
+  if (userId.startsWith('whatsapp:')) {
+    const account = await customerAccountsRepo.getByDataUserId(userId);
+    if (account)
+      agent.updateSystemPrompt(
+        withCustomerClock(agent.getConversation().systemPrompt ?? '', account.timeZone)
+      );
+  }
   const result = await runInExecContext(
     {
       channelPluginId: message.channelPluginId,
