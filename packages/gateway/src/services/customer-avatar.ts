@@ -1,4 +1,8 @@
-import { getChannelService, type ChannelPluginAPI, type IChannelService } from '@ownpilot/core/channels';
+import {
+  getChannelService,
+  type ChannelPluginAPI,
+  type IChannelService,
+} from '@ownpilot/core/channels';
 import {
   getCustomerIdentityService,
   type CustomerIdentityService,
@@ -31,11 +35,8 @@ interface SelectedChannel {
 }
 
 function pictureUrl(value: string | undefined): string | null {
-  if (
-    typeof value !== 'string' ||
-    value.length > 2048 ||
-    /[\s\p{Cc}\p{Cf}]/u.test(value)
-  ) return null;
+  if (typeof value !== 'string' || value.length > 2048 || /[\s\p{Cc}\p{Cf}]/u.test(value))
+    return null;
   try {
     const url = new URL(value);
     const host = url.hostname.toLowerCase();
@@ -47,7 +48,8 @@ function pictureUrl(value: string | undefined): string | null {
       url.hash ||
       (url.port && url.port !== '443') ||
       host !== 'pps.whatsapp.net'
-    ) return null;
+    )
+      return null;
     return url.href;
   } catch {
     return null;
@@ -99,15 +101,19 @@ export class CustomerAvatarService {
 
   private connectedChannel(): SelectedChannel | null {
     const channels = this.d.channels();
-    const candidates = channels.listChannels().filter(
-      (channel) => channel.platform === 'whatsapp' && channel.status === 'connected'
-    );
-    const selected = candidates.find((channel) => channel.pluginId === 'channel.whatsapp') ??
+    const candidates = channels
+      .listChannels()
+      .filter((channel) => channel.platform === 'whatsapp' && channel.status === 'connected');
+    const selected =
+      candidates.find((channel) => channel.pluginId === 'channel.whatsapp') ??
       (candidates.length === 1 ? candidates[0] : undefined);
     const api = selected && channels.getChannel(selected.pluginId);
     const phone = api?.getStatus() === 'connected' ? api.getBotInfo?.()?.username : undefined;
-    return selected && api?.getPlatform() === 'whatsapp' && api.resolveUser &&
-      phone && /^[1-9]\d{9,14}$/.test(phone)
+    return selected &&
+      api?.getPlatform() === 'whatsapp' &&
+      api.resolveUser &&
+      phone &&
+      /^[1-9]\d{9,14}$/.test(phone)
       ? { api, pluginId: selected.pluginId, phoneNumber: phone }
       : null;
   }
@@ -146,7 +152,8 @@ export class CustomerAvatarService {
         !customer.dataUserId.startsWith('whatsapp:') ||
         !/^[1-9]\d{9,14}$/.test(customer.phoneNumber) ||
         !['active', 'expired'].includes(customer.access.status)
-      ) return null;
+      )
+        return null;
       const selected = this.connectedChannel();
       if (!selected || selected.phoneNumber === customer.phoneNumber) return null;
       const key = JSON.stringify([
@@ -157,7 +164,7 @@ export class CustomerAvatarService {
         selected.phoneNumber,
       ]);
       const cached = this.cache.get(key);
-      if (cached) return await this.stillAllowed(customer, selected) ? cached.avatar : null;
+      if (cached) return (await this.stillAllowed(customer, selected)) ? cached.avatar : null;
       const pending = this.inFlight.get(key);
       if (pending) return await pending;
       if (this.inFlight.size >= MAX_IN_FLIGHT) return null;
@@ -198,7 +205,8 @@ export class CustomerAvatarService {
         !this.sameChannel(selected) ||
         user?.platform !== 'whatsapp' ||
         user.platformUserId !== phone
-      ) return null;
+      )
+        return null;
       const url = pictureUrl(user.avatarUrl);
       if (!url) return null;
       controller = new AbortController();
@@ -219,7 +227,8 @@ export class CustomerAvatarService {
       if (
         declaredLength !== null &&
         (!/^\d+$/.test(declaredLength) || Number(declaredLength) > CUSTOMER_AVATAR_MAX_BYTES)
-      ) return null;
+      )
+        return null;
 
       reader = response.body.getReader();
       const buffer = new Uint8Array(CUSTOMER_AVATAR_MAX_BYTES);

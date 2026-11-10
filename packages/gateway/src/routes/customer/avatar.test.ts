@@ -9,7 +9,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../services/customer-auth.js', () => ({
   getCustomerAuthService: () => ({ authenticate: mocks.authenticate }),
   CustomerAuthError: class extends Error {
-    constructor(message: string, readonly status: number) { super(message); }
+    constructor(
+      message: string,
+      readonly status: number
+    ) {
+      super(message);
+    }
   },
 }));
 vi.mock('../../services/customer-avatar.js', () => ({
@@ -79,14 +84,17 @@ describe('Customer own-avatar HTTP boundary', () => {
     {},
     { Authorization: 'Bearer owner-api-key' },
     { 'X-API-Key': 'owner-api-key' },
-  ] as Record<string, string>[])('does not accept owner credentials in place of a customer session', async (headers) => {
-    const response = await app.request('https://astra.test/api/v1/customer/profile/avatar', {
-      headers,
-    });
-    expect(response.status).toBe(401);
-    expect(mocks.authenticate).not.toHaveBeenCalled();
-    expect(mocks.getAvatar).not.toHaveBeenCalled();
-  });
+  ] as Record<string, string>[])(
+    'does not accept owner credentials in place of a customer session',
+    async (headers) => {
+      const response = await app.request('https://astra.test/api/v1/customer/profile/avatar', {
+        headers,
+      });
+      expect(response.status).toBe(401);
+      expect(mocks.authenticate).not.toHaveBeenCalled();
+      expect(mocks.getAvatar).not.toHaveBeenCalled();
+    }
+  );
 
   it('does not call the provider for an invalid or revoked session', async () => {
     mocks.authenticate.mockResolvedValue(null);
@@ -105,15 +113,21 @@ describe('Customer own-avatar HTTP boundary', () => {
     expect(mocks.getAvatar).toHaveBeenCalledExactlyOnceWith(expired);
   });
 
-  it.each(['missing', 'upstream failure'])('returns a quiet empty fallback for %s', async (reason) => {
-    if (reason === 'missing') mocks.getAvatar.mockResolvedValue(null);
-    else mocks.getAvatar.mockRejectedValue(new Error('Private signed URL https://pps.whatsapp.net/p?token=secret'));
-    const response = await request();
-    expect(response.status).toBe(204);
-    expect(await response.text()).toBe('');
-    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
-    expect(response.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin');
-    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
-    expect(response.headers.get('Location')).toBeNull();
-  });
+  it.each(['missing', 'upstream failure'])(
+    'returns a quiet empty fallback for %s',
+    async (reason) => {
+      if (reason === 'missing') mocks.getAvatar.mockResolvedValue(null);
+      else
+        mocks.getAvatar.mockRejectedValue(
+          new Error('Private signed URL https://pps.whatsapp.net/p?token=secret')
+        );
+      const response = await request();
+      expect(response.status).toBe(204);
+      expect(await response.text()).toBe('');
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+      expect(response.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin');
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(response.headers.get('Location')).toBeNull();
+    }
+  );
 });

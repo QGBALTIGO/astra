@@ -73,7 +73,9 @@ describe('WhatsApp profile-picture compatibility', () => {
 
   it('serializes a valid token inside the preview query with its timestamp, without fetching bytes', async () => {
     const f = fixture();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected download'));
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('Unexpected download'));
 
     await expect(fetchWhatsAppProfilePicture(f.sock, PHONE, () => true)).resolves.toBe(AVATAR_URL);
 
@@ -82,10 +84,11 @@ describe('WhatsApp profile-picture compatibility', () => {
     expect(f.query).toHaveBeenCalledTimes(1);
     expect(f.query.mock.calls[0]?.[1]).toBe(3000);
     const iq = f.query.mock.calls[0]![0];
+    expect(iq.attrs.to).toBe('s.whatsapp.net');
     const decoded = await decodeBinaryNode(encodeBinaryNode(iq));
     expect(decoded.attrs).toMatchObject({
       target: PHONE,
-      to: 's.whatsapp.net',
+      to: '@s.whatsapp.net',
       type: 'get',
       xmlns: 'w:profile:picture',
     });
@@ -115,13 +118,16 @@ describe('WhatsApp profile-picture compatibility', () => {
     expect(getBinaryNodeChild(picture, 'tctoken')?.content).toBe(TOKEN);
   });
 
-  it.each([SELF, SELF_LID])('does not attach or read a token for the connected identity %s', async (jid) => {
-    const f = fixture();
-    await expect(fetchWhatsAppProfilePicture(f.sock, jid, () => true)).resolves.toBe(AVATAR_URL);
-    expect(f.get).not.toHaveBeenCalled();
-    expect(f.getLIDForPN).not.toHaveBeenCalled();
-    expect(getBinaryNodeChild(f.query.mock.calls[0]![0], 'picture')?.content).toBeUndefined();
-  });
+  it.each([SELF, SELF_LID])(
+    'does not attach or read a token for the connected identity %s',
+    async (jid) => {
+      const f = fixture();
+      await expect(fetchWhatsAppProfilePicture(f.sock, jid, () => true)).resolves.toBe(AVATAR_URL);
+      expect(f.get).not.toHaveBeenCalled();
+      expect(f.getLIDForPN).not.toHaveBeenCalled();
+      expect(getBinaryNodeChild(f.query.mock.calls[0]![0], 'picture')?.content).toBeUndefined();
+    }
+  );
 
   it('respects the server token feature setting without changing it', async () => {
     const f = fixture();
@@ -138,7 +144,9 @@ describe('WhatsApp profile-picture compatibility', () => {
     async (timestamp) => {
       const f = fixture();
       f.get.mockResolvedValue({ [LID]: { token: TOKEN, timestamp } });
-      await expect(fetchWhatsAppProfilePicture(f.sock, PHONE, () => true)).resolves.toBe(AVATAR_URL);
+      await expect(fetchWhatsAppProfilePicture(f.sock, PHONE, () => true)).resolves.toBe(
+        AVATAR_URL
+      );
       expect(getBinaryNodeChild(f.query.mock.calls[0]![0], 'picture')?.content).toBeUndefined();
       expect(f.set).not.toHaveBeenCalled();
     }
@@ -149,7 +157,9 @@ describe('WhatsApp profile-picture compatibility', () => {
     for (const timestamp of [cutoff, cutoff - 1]) {
       const f = fixture();
       f.get.mockResolvedValue({ [LID]: { token: TOKEN, timestamp: String(timestamp) } });
-      await expect(fetchWhatsAppProfilePicture(f.sock, PHONE, () => true)).resolves.toBe(AVATAR_URL);
+      await expect(fetchWhatsAppProfilePicture(f.sock, PHONE, () => true)).resolves.toBe(
+        AVATAR_URL
+      );
       const picture = getBinaryNodeChild(f.query.mock.calls[0]![0], 'picture')!;
       expect(Boolean(getBinaryNodeChild(picture, 'tctoken'))).toBe(timestamp === cutoff);
       expect(f.set).not.toHaveBeenCalled();
@@ -179,13 +189,16 @@ describe('WhatsApp profile-picture compatibility', () => {
     }
   );
 
-  it.each([401, 403, 404, 408])('returns null without retry after provider status %s', async (status) => {
-    const f = fixture();
-    f.query.mockRejectedValue({ output: { statusCode: status } });
-    await expect(fetchWhatsAppProfilePicture(f.sock, PHONE, () => true)).resolves.toBeNull();
-    expect(f.query).toHaveBeenCalledTimes(1);
-    expect(f.set).not.toHaveBeenCalled();
-  });
+  it.each([401, 403, 404, 408])(
+    'returns null without retry after provider status %s',
+    async (status) => {
+      const f = fixture();
+      f.query.mockRejectedValue({ output: { statusCode: status } });
+      await expect(fetchWhatsAppProfilePicture(f.sock, PHONE, () => true)).resolves.toBeNull();
+      expect(f.query).toHaveBeenCalledTimes(1);
+      expect(f.set).not.toHaveBeenCalled();
+    }
+  );
 
   it.each(['mapping', 'keys'] as const)(
     'bounds a stalled %s read and prevents a late query after the deadline',
@@ -254,7 +267,9 @@ describe('WhatsApp profile-picture compatibility', () => {
     const f = fixture();
     await expect(fetchWhatsAppProfilePicture(f.sock, PHONE, () => false)).resolves.toBeNull();
     await expect(fetchWhatsAppProfilePicture(f.sock, '123@g.us', () => true)).resolves.toBeNull();
-    await expect(fetchWhatsAppProfilePicture(f.sock, 'status@broadcast', () => true)).resolves.toBeNull();
+    await expect(
+      fetchWhatsAppProfilePicture(f.sock, 'status@broadcast', () => true)
+    ).resolves.toBeNull();
     expect(f.getLIDForPN).not.toHaveBeenCalled();
     expect(f.get).not.toHaveBeenCalled();
     expect(f.query).not.toHaveBeenCalled();
@@ -262,7 +277,9 @@ describe('WhatsApp profile-picture compatibility', () => {
 
   it.each([0, -1, NaN, Infinity])('rejects an invalid timeout %s', async (timeout) => {
     const f = fixture();
-    await expect(fetchWhatsAppProfilePicture(f.sock, PHONE, () => true, timeout)).resolves.toBeNull();
+    await expect(
+      fetchWhatsAppProfilePicture(f.sock, PHONE, () => true, timeout)
+    ).resolves.toBeNull();
     expect(f.query).not.toHaveBeenCalled();
     expect(f.get).not.toHaveBeenCalled();
   });

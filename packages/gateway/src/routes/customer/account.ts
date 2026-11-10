@@ -45,7 +45,9 @@ customerAccountRoutes.get('/profile/avatar', async (c) => {
   c.header('Cross-Origin-Resource-Policy', 'same-origin');
   c.header('X-Content-Type-Options', 'nosniff');
   // Identity comes only from the dedicated customer session. Query IDs are ignored.
-  const avatar = await getCustomerAvatarService().getAvatar(c.get('customer')).catch(() => null);
+  const avatar = await getCustomerAvatarService()
+    .getAvatar(c.get('customer'))
+    .catch(() => null);
   if (!avatar) return c.body(null, 204);
   c.header('Content-Type', avatar.contentType);
   c.header('Content-Length', String(avatar.bytes.byteLength));

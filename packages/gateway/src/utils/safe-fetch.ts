@@ -73,7 +73,7 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
 
   let currentUrl = url;
   const chain: RedirectChain = { urls: [url] };
-  const describeUrl = (value: string): string => redactUrl ? '[redacted]' : value;
+  const describeUrl = (value: string): string => (redactUrl ? '[redacted]' : value);
 
   const signal = fetchOptions.signal ?? controller.signal;
 
@@ -85,7 +85,10 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
       // the entry URL and re-checked `isPrivateUrl` (DNS) on redirects.
       if (isBlockedUrl(currentUrl)) {
         log.warn('safeFetch: blocked URL by sync policy', { url: describeUrl(currentUrl) });
-        throw new SafeFetchError(`Request to blocked URL: ${describeUrl(currentUrl)}`, 'SSRF_BLOCKED');
+        throw new SafeFetchError(
+          `Request to blocked URL: ${describeUrl(currentUrl)}`,
+          'SSRF_BLOCKED'
+        );
       }
 
       // H-S4 fix: SSRF check on every hop, with a FRESH uncached DNS lookup
@@ -177,9 +180,8 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
     if (!redactUrl) throw error;
     // Fetch/DNS/provider errors can include the full signed URL, even in causes.
     // Preserve the category without forwarding an error object or sensitive text.
-    const code = error instanceof SafeFetchError
-      ? error.code
-      : signal.aborted ? 'TIMEOUT' : 'UNKNOWN';
+    const code =
+      error instanceof SafeFetchError ? error.code : signal.aborted ? 'TIMEOUT' : 'UNKNOWN';
     throw new SafeFetchError('Outbound request could not be completed', code);
   } finally {
     if (timeout) clearTimeout(timeout);

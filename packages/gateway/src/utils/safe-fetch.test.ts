@@ -180,12 +180,15 @@ describe('safeFetch', () => {
 
   it('redacts signed redirect chains without forwarding the logging option to fetch', async () => {
     const url = 'https://example.com/avatar?signature=synthetic-secret';
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      makeResponse({ status: 302, location: 'https://example.com/next?token=another-secret' })
-    );
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        makeResponse({ status: 302, location: 'https://example.com/next?token=another-secret' })
+      );
     try {
-      const error = await safeFetch(url, { redactUrl: true, maxRedirects: 0 })
-        .catch((value: unknown) => value);
+      const error = await safeFetch(url, { redactUrl: true, maxRedirects: 0 }).catch(
+        (value: unknown) => value
+      );
       expect(error).toMatchObject({ code: 'TOO_MANY_REDIRECTS' });
       expect(String(error)).not.toContain('synthetic-secret');
       expect(String(error)).not.toContain('another-secret');
@@ -214,5 +217,4 @@ describe('safeFetch', () => {
       fetchSpy.mockRestore();
     }
   });
-
 });

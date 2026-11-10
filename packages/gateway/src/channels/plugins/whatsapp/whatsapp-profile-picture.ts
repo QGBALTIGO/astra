@@ -34,18 +34,14 @@ export async function fetchWhatsAppProfilePicture(
   const lookup = async (): Promise<string | null> => {
     if (!current() || typeof jid !== 'string' || jid.length > 64) return null;
     const target = jidNormalizedUser(jid);
-    if (
-      (!isPnUser(target) && !isLidUser(target)) ||
-      !/^\d+@(s\.whatsapp\.net|lid)$/.test(target)
-    ) {
+    if ((!isPnUser(target) && !isLidUser(target)) || !/^\d+@(s\.whatsapp\.net|lid)$/.test(target)) {
       return null;
     }
 
     const me = sock.authState.creds.me;
     const isSelf =
       me &&
-      (target === jidNormalizedUser(me.id) ||
-        (me.lid && target === jidNormalizedUser(me.lid)));
+      (target === jidNormalizedUser(me.id) || (me.lid && target === jidNormalizedUser(me.lid)));
     const picture: BinaryNode = { tag: 'picture', attrs: { type: 'preview', query: 'url' } };
 
     if (sock.serverProps.profilePicPrivacyToken && !isSelf) {

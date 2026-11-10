@@ -31,7 +31,9 @@ function imageResponse(bytes: Uint8Array = png, contentType = 'image/png') {
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 function setup() {
@@ -49,12 +51,14 @@ function setup() {
     })),
   };
   const channels = {
-    listChannels: vi.fn().mockReturnValue([{
-      pluginId: 'channel.whatsapp',
-      platform: 'whatsapp',
-      status: 'connected',
-      name: 'Synthetic WhatsApp',
-    }]),
+    listChannels: vi.fn().mockReturnValue([
+      {
+        pluginId: 'channel.whatsapp',
+        platform: 'whatsapp',
+        status: 'connected',
+        name: 'Synthetic WhatsApp',
+      },
+    ]),
     getChannel: vi.fn().mockReturnValue(api),
   };
   const identity = {
@@ -82,21 +86,27 @@ describe('CustomerAvatarService', () => {
     ['image/png', png],
     ['image/jpeg', jpeg],
     ['image/webp', webp],
-  ] as const)('returns only validated %s bytes through the safe downloader', async (type, bytes) => {
-    const h = setup();
-    h.fetch.mockImplementation(async () => imageResponse(bytes, type));
-    expect(await h.service.getAvatar(h.own)).toEqual({ bytes, contentType: type });
-    expect(h.api.resolveUser).toHaveBeenCalledExactlyOnceWith(h.own.phoneNumber);
-    expect(h.fetch).toHaveBeenCalledExactlyOnceWith(avatarUrl, expect.objectContaining({
-      maxRedirects: 0,
-      redactUrl: true,
-      timeoutMs: 5000,
-      credentials: 'omit',
-      signal: expect.any(AbortSignal),
-      headers: { Accept: 'image/jpeg,image/png,image/webp' },
-    }));
-    expect(h.identity.getContext).toHaveBeenCalledWith(h.own.accountId);
-  });
+  ] as const)(
+    'returns only validated %s bytes through the safe downloader',
+    async (type, bytes) => {
+      const h = setup();
+      h.fetch.mockImplementation(async () => imageResponse(bytes, type));
+      expect(await h.service.getAvatar(h.own)).toEqual({ bytes, contentType: type });
+      expect(h.api.resolveUser).toHaveBeenCalledExactlyOnceWith(h.own.phoneNumber);
+      expect(h.fetch).toHaveBeenCalledExactlyOnceWith(
+        avatarUrl,
+        expect.objectContaining({
+          maxRedirects: 0,
+          redactUrl: true,
+          timeoutMs: 5000,
+          credentials: 'omit',
+          signal: expect.any(AbortSignal),
+          headers: { Accept: 'image/jpeg,image/png,image/webp' },
+        })
+      );
+      expect(h.identity.getContext).toHaveBeenCalledWith(h.own.accountId);
+    }
+  );
 
   it('coalesces concurrent requests and caches an avatar for five minutes', async () => {
     const h = setup();
@@ -154,7 +164,9 @@ describe('CustomerAvatarService', () => {
 
   it('permits an expired customer to read their own avatar', async () => {
     const h = setup();
-    const expired = customer({ access: { status: 'expired', canWrite: false, expiresAt: '2026-11-09T12:00:00Z' } });
+    const expired = customer({
+      access: { status: 'expired', canWrite: false, expiresAt: '2026-11-09T12:00:00Z' },
+    });
     h.contexts.set(expired.accountId, expired);
     expect(await h.service.getAvatar(expired)).not.toBeNull();
   });
@@ -170,7 +182,8 @@ describe('CustomerAvatarService', () => {
     await h.service.getAvatar(h.own);
     await h.service.getAvatar(other);
     expect(h.api.resolveUser.mock.calls.map(([phone]) => phone)).toEqual([
-      h.own.phoneNumber, other.phoneNumber,
+      h.own.phoneNumber,
+      other.phoneNumber,
     ]);
     h.api.getBotInfo.mockReturnValue({ username: '5511999992222' });
     await h.service.getAvatar(h.own);
@@ -186,8 +199,10 @@ describe('CustomerAvatarService', () => {
       const pending = h.service.getAvatar(h.own);
       await vi.advanceTimersByTimeAsync(0);
       expect(h.fetch).toHaveBeenCalledOnce();
-      if (change === 'phone changed') h.contexts.set(h.own.accountId, customer({ phoneNumber: '5521999997777' }));
-      if (change === 'scope changed') h.contexts.set(h.own.accountId, customer({ dataUserId: 'default' }));
+      if (change === 'phone changed')
+        h.contexts.set(h.own.accountId, customer({ phoneNumber: '5521999997777' }));
+      if (change === 'scope changed')
+        h.contexts.set(h.own.accountId, customer({ dataUserId: 'default' }));
       if (change === 'revoked') h.contexts.delete(h.own.accountId);
       if (change === 'bot changed') h.api.getBotInfo.mockReturnValue({ username: '5511999992222' });
       download.resolve(imageResponse());
@@ -227,7 +242,10 @@ describe('CustomerAvatarService', () => {
   ])('rejects an unsafe or unexpected provider URL before fetching', async (url) => {
     const h = setup();
     h.api.resolveUser.mockResolvedValue({
-      platform: 'whatsapp', platformUserId: h.own.phoneNumber, displayName: 'Synthetic', avatarUrl: url,
+      platform: 'whatsapp',
+      platformUserId: h.own.phoneNumber,
+      displayName: 'Synthetic',
+      avatarUrl: url,
     });
     expect(await h.service.getAvatar(h.own)).toBeNull();
     expect(h.fetch).not.toHaveBeenCalled();
@@ -235,15 +253,20 @@ describe('CustomerAvatarService', () => {
 
   it('never follows a redirect or returns an upstream redirect body', async () => {
     const h = setup();
-    h.fetch.mockResolvedValueOnce(new Response('sensitive upstream text', {
-      status: 302,
-      headers: { Location: 'http://localhost/private' },
-    }));
+    h.fetch.mockResolvedValueOnce(
+      new Response('sensitive upstream text', {
+        status: 302,
+        headers: { Location: 'http://localhost/private' },
+      })
+    );
     expect(await h.service.getAvatar(h.own)).toBeNull();
-    expect(h.fetch).toHaveBeenCalledExactlyOnceWith(avatarUrl, expect.objectContaining({
-      maxRedirects: 0,
-      redactUrl: true,
-    }));
+    expect(h.fetch).toHaveBeenCalledExactlyOnceWith(
+      avatarUrl,
+      expect.objectContaining({
+        maxRedirects: 0,
+        redactUrl: true,
+      })
+    );
   });
 
   it.each([
@@ -278,7 +301,9 @@ describe('CustomerAvatarService', () => {
         controller.close();
       },
     });
-    h.fetch.mockResolvedValueOnce(new Response(stream, { headers: { 'Content-Type': 'image/png' } }));
+    h.fetch.mockResolvedValueOnce(
+      new Response(stream, { headers: { 'Content-Type': 'image/png' } })
+    );
     expect(await h.service.getAvatar(h.own)).toBeNull();
   });
 
@@ -291,7 +316,9 @@ describe('CustomerAvatarService', () => {
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(png);
-          signal!.addEventListener('abort', () => controller.error(new Error('aborted')), { once: true });
+          signal!.addEventListener('abort', () => controller.error(new Error('aborted')), {
+            once: true,
+          });
         },
       });
       return new Response(body, { headers: { 'Content-Type': 'image/png' } });
@@ -312,11 +339,13 @@ describe('CustomerAvatarService', () => {
       await lookup.promise;
       return { platform: 'whatsapp', platformUserId: phone, displayName: 'Synthetic', avatarUrl };
     });
-    const customers = Array.from({ length: 5 }, (_, index) => customer({
-      accountId: 'customer-' + index,
-      phoneNumber: '556799999880' + index,
-      dataUserId: 'whatsapp:556799999880' + index,
-    }));
+    const customers = Array.from({ length: 5 }, (_, index) =>
+      customer({
+        accountId: 'customer-' + index,
+        phoneNumber: '556799999880' + index,
+        dataUserId: 'whatsapp:556799999880' + index,
+      })
+    );
     customers.forEach((value) => h.contexts.set(value.accountId, value));
     const pending = customers.slice(0, 4).map((value) => h.service.getAvatar(value));
     expect(await h.service.getAvatar(customers[4]!)).toBeNull();
@@ -328,11 +357,13 @@ describe('CustomerAvatarService', () => {
 
   it('evicts the oldest entry after the sixty-four-image cache bound', async () => {
     const h = setup();
-    const customers = Array.from({ length: 65 }, (_, index) => customer({
-      accountId: 'customer-' + index,
-      phoneNumber: '556799999' + String(8000 + index),
-      dataUserId: 'whatsapp:556799999' + String(8000 + index),
-    }));
+    const customers = Array.from({ length: 65 }, (_, index) =>
+      customer({
+        accountId: 'customer-' + index,
+        phoneNumber: '556799999' + String(8000 + index),
+        dataUserId: 'whatsapp:556799999' + String(8000 + index),
+      })
+    );
     for (const value of customers) {
       h.contexts.set(value.accountId, value);
       expect(await h.service.getAvatar(value)).not.toBeNull();
@@ -342,11 +373,14 @@ describe('CustomerAvatarService', () => {
     expect(h.fetch).toHaveBeenCalledTimes(66);
   });
 
-  it.each(['provider', 'download'])('returns a quiet fallback for a sensitive %s error', async (stage) => {
-    const h = setup();
-    const failure = new Error('Private provider URL ' + avatarUrl);
-    if (stage === 'provider') h.api.resolveUser.mockRejectedValueOnce(failure);
-    else h.fetch.mockRejectedValueOnce(failure);
-    await expect(h.service.getAvatar(h.own)).resolves.toBeNull();
-  });
+  it.each(['provider', 'download'])(
+    'returns a quiet fallback for a sensitive %s error',
+    async (stage) => {
+      const h = setup();
+      const failure = new Error('Private provider URL ' + avatarUrl);
+      if (stage === 'provider') h.api.resolveUser.mockRejectedValueOnce(failure);
+      else h.fetch.mockRejectedValueOnce(failure);
+      await expect(h.service.getAvatar(h.own)).resolves.toBeNull();
+    }
+  );
 });
