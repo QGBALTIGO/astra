@@ -82,6 +82,7 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Railway volumes are mounted after the image build and may be root-owned.
 # The entrypoint fixes only the data-volume ownership, then drops to UID 1001.
+COPY scripts/astra-multimodal-smoke.mjs ./scripts/astra-multimodal-smoke.mjs
 COPY scripts/railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
 RUN chmod 0755 /usr/local/bin/railway-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/railway-entrypoint.sh"]
