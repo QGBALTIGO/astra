@@ -107,6 +107,7 @@ function makeDeps(conversationId = 'conversation-a') {
     deps: {
       sessionsRepo: { getById, linkConversation } as never,
       getChannel: () => undefined,
+      isAccessAllowed: vi.fn().mockResolvedValue(true),
     },
   };
 }
@@ -271,9 +272,9 @@ describe('Channel turns across reconnection and slow provider fallbacks', () => 
         return firstGate.promise;
       })
       .mockResolvedValueOnce({ ok: true, value: { content: 'second direct reply' } });
-    const first = processDirectAgent(incoming('first'), user.ownpilotUserId);
+    const first = processDirectAgent(incoming('first'), user.ownpilotUserId, async () => true);
     await entered.promise;
-    const second = processDirectAgent(incoming('second'), user.ownpilotUserId);
+    const second = processDirectAgent(incoming('second'), user.ownpilotUserId, async () => true);
     await flushTurn();
     await flushTurn();
     expect(agent.chat).toHaveBeenCalledTimes(1);
@@ -308,5 +309,82 @@ describe('Channel turns across reconnection and slow provider fallbacks', () => 
     expect(mocks.getAgent).toHaveBeenCalledTimes(1);
     firstGate.resolve(busReply('first reply'));
     await first;
+  });
+
+  it('does not start a queued turn when access was revoked while the previous turn ran', async () => {
+    const agent = makeAgent();
+    mocks.getAgent.mockResolvedValue(agent);
+    const gate = deferred<ReturnType<typeof busReply>>();
+    const entered = deferred<void>();
+    const bus = {
+      process: vi.fn().mockImplementationOnce(() => {
+        entered.resolve();
+        return gate.promise;
+      }),
+    };
+    const { deps } = makeDeps();
+    const first = processViaBus(bus as never, incoming('first'), session, user, deps);
+    await entered.promise;
+    const queued = processViaBus(bus as never, incoming('queued'), session, user, deps);
+    await flushTurn();
+    deps.isAccessAllowed.mockResolvedValue(false);
+    gate.resolve(busReply('first reply'));
+
+    await expect(first).resolves.toBe('first reply');
+    await expect(queued).resolves.toContain('acesso deste número está inativo');
+    expect(bus.process).toHaveBeenCalledTimes(1);
+    expect(mocks.getAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it('denies financial shortcuts before they can write when access is inactive', async () => {
+    const bus = { process: vi.fn() };
+    const { deps } = makeDeps();
+    deps.isAccessAllowed.mockResolvedValue(false);
+    const message = incoming('expense', { text: 'Acabei de gastar 36,39 no meu almoço' });
+
+    const result = await processViaBus(bus as never, message, session, user, deps);
+
+    expect(result).toContain('autorizar ou renovar');
+    expect(mocks.financing).not.toHaveBeenCalled();
+    expect(mocks.recordExpense).not.toHaveBeenCalled();
+    expect(bus.process).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for WhatsApp when a caller omits the server access checker', async () => {
+    const { deps } = makeDeps();
+    const { isAccessAllowed: _checker, ...withoutChecker } = deps;
+    const bus = { process: vi.fn() };
+    const message = incoming('unchecked');
+
+    await expect(
+      processViaBus(bus as never, message, session, user, withoutChecker)
+    ).resolves.toContain('acesso deste número está inativo');
+    await expect(processDirectAgent(message, user.ownpilotUserId)).resolves.toContain(
+      'acesso deste número está inativo'
+    );
+    expect(mocks.getAgent).not.toHaveBeenCalled();
+  });
+
+  it('rechecks access inside the legacy direct-agent queue', async () => {
+    const agent = makeAgent();
+    mocks.getAgent.mockResolvedValue(agent);
+    const gate = deferred<{ ok: true; value: { content: string } }>();
+    const entered = deferred<void>();
+    agent.chat.mockImplementationOnce(() => {
+      entered.resolve();
+      return gate.promise;
+    });
+    const check = vi.fn().mockResolvedValue(true);
+    const first = processDirectAgent(incoming('first'), user.ownpilotUserId, check);
+    await entered.promise;
+    const queued = processDirectAgent(incoming('queued'), user.ownpilotUserId, check);
+    await flushTurn();
+    check.mockResolvedValue(false);
+    gate.resolve({ ok: true, value: { content: 'first reply' } });
+
+    await first;
+    await expect(queued).resolves.toContain('acesso deste número está inativo');
+    expect(agent.chat).toHaveBeenCalledTimes(1);
+    expect(mocks.getAgent).toHaveBeenCalledTimes(1);
   });
 });

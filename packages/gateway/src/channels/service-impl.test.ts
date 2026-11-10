@@ -371,6 +371,12 @@ function createChannelUser(
     isBlocked: boolean;
     isVerified: boolean;
     ownpilotUserId: string;
+    platform: string;
+    platformUserId: string;
+    status: 'active' | 'pending';
+    accessSource: 'manual' | 'cakto' | null;
+    accessExpiresAt: Date | null;
+    metadata: Record<string, unknown>;
   }>
 ) {
   return {
@@ -380,6 +386,7 @@ function createChannelUser(
     platformUserId: 'user-456',
     isVerified: true,
     isBlocked: false,
+    status: 'active' as const,
     metadata: {},
     firstSeenAt: new Date(),
     lastSeenAt: new Date(),
@@ -1061,6 +1068,145 @@ describe('ChannelServiceImpl', () => {
   // processIncomingMessage
   // ==========================================================================
 
+  describe('WhatsApp outgoing access checks', () => {
+    const phone = '5511999990001';
+    const ownerPhone = '5511999990002';
+    let customer: ReturnType<typeof createChannelUser>;
+
+    beforeEach(() => {
+      service.dispose();
+      channelPlugin = createChannelPlugin({
+        id: 'channel.whatsapp',
+        platform: 'whatsapp',
+        connectionStatus: 'connected',
+      });
+      registry = createMockPluginRegistry([channelPlugin]);
+      service = new ChannelServiceImpl(registry as never, {
+        usersRepo: mockUsersRepo as never,
+        sessionsRepo: mockSessionsRepo as never,
+        verificationService: mockVerificationService as never,
+        dmPairingRequests: mockDmPairingRequests as never,
+      });
+      mockGetOwnerUserId.mockResolvedValue(ownerPhone);
+      customer = createChannelUser({
+        platform: 'whatsapp',
+        platformUserId: phone,
+        ownpilotUserId: `whatsapp:${phone}`,
+        accessSource: 'manual',
+        accessExpiresAt: null,
+        metadata: { hasInteracted: true },
+      });
+      mockUsersRepo.findByPlatform.mockResolvedValue(customer);
+    });
+
+    it.each(['send', 'broadcast', 'broadcastAll'])(
+      'blocks %s when a known grant has expired',
+      async (method) => {
+        mockUsersRepo.findByPlatform.mockResolvedValue({
+          ...customer,
+          accessExpiresAt: new Date(0),
+        });
+        const outgoing = { platformChatId: phone, text: 'Scheduled private information' };
+
+        if (method === 'send') {
+          await expect(service.send('channel.whatsapp', outgoing)).rejects.toThrow(
+            'acesso deste número está inativo'
+          );
+        } else if (method === 'broadcast') {
+          await expect(service.broadcast('whatsapp', outgoing)).resolves.toEqual(new Map());
+        } else {
+          await expect(service.broadcastAll(outgoing)).resolves.toEqual(new Map());
+        }
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each([phone, '+55 (11) 99999-0001', `${phone}@s.whatsapp.net`, `${phone}:2@s.whatsapp.net`])(
+      'checks the canonical recipient for %s before sending to a revoked grant',
+      async (platformChatId) => {
+        mockUsersRepo.findByPlatform.mockResolvedValue({ ...customer, isVerified: false });
+
+        await expect(
+          service.send('channel.whatsapp', { platformChatId, text: 'Private information' })
+        ).rejects.toThrow('acesso deste número está inativo');
+
+        expect(mockUsersRepo.findByPlatform).toHaveBeenCalledWith('whatsapp', phone);
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+      }
+    );
+
+    it('preserves administrative sends to an unknown contact', async () => {
+      mockUsersRepo.findByPlatform.mockResolvedValue(null);
+
+      await service.send('channel.whatsapp', {
+        platformChatId: phone,
+        text: 'Administrative notice',
+      });
+
+      expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+    });
+
+    it('preserves the verified current owner exemption for outbound messages', async () => {
+      mockGetOwnerUserId.mockResolvedValue(phone);
+      mockUsersRepo.findByPlatform.mockResolvedValue({
+        ...customer,
+        ownpilotUserId: 'default',
+        accessExpiresAt: new Date(0),
+      });
+
+      await service.send('channel.whatsapp', { platformChatId: phone, text: 'Owner notification' });
+
+      expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+    });
+
+    async function sendApprovalNotification() {
+      await (
+        service as unknown as {
+          sendApprovalNotification(platform: string, platformUserId: string): Promise<void>;
+        }
+      ).sendApprovalNotification('whatsapp', phone);
+    }
+
+    it.each([
+      [
+        'preauthorized before first interaction',
+        { metadata: { manualPreauthorized: true, hasInteracted: false } },
+      ],
+      ['revoked after the approval event', { isVerified: false }],
+      ['expired after the approval event', { accessExpiresAt: new Date(0) }],
+      ['blocked', { isBlocked: true }],
+      ['pending', { status: 'pending' }],
+      ['mismatched identity', { ownpilotUserId: 'default' }],
+    ])('suppresses welcome when %s', async (_label, changes) => {
+      mockUsersRepo.findByPlatform.mockResolvedValue({ ...customer, ...changes });
+
+      await sendApprovalNotification();
+
+      expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('welcomes an active customer who has already interacted', async () => {
+      await sendApprovalNotification();
+
+      expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          platformChatId: phone,
+          text: expect.stringContaining('approved'),
+        })
+      );
+    });
+
+    it('rechecks approval again at send time if revocation follows the welcome lookup', async () => {
+      mockUsersRepo.findByPlatform
+        .mockResolvedValueOnce(customer)
+        .mockResolvedValue({ ...customer, isVerified: false });
+
+      await sendApprovalNotification();
+
+      expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+
   describe('processIncomingMessage()', () => {
     let message: ReturnType<typeof createIncomingMessage>;
     let channelUser: ReturnType<typeof createChannelUser>;
@@ -1069,6 +1215,7 @@ describe('ChannelServiceImpl', () => {
       message = createIncomingMessage();
       channelUser = createChannelUser();
       mockUsersRepo.findOrCreate.mockResolvedValue(channelUser);
+      mockUsersRepo.findByPlatform.mockResolvedValue(channelUser);
 
       // Default: existing session
       mockSessionsRepo.findActive.mockResolvedValue({
@@ -1079,7 +1226,7 @@ describe('ChannelServiceImpl', () => {
     });
 
     describe('WhatsApp multi-user routing', () => {
-      it('assigns a unique private scope to each customer while preserving the owner', async () => {
+      it('uses each authorized customer private scope while preserving the owner', async () => {
         vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
         vi.stubEnv('ASTRA_WHATSAPP_AUTO_ENROLL', 'true');
         try {
@@ -1097,13 +1244,20 @@ describe('ChannelServiceImpl', () => {
             dmPairingRequests: mockDmPairingRequests as never,
           });
           mockGetOwnerUserId.mockResolvedValue('5567981030648');
+          const persistedUser = (phone: string) =>
+            createChannelUser({
+              id: `cu-${phone}`,
+              platform: 'whatsapp',
+              platformUserId: phone,
+              ownpilotUserId: phone === '5567981030648' ? 'default' : `whatsapp:${phone}`,
+              accessSource: phone === '5567981030648' ? null : 'manual',
+            });
           mockUsersRepo.findOrCreate.mockImplementation(
             async (input: { ownpilotUserId?: string; platformUserId: string }) =>
-              createChannelUser({
-                id: `cu-${input.platformUserId}`,
-                ownpilotUserId: input.ownpilotUserId ?? 'default',
-                isVerified: input.platformUserId === '5567981030648',
-              })
+              persistedUser(input.platformUserId)
+          );
+          mockUsersRepo.findByPlatform.mockImplementation(
+            async (_platform: string, phone: string) => persistedUser(phone)
           );
           mockGetOrCreateChatAgent.mockResolvedValue(
             createMockAgent({
@@ -1137,12 +1291,7 @@ describe('ChannelServiceImpl', () => {
           expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
             expect.objectContaining({ ownpilotUserId: 'whatsapp:5511987654321' })
           );
-          expect(mockVerificationService.verifyViaWhitelist).toHaveBeenCalledWith(
-            'whatsapp',
-            '5521997557364',
-            'Test User',
-            'whatsapp:5521997557364'
-          );
+          expect(mockVerificationService.verifyViaWhitelist).not.toHaveBeenCalled();
           expect(mockGetOrCreateChatAgent.mock.calls.map((call) => call[7])).toEqual(
             expect.arrayContaining(['whatsapp:5521997557364', 'whatsapp:5511987654321', 'default'])
           );
@@ -1152,49 +1301,52 @@ describe('ChannelServiceImpl', () => {
         }
       });
 
-      it('saves a new customer as pending until owner approval', async () => {
-        vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
-        vi.stubEnv('ASTRA_WHATSAPP_AUTO_ENROLL', 'false');
-        vi.stubEnv('ASTRA_WHATSAPP_TRUSTED_NUMBERS', '');
-        try {
-          service.dispose();
-          channelPlugin = createChannelPlugin({ id: 'channel.whatsapp', platform: 'whatsapp' });
-          registry = createMockPluginRegistry([channelPlugin]);
-          service = new ChannelServiceImpl(registry as never, {
-            usersRepo: mockUsersRepo as never,
-            sessionsRepo: mockSessionsRepo as never,
-            verificationService: mockVerificationService as never,
-            dmPairingRequests: mockDmPairingRequests as never,
-          });
-          mockGetOwnerUserId.mockResolvedValue('5567981030648');
-          mockUsersRepo.findOrCreate.mockResolvedValue({
-            ...createChannelUser({
-              ownpilotUserId: 'whatsapp:5521997557364',
-              isVerified: false,
-            }),
-            status: 'active',
-            created: true,
-          });
-          await service.processIncomingMessage(
-            createIncomingMessage({
-              channelPluginId: 'channel.whatsapp',
-              platform: 'whatsapp',
-              platformChatId: '5521997557364',
-              sender: { platformUserId: '5521997557364', platform: 'whatsapp' },
-              metadata: { fromMe: false, isSelfChat: false },
-            })
-          );
+      it.each(['false', 'true'])(
+        'keeps a new trusted customer pending with auto-enrollment %s',
+        async (autoEnroll) => {
+          vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+          vi.stubEnv('ASTRA_WHATSAPP_AUTO_ENROLL', autoEnroll);
+          vi.stubEnv('ASTRA_WHATSAPP_TRUSTED_NUMBERS', '5521997557364');
+          try {
+            service.dispose();
+            channelPlugin = createChannelPlugin({ id: 'channel.whatsapp', platform: 'whatsapp' });
+            registry = createMockPluginRegistry([channelPlugin]);
+            service = new ChannelServiceImpl(registry as never, {
+              usersRepo: mockUsersRepo as never,
+              sessionsRepo: mockSessionsRepo as never,
+              verificationService: mockVerificationService as never,
+              dmPairingRequests: mockDmPairingRequests as never,
+            });
+            mockGetOwnerUserId.mockResolvedValue('5567981030648');
+            mockUsersRepo.findOrCreate.mockResolvedValue({
+              ...createChannelUser({
+                ownpilotUserId: 'whatsapp:5521997557364',
+                isVerified: false,
+              }),
+              status: 'active',
+              created: true,
+            });
+            await service.processIncomingMessage(
+              createIncomingMessage({
+                channelPluginId: 'channel.whatsapp',
+                platform: 'whatsapp',
+                platformChatId: '5521997557364',
+                sender: { platformUserId: '5521997557364', platform: 'whatsapp' },
+                metadata: { fromMe: false, isSelfChat: false },
+              })
+            );
 
-          expect(mockUsersRepo.updateStatus).toHaveBeenCalledWith('cu-1', 'pending');
-          expect(mockVerificationService.verifyViaWhitelist).not.toHaveBeenCalled();
-          expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
-          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
-            expect.objectContaining({ text: expect.stringContaining('aguardando autorização') })
-          );
-        } finally {
-          vi.unstubAllEnvs();
+            expect(mockUsersRepo.updateStatus).toHaveBeenCalledWith('cu-1', 'pending');
+            expect(mockVerificationService.verifyViaWhitelist).not.toHaveBeenCalled();
+            expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+            expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+              expect.objectContaining({ text: expect.stringContaining('aguardando autorização') })
+            );
+          } finally {
+            vi.unstubAllEnvs();
+          }
         }
-      });
+      );
 
       it('does not allow a customer to claim ownership with a pairing key', async () => {
         vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
@@ -1299,6 +1451,9 @@ describe('ChannelServiceImpl', () => {
         ['unverified customer', { isVerified: false }],
         ['pending customer', { status: 'pending' }],
         ['blocked customer', { isBlocked: true }],
+        ['expired customer', { accessSource: 'manual', accessExpiresAt: new Date(0) }],
+        ['revoked customer', { accessSource: 'manual', isVerified: false }],
+        ['invalid expiry', { accessExpiresAt: new Date('invalid') }],
       ])('does not enroll or process %s before ownership is claimed', async (_label, changes) => {
         mockUsersRepo.findByPlatform.mockResolvedValue(
           changes === null ? null : { ...approvedCustomer, ...changes }
@@ -1373,11 +1528,127 @@ describe('ChannelServiceImpl', () => {
         expect(mockUsersRepo.findOrCreate).not.toHaveBeenCalled();
       });
 
+      it.each([
+        ['expired', { accessExpiresAt: new Date(0) }],
+        ['revoked', { isVerified: false }],
+        ['blocked', { isBlocked: true }],
+        ['pending', { status: 'pending' }],
+        ['wrong scope', { ownpilotUserId: 'default' }],
+      ])(
+        'denies %s access before commands even with a claimed owner and trusted env',
+        async (_label, changes) => {
+          mockGetOwnerUserId.mockResolvedValue(botPhone);
+          const inactive = { ...approvedCustomer, accessSource: 'manual', ...changes };
+          mockUsersRepo.findOrCreate.mockResolvedValue(inactive);
+          mockUsersRepo.findByPlatform.mockResolvedValue(inactive);
+
+          for (const text of ['Hello!', '/clear', '/connect OWNER-KEY']) {
+            await service.processIncomingMessage({ ...message, text });
+          }
+
+          expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+          expect(mockSessionsRepo.deactivate).not.toHaveBeenCalled();
+          expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+          expect(mockClaimOwnership).not.toHaveBeenCalled();
+          expect(mockVerificationService.verifyViaWhitelist).not.toHaveBeenCalled();
+          expect(mockUsersRepo.updateStatus).not.toHaveBeenCalled();
+          expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+        }
+      );
+
+      it.each(['direct', 'bus'])('rechecks a revoked grant before %s routing', async (path) => {
+        mockGetOwnerUserId.mockResolvedValue(botPhone);
+        mockUsersRepo.findByPlatform.mockResolvedValue({
+          ...approvedCustomer,
+          accessSource: 'manual',
+          isVerified: false,
+        });
+        const bus = { process: vi.fn() };
+        if (path === 'bus') {
+          mockHasServiceRegistry.mockReturnValue(true);
+          mockGetServiceRegistry.mockReturnValue({
+            get: (token: { name: string }) => (token.name === 'message' ? bus : null),
+          });
+        }
+
+        await service.processIncomingMessage(message);
+
+        expect(mockUsersRepo.findByPlatform).toHaveBeenCalledWith('whatsapp', customerPhone);
+        expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        expect(bus.process).not.toHaveBeenCalled();
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+      });
+
+      it.each([false, true])(
+        'does not send a response after access is revoked during processing (throws: %s)',
+        async (throws) => {
+          mockGetOwnerUserId.mockResolvedValue(botPhone);
+          const chat = vi.fn().mockImplementation(async () => {
+            mockUsersRepo.findByPlatform.mockResolvedValue({
+              ...approvedCustomer,
+              accessSource: 'manual',
+              isVerified: false,
+            });
+            if (throws) throw new Error('Provider failed after revocation');
+            return { ok: true, value: { content: 'Private customer information' } };
+          });
+          mockGetOrCreateChatAgent.mockResolvedValue(createMockAgent({ chat }));
+
+          await service.processIncomingMessage(message);
+
+          expect(chat).toHaveBeenCalled();
+          expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+          expect(mockMessagesRepo.create).not.toHaveBeenCalledWith(
+            expect.objectContaining({ direction: 'outbound' })
+          );
+        }
+      );
+
+      it('does not send a response when the persisted identity changes during processing', async () => {
+        mockGetOwnerUserId.mockResolvedValue(botPhone);
+        const chat = vi.fn().mockImplementation(async () => {
+          mockUsersRepo.findByPlatform.mockResolvedValue({
+            ...approvedCustomer,
+            ownpilotUserId: 'whatsapp:5511999990003',
+          });
+          return { ok: true, value: { content: 'Information from the original identity' } };
+        });
+        mockGetOrCreateChatAgent.mockResolvedValue(createMockAgent({ chat }));
+
+        await service.processIncomingMessage(message);
+
+        expect(chat).toHaveBeenCalled();
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+      });
+
+      it('applies the owner exemption only to the current owner, preserving default scope', async () => {
+        mockGetOwnerUserId.mockResolvedValue(botPhone);
+        const owner = createChannelUser({
+          ownpilotUserId: 'default',
+          accessSource: 'manual',
+          accessExpiresAt: new Date(0),
+        });
+        mockUsersRepo.findOrCreate.mockResolvedValue(owner);
+        mockUsersRepo.findByPlatform.mockResolvedValue(owner);
+
+        await service.processIncomingMessage({
+          ...message,
+          sender: { ...message.sender, platformUserId: botPhone },
+          platformChatId: botPhone,
+          metadata: { isSelfChat: true, fromMe: true },
+        });
+
+        expect(mockGetOrCreateChatAgent.mock.calls.map((call) => call[7])).toContain('default');
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: 'Resposta privada' })
+        );
+      });
+
       it('preserves the current legacy owner default scope during normal reconnect', async () => {
         mockGetOwnerUserId.mockResolvedValue(botPhone);
-        mockUsersRepo.findOrCreate.mockResolvedValue(
-          createChannelUser({ ownpilotUserId: 'default' })
-        );
+        const owner = createChannelUser({ ownpilotUserId: 'default' });
+        mockUsersRepo.findOrCreate.mockResolvedValue(owner);
+        mockUsersRepo.findByPlatform.mockResolvedValue(owner);
 
         await service.processIncomingMessage(
           createIncomingMessage({
@@ -1389,7 +1660,7 @@ describe('ChannelServiceImpl', () => {
           })
         );
 
-        expect(mockUsersRepo.findByPlatform).not.toHaveBeenCalled();
+        expect(mockUsersRepo.findByPlatform).toHaveBeenCalledWith('whatsapp', botPhone);
         expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
           expect.not.objectContaining({ ownpilotUserId: expect.anything() })
         );
@@ -1464,7 +1735,7 @@ describe('ChannelServiceImpl', () => {
       });
 
       it('auto-claims WhatsApp owner when sender matches bot phone (self-chat)', async () => {
-        mockGetOwnerUserId.mockResolvedValue(null);
+        mockGetOwnerUserId.mockResolvedValue('user-456').mockResolvedValueOnce(null);
         const waPlugin = createChannelPlugin({
           platform: 'whatsapp',
           connectionStatus: 'connected',

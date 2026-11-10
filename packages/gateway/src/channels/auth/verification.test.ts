@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const mockGetOwnerUserId = vi.hoisted(() => vi.fn());
+
+vi.mock('../../services/pairing-service.js', () => ({
+  getOwnerUserId: mockGetOwnerUserId,
+}));
+
 vi.mock('@ownpilot/core/events', () => ({
   getEventBus: vi.fn(),
   createEvent: vi.fn((...args: unknown[]) => args),
@@ -38,6 +44,9 @@ function createMockUsersRepo() {
     findOrCreate: vi.fn(),
     markVerified: vi.fn(),
     findByPlatform: vi.fn(),
+    getById: vi.fn(),
+    delete: vi.fn(),
+    unverify: vi.fn(),
     block: vi.fn(),
     unblock: vi.fn(),
   };
@@ -56,6 +65,7 @@ function makeChannelUser(overrides: Record<string, unknown> = {}) {
     displayName: 'Alice',
     isVerified: false,
     isBlocked: false,
+    status: 'active',
     metadata: {},
     firstSeenAt: new Date(),
     lastSeenAt: new Date(),
@@ -84,12 +94,153 @@ describe('ChannelVerificationService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetOwnerUserId.mockResolvedValue('5511999990002');
     mockVerificationRepo = createMockVerificationRepo();
     mockUsersRepo = createMockUsersRepo();
     service = new ChannelVerificationService(
       mockVerificationRepo as unknown as ChannelVerificationRepository,
       mockUsersRepo as unknown as ChannelUsersRepository
     );
+  });
+
+  describe('WhatsApp manual access enforcement', () => {
+    const phone = '5511999990001';
+    const scope = `whatsapp:${phone}`;
+
+    function customer(overrides: Record<string, unknown> = {}) {
+      return makeChannelUser({
+        platform: 'whatsapp',
+        platformUserId: phone,
+        ownpilotUserId: scope,
+        isVerified: true,
+        accessSource: 'manual',
+        accessExpiresAt: null,
+        ...overrides,
+      });
+    }
+
+    it.each([
+      ['unknown', null],
+      ['revoked', { isVerified: false }],
+      ['expired', { accessExpiresAt: new Date(0) }],
+      ['already active', {}],
+    ])('rejects a %s guest token before consuming or linking it', async (_label, changes) => {
+      mockUsersRepo.findByPlatform.mockResolvedValue(changes === null ? null : customer(changes));
+      mockVerificationRepo.claimValidToken.mockResolvedValue(makeTokenEntity());
+
+      await expect(service.verifyToken('ABC123', 'whatsapp', phone, 'Alice')).resolves.toEqual({
+        success: false,
+        error: expect.stringContaining('gestão de acessos do WhatsApp'),
+      });
+      expect(mockVerificationRepo.claimValidToken).not.toHaveBeenCalled();
+      expect(mockVerificationRepo.assignClaimedTokenToUser).not.toHaveBeenCalled();
+      expect(mockUsersRepo.findOrCreate).not.toHaveBeenCalled();
+      expect(mockUsersRepo.markVerified).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['legacy indefinite', { accessSource: undefined, accessExpiresAt: undefined }],
+      ['manual indefinite', { accessExpiresAt: null }],
+      ['future expiry', { accessExpiresAt: new Date('2099-01-01T00:00:00Z') }],
+    ])('preserves %s authorization without a new grant', async (_label, changes) => {
+      const user = customer(changes);
+      mockUsersRepo.findByPlatform.mockResolvedValue(user);
+      mockUsersRepo.getById.mockResolvedValue(user);
+
+      await expect(service.isVerified('whatsapp', phone)).resolves.toBe(true);
+      await expect(service.resolveUser('whatsapp', phone)).resolves.toBe(scope);
+      await expect(service.verifyViaWhitelist('whatsapp', phone, 'Alice', scope)).resolves.toBe(
+        user
+      );
+      await expect(service.approveUser(user.id)).resolves.toBe(true);
+
+      expect(mockUsersRepo.findOrCreate).not.toHaveBeenCalled();
+      expect(mockUsersRepo.markVerified).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['revoked', { isVerified: false }],
+      ['expired', { accessExpiresAt: new Date(0) }],
+      ['invalid expiry', { accessExpiresAt: new Date('invalid') }],
+      ['blocked', { isBlocked: true }],
+      ['pending', { status: 'pending' }],
+      ['owner scope', { ownpilotUserId: 'default' }],
+      ['other customer scope', { ownpilotUserId: 'whatsapp:5511999990003' }],
+    ])(
+      'does not resolve or reactivate a %s guest through legacy verification',
+      async (_label, changes) => {
+        const user = customer(changes);
+        mockUsersRepo.findByPlatform.mockResolvedValue(user);
+        mockUsersRepo.getById.mockResolvedValue(user);
+
+        await expect(service.isVerified('whatsapp', phone)).resolves.toBe(false);
+        await expect(service.resolveUser('whatsapp', phone)).resolves.toBeNull();
+        await expect(
+          service.verifyViaWhitelist('whatsapp', phone, 'Alice', 'default')
+        ).rejects.toThrow('gestão de acessos do WhatsApp');
+        await expect(service.approveUser(user.id)).resolves.toBe(false);
+
+        expect(mockUsersRepo.findOrCreate).not.toHaveBeenCalled();
+        expect(mockUsersRepo.markVerified).not.toHaveBeenCalled();
+      }
+    );
+
+    it('preserves owner access in the existing scope without applying customer expiry', async () => {
+      mockGetOwnerUserId.mockResolvedValue(phone);
+      mockUsersRepo.findByPlatform.mockResolvedValue(
+        customer({ ownpilotUserId: 'default', accessExpiresAt: new Date(0) })
+      );
+
+      await expect(service.isVerified('whatsapp', phone)).resolves.toBe(true);
+      await expect(service.resolveUser('whatsapp', phone)).resolves.toBe('default');
+    });
+
+    it('does not grant an owner exemption after ownership has moved to another phone', async () => {
+      mockUsersRepo.findByPlatform.mockResolvedValue(
+        customer({ ownpilotUserId: 'default', accessExpiresAt: new Date(0) })
+      );
+
+      await expect(service.isVerified('whatsapp', phone)).resolves.toBe(false);
+      await expect(service.resolveUser('whatsapp', phone)).resolves.toBeNull();
+    });
+
+    it('preserves legacy owner token verification in the same persisted identity', async () => {
+      mockGetOwnerUserId.mockResolvedValue(phone);
+      const owner = customer({
+        ownpilotUserId: 'owner-1',
+        accessSource: undefined,
+        isVerified: false,
+      });
+      mockUsersRepo.findByPlatform.mockResolvedValue(owner);
+      mockUsersRepo.findOrCreate.mockResolvedValue(owner);
+      mockVerificationRepo.claimValidToken.mockResolvedValue(makeTokenEntity());
+
+      await expect(service.verifyToken('ABC123', 'whatsapp', phone, 'Alice')).resolves.toEqual({
+        success: true,
+        ownpilotUserId: 'owner-1',
+      });
+      expect(mockUsersRepo.markVerified).toHaveBeenCalledWith(owner.id, 'owner-1', 'pin');
+    });
+
+    it('does not reactivate a managed revoked record through the owner verification path', async () => {
+      mockGetOwnerUserId.mockResolvedValue(phone);
+      const owner = customer({ ownpilotUserId: 'default', isVerified: false });
+      mockUsersRepo.findByPlatform.mockResolvedValue(owner);
+      mockUsersRepo.findOrCreate.mockResolvedValue(owner);
+      mockUsersRepo.getById.mockResolvedValue(owner);
+
+      await expect(
+        service.verifyToken('ABC123', 'whatsapp', phone, 'Alice')
+      ).resolves.toMatchObject({
+        success: false,
+      });
+      await expect(service.verifyViaWhitelist('whatsapp', phone, 'Alice')).rejects.toThrow(
+        'gestão de acessos do WhatsApp'
+      );
+      await expect(service.approveUser(owner.id)).resolves.toBe(false);
+      expect(mockVerificationRepo.claimValidToken).not.toHaveBeenCalled();
+      expect(mockUsersRepo.markVerified).not.toHaveBeenCalled();
+    });
   });
 
   // =========================================================================

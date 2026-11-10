@@ -129,9 +129,14 @@ const { channelRoutes } = await import('./index.js');
 // App setup
 // ---------------------------------------------------------------------------
 
-function createApp() {
+function createApp(userId: string | null = 'default', signedJwt = false) {
   const app = new Hono();
   app.use('*', requestId);
+  app.use('*', async (c, next) => {
+    if (userId) c.set('userId', userId);
+    if (signedJwt) c.set('jwtPayload', { sub: userId } as never);
+    await next();
+  });
   app.route('/channels', channelRoutes);
   app.onError(errorHandler);
   return app;
@@ -238,12 +243,16 @@ describe('Channels Routes — Extended', () => {
       mockChannelUsersRepo.list.mockResolvedValue([
         {
           id: 'u-1',
+          ownpilotUserId: 'whatsapp:9051234567',
           platform: 'whatsapp',
           platformUserId: '+9051234567',
           platformUsername: 'testuser',
           displayName: 'Test User',
           isVerified: false,
           isBlocked: false,
+          status: 'pending',
+          metadata: {},
+          firstSeenAt: now,
           lastSeenAt: now,
         },
       ]);
@@ -269,6 +278,60 @@ describe('Channels Routes — Extended', () => {
       mockChannelUsersRepo.list.mockRejectedValue(new Error('DB error'));
       const res = await app.request('/channels/channel.whatsapp/users');
       expect(res.status).toBe(500);
+    });
+
+    it('includes preauthorized numbers, validity and owner information without requiring a session', async () => {
+      const now = new Date('2026-11-10T12:00:00Z');
+      const phone = '5521999991234';
+      mockGetOwnerUserId.mockResolvedValue('5567999994321');
+      mockChannelUsersRepo.list.mockResolvedValue([
+        {
+          id: 'preauthorized',
+          ownpilotUserId: `whatsapp:${phone}`,
+          platform: 'whatsapp',
+          platformUserId: phone,
+          displayName: 'Cliente novo',
+          isVerified: true,
+          isBlocked: false,
+          status: 'active',
+          accessSource: 'manual',
+          accessGrantedAt: now,
+          accessExpiresAt: new Date('2099-01-01T00:00:00Z'),
+          metadata: { hasInteracted: false },
+          firstSeenAt: now,
+          lastSeenAt: now,
+        },
+      ] as never);
+
+      const response = await app.request('/channels/channel.whatsapp/users');
+      expect(response.status).toBe(200);
+      const { data } = await response.json();
+      expect(data.users[0]).toMatchObject({
+        id: 'preauthorized',
+        accessStatus: 'active',
+        accessSource: 'manual',
+        accessExpiresAt: '2099-01-01T00:00:00.000Z',
+        hasInteracted: false,
+        isOwner: false,
+      });
+      expect(mockChannelUsersRepo.list).toHaveBeenCalledWith({
+        platform: 'whatsapp',
+        ownpilotUserId: 'default',
+        includeWhatsAppCustomers: true,
+        limit: 100,
+        offset: 0,
+      });
+    });
+
+    it.each([
+      [null, false, 401],
+      ['whatsapp:5521999991234', true, 403],
+      ['apikey:pretend-admin', true, 403],
+    ])('does not disclose the authorization list to %s', async (userId, jwt, status) => {
+      const restricted = createApp(userId as string | null, jwt as boolean);
+      const response = await restricted.request('/channels/channel.whatsapp/users');
+      expect(response.status).toBe(status);
+      expect(mockChannelUsersRepo.list).not.toHaveBeenCalled();
     });
   });
 
@@ -538,6 +601,32 @@ describe('Channels Routes — Extended', () => {
   });
 
   // ---- POST /channels/:id/revoke-owner ----
+
+  it.each([
+    ['GET', '/channels/pairing'],
+    ['GET', '/channels/dm-pairing/pending/whatsapp'],
+    ['POST', '/channels/dm-pairing/approve'],
+    ['POST', '/channels/dm-pairing/deny'],
+    ['POST', '/channels/channel.whatsapp/revoke-owner'],
+  ])('requires the administrator for %s %s', async (method, path) => {
+    const customer = createApp('whatsapp:5521999991234', true);
+    const response = await customer.request(path, {
+      method,
+      ...(method === 'POST'
+        ? {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              platform: 'whatsapp',
+              platformUserId: '5567999994321',
+              code: '123456',
+            }),
+          }
+        : {}),
+    });
+    expect(response.status).toBe(403);
+    expect(mockRevokeOwnership).not.toHaveBeenCalled();
+    expect(mockGetPairingKey).not.toHaveBeenCalled();
+  });
 
   describe('POST /channels/:id/revoke-owner', () => {
     it('revokes ownership and returns new pairing key', async () => {

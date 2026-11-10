@@ -55,6 +55,7 @@ import {
   type DmPairingRequestsRepository,
 } from '../db/repositories/channels/dm-pairing.js';
 import { DmPairingService } from './dm-pairing-service.js';
+import { isChannelUserAccessActive } from './channel-access-service.js';
 import { emitConnectionEvent } from './connection-events.js';
 import { wsGateway } from '../ws/server.js';
 import { getErrorMessage } from '../utils/common.js';
@@ -175,6 +176,7 @@ export class ChannelServiceImpl implements IChannelService {
     }
 
     try {
+      await this.assertOutgoingAccess(api, message.platformChatId);
       const messageId = await api.sendMessage(message);
 
       // Emit sent event
@@ -222,6 +224,7 @@ export class ChannelServiceImpl implements IChannelService {
     for (const plugin of channels) {
       try {
         const api = getChannelApi(plugin);
+        await this.assertOutgoingAccess(api, message.platformChatId);
         const messageId = await api.sendMessage(message);
         results.set(plugin.manifest.id, messageId);
       } catch (error) {
@@ -243,6 +246,7 @@ export class ChannelServiceImpl implements IChannelService {
       try {
         const api = getChannelApi(plugin);
         if (api.getStatus() === 'connected') {
+          await this.assertOutgoingAccess(api, message.platformChatId);
           const messageId = await api.sendMessage(message);
           results.set(plugin.manifest.id, messageId);
         }
@@ -422,6 +426,7 @@ export class ChannelServiceImpl implements IChannelService {
     // Hoisted out of the try so the catch can replace a dangling "Thinking..."
     // progress placeholder with the error message instead of orphaning it.
     let progress: ChannelProgressManager | null = null;
+    let whatsappUserId: string | undefined;
     try {
       // 0. Drop floods before any DB/LLM work. A single sender cannot exhaust
       //    resources by spamming — see InboundFloodGuard for the sliding window.
@@ -465,9 +470,8 @@ export class ChannelServiceImpl implements IChannelService {
             message.sender.platformUserId
           );
           returningWhatsAppGuest = Boolean(
-            existing?.isVerified &&
-            !existing.isBlocked &&
-            existing.status === 'active' &&
+            existing &&
+            isChannelUserAccessActive(existing) &&
             existing.ownpilotUserId === `whatsapp:${message.sender.platformUserId}`
           );
         }
@@ -499,15 +503,13 @@ export class ChannelServiceImpl implements IChannelService {
         avatarUrl: message.sender.avatarUrl,
         ...(customerUserId ? { ownpilotUserId: customerUserId } : {}),
       });
+      if (message.platform === 'whatsapp') whatsappUserId = channelUser.ownpilotUserId;
 
       // Recheck the refreshed record: an approval revoked between the lookup
       // above and findOrCreate must not fall through to auto-enrollment.
       if (
         returningWhatsAppGuest &&
-        (!channelUser.isVerified ||
-          channelUser.isBlocked ||
-          channelUser.status !== 'active' ||
-          channelUser.ownpilotUserId !== customerUserId)
+        (!isChannelUserAccessActive(channelUser) || channelUser.ownpilotUserId !== customerUserId)
       ) {
         return;
       }
@@ -539,6 +541,41 @@ export class ChannelServiceImpl implements IChannelService {
           displayName: message.sender.displayName,
           platform: message.platform,
         });
+        return;
+      }
+
+      // WhatsApp customer access is an administrator-managed allowlist. Check
+      // it before commands/session changes, not only before an AI response.
+      if (
+        message.platform === 'whatsapp' &&
+        message.metadata?.isGroup !== true &&
+        ownerUserId !== null &&
+        message.sender.platformUserId !== ownerUserId &&
+        !isWhatsAppGuest
+      ) {
+        return;
+      }
+      if (
+        isWhatsAppGuest &&
+        (!isChannelUserAccessActive(channelUser) || channelUser.ownpilotUserId !== customerUserId)
+      ) {
+        // Keep unsolicited new contacts pending. Expired/revoked managed
+        // records retain their grant history and can only be renewed explicitly.
+        if (!channelUser.accessSource && !channelUser.isVerified) {
+          if (channelUser.status !== 'pending') {
+            await this.usersRepo.updateStatus(channelUser.id, 'pending');
+          }
+          if (channelUser.created) {
+            await this.send(message.channelPluginId, {
+              platformChatId: message.platformChatId,
+              text:
+                'Olá! Seu número foi cadastrado no Astra. Seu acesso está aguardando autorização. ' +
+                'Você receberá atendimento após a liberação.',
+            }).catch((err) => {
+              log.warn('Could not send WhatsApp access-pending notice', { error: err });
+            });
+          }
+        }
         return;
       }
 
@@ -689,39 +726,8 @@ export class ChannelServiceImpl implements IChannelService {
       // 4. Check verification — whitelist, approval code, or admin approval
       if (!channelUser.isVerified) {
         if (message.platform === 'whatsapp') {
-          if (isWhatsAppGuest) {
-            // SaaS access is opt-in: a random DM cannot consume model tokens.
-            // An explicit trusted list can authorize test/customer phones, while
-            // other numbers must be approved in the operator's Channels panel.
-            const trustedNumbers = (process.env.ASTRA_WHATSAPP_TRUSTED_NUMBERS ?? '')
-              .split(',')
-              .map((number) => number.replace(/[^0-9]/g, ''))
-              .filter(Boolean);
-            const canAutoEnroll =
-              process.env.ASTRA_WHATSAPP_AUTO_ENROLL === 'true' ||
-              trustedNumbers.includes(message.sender.platformUserId);
-            if (!canAutoEnroll) {
-              if (channelUser.status !== 'pending') {
-                await this.usersRepo.updateStatus(channelUser.id, 'pending');
-              }
-              if (channelUser.created) {
-                const api = this.getChannel(message.channelPluginId);
-                await api
-                  ?.sendMessage({
-                    platformChatId: message.platformChatId,
-                    text:
-                      'Olá! Seu número foi cadastrado no Astra. Seu acesso está aguardando autorização. ' +
-                      'Você receberá atendimento após a liberação.',
-                  })
-                  .catch((err) => {
-                    log.warn('Could not send WhatsApp access-pending notice', { error: err });
-                  });
-              }
-              return;
-            }
-          }
-
-          // Owner or explicitly authorized customer — verify using their own scope.
+          // Only the authenticated owner can reach this path. Customer grants
+          // come from number management; environment variables cannot renew them.
           const verificationSvc = getChannelVerificationService();
           await verificationSvc.verifyViaWhitelist(
             message.platform,
@@ -1085,6 +1091,21 @@ export class ChannelServiceImpl implements IChannelService {
         responseText = await this.processDirectAgent(message, channelUser.ownpilotUserId);
       }
 
+      // A grant may expire or be revoked while the model is running. Do not
+      // disclose its response after access or the persisted identity changes.
+      if (
+        message.platform === 'whatsapp' &&
+        !(await this.isWhatsAppAccessAllowed(
+          message.sender.platformUserId,
+          channelUser.ownpilotUserId
+        ))
+      ) {
+        await progress?.cancel().catch((err) => {
+          log.debug('Progress cancellation failed after access changed', { error: err });
+        });
+        return;
+      }
+
       // 8. Send response (guard against empty text — Telegram rejects it)
       if (!responseText || !responseText.trim()) {
         responseText = '(No response generated)';
@@ -1167,6 +1188,17 @@ export class ChannelServiceImpl implements IChannelService {
       // is self-contained and wsGateway.broadcast never throws), so finishing
       // here cannot overwrite a reply that was already delivered.
       try {
+        if (
+          message.platform === 'whatsapp' &&
+          (!whatsappUserId ||
+            !(await this.isWhatsAppAccessAllowed(
+              message.sender.platformUserId,
+              whatsappUserId
+            ).catch(() => false)))
+        ) {
+          await progress?.cancel();
+          return;
+        }
         if (progress) {
           await progress.finish(userMessage);
         } else {
@@ -1208,6 +1240,15 @@ export class ChannelServiceImpl implements IChannelService {
       {
         sessionsRepo: this.sessionsRepo,
         getChannel: (id) => this.getChannel(id),
+        ...(message.platform === 'whatsapp'
+          ? {
+              isAccessAllowed: () =>
+                this.isWhatsAppAccessAllowed(
+                  message.sender.platformUserId,
+                  channelUser.ownpilotUserId
+                ),
+            }
+          : {}),
       },
       progress
     );
@@ -1217,7 +1258,54 @@ export class ChannelServiceImpl implements IChannelService {
     message: ChannelIncomingMessage,
     userId: string
   ): Promise<string> {
-    return processDirectAgentImpl(message, userId);
+    return processDirectAgentImpl(
+      message,
+      userId,
+      message.platform === 'whatsapp'
+        ? () => this.isWhatsAppAccessAllowed(message.sender.platformUserId, userId)
+        : undefined
+    );
+  }
+
+  private async isWhatsAppAccessAllowed(platformUserId: string, userId: string): Promise<boolean> {
+    const owner = await getOwnerUserId('whatsapp');
+    const user = await this.usersRepo.findByPlatform('whatsapp', platformUserId);
+    if (
+      !user ||
+      user.ownpilotUserId !== userId ||
+      !user.isVerified ||
+      user.isBlocked ||
+      user.status === 'pending'
+    ) {
+      return false;
+    }
+    if (owner === platformUserId) return true;
+    return userId === `whatsapp:${platformUserId}` && isChannelUserAccessActive(user);
+  }
+
+  private async assertOutgoingAccess(api: ChannelPluginAPI, platformChatId: string): Promise<void> {
+    if (api.getPlatform() !== 'whatsapp') return;
+    // Match the transport's phone conversion, including a direct phone JID.
+    // Groups and other non-phone chat addresses are outside customer grants.
+    const jidPhone = platformChatId.match(
+      /^([1-9][0-9]{9,14})(?::[0-9]+)?@(?:s\.whatsapp\.net|c\.us)$/
+    )?.[1];
+    const phone = platformChatId.includes('@') ? jidPhone : platformChatId.replace(/[^0-9]/g, '');
+    if (!phone) return;
+    const owner = await getOwnerUserId('whatsapp');
+    const user = await this.usersRepo.findByPlatform('whatsapp', phone);
+    // Administrative messages to contacts without a customer grant still work.
+    if (!user) return;
+    if (owner === phone && user.isVerified && !user.isBlocked && user.status !== 'pending') return;
+    if (
+      user.isBlocked ||
+      ((user.accessSource != null || user.accessExpiresAt != null) &&
+        !isChannelUserAccessActive(user))
+    ) {
+      throw new Error(
+        'O acesso deste número está inativo. Peça ao administrador para autorizar ou renovar seu acesso.'
+      );
+    }
   }
 
   // ==========================================================================
@@ -1415,6 +1503,22 @@ export class ChannelServiceImpl implements IChannelService {
    * Send a welcome message to a newly approved user via their channel.
    */
   private async sendApprovalNotification(platform: string, platformUserId: string): Promise<void> {
+    if (platform === 'whatsapp') {
+      const owner = await getOwnerUserId(platform);
+      const user = await this.usersRepo.findByPlatform(platform, platformUserId);
+      if (
+        !user ||
+        !user.isVerified ||
+        user.isBlocked ||
+        user.status === 'pending' ||
+        user.metadata.hasInteracted === false ||
+        (owner !== platformUserId &&
+          (user.ownpilotUserId !== `whatsapp:${platformUserId}` ||
+            !isChannelUserAccessActive(user)))
+      ) {
+        return;
+      }
+    }
     const channelPlugins = this.getChannelPlugins().filter(
       (p) => getChannelPlatform(p) === platform
     );
@@ -1424,7 +1528,7 @@ export class ChannelServiceImpl implements IChannelService {
       if (api.getStatus() !== 'connected') continue;
 
       try {
-        await api.sendMessage({
+        await this.send(plugin.manifest.id, {
           platformChatId: platformUserId,
           text: 'You have been approved! You can now chat with the AI assistant.',
         });

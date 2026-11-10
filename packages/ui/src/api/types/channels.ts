@@ -39,10 +39,33 @@ export interface ChannelUser {
   isVerified: boolean;
   isBlocked: boolean;
   lastSeenAt: string;
+  ownpilotUserId?: string;
+  isOwner?: boolean;
+  accessExpiresAt?: string | null;
+  accessGrantedAt?: string | null;
+  accessSource?: 'manual' | 'cakto' | null;
+  accessStatus?: 'active' | 'expired' | 'revoked' | 'blocked' | 'pending';
+  /** False for a number authorized before its first incoming message. */
+  hasInteracted?: boolean;
   /** Present when user is in DM pairing flow — shows the code they need to give the owner */
   pendingPairingCode?: string;
   /** ISO timestamp of when pendingPairingCode expires */
   pendingPairingExpiry?: string;
+}
+
+export interface AuthorizeWhatsAppUserInput {
+  platform: 'whatsapp';
+  phoneNumber: string;
+  displayName?: string;
+  /** Omitted means 30 days; null explicitly grants access without an expiry. */
+  durationDays?: number | null;
+}
+
+export interface ChannelUsersPage {
+  users: ChannelUser[];
+  count: number;
+  limit: number;
+  offset: number;
 }
 
 export interface ChannelStats {

@@ -309,6 +309,7 @@ describe('ChannelUsersRepository', () => {
       expect(sql).toContain('verified_at = NOW()');
       expect(sql).toContain('verification_method = $1');
       expect(sql).toContain('ownpilot_user_id = $2');
+      expect(sql).toContain('access_source IS NULL AND ownpilot_user_id = $2');
     });
   });
 
@@ -352,7 +353,13 @@ describe('ChannelUsersRepository', () => {
       expect(sql).toContain('is_verified = FALSE');
       expect(sql).toContain('verified_at = NULL');
       expect(sql).toContain('verification_method = NULL');
+      expect(sql).toContain("COALESCE(access_source, 'manual')");
       expect(mockAdapter.execute).toHaveBeenCalledWith(expect.any(String), ['cu-1']);
+      expect(mockAdapter.transaction).toHaveBeenCalledOnce();
+      expect(mockAdapter.execute).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE channel_sessions SET is_active = FALSE'),
+        ['cu-1']
+      );
     });
   });
 
@@ -622,6 +629,256 @@ describe('ChannelUsersRepository', () => {
       expect(mockAdapter.execute).not.toHaveBeenCalledWith(
         expect.stringContaining('UPDATE channel_sessions SET is_active = FALSE'),
         expect.anything()
+      );
+    });
+  });
+
+  describe('persistent WhatsApp authorization', () => {
+    const phone = '5511999991234';
+    const now = new Date('2026-11-10T12:00:00Z');
+    const expiry = new Date('2026-12-10T12:00:00Z');
+
+    it('maps new audit fields and leaves legacy fields null', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(
+        makeUserRow({
+          access_expires_at: expiry.toISOString(),
+          access_granted_at: now.toISOString(),
+          access_source: 'manual',
+        })
+      );
+      const managed = await repo.getById('cu-1');
+      expect(managed).toMatchObject({
+        accessExpiresAt: expiry,
+        accessGrantedAt: now,
+        accessSource: 'manual',
+      });
+      mockAdapter.queryOne.mockResolvedValueOnce(makeUserRow());
+      const legacy = await repo.getById('cu-1');
+      expect(legacy).toMatchObject({
+        accessExpiresAt: null,
+        accessGrantedAt: null,
+        accessSource: null,
+      });
+    });
+
+    it('preauthorizes a number atomically without pretending it has already messaged', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(
+        makeUserRow({
+          id: 'generated-uuid',
+          platform: 'whatsapp',
+          platform_user_id: phone,
+          ownpilot_user_id: `whatsapp:${phone}`,
+          is_verified: true,
+          access_source: 'manual',
+          access_expires_at: expiry.toISOString(),
+          metadata: { manualPreauthorized: true, hasInteracted: false },
+        })
+      );
+      const result = await repo.grantWhatsAppAccess({
+        phoneNumber: phone,
+        displayName: 'Ana',
+        expiresAt: expiry,
+        grantedAt: now,
+        source: 'manual',
+      });
+      expect(result).toMatchObject({
+        ownpilotUserId: `whatsapp:${phone}`,
+        isVerified: true,
+        metadata: { manualPreauthorized: true, hasInteracted: false },
+      });
+      const [sql, params] = mockAdapter.queryOne.mock.calls[0];
+      expect(sql).toContain('ON CONFLICT (platform, platform_user_id) DO UPDATE');
+      expect(sql).toContain('WHERE channel_users.ownpilot_user_id = EXCLUDED.ownpilot_user_id');
+      expect(sql).toContain('AND NOT channel_users.is_blocked');
+      expect(params).toEqual([
+        'generated-uuid',
+        `whatsapp:${phone}`,
+        phone,
+        'Ana',
+        now.toISOString(),
+        expiry.toISOString(),
+        'manual',
+        JSON.stringify({ manualPreauthorized: true, hasInteracted: false }),
+      ]);
+    });
+
+    it('uses greatest absolute expiration, preserving unlimited grants, block and activity on duplicate registration', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(makeUserRow());
+      await repo.grantWhatsAppAccess({
+        phoneNumber: phone,
+        expiresAt: expiry,
+        grantedAt: now,
+        source: 'manual',
+      });
+      const sql = mockAdapter.queryOne.mock.calls[0][0] as string;
+      expect(sql).toContain(
+        'GREATEST(channel_users.access_expires_at, EXCLUDED.access_expires_at)'
+      );
+      expect(sql).toContain('WHEN EXCLUDED.access_expires_at IS NULL THEN NULL');
+      expect(sql).toContain('AND channel_users.is_verified THEN NULL');
+      const update = sql.split('DO UPDATE SET')[1]!;
+      expect(update).not.toMatch(/is_blocked\s*=/);
+      expect(update).not.toMatch(/metadata\s*=/);
+      expect(update).not.toContain('INTERVAL');
+      expect(update).not.toMatch(/ownpilot_user_id\s*=(?!\s*EXCLUDED\.ownpilot_user_id)/);
+    });
+
+    it('uses the requested finite duration when reauthorizing a revoked unlimited grant', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(
+        makeUserRow({
+          is_verified: true,
+          access_source: 'manual',
+          access_expires_at: expiry.toISOString(),
+        })
+      );
+      const result = await repo.grantWhatsAppAccess({
+        phoneNumber: phone,
+        expiresAt: expiry,
+        grantedAt: now,
+        source: 'manual',
+      });
+      const [sql, params] = mockAdapter.queryOne.mock.calls[0];
+      expect(sql).toContain('AND channel_users.is_verified THEN NULL');
+      expect(sql).not.toContain('channel_users.access_source IS NOT NULL');
+      expect(sql).toContain('ELSE EXCLUDED.access_expires_at END');
+      expect(params[5]).toBe(expiry.toISOString());
+      expect(result!.accessExpiresAt).toEqual(expiry);
+    });
+
+    it('returns null rather than transferring an owner or mismatched identity on conflict', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(null);
+      await expect(
+        repo.grantWhatsAppAccess({
+          phoneNumber: phone,
+          expiresAt: null,
+          grantedAt: now,
+          source: 'manual',
+        })
+      ).resolves.toBeNull();
+      expect(mockAdapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('rejects a grant if a concurrent block wins before the atomic upsert', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(null);
+      await expect(
+        repo.grantWhatsAppAccess({
+          phoneNumber: phone,
+          expiresAt: expiry,
+          grantedAt: now,
+          source: 'manual',
+        })
+      ).resolves.toBeNull();
+      const sql = mockAdapter.queryOne.mock.calls[0][0] as string;
+      expect(sql).toContain('AND NOT channel_users.is_blocked');
+      expect(sql).not.toMatch(/is_blocked\s*=/);
+      expect(mockAdapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('renews from the later of expiry and now in one update, retaining unlimited access', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(
+        makeUserRow({ access_expires_at: '2027-01-09T12:00:00Z' })
+      );
+      const result = await repo.renewWhatsAppAccess('cu-1', 30, 'manual', now);
+      expect(result!.accessExpiresAt).toEqual(new Date('2027-01-09T12:00:00Z'));
+      const [sql, params] = mockAdapter.queryOne.mock.calls[0];
+      expect(sql).toContain(
+        'GREATEST(COALESCE(access_expires_at, $2::timestamptz), $2::timestamptz)'
+      );
+      expect(sql).toContain("$3::integer * INTERVAL '1 day'");
+      expect(sql).toContain(
+        'WHEN access_expires_at IS NULL AND (is_verified OR access_source IS NOT NULL) THEN NULL'
+      );
+      expect(sql).toContain("ownpilot_user_id = 'whatsapp:' || platform_user_id");
+      expect(sql).not.toContain('is_blocked =');
+      expect(params).toEqual(['cu-1', now.toISOString(), 30, 'manual']);
+      expect(mockAdapter.transaction).toHaveBeenCalledOnce();
+    });
+
+    it('runs renewal inside the transaction and propagates ambiguous write failures without reissuing the increment', async () => {
+      let insideTransaction = false;
+      const connectionError = Object.assign(new Error('Connection terminated unexpectedly'), {
+        code: 'ECONNRESET',
+      });
+      mockAdapter.transaction.mockImplementationOnce(async (fn: () => Promise<unknown>) => {
+        insideTransaction = true;
+        try {
+          return await fn();
+        } finally {
+          insideTransaction = false;
+        }
+      });
+      mockAdapter.queryOne.mockImplementationOnce(async () => {
+        // PostgresAdapter uses this transaction context to suppress its normal
+        // retry on transient connection errors, including a lost write response.
+        expect(insideTransaction).toBe(true);
+        throw connectionError;
+      });
+      await expect(repo.renewWhatsAppAccess('cu-1', 30, 'manual', now)).rejects.toBe(
+        connectionError
+      );
+      expect(mockAdapter.transaction).toHaveBeenCalledOnce();
+      expect(mockAdapter.queryOne).toHaveBeenCalledOnce();
+      expect(insideTransaction).toBe(false);
+    });
+
+    it('revokes a legacy grant with audit marker and closes sessions in the same transaction', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(
+        makeUserRow({
+          is_verified: false,
+          access_source: 'manual',
+          access_expires_at: expiry.toISOString(),
+        })
+      );
+      const result = await repo.revokeWhatsAppAccess('cu-1');
+      expect(result).toMatchObject({
+        isVerified: false,
+        accessSource: 'manual',
+        accessExpiresAt: expiry,
+      });
+      const sql = mockAdapter.queryOne.mock.calls[0][0] as string;
+      expect(sql).toContain("access_source = COALESCE(access_source, 'manual')");
+      expect(sql).toContain("ownpilot_user_id = 'whatsapp:' || platform_user_id");
+      expect(sql).not.toContain('access_expires_at =');
+      expect(sql).not.toContain('access_granted_at =');
+      expect(mockAdapter.transaction).toHaveBeenCalledOnce();
+      expect(mockAdapter.execute).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE channel_sessions SET is_active = FALSE'),
+        ['cu-1']
+      );
+    });
+
+    it('does not close sessions when the revocation target does not match the customer scope', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(null);
+      await expect(repo.revokeWhatsAppAccess('cu-1')).resolves.toBeNull();
+      expect(mockAdapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('records the first real interaction while preserving all grant metadata and identity', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(
+        makeUserRow({
+          platform: 'whatsapp',
+          platform_user_id: phone,
+          ownpilot_user_id: `whatsapp:${phone}`,
+          access_source: 'manual',
+          access_expires_at: expiry.toISOString(),
+          is_verified: true,
+          metadata: { manualPreauthorized: true, hasInteracted: false, retained: 'yes' },
+        })
+      );
+      const result = await repo.findOrCreate({
+        platform: 'whatsapp',
+        platformUserId: phone,
+        ownpilotUserId: `whatsapp:${phone}`,
+      });
+      expect(result).toMatchObject({
+        created: false,
+        isVerified: true,
+        accessSource: 'manual',
+        accessExpiresAt: expiry,
+        metadata: { manualPreauthorized: true, hasInteracted: true, retained: 'yes' },
+      });
+      expect(mockAdapter.execute.mock.calls[0][0]).toContain(
+        'metadata || \'{"hasInteracted":true}\'::jsonb'
       );
     });
   });

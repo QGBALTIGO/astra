@@ -13,6 +13,11 @@ import type { ChannelVerificationRepository } from '../../db/repositories/channe
 import { channelVerificationRepo } from '../../db/repositories/channels/verification.js';
 import type { ChannelUsersRepository } from '../../db/repositories/channels/users.js';
 import { channelUsersRepo, type ChannelUserEntity } from '../../db/repositories/channels/users.js';
+import { getOwnerUserId } from '../../services/pairing-service.js';
+import { isChannelUserAccessActive } from '../channel-access-service.js';
+
+const WHATSAPP_MANUAL_ACCESS_MESSAGE =
+  'Autorize ou renove este número na gestão de acessos do WhatsApp. Códigos e listas de confiança não concedem acesso.';
 
 // ============================================================================
 // Service
@@ -54,6 +59,16 @@ export class ChannelVerificationService {
     ownpilotUserId?: string;
     error?: string;
   }> {
+    if (platform === 'whatsapp') {
+      const owner = await getOwnerUserId(platform);
+      if (owner !== platformUserId) {
+        return { success: false, error: WHATSAPP_MANUAL_ACCESS_MESSAGE };
+      }
+      const existing = await this.usersRepo.findByPlatform(platform, platformUserId);
+      if (existing?.accessSource || existing?.isBlocked) {
+        return { success: false, error: WHATSAPP_MANUAL_ACCESS_MESSAGE };
+      }
+    }
     // Claim first so losing concurrent requests cannot create an OwnPilot-linked
     // channel user before discovering that the single-use token is gone.
     const tokenEntity = await this.verificationRepo.claimValidToken(token, platform);
@@ -69,6 +84,15 @@ export class ChannelVerificationService {
       platformUsername,
       ownpilotUserId: tokenEntity.ownpilotUserId,
     });
+
+    if (
+      platform === 'whatsapp' &&
+      (channelUser.accessSource ||
+        channelUser.isBlocked ||
+        channelUser.ownpilotUserId !== tokenEntity.ownpilotUserId)
+    ) {
+      return { success: false, error: WHATSAPP_MANUAL_ACCESS_MESSAGE };
+    }
 
     await this.verificationRepo.assignClaimedTokenToUser(tokenEntity.id, channelUser.id);
 
@@ -106,6 +130,7 @@ export class ChannelVerificationService {
    */
   async isVerified(platform: string, platformUserId: string): Promise<boolean> {
     const user = await this.usersRepo.findByPlatform(platform, platformUserId);
+    if (platform === 'whatsapp') return this.isWhatsAppAccessAllowed(user, platformUserId);
     return user?.isVerified === true && !user.isBlocked;
   }
 
@@ -127,12 +152,32 @@ export class ChannelVerificationService {
     displayName: string,
     ownpilotUserId: string = 'default'
   ): Promise<ChannelUserEntity> {
+    if (platform === 'whatsapp' && (await getOwnerUserId(platform)) !== platformUserId) {
+      const existing = await this.usersRepo.findByPlatform(platform, platformUserId);
+      if (
+        !existing ||
+        existing.ownpilotUserId !== `whatsapp:${platformUserId}` ||
+        !isChannelUserAccessActive(existing)
+      ) {
+        throw new Error(WHATSAPP_MANUAL_ACCESS_MESSAGE);
+      }
+      return existing;
+    }
     const channelUser = await this.usersRepo.findOrCreate({
       platform,
       platformUserId,
       displayName,
       ownpilotUserId,
     });
+
+    if (
+      platform === 'whatsapp' &&
+      (channelUser.isBlocked ||
+        channelUser.ownpilotUserId !== ownpilotUserId ||
+        (!channelUser.isVerified && Boolean(channelUser.accessSource)))
+    ) {
+      throw new Error(WHATSAPP_MANUAL_ACCESS_MESSAGE);
+    }
 
     if (!channelUser.isVerified) {
       await this.usersRepo.markVerified(channelUser.id, ownpilotUserId, 'whitelist');
@@ -148,7 +193,19 @@ export class ChannelVerificationService {
   async resolveUser(platform: string, platformUserId: string): Promise<string | null> {
     const user = await this.usersRepo.findByPlatform(platform, platformUserId);
     if (!user || !user.isVerified || user.isBlocked) return null;
+    if (platform === 'whatsapp' && !(await this.isWhatsAppAccessAllowed(user, platformUserId))) {
+      return null;
+    }
     return user.ownpilotUserId;
+  }
+
+  private async isWhatsAppAccessAllowed(
+    user: ChannelUserEntity | null,
+    platformUserId: string
+  ): Promise<boolean> {
+    if (!user || !user.isVerified || user.isBlocked || user.status === 'pending') return false;
+    if ((await getOwnerUserId('whatsapp')) === platformUserId) return true;
+    return user.ownpilotUserId === `whatsapp:${platformUserId}` && isChannelUserAccessActive(user);
   }
 
   /**
@@ -207,6 +264,14 @@ export class ChannelVerificationService {
   async approveUser(userId: string): Promise<boolean> {
     const user = await this.usersRepo.getById(userId);
     if (!user) return false;
+    if (user.platform === 'whatsapp') {
+      // Explicit grant/renew is the only way to activate WhatsApp customers.
+      // Keep this legacy entry point idempotent for already authorized users.
+      if ((await getOwnerUserId('whatsapp')) !== user.platformUserId || user.accessSource) {
+        return this.isWhatsAppAccessAllowed(user, user.platformUserId);
+      }
+      if (user.isBlocked) return false;
+    }
     await this.usersRepo.markVerified(user.id, user.ownpilotUserId, 'admin');
 
     // Emit verification event so channel service can notify the user
