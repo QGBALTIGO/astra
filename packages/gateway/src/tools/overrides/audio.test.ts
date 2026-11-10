@@ -1348,7 +1348,10 @@ describe('translateAudioOverride', () => {
 
   it('should return error when no config available', async () => {
     setupNoConfig();
-    const result = await executors.translate_audio!({ source: '/workspace/audio/test.mp3' }, defaultContext);
+    const result = await executors.translate_audio!(
+      { source: '/workspace/audio/test.mp3' },
+      defaultContext
+    );
     expect(result.isError).toBe(true);
     expect(result.content.error).toContain('Audio service not configured');
   });

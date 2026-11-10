@@ -51,9 +51,13 @@ function makeScannedPdf(raw, width, height) {
   const pixels = deflateSync(raw);
   const image = Buffer.concat([
     Buffer.from(
-      '<< /Type /XObject /Subtype /Image /Width ' + width + ' /Height ' + height +
-      ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ' +
-      pixels.length + ' >>\nstream\n',
+      '<< /Type /XObject /Subtype /Image /Width ' +
+        width +
+        ' /Height ' +
+        height +
+        ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ' +
+        pixels.length +
+        ' >>\nstream\n',
       'ascii'
     ),
     pixels,
@@ -91,8 +95,11 @@ function makeScannedPdf(raw, width, height) {
     xref += String(offset).padStart(10, '0') + ' 00000 n \n';
   });
   xref +=
-    'trailer\n<< /Size ' + String(objects.length + 1) +
-    ' /Root 1 0 R >>\nstartxref\n' + String(position) + '\n%%EOF\n';
+    'trailer\n<< /Size ' +
+    String(objects.length + 1) +
+    ' /Root 1 0 R >>\nstartxref\n' +
+    String(position) +
+    '\n%%EOF\n';
   parts.push(Buffer.from(xref, 'ascii'));
   return Buffer.concat(parts);
 }
@@ -124,6 +131,4 @@ const scannedResult = await extractPdfText(scannedPdf);
 if (!scannedResult || scannedResult.source !== 'ocr' || !/RECIBO/i.test(scannedResult.text)) {
   throw new Error('Local OCR failed on image-only scanned PDF');
 }
-process.stdout.write(
-  'Astra OCR smoke OK: synthetic PNG, selectable-text PDF and scanned PDF\n'
-);
+process.stdout.write('Astra OCR smoke OK: synthetic PNG, selectable-text PDF and scanned PDF\n');

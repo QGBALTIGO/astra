@@ -265,5 +265,4 @@ describe('ChannelAssetStore', () => {
     expect(await readFile(recent, 'utf8')).toBe('in flight');
     expect(await readFile(complete, 'utf8')).toBe('finished');
   });
-
 });
