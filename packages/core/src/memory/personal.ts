@@ -253,7 +253,16 @@ export class PersonalMemoryStore {
     assertSafeUserId(userId);
     this.userId = userId;
     const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? '.';
-    this.storageDir = storageDir ?? path.join(homeDir, '.ownpilot', 'personal', userId);
+    const legacyDir = path.join(homeDir, '.ownpilot', 'personal', userId);
+    // Preserve the existing location for legacy users. Newly introduced
+    // opaque WhatsApp partitions can be created directly on the persistent
+    // Railway data volume without migrating or touching owner memories.
+    const volume = process.env.OWNPILOT_DATA_DIR;
+    const durableWhatsAppDir =
+      /^wa_[a-f0-9]{48}$/.test(userId) && volume && path.isAbsolute(volume)
+        ? path.join(volume, 'personal', userId)
+        : legacyDir;
+    this.storageDir = storageDir ?? durableWhatsAppDir;
   }
 
   /**
