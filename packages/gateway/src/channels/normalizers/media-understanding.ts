@@ -5,22 +5,11 @@
  */
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 import type { NormalizedIncoming } from './types.js';
+import { transcribeAstraAudio } from '../../services/multimodal/transcription.js';
 
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const AUDIO_EXTENSIONS: Readonly<Record<string, string>> = {
-  'audio/ogg': 'ogg',
-  'audio/opus': 'ogg',
-  'audio/mpeg': 'mp3',
-  'audio/mp3': 'mp3',
-  'audio/mp4': 'm4a',
-  'audio/x-m4a': 'm4a',
-  'audio/wav': 'wav',
-  'audio/x-wav': 'wav',
-  'audio/webm': 'webm',
-  'audio/flac': 'flac',
-};
 
 export interface ImageFinding {
   kind: 'payment_receipt' | 'purchase_receipt' | 'invoice' | 'other';
@@ -194,31 +183,11 @@ export async function inspectWhatsAppImage(
 
 export async function transcribeWhatsAppAudio(
   data: Uint8Array,
-  mimeType: string
+  mimeType: string,
+  authenticatedScope?: string
 ): Promise<string | null> {
-  const key = process.env.GROQ_API_KEY;
-  const mime = normalizedMime(mimeType);
-  const ext = AUDIO_EXTENSIONS[mime];
-  if (!key || !ext || !data.length || data.length > MAX_AUDIO_BYTES) return null;
-  try {
-    const form = new FormData();
-    form.append('model', 'whisper-large-v3-turbo');
-    form.append('language', 'pt');
-    form.append('response_format', 'json');
-    const copied = Uint8Array.from(data);
-    form.append('file', new Blob([copied.buffer as ArrayBuffer], { type: mime }), 'audio.' + ext);
-    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + key },
-      body: form,
-      signal: AbortSignal.timeout(28_000),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { text?: unknown };
-    return safeString(json.text, 6_000) || null;
-  } catch {
-    return null;
-  }
+  const result = await transcribeAstraAudio(data, mimeType, { scope: authenticatedScope });
+  return result?.text ?? null;
 }
 
 export function formatImageFinding(finding: ImageFinding): string {
@@ -273,7 +242,15 @@ export async function enrichWhatsAppMedia(
         parts.push('Não consegui baixar ou aceitar esse áudio. Envie um áudio menor.');
         continue;
       }
-      const result = await (hooks.transcribe ?? transcribeWhatsAppAudio)(att.data, att.mimeType);
+      const result = hooks.transcribe
+        ? await hooks.transcribe(att.data, att.mimeType)
+        : await transcribeWhatsAppAudio(
+            att.data,
+            att.mimeType,
+            message.sender?.platformUserId
+              ? message.channelPluginId + ':' + message.sender.platformUserId
+              : undefined
+          );
       parts.push(
         result
           ? 'Transcrição de áudio enviada pelo usuário: ' + safeString(result, 6_000)
