@@ -68,6 +68,12 @@ export interface ChannelUsersPage {
   offset: number;
 }
 
+export interface WhatsAppAccessMessageSettings {
+  siteUrl: string;
+  renewalUrl: string | null;
+  timeZone: string;
+}
+
 export interface ChannelStats {
   totalMessages: number;
   todayMessages: number;

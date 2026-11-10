@@ -44,6 +44,33 @@ CREATE TABLE IF NOT EXISTS channel_sessions (
   UNIQUE(channel_user_id, channel_plugin_id, platform_chat_id)
 );
 
+-- Persistent access notices. Only pre-send claims can be recovered after a
+-- crash; a sending notice is never automatically sent a second time.
+CREATE TABLE IF NOT EXISTS channel_access_notifications (
+  id TEXT PRIMARY KEY,
+  channel_user_id TEXT NOT NULL REFERENCES channel_users(id) ON DELETE CASCADE,
+  ownpilot_user_id TEXT NOT NULL,
+  platform_user_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('approved', 'renewed', 'expiring')),
+  cycle_key TEXT NOT NULL,
+  access_granted_at TIMESTAMPTZ,
+  access_expires_at TIMESTAMPTZ,
+  duration_days INTEGER CHECK(duration_days BETWEEN 1 AND 366),
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending', 'claimed', 'sending', 'delivered', 'failed', 'cancelled')),
+  available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  leased_until TIMESTAMPTZ,
+  lease_token TEXT,
+  channel_plugin_id TEXT,
+  send_started_at TIMESTAMPTZ,
+  delivery_id TEXT,
+  finished_at TIMESTAMPTZ,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(channel_user_id, kind, cycle_key)
+);
+
 -- Channel verification tokens (PIN/token auth flow)
 CREATE TABLE IF NOT EXISTS channel_verification_tokens (
   id TEXT PRIMARY KEY,
@@ -195,6 +222,14 @@ CREATE INDEX IF NOT EXISTS idx_channel_users_verified ON channel_users(is_verifi
 CREATE INDEX IF NOT EXISTS idx_channel_sessions_user ON channel_sessions(channel_user_id);
 CREATE INDEX IF NOT EXISTS idx_channel_sessions_plugin ON channel_sessions(channel_plugin_id);
 CREATE INDEX IF NOT EXISTS idx_channel_sessions_conversation ON channel_sessions(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_channel_access_notifications_due
+  ON channel_access_notifications(available_at, created_at, id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_channel_access_notifications_lease
+  ON channel_access_notifications(leased_until) WHERE status IN ('claimed', 'sending');
+CREATE INDEX IF NOT EXISTS idx_channel_users_access_expiry
+  ON channel_users(access_expires_at, id)
+  WHERE platform = 'whatsapp' AND is_verified = TRUE AND is_blocked = FALSE
+    AND status = 'active' AND access_expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_channel_verification_token ON channel_verification_tokens(token);
 CREATE INDEX IF NOT EXISTS idx_channel_verification_user ON channel_verification_tokens(ownpilot_user_id);
 CREATE INDEX IF NOT EXISTS idx_channel_verification_expires ON channel_verification_tokens(expires_at);

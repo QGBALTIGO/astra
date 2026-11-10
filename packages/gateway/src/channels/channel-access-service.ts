@@ -270,8 +270,12 @@ export class ChannelAccessService {
     const existing = await this.users.getById(id);
     if (!existing) throw new ChannelAccessError('Usuário não encontrado.', 404, 'NOT_FOUND');
     await this.assertCustomer(existing.platformUserId, existing);
+    this.assertGrantUnblocked(existing);
     const user = await this.users.renewWhatsAppAccess(id, days, source, this.clock());
-    if (!user) throw new ChannelAccessError('Usuário não encontrado.', 404, 'NOT_FOUND');
+    if (!user) {
+      this.assertGrantUnblocked(await this.users.getById(id));
+      throw new ChannelAccessError('Usuário não encontrado.', 404, 'NOT_FOUND');
+    }
     return user;
   }
 

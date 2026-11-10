@@ -18,6 +18,7 @@ import { channelUsersRepo, type ChannelUserEntity } from '../../db/repositories/
 import { getPaginationParams, apiResponse, apiError, ERROR_CODES } from '../helpers.js';
 import { getOwnerUserId } from '../../services/pairing-service.js';
 import { wsGateway } from '../../ws/server.js';
+import { whatsappAccessMessageSettingsRoutes } from './access-message-settings.js';
 
 export const channelAuthRoutes = new Hono();
 
@@ -45,6 +46,7 @@ export const requireChannelAccessAdmin: MiddlewareHandler = async (c, next) => {
   return next();
 };
 channelAuthRoutes.use('*', requireChannelAccessAdmin);
+channelAuthRoutes.route('/messages/settings', whatsappAccessMessageSettingsRoutes);
 
 const durationSchema = z.number().int().min(1).max(366);
 const grantAccessSchema = z

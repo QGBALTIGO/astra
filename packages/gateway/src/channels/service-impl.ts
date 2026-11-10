@@ -38,8 +38,18 @@ import type { ISessionService, IMessageBus } from '@ownpilot/core/services';
 
 import {
   channelUsersRepo,
+  type ChannelUserEntity,
   type ChannelUsersRepository,
 } from '../db/repositories/channels/users.js';
+import {
+  channelAccessInboundNoticesRepo,
+  inboundAccessCycle,
+  needsFirstAuthorizedWelcome,
+  wasInboundAccessNoticeHandled,
+} from '../db/repositories/channel-access-inbound-notices.js';
+import { channelAccessNotificationsRepo } from '../db/repositories/channel-access-notifications.js';
+import { buildAccessMessage } from './channel-access-messages.js';
+import { getWhatsAppAccessMessageSettings } from './channel-access-message-settings.js';
 import {
   channelSessionsRepo,
   type ChannelSessionsRepository,
@@ -565,18 +575,27 @@ export class ChannelServiceImpl implements IChannelService {
           if (channelUser.status !== 'pending') {
             await this.usersRepo.updateStatus(channelUser.id, 'pending');
           }
-          if (channelUser.created) {
-            await this.send(message.channelPluginId, {
-              platformChatId: message.platformChatId,
-              text:
-                'Olá! Seu número foi cadastrado no Astra. Seu acesso está aguardando autorização. ' +
-                'Você receberá atendimento após a liberação.',
-            }).catch((err) => {
-              log.warn('Could not send WhatsApp access-pending notice', { error: err });
-            });
-          }
         }
+        await this.sendInboundAccessNotice(message, channelUser, 'inactive');
         return;
+      }
+
+      if (isWhatsAppGuest) {
+        // A message previously answered by the access gate must not become a
+        // new AI request when WhatsApp replays it after approval or reconnect.
+        if (wasInboundAccessNoticeHandled(channelUser, message.id)) return;
+        if (channelUser.firstInteraction || needsFirstAuthorizedWelcome(channelUser)) {
+          await this.sendInboundAccessNotice(message, channelUser, 'first_authorized');
+          // Real requests on the first interaction still run normally. A plain
+          // greeting needs only the personalized welcome, without a second reply.
+          if (
+            !message.attachments?.length &&
+            /^(?:oi|ol[aá]|opa|e\s*a[ií]|bom\s+dia|boa\s+(?:tarde|noite)|hello|hi|\/start)[\s!?.]*$/iu.test(
+              message.text.trim()
+            )
+          )
+            return;
+        }
       }
 
       // 2b. Group messages: save to DB + broadcast but skip AI routing (anti-ban: no auto-reply to groups)
@@ -1308,6 +1327,85 @@ export class ChannelServiceImpl implements IChannelService {
     }
   }
 
+  /** Only server-owned access templates can be sent to an inactive customer. */
+  private async sendInboundAccessNotice(
+    incoming: ChannelIncomingMessage,
+    user: ChannelUserEntity,
+    mode: 'inactive' | 'first_authorized'
+  ): Promise<void> {
+    await this.withSessionLock(`access-notice:${user.id}`, async () => {
+      const api = this.getChannel(incoming.channelPluginId);
+      if (
+        !api ||
+        api.getPlatform() !== 'whatsapp' ||
+        api.getStatus() !== 'connected' ||
+        !/^[1-9][0-9]{9,14}$/.test(api.getBotInfo?.()?.username ?? '') ||
+        incoming.metadata?.isGroup === true ||
+        incoming.metadata?.fromMe === true
+      )
+        return;
+      try {
+        // Load configuration before consuming the durable attempt. Configuration
+        // failures and known disconnections should not lose the first welcome.
+        const settings = await getWhatsAppAccessMessageSettings();
+        if (
+          api.getStatus() !== 'connected' ||
+          !/^[1-9][0-9]{9,14}$/.test(api.getBotInfo?.()?.username ?? '')
+        )
+          return;
+        const notice = await channelAccessInboundNoticesRepo.claim(user.id, incoming.id, mode);
+        if (!notice) return;
+        const fresh = await this.usersRepo.getById(user.id);
+        const owner = await getOwnerUserId('whatsapp');
+        const currentApi = this.getChannel(incoming.channelPluginId);
+        if (
+          !fresh ||
+          !currentApi ||
+          currentApi !== api ||
+          !/^[1-9][0-9]{9,14}$/.test(currentApi.getBotInfo?.()?.username ?? '') ||
+          fresh.isBlocked ||
+          fresh.platform !== 'whatsapp' ||
+          owner === fresh.platformUserId ||
+          currentApi.getBotInfo?.()?.username === fresh.platformUserId ||
+          fresh.platformUserId !== incoming.sender.platformUserId ||
+          fresh.ownpilotUserId !== `whatsapp:${fresh.platformUserId}` ||
+          fresh.ownpilotUserId !== notice.user.ownpilotUserId ||
+          inboundAccessCycle(fresh) !== notice.cycle ||
+          api.getStatus() !== 'connected'
+        )
+          return;
+        const message = {
+          platformChatId: fresh.platformUserId,
+          ...buildAccessMessage(notice.kind, fresh, settings),
+        };
+        // The private inactive branch never accepts caller-supplied text, target,
+        // options or links. The normal public send guard remains unchanged.
+        const messageId =
+          mode === 'first_authorized'
+            ? await this.send(incoming.channelPluginId, message)
+            : await api.sendMessage(message);
+        if (mode === 'inactive') {
+          try {
+            getEventBus().emit(
+              createEvent(ChannelEvents.MESSAGE_SENT, 'channel', 'channel-service', {
+                channelPluginId: incoming.channelPluginId,
+                platform: 'whatsapp',
+                platformMessageId: messageId,
+                platformChatId: fresh.platformUserId,
+              })
+            );
+          } catch {
+            // A successfully sent notice must never retry because an event failed.
+          }
+        }
+      } catch (error) {
+        log.warn('WhatsApp access notice was not confirmed; no automatic replay', {
+          category: error instanceof Error ? error.name : 'notice_error',
+        });
+      }
+    });
+  }
+
   // ==========================================================================
   // Private Methods
   // ==========================================================================
@@ -1518,6 +1616,11 @@ export class ChannelServiceImpl implements IChannelService {
       ) {
         return;
       }
+      // All WhatsApp approval paths share the durable queue. The worker sends
+      // the personalized copy and rechecks the grant before any transport call.
+      if (owner !== platformUserId)
+        await channelAccessNotificationsRepo.queueLifecycle(user, 'approved');
+      return;
     }
     const channelPlugins = this.getChannelPlugins().filter(
       (p) => getChannelPlatform(p) === platform

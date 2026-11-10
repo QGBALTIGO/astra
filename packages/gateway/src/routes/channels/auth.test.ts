@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
+import type { WhatsAppAccessMessageSettings } from '../../channels/channel-access-message-settings.js';
 
 // ─── Mock Dependencies ──────────────────────────────────────────
 // Use vi.hoisted() so mock objects are available before vi.mock() hoisting
@@ -16,6 +17,7 @@ const {
   mockWsGateway,
   mockAccessService,
   mockOwnerLookup,
+  mockMessageSettings,
 } = vi.hoisted(() => ({
   mockVerificationService: {
     generateToken: vi.fn(),
@@ -42,6 +44,7 @@ const {
     revokeWhatsAppAccess: vi.fn(),
   },
   mockOwnerLookup: vi.fn(),
+  mockMessageSettings: { get: vi.fn(), set: vi.fn() },
 }));
 
 vi.mock('../../channels/auth/verification.js', () => ({
@@ -60,12 +63,22 @@ vi.mock('../../channels/channel-access-service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../channels/channel-access-service.js')>();
   return { ...actual, getChannelAccessService: () => mockAccessService };
 });
+vi.mock('../../channels/channel-access-message-settings.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../channels/channel-access-message-settings.js')>();
+  return {
+    ...actual,
+    getWhatsAppAccessMessageSettings: mockMessageSettings.get,
+    setWhatsAppAccessMessageSettings: mockMessageSettings.set,
+  };
+});
 
 // ─── Import route ───────────────────────────────────────────────
 
 import { channelAuthRoutes } from './auth.js';
 import { errorHandler } from '../../middleware/error-handler.js';
 import { ChannelAccessError } from '../../channels/channel-access-service.js';
+import { DEFAULT_WHATSAPP_ACCESS_MESSAGE_SETTINGS } from '../../channels/channel-access-message-settings.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -104,6 +117,12 @@ describe('Channel Auth Routes', () => {
     app.route('/auth', channelAuthRoutes);
     vi.resetAllMocks();
     mockOwnerLookup.mockResolvedValue(null);
+    let settings = { ...DEFAULT_WHATSAPP_ACCESS_MESSAGE_SETTINGS };
+    mockMessageSettings.get.mockImplementation(async () => ({ ...settings }));
+    mockMessageSettings.set.mockImplementation(async (updated: WhatsAppAccessMessageSettings) => {
+      settings = { ...updated };
+      return { ...settings };
+    });
   });
 
   // ─── POST /generate-token ────────────────────────────────────
@@ -571,11 +590,23 @@ describe('Channel Auth Routes', () => {
     }
 
     it('does not turn an unauthenticated request or raw API-key header into owner access', async () => {
-      const res = await authenticatedApp({}).request('/auth/users', {
-        headers: { Authorization: 'Bearer apikey:forged...', 'X-User-Id': 'default' },
-      });
-      expect(res.status).toBe(401);
+      for (const [url, method] of [
+        ['/auth/users', 'GET'],
+        ['/auth/messages/settings', 'GET'],
+        ['/auth/messages/settings', 'PUT'],
+      ]) {
+        const res = await authenticatedApp({}).request(url!, {
+          method,
+          headers: { Authorization: 'Bearer apikey:forged...', 'X-User-Id': 'default' },
+          ...(method === 'PUT'
+            ? { body: JSON.stringify(DEFAULT_WHATSAPP_ACCESS_MESSAGE_SETTINGS) }
+            : {}),
+        });
+        expect(res.status).toBe(401);
+      }
       expect(mockChannelUsersRepo.list).not.toHaveBeenCalled();
+      expect(mockMessageSettings.get).not.toHaveBeenCalled();
+      expect(mockMessageSettings.set).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -594,11 +625,15 @@ describe('Channel Auth Routes', () => {
           ['/auth/users/cu-1/unverify', 'POST'],
           ['/auth/users/cu-1/approve', 'POST'],
           ['/auth/generate-token', 'POST'],
+          ['/auth/messages/settings', 'GET'],
+          ['/auth/messages/settings', 'PUT'],
         ]) {
           expect((await guarded.request(url!, { method })).status).toBe(403);
         }
         expect(mockAccessService.grantWhatsAppAccess).not.toHaveBeenCalled();
         expect(mockChannelUsersRepo.getById).not.toHaveBeenCalled();
+        expect(mockMessageSettings.get).not.toHaveBeenCalled();
+        expect(mockMessageSettings.set).not.toHaveBeenCalled();
       }
     );
 
@@ -608,7 +643,49 @@ describe('Channel Auth Routes', () => {
       { userId: 'apikey:validated...' },
     ])('accepts established owner context %j', async (context) => {
       mockChannelUsersRepo.list.mockResolvedValue([]);
-      expect((await authenticatedApp(context).request('/auth/users')).status).toBe(200);
+      const ownerApp = authenticatedApp(context);
+      expect((await ownerApp.request('/auth/users')).status).toBe(200);
+      const initial = await ownerApp.request('/auth/messages/settings');
+      expect(initial.status).toBe(200);
+      expect(await initial.json()).toMatchObject({
+        data: { settings: DEFAULT_WHATSAPP_ACCESS_MESSAGE_SETTINGS },
+      });
+      const settings = {
+        siteUrl: 'https://astra.example/site',
+        renewalUrl: 'https://pay.example/renovar',
+        timeZone: 'UTC',
+      };
+      const updated = await ownerApp.request('/auth/messages/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+      expect(updated.status).toBe(200);
+      expect(await updated.json()).toMatchObject({ data: { settings } });
+      expect(mockMessageSettings.set).toHaveBeenCalledExactlyOnceWith(settings);
+      const reloaded = await authenticatedApp(context).request('/auth/messages/settings');
+      expect(await reloaded.json()).toMatchObject({ data: { settings } });
+      expect(mockMessageSettings.get).toHaveBeenCalledTimes(2);
+    });
+
+    it('applies the real strict settings schema before the mocked persistence service', async () => {
+      const ownerApp = authenticatedApp({ userId: 'default', session: true });
+      for (const settings of [
+        { ...DEFAULT_WHATSAPP_ACCESS_MESSAGE_SETTINGS, ownerId: 'someone-else' },
+        { ...DEFAULT_WHATSAPP_ACCESS_MESSAGE_SETTINGS, renewalUrl: 'javascript:alert(1)' },
+        { ...DEFAULT_WHATSAPP_ACCESS_MESSAGE_SETTINGS, timeZone: 'Mars/Olympus' },
+      ]) {
+        expect(
+          (
+            await ownerApp.request('/auth/messages/settings', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(settings),
+            })
+          ).status
+        ).toBe(400);
+      }
+      expect(mockMessageSettings.set).not.toHaveBeenCalled();
     });
   });
 

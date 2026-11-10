@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page, TestInfo } from '@playwright/test';
-import type { AuthorizeWhatsAppUserInput, Channel, ChannelUser } from '../src/api/types/channels';
+import type {
+  AuthorizeWhatsAppUserInput,
+  Channel,
+  ChannelUser,
+  WhatsAppAccessMessageSettings,
+} from '../src/api/types/channels';
 
 const CHANNEL_ID = 'channel.whatsapp';
 const OWNER_PHONE = '5567999994321';
@@ -65,6 +70,11 @@ async function mockAccessApi(page: Page) {
       accessExpiresAt: iso(-1),
     },
   ];
+  let messageSettings: WhatsAppAccessMessageSettings = {
+    siteUrl: 'https://astraacessor.vercel.app',
+    renewalUrl: null,
+    timeZone: 'America/Campo_Grande',
+  };
   const mutations: AccessMutation[] = [];
   const unexpectedMutations: string[] = [];
   const pageErrors: string[] = [];
@@ -109,6 +119,13 @@ async function mockAccessApi(page: Page) {
         ],
         hasAnyOwner: true,
       };
+    } else if (method === 'GET' && path === '/channels/auth/messages/settings') {
+      data = { settings: messageSettings };
+    } else if (method === 'PUT' && path === '/channels/auth/messages/settings') {
+      const body = request.postDataJSON() as WhatsAppAccessMessageSettings;
+      mutations.push({ path, body });
+      messageSettings = { ...body };
+      data = { settings: messageSettings };
     } else if (method === 'POST' && path === '/channels/auth/users') {
       const body = request.postDataJSON() as AuthorizeWhatsAppUserInput;
       mutations.push({ path, body });
@@ -203,6 +220,74 @@ for (const screen of [
       locale: 'pt-BR',
       timezoneId: 'America/Campo_Grande',
       serviceWorkers: 'block',
+    });
+
+    test('configures automatic messages in an accessible dialog and preserves an optional renewal link', async ({
+      page,
+    }, testInfo) => {
+      const api = await mockAccessApi(page);
+      const panel = await openAccessPanel(page, testInfo, screen.name);
+      const settingsSection = panel.getByRole('region', { name: 'Mensagens automáticas' });
+      const configure = settingsSection.getByRole('button', { name: 'Configurar mensagens' });
+      await configure.click();
+
+      const dialog = page.getByRole('dialog', {
+        name: 'Configurar mensagens automáticas do WhatsApp',
+      });
+      const site = dialog.getByLabel('Site do Astra', { exact: true });
+      const renewal = dialog.getByLabel('Link de renovação da Cakto', { exact: false });
+      const timeZone = dialog.getByLabel('Fuso horário da validade', { exact: true });
+      const save = dialog.getByRole('button', { name: 'Salvar configurações' });
+      const cancel = dialog.getByRole('button', { name: 'Cancelar', exact: true });
+
+      await expect(dialog).toHaveAttribute('aria-modal', 'true');
+      await expect(site).toHaveValue('https://astraacessor.vercel.app');
+      await expect(renewal).toHaveValue('');
+      await expect(timeZone).toHaveValue('America/Campo_Grande');
+      await expect(dialog.getByText(/Link ainda não configurado/)).toBeVisible();
+      await expectHorizontalFit(page, [dialog, site, renewal, timeZone, save, cancel]);
+      await save.focus();
+      await page.keyboard.press('Tab');
+      await expect(site).toBeFocused();
+      await page.keyboard.press('Shift+Tab');
+      await expect(save).toBeFocused();
+      await page.screenshot({
+        path: testInfo.outputPath('whatsapp-access-messages.png'),
+        fullPage: true,
+      });
+
+      await site.fill('http://astra.example');
+      await save.click();
+      await expect(site).toHaveAttribute('aria-invalid', 'true');
+      await expect(site).toBeFocused();
+      await expect(dialog.getByRole('alert')).toContainText('HTTPS');
+      expect(api.mutations).toEqual([]);
+
+      const settings: WhatsAppAccessMessageSettings = {
+        siteUrl: 'https://astra.example',
+        renewalUrl: 'https://pay.example/astra-renovacao',
+        timeZone: 'UTC',
+      };
+      await site.fill(settings.siteUrl);
+      await renewal.fill(settings.renewalUrl!);
+      await timeZone.fill(settings.timeZone);
+      await save.click();
+      await expect(dialog).toHaveCount(0);
+      expect(api.mutations).toEqual([{ path: '/channels/auth/messages/settings', body: settings }]);
+
+      await configure.click();
+      await expect(site).toHaveValue(settings.siteUrl);
+      await expect(renewal).toHaveValue(settings.renewalUrl!);
+      await expect(timeZone).toHaveValue(settings.timeZone);
+      await renewal.fill('');
+      await save.click();
+      await expect(dialog).toHaveCount(0);
+      expect(api.mutations[1]).toEqual({
+        path: '/channels/auth/messages/settings',
+        body: { ...settings, renewalUrl: null },
+      });
+      expect(api.unexpectedMutations).toEqual([]);
+      expect(api.pageErrors).toEqual([]);
     });
 
     test('normalizes a Brazilian phone, defaults to 30 days and lists the new authorization', async ({
