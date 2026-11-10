@@ -27,7 +27,23 @@ export interface TranslationOptions {
 }
 
 function language(value: string | undefined, allowAuto = false): string | null {
-  const normalized = (value ?? '').trim().toLowerCase().replace('_', '-');
+  const provided = (value ?? '').trim().toLowerCase().replace('_', '-');
+  const whisperNames: Readonly<Record<string, string>> = {
+    english: 'en',
+    portuguese: 'pt',
+    spanish: 'es',
+    french: 'fr',
+    german: 'de',
+    italian: 'it',
+    dutch: 'nl',
+    russian: 'ru',
+    japanese: 'ja',
+    chinese: 'zh',
+    arabic: 'ar',
+    hindi: 'hi',
+    korean: 'ko',
+  };
+  const normalized = whisperNames[provided] ?? provided;
   if (allowAuto && (!normalized || normalized === 'auto')) return 'auto';
   if (!/^[a-z]{2,3}(-[a-z]{2,4})?$/.test(normalized)) return null;
   return normalized;
@@ -118,7 +134,8 @@ async function groqTranslate(text: string, targetLanguage: string, sourceLanguag
   if (typeof translated !== 'string' || !translated.trim()) {
     throw new Error('Groq translation returned no text');
   }
-  return translated.trim();
+  // Preserve whitespace at chunk boundaries to avoid joining words or dates.
+  return translated;
 }
 
 export async function translateAstraText(
