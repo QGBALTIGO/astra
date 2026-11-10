@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -247,4 +247,23 @@ describe('ChannelAssetStore', () => {
       await rm(join(foreign, '..'), { recursive: true, force: true });
     }
   });
+  it('removes only stale interrupted .part files, preserving live writes', async () => {
+    const dir = join(baseDir, 'a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32));
+    await mkdir(dir, { recursive: true });
+    const assetId = '00000000-0000-4000-8000-000000000001';
+    const stale = join(dir, assetId + '.jpg.part-00000000-0000-4000-8000-000000000002');
+    const recent = join(dir, assetId + '.jpg.part-00000000-0000-4000-8000-000000000003');
+    const complete = join(dir, assetId + '.jpg');
+    await writeFile(stale, 'aborted');
+    await writeFile(recent, 'in flight');
+    await writeFile(complete, 'finished');
+    const longAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await utimes(stale, longAgo, longAgo);
+    const store = new ChannelAssetStore(repo as never, baseDir, 60_000);
+    expect(await store.purgeOrphanPartials()).toBe(1);
+    await expect(readFile(stale)).rejects.toThrow();
+    expect(await readFile(recent, 'utf8')).toBe('in flight');
+    expect(await readFile(complete, 'utf8')).toBe('finished');
+  });
+
 });
