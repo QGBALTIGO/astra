@@ -181,7 +181,8 @@ describe('ChannelAssetStore', () => {
       ],
     })).rejects.toThrow('db down');
     await expect(readFile(firstPath)).rejects.toThrow();
-    expect(repo.deleteMany).toHaveBeenCalledTimes(1);
+    // Initial periodic purge can call deleteMany([]); only count rollback deletes.
+    expect(repo.deleteMany.mock.calls.filter(([ids]) => ids.length > 0)).toHaveLength(1);
   });
 
   it('does not leave partial files when the directory cannot be written', async () => {
