@@ -192,6 +192,7 @@ describe('WhatsApp connection lifecycle', () => {
     await expect(api.resolveUser('5511888888888')).resolves.toEqual({
       platform: 'whatsapp',
       platformUserId: '5511888888888',
+      displayName: '5511888888888',
       avatarUrl,
     });
     const [socket, jid, isCurrent] = mocks.profilePicture.mock.calls[0]!;

@@ -136,6 +136,7 @@ jobs:
 
       - name: Format Check
         id: format
+        if: always()
         run: pnpm format:check
 
       - name: Show formatting diff on failure

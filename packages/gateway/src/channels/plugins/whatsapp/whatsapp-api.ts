@@ -815,7 +815,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       isCurrent
     );
     if (!avatarUrl || !isCurrent()) return null;
-    return { platform: 'whatsapp', platformUserId, avatarUrl };
+    return { platform: 'whatsapp', platformUserId, displayName: platformUserId, avatarUrl };
   }
 
   getBotInfo(): { username?: string; firstName?: string } | null {
