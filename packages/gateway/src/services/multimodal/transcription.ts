@@ -62,7 +62,10 @@ function normalizeMime(mime: string): string {
 }
 
 /** Given a base that may already end in /v1, append one API path only once. */
-export function audioApiUrl(baseUrl: string, resource: 'transcriptions' | 'translations' | 'speech'): string {
+export function audioApiUrl(
+  baseUrl: string,
+  resource: 'transcriptions' | 'translations' | 'speech'
+): string {
   const parsed = new URL(baseUrl);
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     throw new Error('Invalid audio API URL protocol');
@@ -79,8 +82,8 @@ function privateLocalUrl(): string | null {
   try {
     const url = new URL(supplied);
     const host = url.hostname.toLowerCase();
-    const isPrivate = host === 'localhost' || host === '127.0.0.1' ||
-      host.endsWith('.railway.internal');
+    const isPrivate =
+      host === 'localhost' || host === '127.0.0.1' || host.endsWith('.railway.internal');
     if (!isPrivate || url.protocol !== 'http:') return null;
     return supplied;
   } catch {
@@ -127,19 +130,21 @@ async function requestTranscription(
   mime: string,
   language: string | undefined
 ): Promise<AstraTranscriptionResult> {
-  const baseUrl = engine === 'local'
-    ? privateLocalUrl()
-    : process.env.ASTRA_STT_GROQ_BASE_URL || 'https://api.groq.com/openai/v1';
-  const key = engine === 'local'
-    ? process.env.ASTRA_STT_INTERNAL_TOKEN
-    : process.env.GROQ_API_KEY;
+  const baseUrl =
+    engine === 'local'
+      ? privateLocalUrl()
+      : process.env.ASTRA_STT_GROQ_BASE_URL || 'https://api.groq.com/openai/v1';
+  const key = engine === 'local' ? process.env.ASTRA_STT_INTERNAL_TOKEN : process.env.GROQ_API_KEY;
   if (!baseUrl || !key) throw new Error('Audio engine is not configured');
 
   const form = new FormData();
   form.append('file', new Blob([new Uint8Array(data)], { type: mime }), 'audio.' + extension);
-  form.append('model', engine === 'local'
-    ? process.env.ASTRA_STT_LOCAL_MODEL || 'small'
-    : process.env.ASTRA_STT_GROQ_MODEL || 'whisper-large-v3-turbo');
+  form.append(
+    'model',
+    engine === 'local'
+      ? process.env.ASTRA_STT_LOCAL_MODEL || 'small'
+      : process.env.ASTRA_STT_GROQ_MODEL || 'whisper-large-v3-turbo'
+  );
   form.append('response_format', 'verbose_json');
   if (language) form.append('language', language);
 
@@ -169,7 +174,11 @@ async function requestTranscription(
   return transcription;
 }
 
-function cacheKey(data: Uint8Array, scope: string | undefined, language: string | undefined): string | null {
+function cacheKey(
+  data: Uint8Array,
+  scope: string | undefined,
+  language: string | undefined
+): string | null {
   if (!scope) return null;
   return createHash('sha256')
     .update(scope)

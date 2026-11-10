@@ -654,7 +654,10 @@ export async function callWhisperTranscribe(
 
   const formData = new FormData();
   formData.append('file', new Blob([new Uint8Array(audioBuffer)]), filename);
-  formData.append('model', baseUrl.includes('api.groq.com') ? 'whisper-large-v3-turbo' : 'whisper-1');
+  formData.append(
+    'model',
+    baseUrl.includes('api.groq.com') ? 'whisper-large-v3-turbo' : 'whisper-1'
+  );
   if (opts.language) formData.append('language', opts.language);
   if (opts.prompt) formData.append('prompt', opts.prompt);
 
@@ -740,8 +743,7 @@ const translateAudioOverride: ToolExecutor = async (
     // Non-English target: transcribe in the original language and translate
     // the resulting text. The shared STT cache prevents repeat paid calls.
     // No provider translation endpoint can translate directly to arbitrary languages.
-    if (targetLanguage !== 'en' && targetLanguage !== 'en-us' &&
-        targetLanguage !== 'english') {
+    if (targetLanguage !== 'en' && targetLanguage !== 'en-us' && targetLanguage !== 'english') {
       const mimeByExt: Record<string, string> = {
         mp3: 'audio/mpeg',
         mpga: 'audio/mpeg',
@@ -797,7 +799,10 @@ const translateAudioOverride: ToolExecutor = async (
 
     const formData = new FormData();
     formData.append('file', new Blob([new Uint8Array(audioBuffer)]), filename);
-    formData.append('model', config.baseUrl.includes('api.groq.com') ? 'whisper-large-v3' : 'whisper-1');
+    formData.append(
+      'model',
+      config.baseUrl.includes('api.groq.com') ? 'whisper-large-v3' : 'whisper-1'
+    );
     if (prompt) formData.append('prompt', prompt);
 
     const format = responseFormat === 'text' ? 'text' : 'verbose_json';

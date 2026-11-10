@@ -95,7 +95,12 @@ export async function extractImageText(
         .normalize()
         .png()
         .toBuffer();
-      const text = await runCommand('tesseract', ['stdin', 'stdout', '-l', 'por+eng', '--psm', '6'], image, OCR_TIMEOUT_MS);
+      const text = await runCommand(
+        'tesseract',
+        ['stdin', 'stdout', '-l', 'por+eng', '--psm', '6'],
+        image,
+        OCR_TIMEOUT_MS
+      );
       if (!text.trim()) return null;
       return { text: text.slice(0, MAX_TEXT_CHARS), source: 'ocr', pages: 1 };
     });
@@ -130,7 +135,18 @@ export async function extractPdfText(data: Uint8Array): Promise<ExtractedDocumen
           try {
             await runCommand(
               'pdftoppm',
-              ['-f', String(page), '-l', String(page), '-singlefile', '-scale-to', '1500', '-png', input, prefix],
+              [
+                '-f',
+                String(page),
+                '-l',
+                String(page),
+                '-singlefile',
+                '-scale-to',
+                '1500',
+                '-png',
+                input,
+                prefix,
+              ],
               undefined,
               PDF_TIMEOUT_MS
             );
@@ -148,7 +164,11 @@ export async function extractPdfText(data: Uint8Array): Promise<ExtractedDocumen
           }
         }
         if (!output.length) return null;
-        return { text: output.join('\n\n').slice(0, MAX_TEXT_CHARS), source: 'ocr', pages: output.length };
+        return {
+          text: output.join('\n\n').slice(0, MAX_TEXT_CHARS),
+          source: 'ocr',
+          pages: output.length,
+        };
       } finally {
         await rm(dir, { force: true, recursive: true }).catch(() => undefined);
       }

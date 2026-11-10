@@ -55,7 +55,8 @@ export function resolveChannelAssetBaseDir(): string {
   if (configured && !isAbsolute(configured)) {
     throw new Error('OWNPILOT_DATA_DIR must be an absolute path');
   }
-  const root = configured ||
+  const root =
+    configured ||
     (process.env.NODE_ENV === 'production' ? '/app/data' : join(process.cwd(), '.ownpilot'));
   return join(root, 'tmp', 'channel-assets');
 }
@@ -67,7 +68,10 @@ function safeFilename(filename: string | undefined, fallback: string): string {
   return name && name !== '.' && name !== '..' ? name : fallback;
 }
 
-function validateAttachment(attachment: ChannelAttachment, data: Uint8Array): {
+function validateAttachment(
+  attachment: ChannelAttachment,
+  data: Uint8Array
+): {
   mime: string;
   extension: string;
 } {
@@ -250,9 +254,12 @@ export class ChannelAssetStore {
 export const channelAssetStore = new ChannelAssetStore();
 
 // Expiry cleanup also runs when traffic is idle. Do not keep the process alive.
-const channelAssetPurgeTimer = setInterval(() => {
-  void channelAssetStore.purgeExpired().catch(() => {
-    log.warn('Scheduled channel asset cleanup failed');
-  });
-}, 15 * 60 * 1000);
+const channelAssetPurgeTimer = setInterval(
+  () => {
+    void channelAssetStore.purgeExpired().catch(() => {
+      log.warn('Scheduled channel asset cleanup failed');
+    });
+  },
+  15 * 60 * 1000
+);
 channelAssetPurgeTimer.unref();

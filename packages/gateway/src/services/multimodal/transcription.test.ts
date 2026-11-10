@@ -28,15 +28,21 @@ describe('Astra multimodal speech-to-text', () => {
   it('does not force Portuguese, leaving auto language detection enabled', async () => {
     vi.stubEnv('GROQ_API_KEY', 'fake');
     vi.stubEnv('ASTRA_STT_LANGUAGE', 'auto');
-    const fetcher = vi.fn().mockResolvedValue(new Response(
-      JSON.stringify({ text: 'Buenos días', language: 'spanish' }), { status: 200 }
-    ));
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ text: 'Buenos días', language: 'spanish' }), { status: 200 })
+      );
     vi.stubGlobal('fetch', fetcher);
 
     const result = await transcribeAstraAudio(voice, 'audio/ogg; codecs=opus');
-    expect(result).toEqual(expect.objectContaining({
-      text: 'Buenos días', language: 'spanish', engine: 'groq',
-    }));
+    expect(result).toEqual(
+      expect.objectContaining({
+        text: 'Buenos días',
+        language: 'spanish',
+        engine: 'groq',
+      })
+    );
     const [url, opts] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
     expect((opts.body as FormData).get('language')).toBeNull();
@@ -46,9 +52,11 @@ describe('Astra multimodal speech-to-text', () => {
 
   it('preserves explicitly selected language without translation', async () => {
     vi.stubEnv('GROQ_API_KEY', 'fake');
-    const fetcher = vi.fn().mockResolvedValue(new Response(
-      JSON.stringify({ text: 'I am here', language: 'english' }), { status: 200 }
-    ));
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ text: 'I am here', language: 'english' }), { status: 200 })
+      );
     vi.stubGlobal('fetch', fetcher);
 
     const result = await transcribeAstraAudio(voice, 'audio/ogg', { language: 'en-US' });
@@ -62,14 +70,19 @@ describe('Astra multimodal speech-to-text', () => {
     vi.stubEnv('ASTRA_STT_PROVIDER', 'auto');
     vi.stubEnv('ASTRA_STT_LOCAL_URL', 'http://astra-stt.railway.internal:8000');
     vi.stubEnv('ASTRA_STT_INTERNAL_TOKEN', 'local-only-test-key');
-    const fetcher = vi.fn()
+    const fetcher = vi
+      .fn()
       .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ text: 'Test transcript' }), { status: 200 }));
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ text: 'Test transcript' }), { status: 200 })
+      );
     vi.stubGlobal('fetch', fetcher);
     const result = await transcribeAstraAudio(voice, 'audio/ogg');
     expect(result?.engine).toBe('groq');
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(fetcher.mock.calls[0][0]).toBe('http://astra-stt.railway.internal:8000/v1/audio/transcriptions');
+    expect(fetcher.mock.calls[0][0]).toBe(
+      'http://astra-stt.railway.internal:8000/v1/audio/transcriptions'
+    );
     expect(fetcher.mock.calls[1][0]).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
   });
 
@@ -91,9 +104,9 @@ describe('Astra multimodal speech-to-text', () => {
 
   it('does not share cache entries between different authenticated senders', async () => {
     vi.stubEnv('GROQ_API_KEY', 'fake');
-    const fetcher = vi.fn().mockResolvedValue(new Response(
-      JSON.stringify({ text: 'Words' }), { status: 200 }
-    ));
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ text: 'Words' }), { status: 200 }));
     vi.stubGlobal('fetch', fetcher);
     await transcribeAstraAudio(voice, 'audio/ogg', { scope: 'channel:sender-test-b' });
     await transcribeAstraAudio(voice, 'audio/ogg', { scope: 'channel:sender-test-c' });
@@ -123,9 +136,9 @@ describe('Astra multimodal speech-to-text', () => {
     vi.stubEnv('ASTRA_STT_LOCAL_ENABLED', 'true');
     vi.stubEnv('ASTRA_STT_LOCAL_URL', 'https://external.example.com');
     vi.stubEnv('ASTRA_STT_INTERNAL_TOKEN', 'local-key');
-    const fetcher = vi.fn().mockResolvedValue(new Response(
-      JSON.stringify({ text: 'Protected' }), { status: 200 }
-    ));
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ text: 'Protected' }), { status: 200 }));
     vi.stubGlobal('fetch', fetcher);
     const result = await transcribeAstraAudio(voice, 'audio/ogg');
     expect(result?.engine).toBe('groq');

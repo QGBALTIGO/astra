@@ -99,16 +99,21 @@ describe('ChannelAssetStore', () => {
 
   it('isolates simultaneous users using opaque hashed path segments', async () => {
     const store = new ChannelAssetStore(repo as never, baseDir, 60_000);
-    const make = (chat: string) => store.persistIncomingAttachments({
-      messageId: '../same-message',
-      channelPluginId: 'whatsapp',
-      platform: 'whatsapp',
-      platformChatId: chat,
-      attachments: [{
-        type: 'image' as const, mimeType: 'image/jpeg', filename: '../../receipt.jpg',
-        data: Buffer.from([0xff, 0xd8, 0xff, 0x01]),
-      }],
-    });
+    const make = (chat: string) =>
+      store.persistIncomingAttachments({
+        messageId: '../same-message',
+        channelPluginId: 'whatsapp',
+        platform: 'whatsapp',
+        platformChatId: chat,
+        attachments: [
+          {
+            type: 'image' as const,
+            mimeType: 'image/jpeg',
+            filename: '../../receipt.jpg',
+            data: Buffer.from([0xff, 0xd8, 0xff, 0x01]),
+          },
+        ],
+      });
     const [a, b] = await Promise.all([make('user-1'), make('user-2')]);
     const pathA = a[0]!.path!;
     const pathB = b[0]!.path!;
@@ -125,16 +130,15 @@ describe('ChannelAssetStore', () => {
   it('persists supported audio, WebP, and PDF documents with safe extensions', async () => {
     const store = new ChannelAssetStore(repo as never, baseDir, 60_000);
     const assets = await store.persistIncomingAttachments({
-      messageId: 'mixed', channelPluginId: 'whatsapp',
-      platform: 'whatsapp', platformChatId: 'user-A',
+      messageId: 'mixed',
+      channelPluginId: 'whatsapp',
+      platform: 'whatsapp',
+      platformChatId: 'user-A',
       attachments: [
-        { type: 'audio', mimeType: 'audio/ogg; codecs=opus',
-          data: Buffer.from('OggS\0\0\0\0') },
+        { type: 'audio', mimeType: 'audio/ogg; codecs=opus', data: Buffer.from('OggS\0\0\0\0') },
         { type: 'audio', mimeType: 'audio/mp4', data: Buffer.from('....ftyp') },
-        { type: 'image', mimeType: 'image/webp',
-          data: Buffer.from('RIFF____WEBP') },
-        { type: 'file', mimeType: 'application/pdf',
-          data: Buffer.from('%PDF-1.7\nexample') },
+        { type: 'image', mimeType: 'image/webp', data: Buffer.from('RIFF____WEBP') },
+        { type: 'file', mimeType: 'application/pdf', data: Buffer.from('%PDF-1.7\nexample') },
       ],
     });
     expect(assets.map((a) => a.path!.split('.').at(-1))).toEqual(['ogg', 'm4a', 'webp', 'pdf']);
@@ -144,20 +148,29 @@ describe('ChannelAssetStore', () => {
   it('rejects corrupt images and PDFs before creating database rows', async () => {
     const store = new ChannelAssetStore(repo as never, baseDir, 60_000);
     for (const mime of ['image/png', 'image/jpeg', 'image/webp', 'application/pdf']) {
-      await expect(store.persistIncomingAttachments({
-        messageId: 'bad', channelPluginId: 'wa', platform: 'whatsapp',
-        platformChatId: 'user', attachments: [{ type: 'file', mimeType: mime, data: Buffer.from('not real media') }],
-      })).rejects.toThrow('does not match');
+      await expect(
+        store.persistIncomingAttachments({
+          messageId: 'bad',
+          channelPluginId: 'wa',
+          platform: 'whatsapp',
+          platformChatId: 'user',
+          attachments: [{ type: 'file', mimeType: mime, data: Buffer.from('not real media') }],
+        })
+      ).rejects.toThrow('does not match');
     }
     expect(repo.create).not.toHaveBeenCalled();
   });
 
   it('rejects zero-byte and oversized attachments', async () => {
     const store = new ChannelAssetStore(repo as never, baseDir, 60_000);
-    const make = (data: Buffer) => store.persistIncomingAttachments({
-      messageId: 'bad', channelPluginId: 'wa', platform: 'whatsapp',
-      platformChatId: 'user', attachments: [{ type: 'audio' as const, mimeType: 'audio/mpeg', data }],
-    });
+    const make = (data: Buffer) =>
+      store.persistIncomingAttachments({
+        messageId: 'bad',
+        channelPluginId: 'wa',
+        platform: 'whatsapp',
+        platformChatId: 'user',
+        attachments: [{ type: 'audio' as const, mimeType: 'audio/mpeg', data }],
+      });
     await expect(make(Buffer.alloc(0))).rejects.toThrow('Empty');
     await expect(make(Buffer.alloc(25 * 1024 * 1024 + 1))).rejects.toThrow('size limit');
     expect(repo.create).not.toHaveBeenCalled();
@@ -172,14 +185,18 @@ describe('ChannelAssetStore', () => {
     });
     repo.create.mockRejectedValueOnce(new Error('db down'));
     // The second attachment still fails after the first succeeds.
-    await expect(store.persistIncomingAttachments({
-      messageId: 'partial', channelPluginId: 'wa', platform: 'whatsapp',
-      platformChatId: 'user',
-      attachments: [
-        { type: 'image', mimeType: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 0x01]) },
-        { type: 'image', mimeType: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 0x02]) },
-      ],
-    })).rejects.toThrow('db down');
+    await expect(
+      store.persistIncomingAttachments({
+        messageId: 'partial',
+        channelPluginId: 'wa',
+        platform: 'whatsapp',
+        platformChatId: 'user',
+        attachments: [
+          { type: 'image', mimeType: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 0x01]) },
+          { type: 'image', mimeType: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 0x02]) },
+        ],
+      })
+    ).rejects.toThrow('db down');
     await expect(readFile(firstPath)).rejects.toThrow();
     // Initial periodic purge can call deleteMany([]); only count rollback deletes.
     expect(repo.deleteMany.mock.calls.filter(([ids]) => ids.length > 0)).toHaveLength(1);
@@ -189,18 +206,26 @@ describe('ChannelAssetStore', () => {
     const blocked = join(baseDir, 'blocked');
     await writeFile(blocked, 'file instead of directory');
     const store = new ChannelAssetStore(repo as never, join(blocked, 'nested'), 60_000);
-    await expect(store.persistIncomingAttachments({
-      messageId: 'blocked', channelPluginId: 'wa', platform: 'whatsapp',
-      platformChatId: 'user',
-      attachments: [{ type: 'image', mimeType: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 0x01]) }],
-    })).rejects.toThrow();
+    await expect(
+      store.persistIncomingAttachments({
+        messageId: 'blocked',
+        channelPluginId: 'wa',
+        platform: 'whatsapp',
+        platformChatId: 'user',
+        attachments: [
+          { type: 'image', mimeType: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 0x01]) },
+        ],
+      })
+    ).rejects.toThrow();
     expect(repo.create).not.toHaveBeenCalled();
   });
 
   it('keeps files readable after constructing a fresh store instance', async () => {
     const store = new ChannelAssetStore(repo as never, baseDir, 60_000);
     const [asset] = await store.persistIncomingAttachments({
-      messageId: 'persist', channelPluginId: 'wa', platform: 'whatsapp',
+      messageId: 'persist',
+      channelPluginId: 'wa',
+      platform: 'whatsapp',
       platformChatId: 'user',
       attachments: [{ type: 'audio', mimeType: 'audio/ogg', data: Buffer.from('OggS1234') }],
     });

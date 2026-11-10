@@ -57,9 +57,11 @@ describe('Astra text translation', () => {
     vi.stubEnv('ASTRA_TRANSLATE_LOCAL_ENABLED', 'true');
     vi.stubEnv('ASTRA_TRANSLATE_LOCAL_URL', 'http://astra-translate.railway.internal:8000');
     vi.stubEnv('ASTRA_TRANSLATE_INTERNAL_TOKEN', 'private-key');
-    const fetcher = vi.fn().mockResolvedValue(new Response(
-      JSON.stringify({ translatedText: 'Bonjour' }), { status: 200 }
-    ));
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ translatedText: 'Bonjour' }), { status: 200 })
+      );
     vi.stubGlobal('fetch', fetcher);
     const result = await translateAstraText('Bom dia', 'fr', {
       sourceLanguage: 'pt',
@@ -75,7 +77,8 @@ describe('Astra text translation', () => {
     vi.stubEnv('ASTRA_TRANSLATE_LOCAL_ENABLED', 'true');
     vi.stubEnv('ASTRA_TRANSLATE_LOCAL_URL', 'http://127.0.0.1:9000');
     vi.stubEnv('ASTRA_TRANSLATE_INTERNAL_TOKEN', 'private-key');
-    const fetcher = vi.fn()
+    const fetcher = vi
+      .fn()
       .mockResolvedValueOnce(new Response('{}', { status: 500 }))
       .mockResolvedValueOnce(groqResponse('Good morning'));
     vi.stubGlobal('fetch', fetcher);

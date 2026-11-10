@@ -60,12 +60,16 @@ describe('OCR WhatsApp do Astra', () => {
 
 describe('OCR field interpretation', () => {
   it('extracts a single monetary value from a Pix receipt but never proves bank settlement', () => {
-    const result = parseOcrReceipt('COMPROVANTE PIX\nVALOR R$ 78,90\nDATA 10/11/2026\nCPF 123.456.789-00');
-    expect(result).toEqual(expect.objectContaining({
-      kind: 'payment_receipt',
-      amount: 'R$ 78,90',
-      date: '10/11/2026',
-    }));
+    const result = parseOcrReceipt(
+      'COMPROVANTE PIX\nVALOR R$ 78,90\nDATA 10/11/2026\nCPF 123.456.789-00'
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        kind: 'payment_receipt',
+        amount: 'R$ 78,90',
+        date: '10/11/2026',
+      })
+    );
     expect(formatImageFinding(result!)).toContain('NÃO confirma recebimento');
     expect(JSON.stringify(result)).not.toContain('123.456.789-00');
   });
@@ -140,7 +144,10 @@ describe('WhatsApp media normalization', () => {
           { type: 'file', mimeType: 'application/pdf', data: 'data:application/pdf;base64,PDF' },
         ],
       },
-      { inspect: vi.fn().mockResolvedValue(payment), extractPdf: vi.fn().mockResolvedValue('Texto do PDF reconhecido') }
+      {
+        inspect: vi.fn().mockResolvedValue(payment),
+        extractPdf: vi.fn().mockResolvedValue('Texto do PDF reconhecido'),
+      }
     );
     expect(result.text).toContain('R$ 85,90');
     expect(result.text).toContain('Texto do PDF reconhecido');
@@ -150,12 +157,16 @@ describe('WhatsApp media normalization', () => {
   it('processes a PDF sent without other attachments and never forwards raw bytes', async () => {
     const extractPdf = vi.fn().mockResolvedValue('[Documento PDF] Valor aparente: R$ 30,00');
     const result = await enrichWhatsAppMedia(
-      { platform: 'whatsapp', attachments: [
-        { type: 'file', mimeType: 'application/pdf', data: Buffer.from('%PDF-1.5') },
-      ] } as never,
-      { text: '[Attachment]', attachments: [
-        { type: 'file', mimeType: 'application/pdf', data: 'data:application/pdf;base64,SECRET', },
-      ] },
+      {
+        platform: 'whatsapp',
+        attachments: [{ type: 'file', mimeType: 'application/pdf', data: Buffer.from('%PDF-1.5') }],
+      } as never,
+      {
+        text: '[Attachment]',
+        attachments: [
+          { type: 'file', mimeType: 'application/pdf', data: 'data:application/pdf;base64,SECRET' },
+        ],
+      },
       { extractPdf }
     );
     expect(result.text).toContain('R$ 30,00');
@@ -166,9 +177,10 @@ describe('WhatsApp media normalization', () => {
 
   it('reports an unreadable PDF without inventing its contents', async () => {
     const result = await enrichWhatsAppMedia(
-      { platform: 'whatsapp', attachments: [
-        { type: 'file', mimeType: 'application/pdf', data: Buffer.from('%PDF-1.5') },
-      ] } as never,
+      {
+        platform: 'whatsapp',
+        attachments: [{ type: 'file', mimeType: 'application/pdf', data: Buffer.from('%PDF-1.5') }],
+      } as never,
       { text: '[Attachment]' },
       { extractPdf: vi.fn().mockResolvedValue(null) }
     );

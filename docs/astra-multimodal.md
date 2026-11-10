@@ -45,15 +45,16 @@ Documento de implementação incremental. Não confundir código versionado com 
 
 Referências PÚBLICAS, não benchmark real do Astra (faster-whisper README, CPU i7-12700K, 8 threads, áudio de 13 minutos, modelo small):
 
-| Motor | RAM | Tempo |
-| --- | ---: | ---: |
-| whisper.cpp fp32 | 1049 MB | 125 s |
+| Motor               |     RAM | Tempo |
+| ------------------- | ------: | ----: |
+| whisper.cpp fp32    | 1049 MB | 125 s |
 | faster-whisper INT8 | 1477 MB | 102 s |
 | faster-whisper fp32 | 2257 MB | 157 s |
 
 faster-whisper usa CTranslate2. whisper.cpp é outra alternativa local mais leve em certos cenários.
 
 Preços oficiais verificados em 10/11/2026:
+
 - Groq whisper-large-v3-turbo: US$ 0,04 por hora; whisper-large-v3: US$ 0,111 por hora.
 - Railway: RAM US$ 10/GB/mês, CPU US$ 20/vCPU/mês, medidos por uso.
 - Exemplo ilustrativo: 100 horas de áudio custa cerca de US$ 4 via Groq Turbo.
@@ -62,6 +63,7 @@ Preços oficiais verificados em 10/11/2026:
 - A precisão em português brasileiro, sotaques/ruído, tempos de cold start e consumo no hardware Railway seguem SEM benchmark próprio.
 
 Fontes:
+
 - https://console.groq.com/docs/speech-to-text
 - https://docs.railway.com/pricing/plans
 - https://github.com/SYSTRAN/faster-whisper

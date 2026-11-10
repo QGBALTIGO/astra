@@ -2113,12 +2113,18 @@ describe('edge cases', () => {
       mockFsStat.mockResolvedValue({ size: 1024 });
       mockFsReadFile.mockResolvedValue(Buffer.from('synthetic-voice'));
       mockFetch
-        .mockResolvedValueOnce(makeFetchResponse({
-          body: { text: 'Good morning, my appointment costs 123 euros.', language: 'english' },
-        }))
-        .mockResolvedValueOnce(makeFetchResponse({
-          body: { choices: [{ message: { content: 'Bom dia, minha consulta custa 123 euros.' } }] },
-        }));
+        .mockResolvedValueOnce(
+          makeFetchResponse({
+            body: { text: 'Good morning, my appointment costs 123 euros.', language: 'english' },
+          })
+        )
+        .mockResolvedValueOnce(
+          makeFetchResponse({
+            body: {
+              choices: [{ message: { content: 'Bom dia, minha consulta custa 123 euros.' } }],
+            },
+          })
+        );
 
       const result = await executors.translate_audio!(
         { source: '/audio/message.mp3', targetLanguage: 'pt-BR', sourceLanguage: 'auto' },
