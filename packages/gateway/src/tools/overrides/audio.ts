@@ -19,7 +19,8 @@ import { getProviderApiKey, loadProviderConfig } from '../../services/agent/cach
 import { getLog } from '../../services/log.js';
 import { getErrorMessage } from '../../utils/common.js';
 import { isWithinDirectory } from '../../utils/file-safety.js';
-import { audioApiUrl } from '../../services/multimodal/transcription.js';
+import { audioApiUrl, transcribeAstraAudio } from '../../services/multimodal/transcription.js';
+import { translateAstraText } from '../../services/multimodal/translation.js';
 
 const log = getLog('AudioOverrides');
 
@@ -701,6 +702,8 @@ const translateAudioOverride: ToolExecutor = async (
   const source = params.source as string;
   const prompt = params.prompt as string | undefined;
   const responseFormat = (params.responseFormat as string) || 'json';
+  const targetLanguage = ((params.targetLanguage as string | undefined) || 'en').toLowerCase();
+  const sourceLanguage = (params.sourceLanguage as string | undefined) || 'auto';
 
   if (!source) {
     return { content: { error: 'Audio source path is required' }, isError: true };
@@ -734,7 +737,62 @@ const translateAudioOverride: ToolExecutor = async (
     const audioBuffer = await fs.readFile(source);
     const filename = path.basename(source);
 
-    // Call Whisper Translation API
+    // Non-English target: transcribe in the original language and translate
+    // the resulting text. The shared STT cache prevents repeat paid calls.
+    // No provider translation endpoint can translate directly to arbitrary languages.
+    if (targetLanguage !== 'en' && targetLanguage !== 'en-us' &&
+        targetLanguage !== 'english') {
+      const mimeByExt: Record<string, string> = {
+        mp3: 'audio/mpeg',
+        mpga: 'audio/mpeg',
+        mpeg: 'audio/mpeg',
+        mp4: 'audio/mp4',
+        m4a: 'audio/x-m4a',
+        wav: 'audio/wav',
+        webm: 'audio/webm',
+        ogg: 'audio/ogg',
+        flac: 'audio/flac',
+      };
+      const mime = mimeByExt[ext];
+      if (!mime) {
+        return { content: { error: 'Unsupported audio format' }, isError: true };
+      }
+      const transcript = await transcribeAstraAudio(new Uint8Array(audioBuffer), mime, {
+        scope: _context?.userId,
+        language: sourceLanguage,
+      });
+      if (!transcript) {
+        return {
+          content: { error: 'Não consegui transcrever o áudio para tradução.' },
+          isError: true,
+        };
+      }
+      const translated = await translateAstraText(transcript.text, targetLanguage, {
+        sourceLanguage: transcript.language ?? sourceLanguage,
+        scope: _context?.userId,
+        allowExternal: true,
+      });
+      if (!translated) {
+        return {
+          content: { error: 'Não consegui traduzir o texto transcrito.' },
+          isError: true,
+        };
+      }
+      return {
+        content: {
+          success: true,
+          text: translated.text,
+          originalLanguage: transcript.language ?? sourceLanguage,
+          targetLanguage: translated.targetLanguage,
+          transcriptionEngine: transcript.engine,
+          translationEngine: translated.engine,
+          source,
+        },
+        isError: false,
+      };
+    }
+
+    // English-target legacy endpoint (Groq whisper-large-v3 or OpenAI Whisper)
     const url = audioApiUrl(config.baseUrl, 'translations');
 
     const formData = new FormData();
