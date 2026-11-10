@@ -62,7 +62,7 @@ function normalizeMime(mime: string): string {
 }
 
 /** Given a base that may already end in /v1, append one API path only once. */
-export function audioApiUrl(baseUrl: string, resource: 'transcriptions' | 'translations'): string {
+export function audioApiUrl(baseUrl: string, resource: 'transcriptions' | 'translations' | 'speech'): string {
   const parsed = new URL(baseUrl);
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     throw new Error('Invalid audio API URL protocol');
