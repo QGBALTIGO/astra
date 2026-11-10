@@ -48,10 +48,34 @@ export const TOOL_GROUPS_KEY = 'tool_groups';
 // Provider API keys
 // ============================================
 
+/**
+ * Astra-managed credentials stay in Railway variables, not in git or the
+ * operator's persistent database. Provider IDs are strictly allowlisted;
+ * never derive arbitrary environment variable names from user input.
+ */
+const ASTRA_PROVIDER_ENV_KEYS: Readonly<Record<string, string>> = {
+  groq: 'GROQ_API_KEY',
+  google: 'GOOGLE_GENERATIVE_AI_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  zai: 'ZHIPU_API_KEY',
+  'cloudflare-workers-ai': 'CLOUDFLARE_API_TOKEN',
+  'gonka-broker': 'GONKA_BROKER_API_KEY',
+};
+
+function getAstraEnvironmentApiKey(provider: string): string | undefined {
+  if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return undefined;
+  // The Workers AI endpoint requires both a bearer token and an account ID.
+  if (provider === 'cloudflare-workers-ai' && !process.env.CLOUDFLARE_ACCOUNT_ID) {
+    return undefined;
+  }
+  const variableName = ASTRA_PROVIDER_ENV_KEYS[provider];
+  return variableName ? process.env[variableName] || undefined : undefined;
+}
+
 /** Check if a provider has an API key configured (database only). */
 export async function hasApiKey(provider: string): Promise<boolean> {
   if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return false;
-  if (provider === 'groq' && process.env.GROQ_API_KEY) return true;
+  if (getAstraEnvironmentApiKey(provider)) return true;
   const key = `${API_KEY_PREFIX}${provider}`;
   return await settingsRepo.has(key);
 }
@@ -59,7 +83,8 @@ export async function hasApiKey(provider: string): Promise<boolean> {
 /** Get API key for a provider (database only). */
 export async function getApiKey(provider: string): Promise<string | undefined> {
   if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return undefined;
-  if (provider === 'groq' && process.env.GROQ_API_KEY) return process.env.GROQ_API_KEY;
+  const environmentKey = getAstraEnvironmentApiKey(provider);
+  if (environmentKey) return environmentKey;
   const key = `${API_KEY_PREFIX}${provider}`;
   return (await settingsRepo.get<string>(key)) ?? undefined;
 }
@@ -74,7 +99,9 @@ export async function getConfiguredProviderIds(): Promise<Set<string>> {
     return new Set(process.env.GROQ_API_KEY ? ['groq'] : []);
   }
   const configured = new Set(apiKeySettings.map((s) => s.key.replace(API_KEY_PREFIX, '')));
-  if (process.env.GROQ_API_KEY) configured.add('groq');
+  for (const provider of Object.keys(ASTRA_PROVIDER_ENV_KEYS)) {
+    if (getAstraEnvironmentApiKey(provider)) configured.add(provider);
+  }
   return configured;
 }
 
@@ -90,7 +117,8 @@ export async function loadApiKeysToEnvironment(): Promise<void> {
     const sanitizedProvider = sanitizeProviderName(provider);
     if (sanitizedProvider) {
       const envVarName = `${sanitizedProvider}_API_KEY`;
-      process.env[envVarName] = setting.value as string;
+      // A private Railway variable must take precedence over a stale DB key.
+      process.env[envVarName] ??= setting.value as string;
     }
   }
 }
@@ -103,7 +131,7 @@ export async function getApiKeySource(
   provider: string
 ): Promise<'database' | 'environment' | null> {
   if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return null;
-  if (provider === 'groq' && process.env.GROQ_API_KEY) return 'environment';
+  if (getAstraEnvironmentApiKey(provider)) return 'environment';
   const key = `${API_KEY_PREFIX}${provider}`;
   return (await settingsRepo.has(key)) ? 'database' : null;
 }
@@ -121,8 +149,9 @@ export async function getApiKeySource(
  */
 export async function getResolvedAuth(provider: string): Promise<ResolvedAuth | undefined> {
   if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return undefined;
-  if (provider === 'groq' && process.env.GROQ_API_KEY) {
-    return { method: 'api_key', value: process.env.GROQ_API_KEY };
+  const environmentKey = getAstraEnvironmentApiKey(provider);
+  if (environmentKey) {
+    return { method: 'api_key', value: environmentKey };
   }
   const blob = await settingsRepo.get<string>(`${AUTH_PREFIX}${provider}`);
   if (blob) {
@@ -234,6 +263,10 @@ export async function getDefaultProvider(): Promise<string | null> {
   if (process.env.ASTRA_ONLY_GROQ === 'true') {
     return process.env.GROQ_API_KEY ? 'groq' : null;
   }
+  // A deployment can pin Groq as primary while leaving explicit process/channel
+  // routing in Postgres unchanged. This flag never routes to a paid model.
+  const preferredProvider = process.env.ASTRA_PRIMARY_PROVIDER;
+  if (preferredProvider && (await hasApiKey(preferredProvider))) return preferredProvider;
   const savedProvider = await settingsRepo.get<string>(DEFAULT_PROVIDER_KEY);
   if (savedProvider) {
     const localProv = await localProvidersRepo.getProvider(savedProvider);
@@ -255,7 +288,7 @@ export async function getDefaultProvider(): Promise<string | null> {
     return firstSetting.key.replace(API_KEY_PREFIX, '');
   }
 
-  return null;
+  return process.env.GROQ_API_KEY ? 'groq' : null;
 }
 
 /** Set the default AI provider. */
@@ -271,10 +304,18 @@ export async function getDefaultModel(provider?: string): Promise<string | null>
   if (process.env.ASTRA_ONLY_GROQ === 'true') {
     return process.env.GROQ_API_KEY ? process.env.ASTRA_GROQ_MODEL || 'openai/gpt-oss-120b' : null;
   }
+  // Keep the legacy DB-first behavior unless Astra explicitly pins a Groq
+  // primary via deployment configuration.
   const savedModel = await settingsRepo.get<string>(DEFAULT_MODEL_KEY);
+  if (process.env.ASTRA_PRIMARY_PROVIDER === 'groq' && process.env.ASTRA_GROQ_MODEL) {
+    return process.env.ASTRA_GROQ_MODEL;
+  }
   if (savedModel) return savedModel;
 
   const actualProvider = provider ?? (await getDefaultProvider());
+  if (actualProvider === 'groq' && process.env.ASTRA_GROQ_MODEL) {
+    return process.env.ASTRA_GROQ_MODEL;
+  }
   if (!actualProvider) return null;
 
   const defaultModel = getDefaultModelForProvider(actualProvider);
@@ -307,8 +348,7 @@ export async function resolveDefaultProviderAndModel(
 /** Check if demo mode (no providers configured). */
 export async function isDemoModeFromSettings(): Promise<boolean> {
   if (process.env.ASTRA_ONLY_GROQ === 'true') return !process.env.GROQ_API_KEY;
-  const apiKeySettings = await settingsRepo.getByPrefix(API_KEY_PREFIX);
-  if (apiKeySettings.length > 0) return false;
+  if ((await getConfiguredProviderIds()).size > 0) return false;
 
   const localProviders = await localProvidersRepo.listProviders();
   if (localProviders.some((p) => p.isEnabled)) return false;

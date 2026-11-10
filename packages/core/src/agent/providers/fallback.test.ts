@@ -687,3 +687,56 @@ describe('createProviderWithFallbacks', () => {
     expect(result).toBeInstanceOf(FallbackProvider);
   });
 });
+
+describe('Astra multi-provider resilience', () => {
+  it('keeps circuits independent when several vendors are OpenAI-compatible', async () => {
+    const primary = makeMockProvider('openai-compatible');
+    const backupA = makeMockProvider('openai-compatible');
+    const backupB = makeMockProvider('openai-compatible');
+    primary.complete.mockResolvedValue(err(new InternalError('429 rate limit')));
+    backupA.complete.mockResolvedValue(err(new InternalError('503 gateway unavailable')));
+    backupB.complete.mockResolvedValue(ok({ content: 'healthy-provider', usage: {} }));
+    mockCreateProvider
+      .mockImplementationOnce(() => primary)
+      .mockImplementationOnce(() => backupA)
+      .mockImplementationOnce(() => backupB);
+
+    const router = new FallbackProvider({
+      primary: { provider: 'openai-compatible', apiKey: 'primary' },
+      fallbacks: [
+        { provider: 'openai-compatible', apiKey: 'backup-a', defaultModel: { model: 'model-a' } },
+        { provider: 'openai-compatible', apiKey: 'backup-b', defaultModel: { model: 'model-b' } },
+      ],
+      circuitBreakerThreshold: 2,
+      circuitBreakerCooldown: 60000,
+    });
+
+    for (let i = 0; i < 3; i++) {
+      const result = await router.complete(dummyRequest);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.content).toBe('healthy-provider');
+    }
+    expect(primary.complete).toHaveBeenCalledTimes(2);
+    expect(backupA.complete).toHaveBeenCalledTimes(2);
+    expect(backupB.complete).toHaveBeenCalledTimes(3);
+    expect(backupB.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ model: { model: 'model-b' } })
+    );
+  });
+
+  it('does not replay a stream after an exception following partial output', async () => {
+    const { provider, primary, fallback } = createTestProvider();
+    primary.stream.mockImplementation(() =>
+      (async function* () {
+        yield ok({ content: 'already-visible', done: false });
+        throw new Error('network dropped');
+      })()
+    );
+    const output = [];
+    for await (const chunk of provider.stream(dummyRequest)) output.push(chunk);
+    expect(output.length).toBe(2);
+    expect((output[0] as { ok: boolean }).ok).toBe(true);
+    expect((output[1] as { ok: boolean }).ok).toBe(false);
+    expect(fallback.stream).not.toHaveBeenCalled();
+  });
+});
