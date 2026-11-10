@@ -25,7 +25,14 @@ export function CustomerBrand({ compact = false }: { compact?: boolean }) {
       className={'ac-brand' + (compact ? ' ac-brand--compact' : '')}
       aria-label="Astra, início"
     >
-      <img src="/astra-logo.svg" alt="Astra" width="1400" height="355" />
+      <img
+        className="ac-brand-on-light"
+        src="/astra-logo-light.svg"
+        alt=""
+        width="1400"
+        height="355"
+      />
+      <img className="ac-brand-on-dark" src="/astra-logo.svg" alt="" width="1400" height="355" />
     </a>
   );
 }

@@ -310,6 +310,13 @@
   height: auto;
   display: block;
 }
+.astra-customer .ac-brand .ac-brand-on-dark,
+.astra-customer[data-theme='dark'] .ac-brand .ac-brand-on-light {
+  display: none;
+}
+.astra-customer[data-theme='dark'] .ac-brand .ac-brand-on-dark {
+  display: block;
+}
 .astra-customer .ac-eyebrow {
   color: var(--ac-muted);
   font-size: 10px;

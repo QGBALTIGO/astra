@@ -30,12 +30,12 @@ async function mockCustomerApi(
   options: {
     authenticated?: boolean;
     expired?: boolean;
-    failSummaryOnce?: boolean;
+    failSummaryUntilReleased?: boolean;
     failTransactionOnce?: boolean;
   } = {}
 ) {
   let authenticated = options.authenticated ?? false;
-  let failSummary = options.failSummaryOnce ?? false;
+  let failSummary = options.failSummaryUntilReleased ?? false;
   let failTransaction = options.failTransactionOnce ?? false;
   let customer: Customer = {
     accountId: 'synthetic-account',
@@ -315,7 +315,6 @@ async function mockCustomerApi(
       data = { categories };
     } else if (method === 'GET' && path === '/finance/summary') {
       if (failSummary) {
-        failSummary = false;
         await fail(503, 'TEMPORARY_ERROR', 'Não foi possível carregar seu resumo agora.');
         return;
       }
@@ -415,7 +414,17 @@ async function mockCustomerApi(
       json: { success: true, data },
     });
   });
-  return { mutations, unexpectedRequests, credentialHeaders, pageErrors };
+  return {
+    mutations,
+    unexpectedRequests,
+    credentialHeaders,
+    pageErrors,
+    // React StrictMode can abort an initial GET and request it again. Keep the
+    // error deterministic until the test explicitly exercises recovery.
+    allowSummary() {
+      failSummary = false;
+    },
+  };
 }
 
 async function fit(page: Page) {
@@ -445,6 +454,13 @@ async function shot(page: Page, info: TestInfo, screen: string, state: string) {
     path: info.outputPath(`whatsapp-access-customer-${screen}-${state}.png`),
     fullPage: true,
   });
+}
+async function expectPaidExpenses(page: Page, amount: string) {
+  const card = page.locator('article').filter({
+    has: page.getByText('Despesas pagas', { exact: true }),
+  });
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText(amount);
 }
 function clean(api: Awaited<ReturnType<typeof mockCustomerApi>>) {
   expect(api.unexpectedRequests).toEqual([]);
@@ -487,9 +503,7 @@ for (const screen of [
       await page.getByRole('button', { name: 'Acessar meu painel' }).click();
       await expect(page).toHaveURL(/\/cliente$/);
       await expect(page.getByRole('heading', { name: 'Olá, Ana.', level: 1 })).toBeVisible();
-      await expect(page.locator('article').filter({ hasText: 'Despesas pagas' })).toContainText(
-        '182,50'
-      );
+      await expectPaidExpenses(page, '182,50');
       await fit(page);
       await shot(page, info, screen.name, 'home');
       for (const [name, state] of [
@@ -505,6 +519,22 @@ for (const screen of [
         }
         await shot(page, info, screen.name, state!);
       }
+      await page.getByRole('button', { name: 'Editar preferências', exact: true }).click();
+      const preferences = page.getByRole('dialog', { name: 'Seu perfil e suas preferências' });
+      await preferences.getByRole('radio', { name: 'Escura', exact: true }).check();
+      await preferences.getByRole('button', { name: 'Salvar preferências', exact: true }).click();
+      await expect(preferences).toHaveCount(0);
+      await expect(page.locator('.astra-customer.ac-app')).toHaveAttribute('data-theme', 'dark');
+      await navigate(page, 'Início', 'Olá, Ana.');
+      await shot(page, info, screen.name, 'home-dark');
+      expect(
+        api.mutations.some(
+          (entry) =>
+            entry.path === '/profile' &&
+            entry.method === 'PATCH' &&
+            (entry.body as { theme?: string }).theme === 'dark'
+        )
+      ).toBe(true);
       expect(api.mutations.filter((entry) => entry.path === '/auth/request-code')).toHaveLength(1);
       expect(api.mutations.filter((entry) => entry.path === '/auth/verify-code')).toHaveLength(2);
       clean(api);
@@ -520,7 +550,7 @@ for (const screen of [
       const editor = page.getByRole('dialog', { name: 'Adicionar transação' });
       await editor.getByLabel('Descrição', { exact: true }).fill('Almoço sintético');
       await editor.getByLabel('Valor (R$)', { exact: true }).fill('36,39');
-      await editor.getByLabel('Categoria', { exact: true }).selectOption(FOOD_CATEGORY);
+      await editor.getByRole('combobox', { name: /^Categoria/ }).selectOption(FOOD_CATEGORY);
       await editor.getByLabel('Data', { exact: true }).fill('2026-11-10');
       await shot(page, info, screen.name, 'expense-modal');
       await editor.getByRole('button', { name: 'Salvar transação' }).click();
@@ -543,9 +573,7 @@ for (const screen of [
         categoryId: FOOD_CATEGORY,
       });
       await navigate(page, 'Início', 'Olá, Ana.');
-      await expect(page.locator('article').filter({ hasText: 'Despesas pagas' })).toContainText(
-        '218,89'
-      );
+      await expectPaidExpenses(page, '218,89');
       await shot(page, info, screen.name, 'home-after-expense');
       await navigate(page, 'Transações', 'Transações');
       await region.getByRole('button', { name: /Almoço sintético/ }).click();
@@ -602,7 +630,7 @@ for (const screen of [
       const api = await mockCustomerApi(page, {
         authenticated: true,
         expired: true,
-        failSummaryOnce: true,
+        failSummaryUntilReleased: true,
       });
       await page.goto('/cliente', { waitUntil: 'domcontentloaded' });
       await expect(
@@ -611,10 +639,9 @@ for (const screen of [
       await expect(page.getByRole('alert')).toContainText(
         'Não foi possível carregar seu resumo agora'
       );
+      api.allowSummary();
       await page.getByRole('alert').getByRole('button', { name: 'Tentar novamente' }).click();
-      await expect(page.locator('article').filter({ hasText: 'Despesas pagas' })).toContainText(
-        '182,50'
-      );
+      await expectPaidExpenses(page, '182,50');
       await navigate(page, 'Transações', 'Transações');
       await expect(page.getByRole('button', { name: 'Adicionar', exact: true })).toBeDisabled();
       await expect(
