@@ -424,6 +424,22 @@ describe('WhatsApp personal memory partitioning', () => {
     expect(() => personalMemoryPartitionId('../admin')).toThrow('Invalid userId');
   });
 
+  it('stores newly partitioned WhatsApp memories on the configured persistent volume', async () => {
+    vi.stubEnv('OWNPILOT_DATA_DIR', '/tmp/astra-test-persistent-volume');
+    try {
+      const user = 'whatsapp:99999999993';
+      const hashed = personalMemoryPartitionId(user);
+      await getPersonalMemoryStore(user);
+      const fsMock = await import('node:fs/promises');
+      expect(vi.mocked(fsMock.mkdir)).toHaveBeenCalledWith(
+        '/tmp/astra-test-persistent-volume/personal/' + hashed,
+        { recursive: true }
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('preserves separate user memories for simultaneous WhatsApp customers', async () => {
     const one = await getPersonalMemoryStore(first);
     const same = await getPersonalMemoryStore(first);
