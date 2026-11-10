@@ -3,6 +3,7 @@ import {
   PersonalMemoryStore,
   createPersonalMemoryStore,
   getPersonalMemoryStore,
+  personalMemoryPartitionId,
 } from './personal.js';
 
 // Mock node:fs/promises
@@ -13,9 +14,11 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 // Mock node:crypto
-vi.mock('node:crypto', () => {
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
   let counter = 0;
   return {
+    ...actual,
     randomUUID: () => `pd-uuid-${++counter}`,
   };
 });
@@ -399,5 +402,42 @@ describe('getPersonalMemoryStore', () => {
   it('creates new store for new user', async () => {
     const store = await getPersonalMemoryStore('new-user-' + Date.now());
     expect(store).toBeInstanceOf(PersonalMemoryStore);
+  });
+});
+
+describe('WhatsApp personal memory partitioning', () => {
+  const first = 'whatsapp:99999999991';
+  const second = 'whatsapp:99999999992';
+
+  it('maps each authenticated WhatsApp sender to a stable, filesystem-safe opaque identifier', () => {
+    const id = personalMemoryPartitionId(first);
+    expect(id).toMatch(/^wa_[0-9a-f]{48}$/);
+    expect(id).toBe(personalMemoryPartitionId(first));
+    expect(id).not.toBe(personalMemoryPartitionId(second));
+    expect(id).not.toContain('99999999991');
+    expect(personalMemoryPartitionId('default')).toBe('default');
+  });
+
+  it('rejects path traversal and malformed phone identities instead of weakening validation', () => {
+    expect(() => personalMemoryPartitionId('whatsapp:../../etc')).toThrow('Invalid userId');
+    expect(() => personalMemoryPartitionId('whatsapp:123')).toThrow('Invalid userId');
+    expect(() => personalMemoryPartitionId('../admin')).toThrow('Invalid userId');
+  });
+
+  it('preserves separate user memories for simultaneous WhatsApp customers', async () => {
+    const one = await getPersonalMemoryStore(first);
+    const same = await getPersonalMemoryStore(first);
+    const two = await getPersonalMemoryStore(second);
+    expect(one).toBe(same);
+    expect(one).not.toBe(two);
+
+    await one.set('identity', 'name', 'TEST_ONLY_A');
+    await two.set('identity', 'name', 'TEST_ONLY_B');
+    expect((await one.get('identity', 'name'))?.value).toBe('TEST_ONLY_A');
+    expect((await two.get('identity', 'name'))?.value).toBe('TEST_ONLY_B');
+    const fsMock = await import('node:fs/promises');
+    const paths = vi.mocked(fsMock.mkdir).mock.calls.map(([dir]) => String(dir));
+    expect(paths.some((dir) => dir.includes('99999999991'))).toBe(false);
+    expect(paths.some((dir) => dir.includes('99999999992'))).toBe(false);
   });
 });
