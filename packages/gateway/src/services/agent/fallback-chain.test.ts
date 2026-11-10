@@ -21,6 +21,12 @@ describe('Astra free-only fallback policy', () => {
     ]);
   });
 
+  it('allows the verified free Gemini 3.5 Flash-Lite model as fallback', () => {
+    expect(parseAstraFallbackChain('google=gemini-3.5-flash-lite', 'groq')).toEqual([
+      { provider: 'google', model: 'gemini-3.5-flash-lite' },
+    ]);
+  });
+
   it('rejects paid, unknown and malformed fallback entries', () => {
     expect(
       parseAstraFallbackChain(
