@@ -20,6 +20,49 @@ permissions:
   contents: read
 
 jobs:
+  # One-time formatter for the final follow-up changes; remove after success.
+  format-last-multimodal-changes:
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/multimodal-attachments-stt-20261110' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: true
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Format recent multimodal changes
+        run: |
+          pnpm exec prettier --write \
+            packages/gateway/src/tools/overrides/audio.ts \
+            packages/gateway/src/tools/overrides/audio.test.ts \
+            packages/gateway/src/services/channel-asset-store.ts \
+            packages/gateway/src/services/channel-asset-store.test.ts \
+            scripts/astra-multimodal-smoke.mjs
+      - name: Commit only non-workflow formatting diffs
+        run: |
+          set -eu
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/gateway/src/tools/overrides/audio.ts \
+            packages/gateway/src/tools/overrides/audio.test.ts \
+            packages/gateway/src/services/channel-asset-store.ts \
+            packages/gateway/src/services/channel-asset-store.test.ts \
+            scripts/astra-multimodal-smoke.mjs
+          if git diff --cached --quiet; then
+            echo 'Already formatted'
+          else
+            git commit -m 'style(multimodal): format final security and OCR checks'
+            git push origin HEAD:refs/heads/fix/multimodal-attachments-stt-20261110
+          fi
+
   build-and-test:
     # Chromium from Playwright 1.58.2 does not support the ubuntu-26.04 runner.
     # Pin to the same supported image as the isolated Astra UI audit.
