@@ -5,8 +5,8 @@ if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
     configurable: true,
     value: (): `${string}-${string}-${string}-${string}-${string}` => {
       const b = crypto.getRandomValues(new Uint8Array(16));
-      b[6] = (b[6]! & 0x0f) | 0x40; // version 4
-      b[8] = (b[8]! & 0x3f) | 0x80; // variant 10
+      b[6] = (b[6]! & 0x0f) | 0x40;
+      b[8] = (b[8]! & 0x3f) | 0x80;
       const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
       return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
     },
@@ -15,7 +15,12 @@ if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
 
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
+import { installCustomerInputModality } from './pages/customer/interaction';
 import './index.css';
+import './pages/customer/interaction.css';
+
+const disposeCustomerInput = installCustomerInputModality(document);
+if (import.meta.hot) import.meta.hot.dispose(disposeCustomerInput);
 
 // Customer pages never mount or import the owner authentication, chat or socket
 // providers. Their dedicated HttpOnly cookie is the only portal credential.
