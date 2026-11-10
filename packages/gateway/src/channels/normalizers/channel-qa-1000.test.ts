@@ -77,8 +77,9 @@ describe('Astra: 1.000 simulações seguras de respostas de canais', () => {
         'Organization org_private_' +
         id;
       const response = userFacingAgentError(sampleMessage('channel'), detail);
-      expect(response).toContain('Groq');
-      expect(response).toContain('limite');
+      expect(response).toContain('serviço de IA');
+      expect(response).toContain('limite de uso');
+      expect(response).toContain('confira seus registros antes de repetir');
       expect(response).not.toContain('org_private');
       expect(response).not.toContain('429');
       expect(response).not.toContain('OpenAI API');
