@@ -338,14 +338,18 @@ export async function processViaBus(
   const { getNormalizer } = await import('./normalizers/index.js');
   const channelNormalizer = getNormalizer(message.platform);
   const incoming = await channelNormalizer.normalizeIncoming(message);
+  // Understand media before invoking the text model. Auth/owner checks
+  // happened in ChannelService before this function is called.
+  const { enrichWhatsAppMedia } = await import('./normalizers/media-understanding.js');
+  const interpreted = await enrichWhatsAppMedia(message, incoming);
 
   // Build NormalizedMessage from normalized incoming
   const normalized: NormalizedMessage = {
     id: message.id,
     sessionId: activeConversationId ?? randomUUID(),
     role: 'user',
-    content: incoming.text,
-    attachments: incoming.attachments,
+    content: interpreted.text,
+    attachments: interpreted.attachments,
     metadata: {
       source: 'channel',
       channelPluginId: message.channelPluginId,
@@ -477,13 +481,19 @@ export async function processDirectAgent(
     true,
     userId
   );
+  // The legacy direct-agent path must understand media too; otherwise an
+  // outage of the bus would silently lose WhatsApp voice notes and images.
+  const { getNormalizer } = await import('./normalizers/index.js');
+  const { enrichWhatsAppMedia } = await import('./normalizers/media-understanding.js');
+  const incoming = await getNormalizer(message.platform).normalizeIncoming(message);
+  const interpreted = await enrichWhatsAppMedia(message, incoming);
   const result = await runInExecContext(
     {
       channelPluginId: message.channelPluginId,
       platformChatId: message.platformChatId,
       channelMessageId: message.id,
     },
-    () => agent.chat(message.text)
+    () => agent.chat(interpreted.text)
   );
 
   if (result.ok) {
