@@ -2105,4 +2105,36 @@ describe('edge cases', () => {
     );
     expect(elResult.content.model).toBe('elevenlabs');
   });
+
+  it('transcribes and translates audio into Brazilian Portuguese when requested', async () => {
+    vi.stubEnv('GROQ_API_KEY', 'test-translate-groq');
+    try {
+      setupDedicatedAudioConfig();
+      mockFsStat.mockResolvedValue({ size: 1024 });
+      mockFsReadFile.mockResolvedValue(Buffer.from('synthetic-voice'));
+      mockFetch
+        .mockResolvedValueOnce(makeFetchResponse({
+          body: { text: 'Good morning, my appointment costs 123 euros.', language: 'english' },
+        }))
+        .mockResolvedValueOnce(makeFetchResponse({
+          body: { choices: [{ message: { content: 'Bom dia, minha consulta custa 123 euros.' } }] },
+        }));
+
+      const result = await executors.translate_audio!(
+        { source: '/audio/message.mp3', targetLanguage: 'pt-BR', sourceLanguage: 'auto' },
+        defaultContext
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content.text).toBe('Bom dia, minha consulta custa 123 euros.');
+      expect(result.content.targetLanguage).toBe('pt-br');
+      expect(result.content.transcriptionEngine).toBe('groq');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const firstUrl = mockFetch.mock.calls[0]![0] as string;
+      expect(firstUrl).toContain('/audio/transcriptions');
+      const secondUrl = mockFetch.mock.calls[1]![0] as string;
+      expect(secondUrl).toContain('/chat/completions');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
