@@ -216,6 +216,7 @@ describe('customer refresh and session changes', () => {
     api.session.mockReturnValueOnce(next.promise);
     await act(async () => window.dispatchEvent(new Event('focus')));
     expect(dom.button('Atualizar meus dados').disabled).toBe(true);
+    expect(dom.button('Atualizar meus dados').getAttribute('aria-busy')).toBe('true');
     expect(visiblePanel().textContent).toContain('Almoço');
     await act(async () => next.resolve({ customer: customerFixture }));
     expect(dom.field('Descrição').value).toBe('Rascunho em andamento');
@@ -278,5 +279,47 @@ describe('customer refresh and session changes', () => {
     expect(visiblePanel().textContent).toContain('4.927,22');
     expect(dom.container.querySelector('.ac-chart-insight')?.textContent).toContain('72,78');
     expect(summaryFixture.result).toBe(4963.61);
+  });
+});
+
+describe('customer header actions and shared photo', () => {
+  it('shares one private photo across header, sidebar and profile', async () => {
+    const createObjectURL = vi
+      .fn()
+      .mockReturnValueOnce('blob:customer-photo')
+      .mockReturnValue('blob:customer-photo-refresh');
+    const revokeObjectURL = vi.fn();
+    const originalURL = URL;
+    vi.stubGlobal(
+      'URL',
+      class extends originalURL {
+        static createObjectURL = createObjectURL;
+        static revokeObjectURL = revokeObjectURL;
+      }
+    );
+    try {
+      api.avatar.mockResolvedValue(new Blob(['synthetic-image'], { type: 'image/png' }));
+      await mount();
+      const actions = dom.container.querySelector('.ac-topbar-actions')!;
+      expect(actions.querySelector('[aria-label="Atualizar meus dados"]')).not.toBeNull();
+      expect(actions.querySelector('[aria-label="Abrir meu perfil"]')).not.toBeNull();
+      expect(api.avatar).toHaveBeenCalledTimes(1);
+      expect(dom.container.querySelectorAll('.ac-avatar img')).toHaveLength(2);
+
+      await dom.click(dom.button('Abrir meu perfil'));
+      expect(dom.container.querySelectorAll('.ac-avatar img')).toHaveLength(3);
+      expect(api.avatar).toHaveBeenCalledTimes(1);
+      for (const image of dom.container.querySelectorAll('.ac-avatar img')) {
+        expect(image.getAttribute('src')).toBe('blob:customer-photo');
+      }
+
+      await dom.click(dom.button('Atualizar meus dados'));
+      expect(api.avatar).toHaveBeenCalledTimes(2);
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:customer-photo');
+      expect(dom.button('Atualizar meus dados').getAttribute('aria-busy')).toBe('false');
+    } finally {
+      await dom.render(<div />);
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   clearSession: vi.fn(),
   generateMessage: vi.fn(),
   generateMessageId: vi.fn(),
+  profilePicture: vi.fn(),
   emit: vi.fn(),
   warn: vi.fn(),
 }));
@@ -54,6 +55,10 @@ vi.mock('@ownpilot/core/channels', () => ({
   },
 }));
 vi.mock('@ownpilot/core/utils', () => ({ silentCatch: () => () => undefined }));
+
+vi.mock('./whatsapp-profile-picture.js', () => ({
+  fetchWhatsAppProfilePicture: mocks.profilePicture,
+}));
 
 import { WhatsAppChannelAPI } from './whatsapp-api.js';
 
@@ -175,6 +180,84 @@ describe('WhatsApp connection lifecycle', () => {
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.unstubAllEnvs();
+  });
+
+  it('resolves only the requested customer photo with the authenticated current socket', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const avatarUrl = 'https://pps.whatsapp.net/test-avatar.jpg';
+    mocks.profilePicture.mockResolvedValue(avatarUrl);
+
+    await expect(api.resolveUser('5511888888888')).resolves.toEqual({
+      platform: 'whatsapp',
+      platformUserId: '5511888888888',
+      avatarUrl,
+    });
+    const [socket, jid, isCurrent] = mocks.profilePicture.mock.calls[0]!;
+    expect(socket).toBe(sockets[0]!.socket);
+    expect(jid).toBe('5511888888888@s.whatsapp.net');
+    expect(isCurrent()).toBe(true);
+    expect(mocks.profilePicture).toHaveBeenCalledOnce();
+    expect(sockets[0]!.socket.sendMessage).not.toHaveBeenCalled();
+    expect(sockets[0]!.socket.relayMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(['', '123456', '+5511888888888', '5511888888888@s.whatsapp.net', '123@g.us'])(
+    'does not perform a photo lookup for an invalid portal phone: %s',
+    async (phone) => {
+      const api = newApi();
+      await api.connect();
+      sockets[0]!.emit('connection.update', { connection: 'open' });
+      await expect(api.resolveUser(phone)).resolves.toBeNull();
+      expect(mocks.profilePicture).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not look up a photo while disconnected or trust a configured account hint', async () => {
+    const api = newApi();
+    await expect(api.resolveUser('5511888888888')).resolves.toBeNull();
+    await api.connect();
+    await expect(api.resolveUser('5511888888888')).resolves.toBeNull();
+    expect(mocks.profilePicture).not.toHaveBeenCalled();
+  });
+
+  it('returns no avatar when WhatsApp does not expose the customer photo', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    mocks.profilePicture.mockResolvedValue(null);
+    await expect(api.resolveUser('5511888888888')).resolves.toBeNull();
+  });
+
+  it('discards a late photo after the socket reconnects, even for the same bot account', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const lookup = deferred<string | null>();
+    mocks.profilePicture.mockReturnValueOnce(lookup.promise);
+    const pending = api.resolveUser('5511888888888');
+    const guard = mocks.profilePicture.mock.calls[0]![2] as () => boolean;
+
+    await api.disconnect();
+    await api.connect();
+    sockets[1]!.emit('connection.update', { connection: 'open' });
+    expect(guard()).toBe(false);
+    lookup.resolve('https://pps.whatsapp.net/old-socket.jpg');
+    await expect(pending).resolves.toBeNull();
+  });
+
+  it('discards a late photo if the connected account identity changes', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const lookup = deferred<string | null>();
+    mocks.profilePicture.mockReturnValueOnce(lookup.promise);
+    const pending = api.resolveUser('5511888888888');
+
+    sockets[0]!.socket.user.id = '5521888888888:1@s.whatsapp.net';
+    lookup.resolve('https://pps.whatsapp.net/old-account.jpg');
+    await expect(pending).resolves.toBeNull();
   });
 
   it('creates only one socket for concurrent connect requests', async () => {

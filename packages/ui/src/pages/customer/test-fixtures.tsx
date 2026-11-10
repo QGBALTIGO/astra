@@ -79,6 +79,7 @@ export function mockCustomerApi(customer: Customer = structuredClone(customerFix
     verifyCode: vi.spyOn(customerApi, 'verifyCode').mockResolvedValue({ customer }),
     logout: vi.spyOn(customerApi, 'logout').mockResolvedValue({ loggedOut: true }),
     profile: vi.spyOn(customerApi, 'profile').mockResolvedValue({ profile: customer }),
+    avatar: vi.spyOn(customerApi, 'avatar').mockResolvedValue(null),
     updateProfile: vi
       .spyOn(customerApi, 'updateProfile')
       .mockImplementation(async (body) => ({ profile: { ...customer, ...body } })),

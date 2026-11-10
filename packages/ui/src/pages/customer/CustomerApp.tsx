@@ -28,9 +28,9 @@ import {
   X,
 } from '../../components/icons';
 import { CUSTOMER_SESSION_EXPIRED, CustomerApiError, customerApi } from './api';
-import { CustomerBrand, CustomerError, CustomerSkeleton } from './components';
+import { CustomerAvatar, CustomerBrand, CustomerError, CustomerSkeleton } from './components';
 import { monthPeriod } from './helpers';
-import { useCustomerQuery, useCustomerTheme } from './hooks';
+import { useCustomerAvatar, useCustomerQuery, useCustomerTheme } from './hooks';
 import { CustomerLogin } from './Login';
 import { CustomerHome } from './Home';
 import { CustomerTransactions, TransactionDetail } from './Transactions';
@@ -137,6 +137,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
     pageSize: 20,
   }));
   const [revision, setRevision] = useState(0);
+  const avatarUrl = useCustomerAvatar(customer.accountId, customer.phoneNumber, revision);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<CustomerTransaction | null>(null);
   const [createTransaction, setCreateTransaction] = useState(false);
@@ -300,8 +301,8 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
             className="ac-sidebar-account"
             onClick={() => navigate('/cliente/perfil')}
           >
-            <UserCircle aria-hidden="true" />
-            <span>
+            <CustomerAvatar displayName={customer.displayName} url={avatarUrl} />
+            <span className="ac-sidebar-account-name">
               {customer.displayName || 'Minha conta'}
               <small>
                 {customer.access.status === 'active' ? 'Acesso ativo' : 'Acesso vencido'}
@@ -317,25 +318,32 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
             <CustomerBrand compact />
           </div>
           <p className="ac-topbar-caption">Tudo o que importa, no seu ritmo.</p>
-          <button
-            className="ac-text-button ac-refresh"
-            type="button"
-            disabled={refreshing}
-            onClick={() => void refresh()}
-            aria-label="Atualizar meus dados"
-          >
-            <RefreshCw aria-hidden="true" />
-            <span>{refreshing ? 'Atualizando…' : 'Atualizar'}</span>
-          </button>
-          <button
-            className="ac-account-button"
-            type="button"
-            onClick={() => navigate('/cliente/perfil')}
-            aria-label="Abrir meu perfil"
-          >
-            <span>{customer.displayName || 'Minha conta'}</span>
-            <UserCircle aria-hidden="true" />
-          </button>
+          <div className="ac-topbar-actions">
+            <button
+              className="ac-text-button ac-refresh"
+              type="button"
+              disabled={refreshing}
+              onClick={() => void refresh()}
+              aria-label="Atualizar meus dados"
+              aria-busy={refreshing}
+              title={refreshing ? 'Atualizando seus dados…' : 'Atualizar meus dados'}
+            >
+              <span className="ac-refresh-icon" aria-hidden="true">
+                <RefreshCw />
+              </span>
+              <span className="ac-refresh-label">{refreshing ? 'Atualizando…' : 'Atualizar'}</span>
+            </button>
+            <button
+              className="ac-account-button"
+              type="button"
+              onClick={() => navigate('/cliente/perfil')}
+              aria-label="Abrir meu perfil"
+              title="Abrir meu perfil"
+            >
+              <span className="ac-account-name">{customer.displayName || 'Minha conta'}</span>
+              <CustomerAvatar displayName={customer.displayName} url={avatarUrl} />
+            </button>
+          </div>
         </header>
         <main
           id="customer-content"
@@ -432,6 +440,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
             {visible('perfil') ? (
               <CustomerProfile
                 customer={customer}
+                avatarUrl={avatarUrl}
                 active={activeTab === 'perfil'}
                 revision={revision}
                 onUpdated={onUpdated}

@@ -101,6 +101,37 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   );
 }
 
+/** Private image bytes; never expose a WhatsApp URL or add a phone number to the URL. */
+async function fetchCustomerAvatar(signal?: AbortSignal): Promise<Blob | null> {
+  const response = await fetch(url('/profile/avatar'), {
+    credentials: 'include',
+    cache: 'no-store',
+    signal,
+    headers: { Accept: 'image/jpeg, image/png, image/webp' },
+  });
+  // A cancelled request from a previous identity cannot invalidate the new session.
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  if (response.status === 401) {
+    window.dispatchEvent(new Event(CUSTOMER_SESSION_EXPIRED));
+    throw new CustomerApiError(401, 'UNAUTHORIZED', 'Entre no Astra para continuar.');
+  }
+  if (response.status === 204) return null;
+  const contentType = response.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase();
+  if (
+    response.status !== 200 ||
+    !['image/jpeg', 'image/png', 'image/webp'].includes(contentType ?? '')
+  ) {
+    throw new CustomerApiError(
+      response.status,
+      'AVATAR_UNAVAILABLE',
+      'A foto do WhatsApp não está disponível agora.'
+    );
+  }
+  const image = await response.blob();
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  return image.size ? image : null;
+}
+
 export const customerApi = {
   session: (signal?: AbortSignal) => request<{ customer: Customer }>('/auth/session', { signal }),
   requestCode: (phoneNumber: string) =>
@@ -112,6 +143,7 @@ export const customerApi = {
     }),
   logout: () => request<{ loggedOut: boolean }>('/auth/logout', { method: 'POST', body: {} }),
   profile: (signal?: AbortSignal) => request<{ profile: Customer }>('/profile', { signal }),
+  avatar: fetchCustomerAvatar,
   updateProfile: (
     body: Partial<Pick<Customer, 'displayName' | 'timeZone' | 'theme' | 'hideAmounts'>>
   ) => request<{ profile: Customer }>('/profile', { method: 'PATCH', body }),

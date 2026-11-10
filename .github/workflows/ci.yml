@@ -135,7 +135,14 @@ jobs:
           retention-days: 7
 
       - name: Format Check
+        id: format
         run: pnpm format:check
+
+      - name: Show formatting diff on failure
+        if: failure() && steps.format.outcome == 'failure'
+        run: |
+          pnpm exec prettier --write .
+          git diff --no-ext-diff --exit-code
 
   windows-checks:
     name: Windows checks

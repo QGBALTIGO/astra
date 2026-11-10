@@ -33,6 +33,8 @@ interface SafeFetchOptions extends Omit<RequestInit, 'redirect'> {
   timeoutMs?: number;
   /** Outbound request body size cap in bytes (default 10MB). */
   maxRequestBodySize?: number;
+  /** Hide signed URLs in policy logs and all thrown errors (default false). */
+  redactUrl?: boolean;
 }
 
 interface RedirectChain {
@@ -51,6 +53,7 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
     maxRedirects = DEFAULT_MAX_REDIRECTS,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxRequestBodySize = DEFAULT_MAX_REQUEST_BODY_SIZE,
+    redactUrl = false,
     ...fetchOptions
   } = options;
 
@@ -70,6 +73,7 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
 
   let currentUrl = url;
   const chain: RedirectChain = { urls: [url] };
+  const describeUrl = (value: string): string => redactUrl ? '[redacted]' : value;
 
   const signal = fetchOptions.signal ?? controller.signal;
 
@@ -80,8 +84,8 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
       // obfuscation in redirects — the original code only checked these on
       // the entry URL and re-checked `isPrivateUrl` (DNS) on redirects.
       if (isBlockedUrl(currentUrl)) {
-        log.warn('safeFetch: blocked URL by sync policy', { url: currentUrl });
-        throw new SafeFetchError(`Request to blocked URL: ${currentUrl}`, 'SSRF_BLOCKED');
+        log.warn('safeFetch: blocked URL by sync policy', { url: describeUrl(currentUrl) });
+        throw new SafeFetchError(`Request to blocked URL: ${describeUrl(currentUrl)}`, 'SSRF_BLOCKED');
       }
 
       // H-S4 fix: SSRF check on every hop, with a FRESH uncached DNS lookup
@@ -90,19 +94,19 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
       // here — it minimises the window in which an attacker DNS can return a
       // public IP to our check and a private IP to the fetch's own lookup.
       if (await isPrivateUrlAsync(currentUrl)) {
-        log.warn('safeFetch: blocked private URL (cached)', { url: currentUrl });
+        log.warn('safeFetch: blocked private URL (cached)', { url: describeUrl(currentUrl) });
         throw new SafeFetchError(
-          `Request to private/internal address not allowed: ${currentUrl}`,
+          `Request to private/internal address not allowed: ${describeUrl(currentUrl)}`,
           'SSRF_BLOCKED'
         );
       }
       const publicAddresses = await resolvePublicAddressesFresh(currentUrl);
       if (!publicAddresses) {
         log.warn('safeFetch: blocked private URL (fresh lookup — possible DNS rebinding)', {
-          url: currentUrl,
+          url: describeUrl(currentUrl),
         });
         throw new SafeFetchError(
-          `Request to private/internal address not allowed (post-rebind check): ${currentUrl}`,
+          `Request to private/internal address not allowed (post-rebind check): ${describeUrl(currentUrl)}`,
           'SSRF_BLOCKED'
         );
       }
@@ -146,7 +150,7 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
       // Too many redirects
       if (attempt >= maxRedirects) {
         throw new SafeFetchError(
-          `Too many redirects (${attempt}) following URL chain: ${chain.urls.join(' → ')}`,
+          `Too many redirects (${attempt}) following URL chain: ${chain.urls.map(describeUrl).join(' → ')}`,
           'TOO_MANY_REDIRECTS'
         );
       }
@@ -169,6 +173,14 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
 
     // Should not reach here, but guard just in case
     throw new SafeFetchError('Redirect loop detected', 'TOO_MANY_REDIRECTS');
+  } catch (error) {
+    if (!redactUrl) throw error;
+    // Fetch/DNS/provider errors can include the full signed URL, even in causes.
+    // Preserve the category without forwarding an error object or sensitive text.
+    const code = error instanceof SafeFetchError
+      ? error.code
+      : signal.aborted ? 'TIMEOUT' : 'UNKNOWN';
+    throw new SafeFetchError('Outbound request could not be completed', code);
   } finally {
     if (timeout) clearTimeout(timeout);
   }

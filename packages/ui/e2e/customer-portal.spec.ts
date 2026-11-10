@@ -16,6 +16,9 @@ const NOW = new Date('2026-11-10T16:00:00.000Z');
 const PHONE = '5567999998888';
 const CHALLENGE = '6c83a7a0-7c37-4c41-9867-c2c6b66f786d';
 const FOOD_CATEGORY = 'synthetic-food';
+// Small synthetic portrait; no real customer photo or external image request.
+const AVATAR_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAADFBMVEXh7PoAYf3eq4QQFyS9Lp+eAAAEK0lEQVR4AQEgBN/7AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAwMDAwMDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwMDAwMDAwMDAwMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwMDAwMDAwMDAwMAAAAAAAAAAAAAAAAAAAAAAAAAAAADAwMDAwMDAwMDAwMDAAAAAAAAAAAAAAAAAAAAAAAAAAMDAwMDAwMDAwMDAwMDAwAAAAAAAAAAAAAAAAAAAAAAAAMDAwMDAwMDAwMDAwMDAwAAAAAAAAAAAAAAAAAAAAAAAAMDAwICAgICAgICAgMDAwAAAAAAAAAAAAAAAAAAAAAAAAMDAgICAgICAgICAgIDAwAAAAAAAAAAAAAAAAAAAAAAAwMDAgICAgICAgICAgIDAwMAAAAAAAAAAAAAAAAAAAAAAAMDAgICAgICAgICAgIDAwAAAAAAAAAAAAAAAAAAAAAAAAMCAgIDAgICAgIDAgICAwAAAAAAAAAAAAAAAAAAAAAAAAMDAgICAgICAgICAgIDAwAAAAAAAAAAAAAAAAAAAAAAAAMDAgICAgICAgICAgIDAwAAAAAAAAAAAAAAAAAAAAAAAAADAgICAwICAgMCAgIDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwICAgMDAwICAgMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwICAgICAgICAgMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAgICAgICAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgICAgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgICAgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgICAgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQEBAgICAgIBAQEAAAAAAAAAAAAAAAAAAAAAAAAAAAEBAQEBAgICAgIBAQEBAQAAAAAAAAAAAAAAAAAAAAAAAQEBAQEBAQEBAQEBAQEBAQEAAAAAAAAAAAAAAAAAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAAAAAAAAAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAAAAAAAAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAAAAAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAAAAAAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAAAAAAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAgikDEHKPOUgAAAAASUVORK5CYII=';
 
 interface Mutation {
   method: string;
@@ -32,19 +35,24 @@ async function mockCustomerApi(
     expired?: boolean;
     failSummaryUntilReleased?: boolean;
     failTransactionOnce?: boolean;
+    avatar?: 'photo' | 'missing' | 'error';
+    displayName?: string;
+    theme?: Customer['theme'];
   } = {}
 ) {
   let authenticated = options.authenticated ?? false;
   let failSummary = options.failSummaryUntilReleased ?? false;
   let failTransaction = options.failTransactionOnce ?? false;
+  let avatarMode = options.avatar ?? 'missing';
+  const avatarRequests: string[] = [];
   let customer: Customer = {
     accountId: 'synthetic-account',
     dataUserId: 'whatsapp:5511999997777',
     phoneNumber: PHONE,
-    displayName: 'Ana Martins',
+    displayName: options.displayName ?? 'Ana Martins',
     timeZone: 'America/Campo_Grande',
     currency: 'BRL',
-    theme: 'light',
+    theme: options.theme ?? 'light',
     hideAmounts: false,
     access: options.expired
       ? { status: 'expired', expiresAt: '2026-11-09T16:00:00.000Z', canWrite: false }
@@ -274,6 +282,21 @@ async function mockCustomerApi(
     ) {
       await fail(403, 'ACCESS_EXPIRED', 'Renove o acesso para alterar seus registros.');
       return;
+    } else if (method === 'GET' && path === '/profile/avatar') {
+      avatarRequests.push(request.url());
+      if (avatarMode === 'photo') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          headers: { 'Cache-Control': 'private, no-store' },
+          body: Buffer.from(AVATAR_PNG, 'base64'),
+        });
+      } else if (avatarMode === 'error') {
+        await fail(503, 'UNAVAILABLE', 'Foto indisponível.');
+      } else {
+        await route.fulfill({ status: 204, body: '' });
+      }
+      return;
     } else if (method === 'GET' && path === '/profile') {
       data = { profile: customer };
     } else if (method === 'PATCH' && path === '/profile') {
@@ -419,6 +442,10 @@ async function mockCustomerApi(
     unexpectedRequests,
     credentialHeaders,
     pageErrors,
+    avatarRequests,
+    setAvatar(mode: 'photo' | 'missing' | 'error') {
+      avatarMode = mode;
+    },
     // React StrictMode can abort an initial GET and request it again. Keep the
     // error deterministic until the test explicitly exercises recovery.
     allowSummary() {
@@ -455,6 +482,69 @@ async function shot(page: Page, info: TestInfo, screen: string, state: string) {
     fullPage: true,
   });
 }
+async function expectHeaderLayout(page: Page) {
+  const header = page.locator('.ac-topbar');
+  const refresh = header.getByRole('button', { name: 'Atualizar meus dados' });
+  const profile = header.getByRole('button', { name: 'Abrir meu perfil' });
+  const avatar = profile.locator('.ac-avatar');
+  const [headerBox, refreshBox, profileBox, avatarBox] = await Promise.all([
+    header.boundingBox(),
+    refresh.boundingBox(),
+    profile.boundingBox(),
+    avatar.boundingBox(),
+  ]);
+  expect(headerBox).not.toBeNull();
+  expect(refreshBox).not.toBeNull();
+  expect(profileBox).not.toBeNull();
+  expect(avatarBox).not.toBeNull();
+  for (const box of [refreshBox!, profileBox!]) {
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+  }
+  expect(avatarBox!.width).toBe(40);
+  expect(avatarBox!.height).toBe(40);
+  expect(
+    Math.abs(refreshBox!.y + refreshBox!.height / 2 - profileBox!.y - profileBox!.height / 2)
+  ).toBeLessThan(1);
+  const gap = profileBox!.x - refreshBox!.x - refreshBox!.width;
+  expect(gap).toBeGreaterThanOrEqual(7);
+  expect(gap).toBeLessThanOrEqual(13);
+  const rightPadding = await header.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).paddingRight)
+  );
+  expect(
+    Math.abs(headerBox!.x + headerBox!.width - profileBox!.x - profileBox!.width - rightPadding)
+  ).toBeLessThan(1);
+  if (page.viewportSize()!.width < 768) {
+    await expect(refresh.locator('.ac-refresh-label')).toBeHidden();
+    await expect(profile.locator('.ac-account-name')).toBeHidden();
+    const brand = await header.locator('.ac-mobile-brand').boundingBox();
+    expect(brand).not.toBeNull();
+    expect(brand!.x + brand!.width + 8).toBeLessThanOrEqual(refreshBox!.x);
+  } else {
+    await expect(refresh.locator('.ac-refresh-label')).toBeVisible();
+    await expect(profile.locator('.ac-account-name')).toBeVisible();
+  }
+  await fit(page);
+}
+
+async function headerShot(page: Page, info: TestInfo, scenario: string) {
+  const png = await page.locator('.ac-topbar').screenshot({
+    path: info.outputPath('whatsapp-access-customer-header-' + scenario + '.png'),
+    animations: 'disabled',
+  });
+  // CI-only, synthetic fixtures. Keep the inline review cropped to the header.
+  process.stdout.write(
+    'ASTRA_HEADER_VISUAL ' +
+      JSON.stringify({
+        scenario,
+        width: page.viewportSize()!.width,
+        pngBase64: png.toString('base64'),
+      }) +
+      '\n'
+  );
+}
+
 async function expectPaidExpenses(page: Page, amount: string) {
   const card = page.locator('article').filter({
     has: page.getByText('Despesas pagas', { exact: true }),
@@ -479,6 +569,70 @@ for (const screen of [
       timezoneId: 'America/Campo_Grande',
       serviceWorkers: 'block',
       storageState: { cookies: [], origins: [] },
+    });
+
+    test('aligns header actions and shares a private photo with an initials fallback', async ({
+      page,
+    }, info) => {
+      const api = await mockCustomerApi(page, {
+        authenticated: true,
+        avatar: 'photo',
+        displayName: 'Ana Maria Fernandes de Albuquerque Santos',
+        theme: 'system',
+      });
+      await page.emulateMedia({ colorScheme: 'light' });
+      await page.goto('/cliente', { waitUntil: 'domcontentloaded' });
+      const header = page.locator('.ac-topbar');
+      const image = header.locator('.ac-avatar img');
+      await expect(image).toHaveAttribute('src', /^blob:/);
+      await expect
+        .poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth))
+        .toBeGreaterThan(0);
+      await expect(header.locator('.ac-avatar')).toHaveClass(/is-loaded/);
+      if (screen.name === 'mobile') {
+        await page.setViewportSize({ width: 320, height: screen.viewport.height });
+        await expectHeaderLayout(page);
+        await headerShot(page, info, 'mobile-320-light-photo');
+        await page.setViewportSize({ width: 390, height: screen.viewport.height });
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await expect(page.locator('.astra-customer.ac-app')).toHaveAttribute('data-theme', 'dark');
+        await expectHeaderLayout(page);
+        await headerShot(page, info, 'mobile-390-dark-photo');
+        for (const width of [430, 768]) {
+          await page.setViewportSize({ width, height: screen.viewport.height });
+          await expectHeaderLayout(page);
+        }
+        await page.setViewportSize({ width: 390, height: screen.viewport.height });
+      } else {
+        await expectHeaderLayout(page);
+        await headerShot(page, info, 'desktop-1440-light-photo');
+      }
+
+      const beforeRefresh = api.avatarRequests.length;
+      api.setAvatar('missing');
+      await header.getByRole('button', { name: 'Atualizar meus dados' }).click();
+      await expect.poll(() => api.avatarRequests.length).toBeGreaterThan(beforeRefresh);
+      await expect(image).toHaveCount(0);
+      await expect(header.locator('.ac-avatar-initials')).toHaveText('AS');
+      await expectHeaderLayout(page);
+      if (screen.name === 'mobile') {
+        await headerShot(page, info, 'mobile-390-dark-initials');
+      }
+
+      api.setAvatar('error');
+      const beforeError = api.avatarRequests.length;
+      await header.getByRole('button', { name: 'Atualizar meus dados' }).click();
+      await expect.poll(() => api.avatarRequests.length).toBeGreaterThan(beforeError);
+      await expect(image).toHaveCount(0);
+      await expect(header.locator('.ac-avatar-initials')).toHaveText('AS');
+      await header.getByRole('button', { name: 'Abrir meu perfil' }).click();
+      await expect(page).toHaveURL(/\/cliente\/perfil$/);
+      await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+      for (const requestUrl of api.avatarRequests) {
+        expect(new URL(requestUrl).pathname).toBe('/api/v1/customer/profile/avatar');
+        expect(new URL(requestUrl).search).toBe('');
+      }
+      clean(api);
     });
 
     test('logs in with a WhatsApp code and renders all five customer tabs without admin credentials', async ({

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { apiResponse, apiError, ERROR_CODES } from '../helpers.js';
 import { getCustomerAuthService } from '../../services/customer-auth.js';
+import { getCustomerAvatarService } from '../../services/customer-avatar.js';
 import { getClientIp } from '../../utils/client-ip.js';
 import {
   clearCustomerSessionCookie,
@@ -37,6 +38,19 @@ const phoneSchema = z.object({ phoneNumber: z.string().min(1).max(64) }).strict(
 const codeSchema = z
   .object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/) })
   .strict();
+
+customerAccountRoutes.get('/profile/avatar', async (c) => {
+  c.header('Cache-Control', 'private, no-store');
+  c.header('Vary', 'Cookie', { append: true });
+  c.header('Cross-Origin-Resource-Policy', 'same-origin');
+  c.header('X-Content-Type-Options', 'nosniff');
+  // Identity comes only from the dedicated customer session. Query IDs are ignored.
+  const avatar = await getCustomerAvatarService().getAvatar(c.get('customer')).catch(() => null);
+  if (!avatar) return c.body(null, 204);
+  c.header('Content-Type', avatar.contentType);
+  c.header('Content-Length', String(avatar.bytes.byteLength));
+  return c.body(new Uint8Array(avatar.bytes), 200);
+});
 
 customerAccountRoutes.get('/profile', (c) => apiResponse(c, { profile: c.get('customer') }));
 customerAccountRoutes.patch('/profile', async (c) => {

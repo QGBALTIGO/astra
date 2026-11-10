@@ -412,7 +412,7 @@
   color: var(--ac-text);
   background: transparent;
 }
-.astra-customer .ac-sidebar-account > span {
+.astra-customer .ac-sidebar-account-name {
   min-width: 0;
   flex: 1;
   overflow-wrap: anywhere;
@@ -437,41 +437,73 @@
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  justify-content: space-between;
+  gap: 16px;
   padding: 0 40px;
   border-bottom: 1px solid var(--ac-border);
   background: var(--ac-surface);
 }
 .astra-customer .ac-topbar-caption {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--ac-muted);
   font-size: 12px;
   margin-right: auto;
 }
+.astra-customer .ac-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .astra-customer .ac-refresh {
-  margin: 0 20px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px;
+  gap: 8px;
+  border-radius: 10px;
   font-size: 12px;
   flex-shrink: 0;
+}
+.astra-customer .ac-refresh-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+}
+.astra-customer .ac-refresh-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.astra-customer .ac-refresh[aria-busy='true'] .ac-refresh-icon {
+  animation: ac-refresh-spin 1s linear infinite;
+}
+@keyframes ac-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .astra-customer .ac-account-button {
   display: flex;
   gap: 12px;
   align-items: center;
-  max-width: 48%;
+  max-width: 240px;
+  min-width: 44px;
   min-height: 44px;
+  padding: 2px;
   border: 0;
+  border-radius: 24px;
   background: transparent;
   font-size: 12px;
   color: var(--ac-text);
 }
-.astra-customer .ac-account-button span {
+.astra-customer .ac-account-name {
+  min-width: 0;
+  max-width: 184px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.astra-customer .ac-account-button svg {
-  width: 29px;
-  height: 29px;
-  color: var(--ac-link);
 }
 .astra-customer .ac-mobile-brand {
   display: none;
@@ -1790,19 +1822,39 @@
   margin-top: 5px;
 }
 .astra-customer .ac-avatar {
-  display: flex;
+  position: relative;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 50px;
-  width: 50px;
-  border-radius: 16px;
+  height: 40px;
+  width: 40px;
+  overflow: hidden;
+  border-radius: 50%;
   background: var(--ac-accent-soft);
   color: var(--ac-link);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
   flex-shrink: 0;
 }
-.astra-customer .ac-avatar svg {
-  height: 29px;
-  width: 29px;
+.astra-customer .ac-avatar--large {
+  height: 50px;
+  width: 50px;
+  font-size: 16px;
+}
+.astra-customer .ac-avatar img {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+  opacity: 0;
+}
+.astra-customer .ac-avatar.is-loaded img {
+  opacity: 1;
+}
+.astra-customer .ac-avatar.is-loaded .ac-avatar-initials {
+  visibility: hidden;
 }
 .astra-customer .ac-profile-facts {
   margin: 0;
@@ -2251,14 +2303,22 @@
   }
   .astra-customer .ac-mobile-brand {
     display: block;
+    flex-shrink: 0;
   }
   .astra-customer .ac-brand--compact {
     width: 117px;
   }
-  .astra-customer .ac-account-button {
-    max-width: 42%;
+  .astra-customer .ac-topbar-actions {
+    gap: 8px;
   }
-  .astra-customer .ac-account-button > span {
+  .astra-customer .ac-account-button {
+    width: 44px;
+    height: 44px;
+    max-width: none;
+    gap: 0;
+  }
+  .astra-customer .ac-account-name,
+  .astra-customer .ac-refresh-label {
     display: none;
   }
   .astra-customer .ac-navigation {
