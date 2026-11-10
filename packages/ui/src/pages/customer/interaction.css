@@ -64,7 +64,7 @@ html
   height: 44px;
   min-height: 44px !important;
   margin: 0;
-  padding: 4px;
+  padding: 10px 4px;
   border: 1px solid var(--ac-border);
   border-inline: 0;
   border-radius: 0;
@@ -120,8 +120,10 @@ html .astra-customer .ac-period-caption::first-letter {
 
 @media (max-width: 767px) {
   /* Readable editable text is a portal invariant, including compact filters.
-     Override legacy component font sizes, never the browser zoom settings. */
-  html .astra-customer input:not([type='checkbox']):not([type='radio']):not([type='color']),
+     Keep the larger OTP field and never disable browser zoom. */
+  html
+    .astra-customer
+    input:not([type='checkbox']):not([type='radio']):not([type='color']):not(.ac-code-input),
   html .astra-customer select,
   html .astra-customer textarea {
     font-size: 16px !important;
