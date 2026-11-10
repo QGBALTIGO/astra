@@ -107,11 +107,12 @@ html .astra-customer .ac-period-caption::first-letter {
 }
 
 @media (max-width: 767px) {
-  /* Do not disable browser zoom. Use readable field text instead. */
+  /* Readable editable text is a portal invariant, including compact filters.
+     Override legacy component font sizes, never the browser zoom settings. */
   html .astra-customer input:not([type='checkbox']):not([type='radio']):not([type='color']),
   html .astra-customer select,
   html .astra-customer textarea {
-    font-size: 16px;
+    font-size: 16px !important;
   }
   html .astra-customer .ac-content {
     padding: 22px 16px calc(95px + env(safe-area-inset-bottom));
