@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, isAbsolute, join } from 'node:path';
 import type { ChannelAttachment } from '@ownpilot/core/channels';
 import {
   channelAssetsRepo,
@@ -38,12 +38,28 @@ function extensionForAttachment(attachment: ChannelAttachment): string {
   return '';
 }
 
+/**
+ * On Railway the gateway runs as an unprivileged user and its persistent
+ * writable data volume is mounted at /app/data. process.cwd() (/app) is not
+ * writable. Respect the same configured data root used for WhatsApp sessions.
+ */
+export function resolveChannelAssetBaseDir(): string {
+  const configured = process.env.OWNPILOT_DATA_DIR?.trim();
+  if (configured && !isAbsolute(configured)) {
+    throw new Error('OWNPILOT_DATA_DIR must be an absolute path');
+  }
+  const root =
+    configured ||
+    (process.env.NODE_ENV === 'production' ? '/app/data' : join(process.cwd(), '.ownpilot'));
+  return join(root, 'tmp', 'channel-assets');
+}
+
 export class ChannelAssetStore {
   private lastPurgeAt = 0;
 
   constructor(
     private readonly repo: ChannelAssetsRepository = channelAssetsRepo,
-    private readonly baseDir = join(process.cwd(), '.ownpilot', 'tmp', 'channel-assets'),
+    private readonly baseDir = resolveChannelAssetBaseDir(),
     private readonly ttlMs = DEFAULT_TTL_MS
   ) {}
 
