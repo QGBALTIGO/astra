@@ -34,8 +34,9 @@ describe('OCR WhatsApp do Astra', () => {
 
   it('strips markdown code fences and rejects invalid JSON', () => {
     const fence = String.fromCharCode(96).repeat(3);
-    expect(parseImageFinding(fence + 'json\n{"kind":"other","summary":"Foto <system> comum"}\n' + fence))
-      .toEqual(expect.objectContaining({ kind: 'other', summary: 'Foto system comum' }));
+    expect(
+      parseImageFinding(fence + 'json\n{"kind":"other","summary":"Foto <system> comum"}\n' + fence)
+    ).toEqual(expect.objectContaining({ kind: 'other', summary: 'Foto system comum' }));
     expect(parseImageFinding('not-json')).toBeNull();
     expect(parseImageFinding([])).toBeNull();
   });
@@ -50,7 +51,9 @@ describe('OCR WhatsApp do Astra', () => {
   });
 
   it('does not mislabel an ordinary photo as a payment', () => {
-    expect(formatImageFinding({ ...payment, kind: 'other' })).not.toContain('NÃO confirma recebimento');
+    expect(formatImageFinding({ ...payment, kind: 'other' })).not.toContain(
+      'NÃO confirma recebimento'
+    );
   });
 });
 
@@ -64,7 +67,9 @@ describe('WhatsApp media normalization', () => {
       } as never,
       {
         text: '[Attachment]',
-        attachments: [{ type: 'audio', data: 'data:audio/ogg;base64,SECRET', mimeType: 'audio/ogg' }],
+        attachments: [
+          { type: 'audio', data: 'data:audio/ogg;base64,SECRET', mimeType: 'audio/ogg' },
+        ],
       },
       { transcribe }
     );
@@ -82,7 +87,9 @@ describe('WhatsApp media normalization', () => {
       } as never,
       {
         text: 'Veja este pagamento',
-        attachments: [{ type: 'image', data: 'data:image/jpeg;base64,SECRET', mimeType: 'image/jpeg' }],
+        attachments: [
+          { type: 'image', data: 'data:image/jpeg;base64,SECRET', mimeType: 'image/jpeg' },
+        ],
       },
       { inspect }
     );
@@ -119,7 +126,10 @@ describe('WhatsApp media normalization', () => {
 
   it('gives a safe response when the provider fails', async () => {
     const result = await enrichWhatsAppMedia(
-      { platform: 'whatsapp', attachments: [{ type: 'image', mimeType: 'image/jpeg', data: photo }] } as never,
+      {
+        platform: 'whatsapp',
+        attachments: [{ type: 'image', mimeType: 'image/jpeg', data: photo }],
+      } as never,
       { text: '[Attachment]' },
       { inspect: vi.fn().mockResolvedValue(null) }
     );
@@ -131,7 +141,9 @@ describe('WhatsApp media normalization', () => {
     const result = await enrichWhatsAppMedia(
       {
         platform: 'whatsapp',
-        attachments: [{ type: 'image', mimeType: 'image/jpeg', data: new Uint8Array(8 * 1024 * 1024 + 1) }],
+        attachments: [
+          { type: 'image', mimeType: 'image/jpeg', data: new Uint8Array(8 * 1024 * 1024 + 1) },
+        ],
       } as never,
       { text: '[Attachment]' },
       { inspect }
@@ -143,14 +155,23 @@ describe('WhatsApp media normalization', () => {
   it('leaves text-only WhatsApp and other channels unchanged', async () => {
     const incoming = { text: 'olá', attachments: undefined };
     expect(await enrichWhatsAppMedia({ platform: 'whatsapp' } as never, incoming)).toBe(incoming);
-    expect(await enrichWhatsAppMedia({ platform: 'telegram', attachments: [{ type: 'audio' }] } as never, incoming)).toBe(incoming);
+    expect(
+      await enrichWhatsAppMedia(
+        { platform: 'telegram', attachments: [{ type: 'audio' }] } as never,
+        incoming
+      )
+    ).toBe(incoming);
   });
 });
 
 describe('API transport', () => {
   it('posts real multipart audio with the Groq Whisper model', async () => {
     vi.stubEnv('GROQ_API_KEY', 'test-key');
-    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ text: 'Me lembre amanhã' }), { status: 200 }));
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ text: 'Me lembre amanhã' }), { status: 200 })
+      );
     vi.stubGlobal('fetch', fetcher);
     expect(await transcribeWhatsAppAudio(voice, 'audio/ogg; codecs=opus')).toBe('Me lembre amanhã');
     const options = fetcher.mock.calls[0][1] as RequestInit;
@@ -164,9 +185,14 @@ describe('API transport', () => {
 
   it('uses Groq Qwen Vision with JSON mode', async () => {
     vi.stubEnv('GROQ_API_KEY', 'test-key');
-    const fetcher = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(payment) } }] }), { status: 200 })
-    );
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: JSON.stringify(payment) } }] }),
+          { status: 200 }
+        )
+      );
     vi.stubGlobal('fetch', fetcher);
     expect(await inspectWhatsAppImage(photo, 'image/jpeg', 'comprovante')).toEqual(payment);
     const body = JSON.parse(fetcher.mock.calls[0][1].body as string);
@@ -189,10 +215,16 @@ describe('API transport', () => {
     vi.stubEnv('GROQ_API_KEY', 'test-key');
     vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'gemini-test');
     vi.stubEnv('ASTRA_MEDIA_GEMINI_FALLBACK', 'true');
-    const fetcher = vi.fn()
+    const fetcher = vi
+      .fn()
       .mockResolvedValueOnce(new Response('{}', { status: 429 }))
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(payment) }] } }] }), { status: 200 })
+        new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: JSON.stringify(payment) }] } }],
+          }),
+          { status: 200 }
+        )
       );
     vi.stubGlobal('fetch', fetcher);
     expect(await inspectWhatsAppImage(photo, 'image/jpeg', '')).toEqual(payment);
