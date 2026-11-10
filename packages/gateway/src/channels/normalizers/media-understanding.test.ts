@@ -179,7 +179,7 @@ describe('API transport', () => {
     expect(options.headers).toEqual(expect.objectContaining({ Authorization: 'Bearer test-key' }));
     const form = options.body as FormData;
     expect(form.get('model')).toBe('whisper-large-v3-turbo');
-    expect(form.get('language')).toBe('pt');
+    expect(form.get('language')).toBeNull(); // Detect language instead of forcing Portuguese
     expect((form.get('file') as File).name).toBe('audio.ogg');
   });
 
