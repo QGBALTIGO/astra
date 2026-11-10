@@ -453,13 +453,36 @@ describe('WhatsApp connection lifecycle', () => {
     expect(sockets[1]!.socket.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('never retries an ambiguous network failure after sendMessage has been invoked', async () => {
+  it('sends a URL CTA as one supported text payload without native-flow fields', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    await api.sendMessage({
+      platformChatId: nextPhone,
+      text: 'Olá! Conheça o Astra. 💙',
+      urlButton: { label: 'Conhecer o Astra', url: 'https://astra.example/' },
+    });
+    expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledExactlyOnceWith(
+      `${nextPhone}@s.whatsapp.net`,
+      {
+        text: 'Olá! Conheça o Astra. 💙\n\n*Conhecer o Astra*\nhttps://astra.example/',
+        linkPreview: null,
+      },
+      {}
+    );
+  });
+
+  it('never retries a CTA after an ambiguous network failure from sendMessage', async () => {
     const api = newApi();
     await api.connect();
     sockets[0]!.emit('connection.update', { connection: 'open' });
     sockets[0]!.socket.sendMessage.mockRejectedValueOnce(new Error('delivery outcome unknown'));
     await expect(
-      api.sendMessage({ platformChatId: nextPhone, text: 'Possibly delivered reply' })
+      api.sendMessage({
+        platformChatId: nextPhone,
+        text: 'Possibly delivered reply',
+        urlButton: { label: 'Conhecer o Astra', url: 'https://astra.example/' },
+      })
     ).rejects.toThrow('delivery outcome unknown');
     await vi.advanceTimersByTimeAsync(15_001);
     expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledOnce();

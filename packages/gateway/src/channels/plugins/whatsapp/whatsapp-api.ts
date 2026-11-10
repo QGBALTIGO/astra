@@ -40,6 +40,7 @@ import { getLog } from '../../../services/log.js';
 import { getErrorMessage } from '../../../utils/common.js';
 import { MAX_MESSAGE_CHAT_MAP_SIZE } from '../../../config/defaults.js';
 import { splitMessage } from '../../utils/message-utils.js';
+import { renderUrlButtonAsText } from '../../utils/url-button.js';
 import { getSessionDir, clearSession } from './session-store.js';
 import { wsGateway } from '../../../ws/server.js';
 import { channelAssetStore } from '../../../services/channel-asset-store.js';
@@ -644,7 +645,9 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
     const jid = this.toJid(message.platformChatId);
     const isSelf = this.isSelfChat(jid);
-    const parts = splitMessage(message.text, WHATSAPP_MAX_LENGTH);
+    // The pinned Baileys API has no supported native URL-button payload. Render
+    // the URL before sending; never retry a possibly delivered CTA as text.
+    const parts = splitMessage(renderUrlButtonAsText(message), WHATSAPP_MAX_LENGTH);
     let lastMessageId = '';
 
     for (let i = 0; i < parts.length; i++) {
@@ -681,7 +684,12 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         throw new Error('WhatsApp disconnected before sending');
       }
 
-      const result = await sock.sendMessage(jid, { text: parts[i]! }, options);
+      const result = await sock.sendMessage(
+        jid,
+        // CTA URLs are already usable as links; avoid an unnecessary preview fetch.
+        message.urlButton ? { text: parts[i]!, linkPreview: null } : { text: parts[i]! },
+        options
+      );
       lastMessageId = result?.key?.id ?? '';
 
       // Record send time for rate limiting

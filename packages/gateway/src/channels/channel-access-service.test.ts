@@ -238,6 +238,25 @@ describe('ChannelAccessService', () => {
     expect(repo.renewWhatsAppAccess).not.toHaveBeenCalled();
   });
 
+  it('requires an explicit unblock before renewing a blocked number', async () => {
+    repo.getById.mockResolvedValue(user({ isBlocked: true }));
+    await expect(service.renewWhatsAppAccess('customer-1')).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining('Desbloqueie'),
+    });
+    expect(repo.renewWhatsAppAccess).not.toHaveBeenCalled();
+  });
+
+  it('reports the required unblock when a block wins the renewal row lock', async () => {
+    repo.getById.mockResolvedValueOnce(user()).mockResolvedValueOnce(user({ isBlocked: true }));
+    repo.renewWhatsAppAccess.mockResolvedValue(null);
+    await expect(service.renewWhatsAppAccess('customer-1')).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining('Desbloqueie'),
+    });
+    expect(repo.renewWhatsAppAccess).toHaveBeenCalledOnce();
+  });
+
   it('revokes existing access without deleting customer data', async () => {
     const result = await service.revokeWhatsAppAccess('customer-1');
     expect(result.isVerified).toBe(false);

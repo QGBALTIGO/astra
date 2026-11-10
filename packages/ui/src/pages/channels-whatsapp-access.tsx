@@ -24,6 +24,7 @@ import {
 } from './channels-access-helpers';
 import { timeAgo } from './channels-helpers';
 import { WhatsAppAuthorizeModal } from './channels-whatsapp-access-modal';
+import { WhatsAppMessageSettingsSection } from './channels-whatsapp-message-settings';
 
 const ACCESS_STATES: Record<WhatsAppAccessState, { label: string; color: string }> = {
   active: { label: 'Autorizado', color: 'bg-success/10 text-success' },
@@ -364,6 +365,8 @@ export function WhatsAppAccessPanel({
           ) : null}
         </div>
       ) : null}
+
+      <WhatsAppMessageSettingsSection />
 
       {authorization ? (
         <WhatsAppAuthorizeModal

@@ -77,6 +77,8 @@ export interface ChannelOutgoingMessage {
   platformChatId: string;
   /** Text content */
   text: string;
+  /** URL action. Transports without native URL buttons render a text link before sending. */
+  urlButton?: { label: string; url: string };
   /** Attachments to send */
   attachments?: ChannelAttachment[];
   /** Reply-to message ID */

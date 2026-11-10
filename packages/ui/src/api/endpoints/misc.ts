@@ -37,6 +37,7 @@ import type {
   ChannelUser,
   ChannelUsersPage,
   AuthorizeWhatsAppUserInput,
+  WhatsAppAccessMessageSettings,
   ChannelStats,
   AIBriefing,
   DailyBriefingData,
@@ -446,6 +447,13 @@ export const channelsApi = {
     apiClient.post<{ user: ChannelUser }>(`/channels/auth/users/${userId}/renew`, { durationDays }),
   revokeUserAccess: (userId: string) =>
     apiClient.post<{ unverified: boolean }>(`/channels/auth/users/${userId}/unverify`),
+  getWhatsAppAccessMessageSettings: () =>
+    apiClient.get<{ settings: WhatsAppAccessMessageSettings }>('/channels/auth/messages/settings'),
+  updateWhatsAppAccessMessageSettings: (settings: WhatsAppAccessMessageSettings) =>
+    apiClient.put<{ settings: WhatsAppAccessMessageSettings }>(
+      '/channels/auth/messages/settings',
+      settings
+    ),
   getStats: (channelId: string) => apiClient.get<ChannelStats>(`/channels/${channelId}/stats`),
   reconnect: (channelId: string) =>
     apiClient.post<{ pluginId: string; status: string }>(`/channels/${channelId}/reconnect`),

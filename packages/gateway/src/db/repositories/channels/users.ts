@@ -7,6 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { BaseRepository, parseJsonField } from '../base.js';
+import { channelAccessNotificationsRepo } from '../channel-access-notifications.js';
 
 // ============================================================================
 // Entity Types
@@ -93,6 +94,15 @@ function rowToEntity(row: ChannelUserRow): ChannelUserEntity {
   };
 }
 
+function hasCurrentAccess(user: ChannelUserEntity, now: Date): boolean {
+  return (
+    user.isVerified &&
+    !user.isBlocked &&
+    user.status === 'active' &&
+    (user.accessExpiresAt == null || user.accessExpiresAt.getTime() > now.getTime())
+  );
+}
+
 // ============================================================================
 // Repository
 // ============================================================================
@@ -163,9 +173,36 @@ export class ChannelUsersRepository extends BaseRepository {
    */
   async findOrCreate(
     input: CreateChannelUserInput
-  ): Promise<ChannelUserEntity & { created: boolean }> {
-    const existing = await this.findByPlatform(input.platform, input.platformUserId);
+  ): Promise<ChannelUserEntity & { created: boolean; firstInteraction: boolean }> {
+    let existing = await this.findByPlatform(input.platform, input.platformUserId);
+    if (!existing) {
+      try {
+        const entity = await this.create(input);
+        return { ...entity, created: true, firstInteraction: true };
+      } catch (error) {
+        // A manual grant or another incoming message may create the identity
+        // after our read. Only recover that unique-key race, never replay a
+        // grant or hide a different database failure.
+        if (!(error && typeof error === 'object' && 'code' in error && error.code === '23505')) {
+          throw error;
+        }
+        existing = await this.findByPlatform(input.platform, input.platformUserId);
+        if (!existing) throw error;
+      }
+    }
     if (existing) {
+      // Only one incoming request can claim the first interaction of a
+      // preauthorized number, even if multiple messages arrive simultaneously.
+      const firstInteraction =
+        existing.metadata.hasInteracted === false
+          ? (
+              await this.execute(
+                `UPDATE channel_users SET metadata = metadata || '{"hasInteracted":true,"accessWelcomePending":true}'::jsonb
+             WHERE id = $1 AND metadata->'hasInteracted' = 'false'::jsonb`,
+                [existing.id]
+              )
+            ).changes === 1
+          : false;
       // Prior single-owner versions created records under "default" even for
       // ignored senders. In multi-user mode a WhatsApp contact must not retain
       // that owner scope, any previous verification or a historical session.
@@ -197,7 +234,7 @@ export class ChannelUsersRepository extends BaseRepository {
           platform_username = COALESCE($2, platform_username),
           avatar_url = COALESCE($3, avatar_url),
           metadata = CASE WHEN metadata->>'hasInteracted' = 'false'
-            THEN metadata || '{"hasInteracted":true}'::jsonb ELSE metadata END
+            THEN metadata || '{"hasInteracted":true,"accessWelcomePending":true}'::jsonb ELSE metadata END
          WHERE id = $4`,
         [
           input.displayName ?? null,
@@ -209,14 +246,14 @@ export class ChannelUsersRepository extends BaseRepository {
       return {
         ...existing,
         ...(existing.metadata.hasInteracted === false
-          ? { metadata: { ...existing.metadata, hasInteracted: true } }
+          ? { metadata: { ...existing.metadata, hasInteracted: true, accessWelcomePending: true } }
           : {}),
         lastSeenAt: new Date(),
         created: false,
+        firstInteraction,
       };
     }
-    const entity = await this.create(input);
-    return { ...entity, created: true };
+    throw new Error('Failed to find or create channel user');
   }
 
   /**
@@ -268,8 +305,47 @@ export class ChannelUsersRepository extends BaseRepository {
     grantedAt: Date;
     source: ChannelAccessSource;
   }): Promise<ChannelUserEntity | null> {
-    const row = await this.queryOne<ChannelUserRow>(
-      `INSERT INTO channel_users (
+    return this.transaction(async () => {
+      // A row lock alone cannot serialize the first insert for a phone that
+      // does not exist yet. This transaction-scoped lock also covers creation.
+      await this.execute(`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [
+        `whatsapp-access:${input.phoneNumber}`,
+      ]);
+      const previousRow = await this.queryOne<ChannelUserRow>(
+        `SELECT * FROM channel_users WHERE platform = 'whatsapp' AND platform_user_id = $1 FOR UPDATE`,
+        [input.phoneNumber]
+      );
+      const previous = previousRow ? rowToEntity(previousRow) : null;
+      if (
+        previous &&
+        (previous.ownpilotUserId !== `whatsapp:${input.phoneNumber}` || previous.isBlocked)
+      ) {
+        return null;
+      }
+      const wasActive = previous ? hasCurrentAccess(previous, input.grantedAt) : false;
+      let expiresAt = input.expiresAt;
+      if (previous?.isVerified) {
+        if (previous.accessExpiresAt == null || expiresAt === null) expiresAt = null;
+        else
+          expiresAt = new Date(Math.max(previous.accessExpiresAt.getTime(), expiresAt.getTime()));
+      }
+      if (
+        previous &&
+        wasActive &&
+        (previous.accessExpiresAt?.getTime() ?? null) === (expiresAt?.getTime() ?? null)
+      ) {
+        // A duplicate active grant cannot invalidate a pending approval by
+        // advancing its grant timestamp. Only its optional display name changes.
+        if (input.displayName === undefined || input.displayName === previous.displayName)
+          return previous;
+        const renamed = await this.queryOne<ChannelUserRow>(
+          `UPDATE channel_users SET display_name = $2 WHERE id = $1 RETURNING *`,
+          [previous.id, input.displayName]
+        );
+        return renamed ? rowToEntity(renamed) : null;
+      }
+      const row = await this.queryOne<ChannelUserRow>(
+        `INSERT INTO channel_users (
         id, ownpilot_user_id, platform, platform_user_id, display_name,
         is_verified, verified_at, verification_method, status,
         access_expires_at, access_granted_at, access_source, metadata
@@ -279,29 +355,54 @@ export class ChannelUsersRepository extends BaseRepository {
         display_name = COALESCE(EXCLUDED.display_name, channel_users.display_name),
         is_verified = TRUE, verified_at = EXCLUDED.verified_at,
         verification_method = 'admin', status = 'active',
-        access_expires_at = CASE
-          WHEN EXCLUDED.access_expires_at IS NULL THEN NULL
-          WHEN channel_users.access_expires_at IS NULL
-            AND channel_users.is_verified THEN NULL
-          WHEN channel_users.is_verified THEN GREATEST(channel_users.access_expires_at, EXCLUDED.access_expires_at)
-          ELSE EXCLUDED.access_expires_at END,
+        access_expires_at = EXCLUDED.access_expires_at,
         access_granted_at = EXCLUDED.access_granted_at,
         access_source = EXCLUDED.access_source
        WHERE channel_users.ownpilot_user_id = EXCLUDED.ownpilot_user_id
          AND NOT channel_users.is_blocked
        RETURNING *`,
-      [
-        randomUUID(),
-        `whatsapp:${input.phoneNumber}`,
-        input.phoneNumber,
-        input.displayName ?? null,
-        input.grantedAt.toISOString(),
-        input.expiresAt?.toISOString() ?? null,
-        input.source,
-        JSON.stringify({ manualPreauthorized: input.source === 'manual', hasInteracted: false }),
-      ]
-    );
-    return row ? rowToEntity(row) : null;
+        [
+          randomUUID(),
+          `whatsapp:${input.phoneNumber}`,
+          input.phoneNumber,
+          input.displayName ?? null,
+          input.grantedAt.toISOString(),
+          expiresAt?.toISOString() ?? null,
+          input.source,
+          JSON.stringify({ manualPreauthorized: input.source === 'manual', hasInteracted: false }),
+        ]
+      );
+      if (!row) return null;
+      const user = rowToEntity(row);
+      if (wasActive && previous) {
+        // An active grant can extend the absolute deadline (including a retry
+        // whose clock is milliseconds later). Keep an unattempted lifecycle
+        // notice current without reannouncing grants already sent or attempted.
+        await channelAccessNotificationsRepo.rebasePendingLifecycle(
+          previous,
+          user,
+          input.grantedAt
+        );
+      }
+      if (
+        !wasActive &&
+        hasCurrentAccess(user, input.grantedAt) &&
+        user.metadata.hasInteracted !== false
+      ) {
+        const duration =
+          input.expiresAt == null
+            ? null
+            : (input.expiresAt.getTime() - input.grantedAt.getTime()) / 86_400_000;
+        await channelAccessNotificationsRepo.queueLifecycle(user, 'approved', {
+          now: input.grantedAt,
+          durationDays:
+            duration != null && Number.isInteger(duration) && duration >= 1 && duration <= 366
+              ? duration
+              : null,
+        });
+      }
+      return user;
+    });
   }
 
   /** Extend the stored expiry atomically; this is the only operation that adds days. */
@@ -314,6 +415,15 @@ export class ChannelUsersRepository extends BaseRepository {
     // Incrementing an expiry is not safe to replay after an ambiguous connection
     // loss. The adapter deliberately disables automatic retries in transactions.
     return this.transaction(async () => {
+      const previousRow = await this.queryOne<ChannelUserRow>(
+        `SELECT * FROM channel_users WHERE id = $1 AND platform = 'whatsapp'
+           AND ownpilot_user_id = 'whatsapp:' || platform_user_id FOR UPDATE`,
+        [id]
+      );
+      if (!previousRow) return null;
+      const previous = rowToEntity(previousRow);
+      if (previous.isBlocked) return null;
+      if (hasCurrentAccess(previous, now) && previous.accessExpiresAt == null) return previous;
       const row = await this.queryOne<ChannelUserRow>(
         `UPDATE channel_users SET
         access_expires_at = CASE
@@ -324,10 +434,16 @@ export class ChannelUsersRepository extends BaseRepository {
         is_verified = TRUE, verified_at = $2::timestamptz, verification_method = 'admin', status = 'active'
        WHERE id = $1 AND platform = 'whatsapp'
          AND ownpilot_user_id = 'whatsapp:' || platform_user_id
+         AND NOT is_blocked
        RETURNING *`,
         [id, now.toISOString(), durationDays, source]
       );
-      return row ? rowToEntity(row) : null;
+      if (!row) return null;
+      const user = rowToEntity(row);
+      if (hasCurrentAccess(user, now) && user.metadata.hasInteracted !== false) {
+        await channelAccessNotificationsRepo.queueLifecycle(user, 'renewed', { durationDays, now });
+      }
+      return user;
     });
   }
 
