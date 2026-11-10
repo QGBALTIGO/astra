@@ -4,11 +4,21 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   testDir: '.',
   testMatch: 'customer-mobile-controls.spec.ts',
+  outputDir: fileURLToPath(new URL('../test-results/customer-controls', import.meta.url)),
   timeout: 30000,
   fullyParallel: true,
   workers: 2,
   retries: 0,
-  reporter: [['list'], ['html', { outputFolder: 'customer-controls-report', open: 'never' }]],
+  reporter: [
+    ['list'],
+    [
+      'html',
+      {
+        outputFolder: fileURLToPath(new URL('../customer-controls-report', import.meta.url)),
+        open: 'never',
+      },
+    ],
+  ],
   use: {
     baseURL: 'http://localhost:8199',
     headless: true,
