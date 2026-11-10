@@ -115,7 +115,8 @@ for (const theme of ['light', 'dark'] as const) {
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
         expect(Math.abs(box.y - boxes[0]!.y)).toBeLessThanOrEqual(1);
-        if (i > 0) expect(box.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width - 1);
+        if (i > 0)
+          expect(box.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width - 1);
       }
       await elements[2]!.tap();
       await expect(date).toHaveValue('2026-11-17');
