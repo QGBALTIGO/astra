@@ -721,6 +721,17 @@ const translateAudioOverride: ToolExecutor = async (
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
 
+    // Match speech_to_text workspace authorization. This tool must not
+    // turn an LLM-supplied path into a read of another user's private audio.
+    const workDir = _context?.workspaceDir || '.';
+    const resolvedSource = path.resolve(source);
+    if (!isWithinDirectory(workDir, resolvedSource)) {
+      return {
+        content: { error: 'Source path must be within the workspace directory' },
+        isError: true,
+      };
+    }
+
     const ext = path.extname(source).slice(1).toLowerCase();
     if (!SUPPORTED_INPUT_FORMATS.includes(ext)) {
       return {
