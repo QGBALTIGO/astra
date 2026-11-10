@@ -14,7 +14,7 @@ describe('customer input modality', () => {
   });
   afterEach(() => {
     dispose();
-    document.body.innerHTML = '';
+    document.body.replaceChildren();
   });
 
   it('starts with accessible keyboard focus rather than guessing the device type', () => {
