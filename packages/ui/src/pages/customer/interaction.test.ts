@@ -1,4 +1,4 @@
-/** @vitest-environment jsdom */
+// @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { installCustomerInputModality } from './interaction';
 
@@ -24,6 +24,7 @@ describe('customer input modality', () => {
     const input = document.createElement('input');
     document.body.append(input);
     input.focus();
+    expect(document.activeElement).toBe(input);
     input.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(mode()).toBe('pointer');
     expect(document.activeElement).toBe(input);
