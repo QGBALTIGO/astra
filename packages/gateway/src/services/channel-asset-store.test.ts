@@ -164,13 +164,13 @@ describe('ChannelAssetStore', () => {
   });
 
   it('rolls back files and database records if a later attachment fails', async () => {
-    repo.create.mockRejectedValueOnce(new Error('db down'));
     const store = new ChannelAssetStore(repo as never, baseDir, 60_000);
     let firstPath = '';
     repo.create.mockImplementationOnce(async (input) => {
       firstPath = input.storagePath;
       return input;
     });
+    repo.create.mockRejectedValueOnce(new Error('db down'));
     // The second attachment still fails after the first succeeds.
     await expect(store.persistIncomingAttachments({
       messageId: 'partial', channelPluginId: 'wa', platform: 'whatsapp',
