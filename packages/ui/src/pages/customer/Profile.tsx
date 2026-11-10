@@ -11,12 +11,17 @@ import {
   Moon,
   ShieldCheck,
   Sun,
-  UserCircle,
 } from '../../components/icons';
 import { useNavigate } from 'react-router';
 import { formatWhatsAppPhone } from '../channels-access-helpers';
 import { customerApi, downloadCustomerExport } from './api';
-import { CustomerConfirm, CustomerDialog, CustomerError, CustomerSkeleton } from './components';
+import {
+  CustomerAvatar,
+  CustomerConfirm,
+  CustomerDialog,
+  CustomerError,
+  CustomerSkeleton,
+} from './components';
 import {
   dateTimeLabel,
   fullDate,
@@ -31,6 +36,7 @@ import type { Customer, CustomerSession, CustomerTheme } from './types';
 
 export function CustomerProfile({
   customer,
+  avatarUrl,
   active,
   revision,
   onUpdated,
@@ -38,6 +44,7 @@ export function CustomerProfile({
   onSignOut,
 }: {
   customer: Customer;
+  avatarUrl: string | null;
   active: boolean;
   revision: number;
   onUpdated: (profile: Customer) => void;
@@ -149,9 +156,7 @@ export function CustomerProfile({
         <div className="ac-profile-column">
           <section className="ac-card">
             <div className="ac-profile-identity">
-              <span className="ac-avatar">
-                <UserCircle aria-hidden="true" />
-              </span>
+              <CustomerAvatar displayName={current.displayName} url={avatarUrl} large />
               <div>
                 <h2>{current.displayName || 'Sua conta'}</h2>
                 <p>{formatWhatsAppPhone(current.phoneNumber)}</p>

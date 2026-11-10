@@ -125,3 +125,65 @@ describe('isolated customer API', () => {
     }
   });
 });
+
+describe('private WhatsApp avatar bytes', () => {
+  it.each(['image/jpeg', 'image/png', 'image/webp'])(
+    'loads %s with the customer cookie and without identity in the URL',
+    async (contentType) => {
+      const controller = new AbortController();
+      fetchMock.mockResolvedValueOnce(
+        new Response(new Blob(['synthetic-image'], { type: contentType }), {
+          headers: { 'Content-Type': contentType },
+        })
+      );
+
+      const image = await customerApi.avatar(controller.signal);
+
+      expect(image?.type).toBe(contentType);
+      expect(image?.size).toBeGreaterThan(0);
+      expect(fetchMock).toHaveBeenCalledWith('/api/v1/customer/profile/avatar', {
+        credentials: 'include',
+        cache: 'no-store',
+        signal: controller.signal,
+        headers: { Accept: 'image/jpeg, image/png, image/webp' },
+      });
+      expect(JSON.stringify(fetchMock.mock.calls)).not.toMatch(
+        /admin-must-never-be-sent|Authorization|X-API-Key|phoneNumber|accountId/i
+      );
+    }
+  );
+
+  it('returns no image for a private or missing photo', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    expect(await customerApi.avatar()).toBeNull();
+  });
+
+  it.each(['text/html', 'application/json', 'image/svg+xml'])(
+    'does not turn a %s response into an avatar URL',
+    async (contentType) => {
+      fetchMock.mockResolvedValueOnce(
+        new Response('unexpected body', { headers: { 'Content-Type': contentType } })
+      );
+      await expect(customerApi.avatar()).rejects.toMatchObject({ code: 'AVATAR_UNAVAILABLE' });
+    }
+  );
+
+  it('invalidates an expired session but ignores a cancelled old identity response', async () => {
+    const listener = vi.fn();
+    window.addEventListener(CUSTOMER_SESSION_EXPIRED, listener);
+    try {
+      fetchMock.mockImplementation(async () => failure(401));
+      const controller = new AbortController();
+      controller.abort();
+      await expect(customerApi.avatar(controller.signal)).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+      expect(listener).not.toHaveBeenCalled();
+
+      await expect(customerApi.avatar()).rejects.toMatchObject({ status: 401 });
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener(CUSTOMER_SESSION_EXPIRED, listener);
+    }
+  });
+});

@@ -8,6 +8,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Agent } from 'undici';
 
+const mockWarn = vi.hoisted(() => vi.fn());
+
 // =============================================================================
 // Mocks
 // =============================================================================
@@ -15,7 +17,7 @@ import { Agent } from 'undici';
 vi.mock('../services/log.js', () => ({
   getLog: vi.fn(() => ({
     info: vi.fn(),
-    warn: vi.fn(),
+    warn: mockWarn,
     error: vi.fn(),
     debug: vi.fn(),
   })),
@@ -158,6 +160,61 @@ describe('safeFetch', () => {
     for (const code of codes) {
       const e = new SafeFetchError('msg', code);
       expect(e.code).toBe(code);
+    }
+  });
+
+  it('redacts a blocked signed URL from both policy logs and errors when requested', async () => {
+    const url = 'https://private:secret@127.0.0.1/avatar?signature=synthetic-secret';
+    const error = await safeFetch(url, { redactUrl: true }).catch((value: unknown) => value);
+    expect(error).toMatchObject({
+      name: 'SafeFetchError',
+      code: 'SSRF_BLOCKED',
+      message: 'Outbound request could not be completed',
+    });
+    expect(mockWarn).toHaveBeenCalledWith('safeFetch: blocked URL by sync policy', {
+      url: '[redacted]',
+    });
+    expect(JSON.stringify(mockWarn.mock.calls)).not.toContain('synthetic-secret');
+    expect(String(error)).not.toContain(url);
+  });
+
+  it('redacts signed redirect chains without forwarding the logging option to fetch', async () => {
+    const url = 'https://example.com/avatar?signature=synthetic-secret';
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        makeResponse({ status: 302, location: 'https://example.com/next?token=another-secret' })
+      );
+    try {
+      const error = await safeFetch(url, { redactUrl: true, maxRedirects: 0 }).catch(
+        (value: unknown) => value
+      );
+      expect(error).toMatchObject({ code: 'TOO_MANY_REDIRECTS' });
+      expect(String(error)).not.toContain('synthetic-secret');
+      expect(String(error)).not.toContain('another-secret');
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      expect(fetchSpy.mock.calls[0]?.[1]).not.toHaveProperty('redactUrl');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('does not expose URLs embedded in a low-level fetch error or its cause', async () => {
+    const url = 'https://example.com/avatar?signature=synthetic-secret';
+    const upstream = new Error('Fetch failed for ' + url, { cause: new Error(url) });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(upstream);
+    try {
+      const error = await safeFetch(url, { redactUrl: true }).catch((value: unknown) => value);
+      expect(error).toMatchObject({
+        name: 'SafeFetchError',
+        code: 'UNKNOWN',
+        message: 'Outbound request could not be completed',
+      });
+      expect(error).not.toHaveProperty('cause');
+      expect(String(error)).not.toContain('synthetic-secret');
+      expect(JSON.stringify(mockWarn.mock.calls)).not.toContain('synthetic-secret');
+    } finally {
+      fetchSpy.mockRestore();
     }
   });
 });

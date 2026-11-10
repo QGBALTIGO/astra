@@ -18,6 +18,44 @@ import {
 } from './helpers';
 import type { CustomerPeriod } from './types';
 
+export function CustomerAvatar({
+  displayName,
+  url,
+  large = false,
+}: {
+  displayName: string;
+  url: string | null;
+  large?: boolean;
+}) {
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  const first = Array.from(parts[0] ?? '')[0] ?? '';
+  const last = parts.length > 1 ? (Array.from(parts.at(-1)!)[0] ?? '') : '';
+  const initials = (first + last).toLocaleUpperCase('pt-BR') || '?';
+  const loaded = Boolean(url && loadedUrl === url && failedUrl !== url);
+  return (
+    <span
+      className={'ac-avatar' + (large ? ' ac-avatar--large' : '') + (loaded ? ' is-loaded' : '')}
+      aria-hidden="true"
+    >
+      <span className="ac-avatar-initials">{initials}</span>
+      {url && failedUrl !== url ? (
+        <img
+          key={url}
+          src={url}
+          alt=""
+          width={large ? 50 : 40}
+          height={large ? 50 : 40}
+          decoding="async"
+          onLoad={() => setLoadedUrl(url)}
+          onError={() => setFailedUrl(url)}
+        />
+      ) : null}
+    </span>
+  );
+}
+
 export function CustomerBrand({ compact = false }: { compact?: boolean }) {
   return (
     <a

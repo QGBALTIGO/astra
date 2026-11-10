@@ -45,6 +45,7 @@ import { splitMessage } from '../../utils/message-utils.js';
 import { renderUrlButtonAsText } from '../../utils/url-button.js';
 import { getSessionDir, clearSession } from './session-store.js';
 import { buildWhatsAppCopyCodePayload } from './whatsapp-copy-code.js';
+import { fetchWhatsAppProfilePicture } from './whatsapp-profile-picture.js';
 import { wsGateway } from '../../../ws/server.js';
 import { channelAssetStore } from '../../../services/channel-asset-store.js';
 import { SimpleTTLCache } from '../../../utils/simple-ttl-cache.js';
@@ -791,6 +792,30 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     } catch {
       // Non-fatal
     }
+  }
+
+  /** Fetch the current customer's profile image only when requested by the portal. */
+  async resolveUser(platformUserId: string): Promise<ChannelUser | null> {
+    if (!/^\d{7,15}$/.test(platformUserId)) return null;
+    const sock = this.sock;
+    const generation = this.connectionGeneration;
+    const accountPhone = this.connectedAccountPhone;
+    if (!sock || !accountPhone || this.status !== 'connected') return null;
+    const isCurrent = () =>
+      this.sock === sock &&
+      this.connectionGeneration === generation &&
+      this.status === 'connected' &&
+      this.connectedAccountPhone === accountPhone &&
+      Boolean(sock.user?.id) &&
+      this.phoneFromJid(sock.user!.id) === accountPhone;
+    if (!isCurrent()) return null;
+    const avatarUrl = await fetchWhatsAppProfilePicture(
+      sock,
+      this.toJid(platformUserId),
+      isCurrent
+    );
+    if (!avatarUrl || !isCurrent()) return null;
+    return { platform: 'whatsapp', platformUserId, displayName: platformUserId, avatarUrl };
   }
 
   getBotInfo(): { username?: string; firstName?: string } | null {

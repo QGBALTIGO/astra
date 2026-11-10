@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CustomerTheme } from './types';
+import { customerApi } from './api';
 
 export function useCustomerQuery<T>(
   key: string,
@@ -48,6 +49,38 @@ export function useCustomerQuery<T>(
     loading: state.key !== key || state.loading,
     retry,
   };
+}
+
+/** One private request shared by every avatar in the customer shell. */
+export function useCustomerAvatar(accountId: string, phoneNumber: string, revision = 0) {
+  const identity = JSON.stringify([accountId, phoneNumber]);
+  const [image, setImage] = useState<{ identity: string; revision: number; url: string } | null>(
+    null
+  );
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    let objectUrl: string | null = null;
+    const timer = setTimeout(() => controller.abort(), 8000);
+    void customerApi
+      .avatar(controller.signal)
+      .then((blob) => {
+        if (!active || controller.signal.aborted || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setImage({ identity, revision, url: objectUrl });
+      })
+      // A missing/private photo or a temporary failure leaves usable initials.
+      .catch(() => undefined)
+      .finally(() => clearTimeout(timer));
+    return () => {
+      active = false;
+      controller.abort();
+      clearTimeout(timer);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [identity, revision]);
+  // Clear synchronously on identity/revision changes, before effect cleanup.
+  return image?.identity === identity && image.revision === revision ? image.url : null;
 }
 
 export function useCustomerTheme(theme: CustomerTheme = 'system') {
