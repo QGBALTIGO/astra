@@ -91,12 +91,16 @@ function privateLocalUrl(): string | null {
 async function acquireSlot(): Promise<() => void> {
   if (active >= CONCURRENCY) {
     if (waiters.length >= QUEUE_LIMIT) throw new Error('Transcription queue full');
+    // Reservation transfers the existing slot to the next waiter; avoid
+    // reducing then re-incrementing active across an asynchronous boundary.
     await new Promise<void>((resolve) => waiters.push(resolve));
+  } else {
+    active++;
   }
-  active++;
   return () => {
-    active--;
-    waiters.shift()?.();
+    const next = waiters.shift();
+    if (next) next();
+    else active--;
   };
 }
 
