@@ -5,6 +5,7 @@
  * that was in core/agent/tools/expense-tracker.ts.
  */
 
+import { createHash } from 'node:crypto';
 import { BaseRepository, parseJsonField } from './base.js';
 import { generateId } from '@ownpilot/core/services';
 
@@ -160,6 +161,64 @@ export class ExpensesRepository extends BaseRepository {
       ]
     );
     return rowToExpense(row!);
+  }
+
+  /**
+   * Persist an authenticated channel message once, including across reconnects
+   * and concurrent workers. Distinct message IDs still represent distinct
+   * expenses; neither the amount nor message text is a deduplication key.
+   */
+  async createFromChannel(
+    input: CreateExpenseInput,
+    sourceKey: string
+  ): Promise<{ expense: Expense; created: boolean }> {
+    const cents = Math.round(input.amount * 100);
+    if (
+      !this.userId.trim() ||
+      !/^[a-f0-9]{64}$/i.test(sourceKey) ||
+      !Number.isFinite(input.amount) ||
+      !Number.isSafeInteger(cents) ||
+      cents <= 0 ||
+      cents > 999_999_999_999 ||
+      // Compare the cent round trip, not the floating-point multiplication
+      // residual, which grows for valid values near the DECIMAL(12, 2) limit.
+      input.amount !== cents / 100
+    ) {
+      throw new Error('Invalid authenticated channel expense');
+    }
+
+    // Scope again at the repository boundary even if the caller accidentally
+    // reuses a source key belonging to a different authenticated user.
+    const id = `exp_ch_${createHash('sha256')
+      .update(JSON.stringify([this.userId, sourceKey]))
+      .digest('hex')}`;
+    const row = await this.queryOne<ExpenseRow>(
+      `INSERT INTO expenses (id, user_id, date, amount, currency, category, description, payment_method, tags, source, receipt_image, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING *`,
+      [
+        id,
+        this.userId,
+        input.date,
+        cents / 100,
+        input.currency ?? 'BRL',
+        input.category ?? 'other',
+        input.description,
+        input.paymentMethod ?? null,
+        JSON.stringify(input.tags ?? []),
+        input.source ?? 'channel',
+        input.receiptImage ?? null,
+        input.notes ?? null,
+      ]
+    );
+    if (row) return { expense: rowToExpense(row), created: true };
+
+    // A separate SELECT observes a competing insert after PostgreSQL's unique
+    // check has waited for its transaction; never update or re-book its value.
+    const existing = await this.get(id);
+    if (!existing) throw new Error('Channel expense persistence could not be confirmed');
+    return { expense: existing, created: false };
   }
 
   async get(id: string): Promise<Expense | null> {

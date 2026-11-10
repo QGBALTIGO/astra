@@ -16,7 +16,8 @@ import type { StreamCallbacks } from '@ownpilot/core/services';
 import type { ChannelSessionsRepository } from '../db/repositories/channels/sessions.js';
 import { truncate } from '../utils/common.js';
 import { stripInternalTags } from './normalizers/base.js';
-import { tryFinancingChannelReply } from './finance-routing.js';
+import { tryExpenseRecordChannelReply, tryFinancingChannelReply } from './finance-routing.js';
+import { runInSessionLane } from '../services/agent/session-lane.js';
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -237,6 +238,11 @@ export async function processViaBus(
     : await tryFinancingChannelReply(message, channelUser.ownpilotUserId);
   if (financingReply) return financingReply;
 
+  const expenseRecordReply = message.attachments?.length
+    ? null
+    : await tryExpenseRecordChannelReply(message, channelUser.ownpilotUserId);
+  if (expenseRecordReply) return expenseRecordReply;
+
   const reminderReply = message.attachments?.length
     ? null
     : await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId);
@@ -250,6 +256,23 @@ export async function processViaBus(
   const freeReply = deterministicChannelReply(message.text);
   if (freeReply && !message.attachments?.length) return freeReply;
 
+  // Serialize the complete mutable-agent lifecycle, not only agent.chat().
+  // A reconnect can deliver another message while a provider fallback is still
+  // running; loading a conversation or changing tools outside this lane would
+  // race with that turn. Independent customers retain independent lanes.
+  return runInSessionLane(
+    JSON.stringify([
+      'channel',
+      message.channelPluginId,
+      session.sessionId,
+      channelUser.ownpilotUserId,
+    ]),
+    () => processViaBusInSession(bus, message, session, channelUser, deps, progress)
+  );
+}
+
+async function processViaBusInSession(...args: Parameters<typeof processViaBus>): Promise<string> {
+  const [bus, message, session, channelUser, deps, progress] = args;
   const { getOrCreateChatAgent, isDemoMode } = await import('../services/agent/service.js');
   const { resolveForChannel, inferProviderForModel } =
     await import('../services/llm/model-routing.js');
@@ -257,6 +280,14 @@ export async function processViaBus(
   // Demo mode short-circuit (bus isn't needed for demo)
   if (await isDemoMode()) {
     return demoModeReply(message.text);
+  }
+
+  // A preceding queued turn may have recovered this conversation after a
+  // restart. Re-read its persisted link instead of recreating it a second time
+  // from the stale session snapshot captured when this message arrived.
+  const latestSession = await deps.sessionsRepo.getById(session.sessionId);
+  if (latestSession && !latestSession.isActive) {
+    return 'A conversa foi reiniciada. Envie novamente a mensagem que deseja processar.';
   }
 
   const routing = await resolveForChannel(message.channelPluginId, {
@@ -269,8 +300,8 @@ export async function processViaBus(
   // changing the executing one. A bare model name carries no provider, so infer the
   // owning provider, preferring the routed provider when it already serves the model.
   const preferredModel =
-    ((session as { context?: Record<string, unknown> }).context?.preferredModel as
-      string | undefined) || undefined;
+    ((latestSession?.context ?? session.context)?.preferredModel as string | undefined) ||
+    undefined;
   const effectiveProvider = preferredModel
     ? (inferProviderForModel(preferredModel, routing.provider) ?? routing.provider ?? 'openai')
     : (routing.provider ?? 'openai');
@@ -293,7 +324,7 @@ export async function processViaBus(
   );
 
   // Load session conversation for context continuity
-  let activeConversationId = session.conversationId;
+  let activeConversationId = latestSession?.conversationId ?? session.conversationId;
   if (activeConversationId) {
     if (!agent.getMemory().has(activeConversationId)) {
       // Conversation lost (server restart, agent cache eviction) — create a new one
@@ -449,6 +480,11 @@ export async function processDirectAgent(
     : await tryFinancingChannelReply(message, userId);
   if (financingReply) return financingReply;
 
+  const expenseRecordReply = message.attachments?.length
+    ? null
+    : await tryExpenseRecordChannelReply(message, userId);
+  if (expenseRecordReply) return expenseRecordReply;
+
   const expenseReply = message.attachments?.length
     ? null
     : await tryExpenseSummaryChannelReply(message, userId);
@@ -457,6 +493,16 @@ export async function processDirectAgent(
   const freeReply = deterministicChannelReply(message.text);
   if (freeReply && !message.attachments?.length) return freeReply;
 
+  return runInSessionLane(
+    JSON.stringify(['channel-direct', message.channelPluginId, message.platformChatId, userId]),
+    () => processDirectAgentInSession(message, userId)
+  );
+}
+
+async function processDirectAgentInSession(
+  message: ChannelIncomingMessage,
+  userId: string
+): Promise<string> {
   const { getOrCreateChatAgent, isDemoMode } = await import('../services/agent/service.js');
   const { resolveForChannel } = await import('../services/llm/model-routing.js');
 

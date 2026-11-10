@@ -101,7 +101,7 @@ export class DmPairingService {
 
     // Verify the user
     if (channelUser) {
-      await this.usersRepo.markVerified(channelUser.id, 'default', 'admin');
+      await this.usersRepo.markVerified(channelUser.id, channelUser.ownpilotUserId, 'admin');
     }
 
     log.info('Pending sender approved via DM pairing code', {

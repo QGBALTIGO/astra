@@ -299,7 +299,7 @@ describe('createAgentExecutionMiddleware', () => {
       expect(result.response.metadata.error).toBe(rawError);
     });
 
-    it('identifies a Groq rate limit and never exposes provider details to channels', async () => {
+    it('identifies rate limits without naming the wrong provider or exposing details', async () => {
       const agent = createAgent();
       const details =
         'OpenAI API error: 429 - Rate limit reached. Used 5673 Requested 3470. org_secret';
@@ -311,11 +311,37 @@ describe('createAgentExecutionMiddleware', () => {
         vi.fn()
       );
 
-      expect(result.response.content).toContain('Groq');
+      expect(result.response.content).toContain('serviço de IA');
+      expect(result.response.content).not.toContain('Groq');
       expect(result.response.content).toContain('limite');
       expect(result.response.content).not.toContain('org_secret');
       expect(result.response.content).not.toContain('429');
       expect(result.response.metadata.error).toBe(details);
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        'Agent returned a processing error',
+        expect.objectContaining({ reason: 'rate_limited' })
+      );
+      expect(JSON.stringify(mockLog.warn.mock.calls)).not.toContain('org_secret');
+    });
+
+    it('distinguishes an occupied agent and records only a sanitized error category', async () => {
+      const agent = createAgent();
+      agent.chat.mockResolvedValue({
+        ok: false,
+        error: { message: 'Agent is already processing a request' },
+      });
+      const result = await middleware(
+        createMessage({ metadata: { source: 'channel', platform: 'whatsapp' } }),
+        createContext({ store: { agent } }),
+        vi.fn()
+      );
+
+      expect(result.response.content).toContain('mensagem anterior ainda está em processamento');
+      expect(result.response.content).not.toContain('Agent');
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        'Agent returned a processing error',
+        expect.objectContaining({ reason: 'agent_busy' })
+      );
     });
 
     it('should set error in context', async () => {
