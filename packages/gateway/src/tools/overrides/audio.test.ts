@@ -1348,7 +1348,7 @@ describe('translateAudioOverride', () => {
 
   it('should return error when no config available', async () => {
     setupNoConfig();
-    const result = await executors.translate_audio!({ source: '/audio/test.mp3' }, defaultContext);
+    const result = await executors.translate_audio!({ source: '/workspace/audio/test.mp3' }, defaultContext);
     expect(result.isError).toBe(true);
     expect(result.content.error).toContain('Audio service not configured');
   });
@@ -1357,7 +1357,7 @@ describe('translateAudioOverride', () => {
     setupDedicatedAudioConfig();
     const result = await executors.translate_audio!(
       {
-        source: '/audio/test.txt',
+        source: '/workspace/audio/test.txt',
       },
       defaultContext
     );
@@ -1383,7 +1383,7 @@ describe('translateAudioOverride', () => {
 
     const result = await executors.translate_audio!(
       {
-        source: '/audio/large.mp3',
+        source: '/workspace/audio/large.mp3',
       },
       defaultContext
     );
@@ -1391,6 +1391,19 @@ describe('translateAudioOverride', () => {
     expect(result.isError).toBe(true);
     expect(result.content.error).toContain('File too large');
     expect(result.content.error).toContain('max 25MB');
+  });
+
+  it('blocks translating an arbitrary file outside the authorized workspace', async () => {
+    setupDedicatedAudioConfig();
+    const result = await executors.translate_audio!(
+      { source: '/app/data/private/other-user/voice.mp3', targetLanguage: 'pt-BR' },
+      defaultContext
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content.error).toContain('workspace directory');
+    expect(mockFsStat).not.toHaveBeenCalled();
+    expect(mockFsReadFile).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   // --- Success cases ---
@@ -1407,7 +1420,7 @@ describe('translateAudioOverride', () => {
 
     const result = await executors.translate_audio!(
       {
-        source: '/audio/spanish.mp3',
+        source: '/workspace/audio/spanish.mp3',
       },
       defaultContext
     );
@@ -1417,7 +1430,7 @@ describe('translateAudioOverride', () => {
     expect(result.content.text).toBe('Translated text');
     expect(result.content.targetLanguage).toBe('English');
     expect(result.content.duration).toBe(15.0);
-    expect(result.content.source).toBe('/audio/spanish.mp3');
+    expect(result.content.source).toBe('/workspace/audio/spanish.mp3');
 
     // Verify API endpoint
     const url = mockFetch.mock.calls[0]![0] as string;
@@ -1434,7 +1447,7 @@ describe('translateAudioOverride', () => {
       })
     );
 
-    await executors.translate_audio!({ source: '/audio/test.mp3' }, defaultContext);
+    await executors.translate_audio!({ source: '/workspace/audio/test.mp3' }, defaultContext);
 
     const opts = mockFetch.mock.calls[0]![1];
     expect(opts.method).toBe('POST');
@@ -1453,7 +1466,7 @@ describe('translateAudioOverride', () => {
 
     const result = await executors.translate_audio!(
       {
-        source: '/audio/test.mp3',
+        source: '/workspace/audio/test.mp3',
         prompt: 'Technical discussion about coding',
       },
       defaultContext
@@ -1477,7 +1490,7 @@ describe('translateAudioOverride', () => {
 
     const result = await executors.translate_audio!(
       {
-        source: '/audio/test.mp3',
+        source: '/workspace/audio/test.mp3',
         responseFormat: 'text',
       },
       defaultContext
@@ -1486,7 +1499,7 @@ describe('translateAudioOverride', () => {
     expect(result.isError).toBe(false);
     expect(result.content.text).toBe('Plain translated text');
     expect(result.content.targetLanguage).toBe('English');
-    expect(result.content.source).toBe('/audio/test.mp3');
+    expect(result.content.source).toBe('/workspace/audio/test.mp3');
   });
 
   it('should handle responseFormat json (verbose_json)', async () => {
@@ -1501,7 +1514,7 @@ describe('translateAudioOverride', () => {
 
     const result = await executors.translate_audio!(
       {
-        source: '/audio/test.mp3',
+        source: '/workspace/audio/test.mp3',
         responseFormat: 'json',
       },
       defaultContext
@@ -1527,7 +1540,7 @@ describe('translateAudioOverride', () => {
 
     const result = await executors.translate_audio!(
       {
-        source: '/audio/test.mp3',
+        source: '/workspace/audio/test.mp3',
       },
       defaultContext
     );
@@ -1543,7 +1556,7 @@ describe('translateAudioOverride', () => {
 
     const result = await executors.translate_audio!(
       {
-        source: '/audio/missing.mp3',
+        source: '/workspace/audio/missing.mp3',
       },
       defaultContext
     );
@@ -1565,7 +1578,7 @@ describe('translateAudioOverride', () => {
 
     const result = await executors.translate_audio!(
       {
-        source: '/audio/test.mp3',
+        source: '/workspace/audio/test.mp3',
       },
       defaultContext
     );
@@ -1586,7 +1599,7 @@ describe('translateAudioOverride', () => {
 
     const result = await executors.translate_audio!(
       {
-        source: '/audio/test.mp3',
+        source: '/workspace/audio/test.mp3',
       },
       defaultContext
     );
@@ -2127,7 +2140,7 @@ describe('edge cases', () => {
         );
 
       const result = await executors.translate_audio!(
-        { source: '/audio/message.mp3', targetLanguage: 'pt-BR', sourceLanguage: 'auto' },
+        { source: '/workspace/audio/message.mp3', targetLanguage: 'pt-BR', sourceLanguage: 'auto' },
         defaultContext
       );
       expect(result.isError).toBe(false);
