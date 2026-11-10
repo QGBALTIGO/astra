@@ -436,6 +436,21 @@ channelAuthRoutes.delete('/users/:id', async (c) => {
     return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, 404);
   }
 
+  if (owned.platform === 'whatsapp') {
+    const { resolveCustomerPhone } = await import('../../services/customer-identity.js');
+    if (await resolveCustomerPhone(owned.platformUserId)) {
+      return apiError(
+        c,
+        {
+          code: 'CONFLICT',
+          message:
+            'Este cliente possui uma conta com histórico. Revogue ou bloqueie o acesso para preservá-lo.',
+        },
+        409
+      );
+    }
+  }
+
   const service = getChannelVerificationService();
   const deleted = await service.deleteUser(id);
 

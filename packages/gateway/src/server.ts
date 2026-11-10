@@ -472,6 +472,9 @@ async function main() {
   const { startChannelAccessNotificationWorker, stopChannelAccessNotificationWorker } =
     await import('./services/channel-access-notification-worker.js');
   startChannelAccessNotificationWorker();
+  const { startCustomerOtpWorker, stopCustomerOtpWorker } =
+    await import('./services/customer-auth.js');
+  startCustomerOtpWorker();
 
   // Wire cross-channel bridges into the live pipeline (forwards inbound
   // messages between the owner's channels per configured bridges).
@@ -891,6 +894,7 @@ async function main() {
     // Stop scheduled channel notifications before disconnecting database.
     stopChannelReminderWorker();
     stopChannelAccessNotificationWorker();
+    stopCustomerOtpWorker();
 
     // 5.2. Stop scheduler
     try {

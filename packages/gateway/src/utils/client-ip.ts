@@ -23,9 +23,13 @@
  */
 
 import { getLog } from '../services/log.js';
+import { isIP } from 'node:net';
 const log = getLog('ClientIP');
 
 const TRUST_PROXY = process.env.TRUSTED_PROXY === 'true';
+// Railway's documented edge identity is X-Real-IP. An explicit selection
+// prevents an untrusted, merely forwarded XFF header from taking precedence.
+const USE_REAL_IP_ONLY = process.env.TRUSTED_PROXY_IP_HEADER?.toLowerCase() === 'x-real-ip';
 const RAW_TRUSTED_PROXY_IPS = process.env.TRUSTED_PROXY_IPS ?? '';
 const TRUSTED_PROXY_IPS = RAW_TRUSTED_PROXY_IPS.split(',')
   .map((s) => s.trim())
@@ -70,6 +74,11 @@ export function getClientIp(req: { header: (name: string) => string | undefined 
   warnIfMisconfigured();
 
   if (!isProxyAwareConfigured()) return 'direct';
+
+  if (USE_REAL_IP_ONLY) {
+    const address = req.header('X-Real-IP')?.trim() ?? '';
+    return isIP(address) ? address : 'direct';
+  }
 
   const xff = req.header('X-Forwarded-For');
   if (xff) {

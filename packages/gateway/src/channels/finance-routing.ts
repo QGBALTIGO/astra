@@ -10,6 +10,9 @@ import { FinanceObligationsRepository } from '../db/repositories/finance-obligat
 import { ExpensesRepository, type ExpenseCategory } from '../db/repositories/expenses.js';
 import { expenseCategoryLabelPtBr } from '../tools/expense-presentation.js';
 import { getLog } from '../services/log.js';
+import { tryCustomerFinancialChannelReply } from './customer-finance-routing.js';
+import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
+import { customerLocalDay } from '../services/customer-date.js';
 
 const log = getLog('ChannelFinancing');
 
@@ -130,6 +133,8 @@ export async function tryExpenseRecordChannelReply(
   >,
   userId: string
 ): Promise<string | null> {
+  const customerFinanceReply = await tryCustomerFinancialChannelReply(message, userId);
+  if (customerFinanceReply !== null) return customerFinanceReply;
   const intent = parseChannelExpense(message.text);
   if (!intent) return null;
   if (
@@ -149,8 +154,13 @@ export async function tryExpenseRecordChannelReply(
   // Keep the existing expense tool's local-calendar convention, using the
   // incoming event time rather than the time a queued message gets processed.
   const at = message.timestamp;
-  const date = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
   try {
+    const account = userId.startsWith('whatsapp:')
+      ? await customerAccountsRepo.getByDataUserId(userId)
+      : null;
+    const date = userId.startsWith('whatsapp:')
+      ? customerLocalDay(at, account?.timeZone ?? 'America/Campo_Grande')
+      : `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
     const repo = new ExpensesRepository(userId);
     const { expense, created } = await repo.createFromChannel(
       {
@@ -178,7 +188,16 @@ export async function tryExpenseRecordChannelReply(
       }
     }
     const amount = currency(Math.round(expense.amount * 100));
-    const category = expenseCategoryLabelPtBr(expense.category);
+    const category = expense.categoryName ?? expenseCategoryLabelPtBr(expense.category);
+    if (expense.transactionType === 'income' || expense.status === 'pending') {
+      const state =
+        expense.status === 'pending'
+          ? expense.transactionType === 'income'
+            ? 'a receber'
+            : 'a pagar'
+          : 'recebido';
+      return `Esse lançamento já estava registrado: ${amount} em ${category}: ${expense.description}. Situação atual: ${state}.`;
+    }
     return created
       ? `Registrei ${amount} em ${category}: ${expense.description}.`
       : `Esse gasto já estava registrado: ${amount} em ${category}: ${expense.description}.`;

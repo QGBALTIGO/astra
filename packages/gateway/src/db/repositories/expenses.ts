@@ -34,6 +34,9 @@ interface Expense {
   amount: number;
   currency: string;
   category: ExpenseCategory;
+  categoryName?: string;
+  transactionType?: 'expense' | 'income';
+  status?: 'settled' | 'pending';
   description: string;
   paymentMethod?: string;
   tags: string[];
@@ -91,6 +94,9 @@ interface ExpenseRow {
   amount: string;
   currency: string;
   category: string;
+  category_name?: string | null;
+  transaction_type?: 'expense' | 'income';
+  status?: 'settled' | 'pending';
   description: string;
   payment_method: string | null;
   // JSONB column: pg-node returns the parsed value (array), not a string.
@@ -116,6 +122,9 @@ function rowToExpense(row: ExpenseRow): Expense {
     amount: parseFloat(row.amount),
     currency: row.currency,
     category: row.category as ExpenseCategory,
+    ...(row.category_name ? { categoryName: row.category_name } : {}),
+    ...(row.transaction_type ? { transactionType: row.transaction_type } : {}),
+    ...(row.status ? { status: row.status } : {}),
     description: row.description,
     paymentMethod: row.payment_method ?? undefined,
     tags,
@@ -140,6 +149,7 @@ export class ExpensesRepository extends BaseRepository {
   }
 
   async create(input: CreateExpenseInput): Promise<Expense> {
+    this.assertExactAmount(input.amount);
     const id = generateId('exp');
     const row = await this.queryOne<ExpenseRow>(
       `INSERT INTO expenses (id, user_id, date, amount, currency, category, description, payment_method, tags, source, receipt_image, notes)
@@ -223,22 +233,27 @@ export class ExpensesRepository extends BaseRepository {
 
   async get(id: string): Promise<Expense | null> {
     const row = await this.queryOne<ExpenseRow>(
-      `SELECT * FROM expenses WHERE id = $1 AND user_id = $2`,
+      `SELECT expenses.*, (SELECT name FROM customer_categories AS c
+        WHERE c.id = expenses.category_id AND c.user_id = expenses.user_id) AS category_name
+       FROM expenses WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [id, this.userId]
     );
     return row ? rowToExpense(row) : null;
   }
 
   async update(id: string, input: UpdateExpenseInput): Promise<Expense | null> {
+    if (input.amount !== undefined) this.assertExactAmount(input.amount);
     const fields: string[] = [];
     const values: unknown[] = [];
     let paramIdx = 1;
+    let amountParameter: number | undefined;
 
     if (input.date !== undefined) {
       fields.push(`date = $${paramIdx++}`);
       values.push(input.date);
     }
     if (input.amount !== undefined) {
+      amountParameter = paramIdx;
       fields.push(`amount = $${paramIdx++}`);
       values.push(input.amount);
     }
@@ -249,6 +264,9 @@ export class ExpensesRepository extends BaseRepository {
     if (input.category !== undefined) {
       fields.push(`category = $${paramIdx++}`);
       values.push(input.category);
+      // Legacy tools use category codes; the portal resolves a new stable
+      // category link on its next read instead of keeping a stale association.
+      fields.push('category_id = NULL');
     }
     if (input.description !== undefined) {
       fields.push(`description = $${paramIdx++}`);
@@ -273,22 +291,36 @@ export class ExpensesRepository extends BaseRepository {
     values.push(id, this.userId);
 
     const row = await this.queryOne<ExpenseRow>(
-      `UPDATE expenses SET ${fields.join(', ')} WHERE id = $${paramIdx++} AND user_id = $${paramIdx} RETURNING *`,
+      `UPDATE expenses SET ${fields.join(', ')} WHERE id = $${paramIdx++} AND user_id = $${paramIdx} AND deleted_at IS NULL
+        ${
+          amountParameter
+            ? `AND (amount = $${amountParameter} OR NOT EXISTS (SELECT 1 FROM finance_obligation_payments AS p
+          WHERE p.expense_id = expenses.id AND p.user_id = expenses.user_id))`
+            : ''
+        } RETURNING *`,
       values
     );
     return row ? rowToExpense(row) : null;
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.execute(`DELETE FROM expenses WHERE id = $1 AND user_id = $2`, [
-      id,
-      this.userId,
-    ]);
+    const result = await this.execute(
+      `UPDATE expenses SET deleted_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM finance_obligation_payments AS payment
+          WHERE payment.expense_id = expenses.id AND payment.user_id = $2)`,
+      [id, this.userId]
+    );
     return ((result as { changes?: number })?.changes ?? 0) > 0;
   }
 
   async list(query: ExpenseQuery = {}): Promise<Expense[]> {
-    const conditions = ['user_id = $1'];
+    const conditions = [
+      'user_id = $1',
+      "transaction_type = 'expense'",
+      "status = 'settled'",
+      'deleted_at IS NULL',
+    ];
     const params: unknown[] = [this.userId];
     let paramIdx = 2;
 
@@ -301,7 +333,8 @@ export class ExpensesRepository extends BaseRepository {
       params.push(query.dateTo);
     }
     if (query.category) {
-      conditions.push(`category = $${paramIdx++}`);
+      conditions.push(`(category = $${paramIdx} OR category_id IN (SELECT id FROM customer_categories
+        WHERE user_id = $1 AND LOWER(name) = LOWER($${paramIdx++})))`);
       params.push(query.category);
     }
     if (query.minAmount !== undefined) {
@@ -321,14 +354,21 @@ export class ExpensesRepository extends BaseRepository {
     const offset = query.offset ?? 0;
 
     const rows = await this.query<ExpenseRow>(
-      `SELECT * FROM expenses WHERE ${conditions.join(' AND ')} ORDER BY date DESC LIMIT $${paramIdx++} OFFSET $${paramIdx}`,
+      `SELECT expenses.*, (SELECT name FROM customer_categories AS c
+         WHERE c.id = expenses.category_id AND c.user_id = expenses.user_id) AS category_name
+       FROM expenses WHERE ${conditions.join(' AND ')} ORDER BY date DESC LIMIT $${paramIdx++} OFFSET $${paramIdx}`,
       [...params, limit, offset]
     );
     return rows.map(rowToExpense);
   }
 
   async count(query?: { dateFrom?: string; dateTo?: string; category?: string }): Promise<number> {
-    const conditions = ['user_id = $1'];
+    const conditions = [
+      'user_id = $1',
+      "transaction_type = 'expense'",
+      "status = 'settled'",
+      'deleted_at IS NULL',
+    ];
     const params: unknown[] = [this.userId];
     let paramIdx = 2;
 
@@ -341,7 +381,8 @@ export class ExpensesRepository extends BaseRepository {
       params.push(query.dateTo);
     }
     if (query?.category) {
-      conditions.push(`category = $${paramIdx++}`);
+      conditions.push(`(category = $${paramIdx} OR category_id IN (SELECT id FROM customer_categories
+        WHERE user_id = $1 AND LOWER(name) = LOWER($${paramIdx++})))`);
       params.push(query.category);
     }
 
@@ -361,16 +402,21 @@ export class ExpensesRepository extends BaseRepository {
     byCategory: Record<string, { amount: number; count: number }>;
     byCurrency: Record<string, number>;
   }> {
-    const conditions = ['user_id = $1'];
+    const conditions = [
+      'e.user_id = $1',
+      "e.transaction_type = 'expense'",
+      "e.status = 'settled'",
+      'e.deleted_at IS NULL',
+    ];
     const params: unknown[] = [this.userId];
     let paramIdx = 2;
 
     if (dateFrom) {
-      conditions.push(`date >= $${paramIdx++}`);
+      conditions.push(`e.date >= $${paramIdx++}`);
       params.push(dateFrom);
     }
     if (dateTo) {
-      conditions.push(`date <= $${paramIdx++}`);
+      conditions.push(`e.date <= $${paramIdx++}`);
       params.push(dateTo);
     }
 
@@ -378,15 +424,17 @@ export class ExpensesRepository extends BaseRepository {
 
     const [totalRow, categoryRows, currencyRows] = await Promise.all([
       this.queryOne<{ total: string; count: string }>(
-        `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count FROM expenses WHERE ${where}`,
+        `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count FROM expenses AS e WHERE ${where}`,
         params
       ),
       this.query<{ category: string; total: string; count: string }>(
-        `SELECT category, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count FROM expenses WHERE ${where} GROUP BY category`,
+        `SELECT COALESCE(c.name, e.category) AS category, COALESCE(SUM(e.amount), 0) AS total, COUNT(*) AS count
+         FROM expenses AS e LEFT JOIN customer_categories AS c ON c.id = e.category_id AND c.user_id = e.user_id
+         WHERE ${where} GROUP BY COALESCE(c.name, e.category)`,
         params
       ),
       this.query<{ currency: string; total: string }>(
-        `SELECT currency, COALESCE(SUM(amount), 0) AS total FROM expenses WHERE ${where} GROUP BY currency`,
+        `SELECT currency, COALESCE(SUM(amount), 0) AS total FROM expenses AS e WHERE ${where} GROUP BY currency`,
         params
       ),
     ]);
@@ -407,5 +455,19 @@ export class ExpensesRepository extends BaseRepository {
       byCategory,
       byCurrency,
     };
+  }
+
+  private assertExactAmount(amount: number): void {
+    const cents = Math.round(amount * 100);
+    if (
+      typeof amount !== 'number' ||
+      !Number.isFinite(amount) ||
+      !Number.isSafeInteger(cents) ||
+      cents <= 0 ||
+      cents > 999_999_999_999 ||
+      amount !== cents / 100
+    ) {
+      throw new Error('Expense amount must be positive and representable in exact cents');
+    }
   }
 }

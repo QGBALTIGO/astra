@@ -23,6 +23,8 @@ import {
   isSameAccessNotificationCycle,
 } from '../src/db/repositories/channel-access-notifications.js';
 import { ChannelAccessInboundNoticesRepository } from '../src/db/repositories/channel-access-inbound-notices.js';
+import { verifyCustomerAuthPersistence } from './customer-auth-smoke.js';
+import { verifyCustomerPortalPersistence } from './customer-portal-smoke.js';
 import {
   ChannelAccessService,
   channelUserAccessStatus,
@@ -50,6 +52,13 @@ const CRITICAL_TABLES = [
   'user_extensions',
   // Financial tables must exist on fresh installs and after upgrades.
   'expenses',
+  'customer_accounts',
+  'customer_phone_aliases',
+  'customer_sessions',
+  'customer_auth_challenges',
+  'customer_categories',
+  'customer_agenda_links',
+  'customer_agenda_requests',
   'usage_records',
   // Tables used by /api/v1/edge must survive the schema squash.
   'edge_devices',
@@ -551,6 +560,8 @@ async function main(): Promise<void> {
   console.log(`[smoke] OK — all ${CRITICAL_TABLES.length} critical tables present`);
 
   await verifyChannelAccessPersistence(adapter);
+  await verifyCustomerAuthPersistence(adapter);
+  await verifyCustomerPortalPersistence(adapter);
 
   // Re-run init to confirm idempotency.
   console.log('[smoke] Re-running initializeAdapter to confirm idempotency…');

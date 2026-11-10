@@ -6,6 +6,10 @@ const mockRecordPayment = vi.hoisted(() => vi.fn());
 const mockRecordExpense = vi.hoisted(() => vi.fn());
 const mockExpenseIdentity = vi.hoisted(() => vi.fn());
 const mockBroadcast = vi.hoisted(() => vi.fn());
+const mockAccount = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock('../db/repositories/customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: mockAccount },
+}));
 
 vi.mock('../db/repositories/finance-obligations.js', () => ({
   FinanceObligationsRepository: class {
@@ -256,6 +260,34 @@ describe('Completed channel expenses without a language model', () => {
       action: 'created',
       id: stored.id,
     });
+  });
+
+  it('keeps a late-night WhatsApp expense on the customer calendar day', async () => {
+    mockAccount.mockResolvedValueOnce({ timeZone: 'America/Campo_Grande' });
+    await tryExpenseRecordChannelReply(
+      { ...expenseMessage, timestamp: new Date('2026-11-11T02:00:00Z') },
+      'whatsapp:5511999990101'
+    );
+    expect(mockRecordExpense).toHaveBeenCalledWith(
+      expect.objectContaining({ date: '2026-11-10' }),
+      expect.any(String)
+    );
+  });
+
+  it('uses the category and status corrected in the portal when an old provider message replays', async () => {
+    mockRecordExpense.mockResolvedValueOnce({
+      expense: {
+        ...stored,
+        categoryName: 'Restaurantes',
+        transactionType: 'expense',
+        status: 'pending',
+      },
+      created: false,
+    });
+    const reply = await tryExpenseRecordChannelReply(expenseMessage, 'user-a');
+    expect(reply).toContain('Restaurantes');
+    expect(reply).toContain('Situação atual: a pagar');
+    expect(mockBroadcast).not.toHaveBeenCalled();
   });
 
   it('scopes the replay key to user, channel, chat and message ID', async () => {

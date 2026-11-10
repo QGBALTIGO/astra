@@ -349,8 +349,9 @@ export class ChannelUsersRepository extends BaseRepository {
         id, ownpilot_user_id, platform, platform_user_id, display_name,
         is_verified, verified_at, verification_method, status,
         access_expires_at, access_granted_at, access_source, metadata
-       ) VALUES ($1, $2, 'whatsapp', $3, $4, TRUE, $5::timestamptz, 'admin', 'active',
-         $6::timestamptz, $5::timestamptz, $7, $8::jsonb)
+       ) SELECT $1, $2, 'whatsapp', $3, $4, TRUE, $5::timestamptz, 'admin', 'active',
+         $6::timestamptz, $5::timestamptz, $7, $8::jsonb
+       WHERE NOT EXISTS (SELECT 1 FROM customer_phone_aliases WHERE phone_number = $3 AND retired_at IS NOT NULL)
        ON CONFLICT (platform, platform_user_id) DO UPDATE SET
         display_name = COALESCE(EXCLUDED.display_name, channel_users.display_name),
         is_verified = TRUE, verified_at = EXCLUDED.verified_at,

@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { expenseCategoryLabelPtBr, presentExpenseToolResult } from './expense-presentation.js';
 
 describe('expense categories presented in Brazilian Portuguese', () => {
+  it('uses a renamed portal category while keeping the legacy code for future tool calls', () => {
+    expect(
+      presentExpenseToolResult('add_expense', {
+        amount: 10,
+        category: 'food',
+        categoryName: 'Restaurantes',
+      })
+    ).toMatchObject({ category: 'Restaurantes', categoryCode: 'food', amount: 10 });
+  });
   it.each([
     ['other', 'Outros'],
     ['shopping', 'Compras'],

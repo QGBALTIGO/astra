@@ -276,7 +276,8 @@ describe('ExpensesRepository', () => {
 
       expect(result?.id).toBe('exp-1');
       const [sql] = mockAdapter.queryOne.mock.calls[0] as [string];
-      expect(sql).toContain('SELECT * FROM expenses');
+      expect(sql).toContain('SELECT expenses.*');
+      expect(sql).toContain('FROM expenses WHERE id = $1 AND user_id = $2');
       expect(sql).not.toContain('UPDATE');
     });
 
@@ -293,14 +294,16 @@ describe('ExpensesRepository', () => {
   // ---------------------------------------------------------------------------
 
   describe('delete', () => {
-    it('returns true when a row was removed', async () => {
+    it('soft-deletes a scoped row while retaining transport idempotency and financing references', async () => {
       mockAdapter.execute.mockResolvedValueOnce({ changes: 1 });
 
       const ok = await repo.delete('exp-1');
 
       expect(ok).toBe(true);
       const [sql, params] = mockAdapter.execute.mock.calls[0] as [string, unknown[]];
-      expect(sql).toContain('DELETE FROM expenses WHERE id = $1 AND user_id = $2');
+      expect(sql).toContain('UPDATE expenses SET deleted_at = NOW()');
+      expect(sql).toContain('WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL');
+      expect(sql).toContain('payment.expense_id = expenses.id AND payment.user_id = $2');
       expect(params).toEqual(['exp-1', 'user-1']);
     });
 
@@ -437,7 +440,7 @@ describe('ExpensesRepository', () => {
 
       const [totalSql] = mockAdapter.queryOne.mock.calls[0] as [string];
       expect(totalSql).toContain('COALESCE(SUM(amount), 0) AS total');
-      expect(totalSql).toContain('WHERE user_id = $1');
+      expect(totalSql).toContain('WHERE e.user_id = $1');
     });
 
     it('returns zero totals when the table is empty', async () => {

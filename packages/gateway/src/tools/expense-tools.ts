@@ -12,6 +12,8 @@ import { getErrorMessage } from '@ownpilot/core/services';
 import { ExpensesRepository } from '../db/repositories/expenses.js';
 import type { ToolExecutionResult } from '../services/tool/executor.js';
 import { wsGateway } from '../ws/server.js';
+import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
+import { customerLocalDay } from '../services/customer-date.js';
 
 /** Local-day 'YYYY-MM-DD' — expense dates and summary windows are
  * user-calendar days (the DB-backed twin of round 27's core fix).
@@ -35,11 +37,17 @@ export async function executeExpenseTool(
 ): Promise<ToolExecutionResult> {
   try {
     const repo = new ExpensesRepository(userId);
+    const customerScope = userId.startsWith('whatsapp:');
+    const account = customerScope ? await customerAccountsRepo.getByDataUserId(userId) : null;
+    const dayFor = (date: Date) =>
+      customerScope
+        ? customerLocalDay(date, account?.timeZone ?? 'America/Campo_Grande')
+        : localDayString(date);
 
     switch (toolName) {
       case 'add_expense': {
         const expense = await repo.create({
-          date: (args.date as string) ?? localDayString(new Date()),
+          date: (args.date as string) ?? dayFor(new Date()),
           amount: args.amount as number,
           currency: (args.currency as string) ?? 'BRL',
           category: (args.category as string) ?? 'other',
@@ -65,7 +73,7 @@ export async function executeExpenseTool(
         const results = [];
         for (const item of items) {
           const expense = await repo.create({
-            date: (item.date as string) ?? localDayString(new Date()),
+            date: (item.date as string) ?? dayFor(new Date()),
             amount: item.amount as number,
             currency: (item.currency as string) ?? 'BRL',
             category: (item.category as string) ?? 'other',
@@ -103,7 +111,9 @@ export async function executeExpenseTool(
 
       case 'expense_summary': {
         const period = (args.period as string) ?? 'this_month';
-        const now = new Date();
+        // Calendar arithmetic uses the already resolved customer day. It does
+        // not inherit the gateway process's date at a timezone boundary.
+        const now = customerScope ? new Date(`${dayFor(new Date())}T12:00:00`) : new Date();
         let dateFrom: string | undefined;
         let dateTo: string | undefined;
 
