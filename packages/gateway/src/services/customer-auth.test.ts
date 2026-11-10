@@ -5,11 +5,12 @@ import type {
 } from '../db/repositories/customer-auth.js';
 import type { CustomerAccount } from '../db/repositories/customer-accounts.js';
 
+const { logWarn } = vi.hoisted(() => ({ logWarn: vi.fn() }));
 vi.mock('@ownpilot/core/channels', () => ({ getChannelService: vi.fn() }));
 vi.mock('../db/repositories/customer-accounts.js', () => ({ customerAccountsRepo: {} }));
 vi.mock('../db/repositories/customer-auth.js', () => ({ customerAuthRepo: {} }));
 vi.mock('./customer-identity.js', () => ({ getCustomerIdentityService: () => ({}) }));
-vi.mock('./log.js', () => ({ getLog: () => ({ warn: vi.fn() }) }));
+vi.mock('./log.js', () => ({ getLog: () => ({ warn: logWarn }) }));
 import { CustomerAuthService, customerSessionHash, CUSTOMER_OTP_MESSAGE } from './customer-auth.js';
 
 const now = new Date('2026-11-10T12:00:00Z');
@@ -50,6 +51,7 @@ describe('CustomerAuthService', () => {
   let account: CustomerAccount;
   let status: 'active' | 'expired';
   let challenges: Map<string, CustomerChallenge>;
+  let generatedCode: string;
   const context = () => ({
     account,
     customer: {
@@ -79,6 +81,7 @@ describe('CustomerAuthService', () => {
       authVersion: 1,
     };
     status = 'active';
+    generatedCode = '123456';
     challenges = new Map();
     auth.reserveChallenge.mockImplementation(async (input) => {
       challenges.set(input.id, {
@@ -150,7 +153,7 @@ describe('CustomerAuthService', () => {
       channels: () => channels,
       secret: () => 'synthetic-test-secret-'.repeat(4),
       now: () => now,
-      code: () => '123456',
+      code: () => generatedCode,
     });
   });
 
@@ -299,14 +302,55 @@ describe('CustomerAuthService', () => {
     }
   );
   it('delivers the queued encrypted OTP only after durable reservation and a fresh authorization check', async () => {
-    await service.requestCode(phone, 'ip');
+    const challenge = await service.requestCode(phone, 'ip');
     await service.dispatchOtps();
     expect(auth.beginDelivery).toHaveBeenCalledOnce();
     expect(api.sendMessage).toHaveBeenCalledExactlyOnceWith({
       platformChatId: phone,
       text: expect.stringContaining('*123456*'),
+      copyCode: { label: 'Copiar código', code: '123456' },
+      sendBefore: challenges.get(challenge.challengeId)!.expiresAt,
     });
     expect(auth.finishDelivery).toHaveBeenCalledWith(expect.any(String), 'delivery-lease', 'sent');
+  });
+  it('keeps a leading-zero OTP consistent in encrypted delivery, text and copy action', async () => {
+    generatedCode = '000123';
+    const challenge = await service.requestCode(phone, 'ip');
+    expect(JSON.stringify(challenge)).not.toContain(generatedCode);
+    expect(challenges.get(challenge.challengeId)?.codeCiphertext).not.toContain(generatedCode);
+    await service.dispatchOtps();
+    expect(api.sendMessage).toHaveBeenCalledExactlyOnceWith({
+      platformChatId: phone,
+      text: expect.stringContaining('\n\n*000123*\n\n'),
+      copyCode: { label: 'Copiar código', code: '000123' },
+      sendBefore: new Date(now.getTime() + 300_000),
+    });
+    expect(logWarn).not.toHaveBeenCalled();
+  });
+  it('uses the matching instructions and recipient for both phone-change verifications', async () => {
+    const old = await service.requestPhoneChange(account.id, 'session-1', '(11) 99999-7777', 'ip');
+    await service.dispatchOtps();
+    expect(api.sendMessage).toHaveBeenNthCalledWith(1, {
+      platformChatId: phone,
+      text: expect.stringContaining('Use este código para confirmar a troca do seu telefone.'),
+      copyCode: { label: 'Copiar código', code: '123456' },
+      sendBefore: challenges.get(old.challengeId)!.expiresAt,
+    });
+    const next = await service.confirmOldPhone(
+      account.id,
+      'session-1',
+      old.challengeId,
+      '123456',
+      'ip'
+    );
+    await service.dispatchOtps();
+    expect(api.sendMessage).toHaveBeenNthCalledWith(2, {
+      platformChatId: '5511999997777',
+      text: expect.stringContaining('Use este código para confirmar seu novo telefone no Astra.'),
+      copyCode: { label: 'Copiar código', code: '123456' },
+      sendBefore: challenges.get(next.challengeId)!.expiresAt,
+    });
+    expect(api.sendMessage).toHaveBeenCalledTimes(2);
   });
   it.each(['revoked', 'no identity', 'offline'])('does not send an OTP when %s', async (reason) => {
     await service.requestCode(phone, 'ip');
@@ -317,20 +361,41 @@ describe('CustomerAuthService', () => {
     expect(api.sendMessage).not.toHaveBeenCalled();
     if (reason !== 'revoked') expect(auth.claimDeliveries).not.toHaveBeenCalled();
   });
-  it('never requeues after an ambiguous transport or receipt failure', async () => {
+  it.each(['transport', 'receipt'])(
+    'never retries or exposes the OTP after an ambiguous %s failure',
+    async (stage) => {
+      await service.requestCode(phone, 'ip');
+      const error = new Error('Uncertain delivery of sensitive code 123456');
+      if (stage === 'transport') api.sendMessage.mockRejectedValueOnce(error);
+      else auth.finishDelivery.mockRejectedValueOnce(error);
+      await service.dispatchOtps();
+      expect(api.sendMessage).toHaveBeenCalledOnce();
+      expect(auth.finishDelivery).toHaveBeenCalledWith(
+        expect.any(String),
+        'delivery-lease',
+        'failed'
+      );
+      expect(auth.deferDelivery).not.toHaveBeenCalled();
+      expect(logWarn).toHaveBeenCalledExactlyOnceWith('Customer code delivery was not confirmed', {
+        transportInvoked: true,
+      });
+    }
+  );
+  it('does not dispatch a second copy while the first OTP is still sending', async () => {
     await service.requestCode(phone, 'ip');
-    api.sendMessage.mockRejectedValueOnce(new Error('ambiguous network failure'));
-    await service.dispatchOtps();
-    expect(auth.finishDelivery).toHaveBeenCalledWith(
-      expect.any(String),
-      'delivery-lease',
-      'failed'
+    let completeSend!: (messageId: string) => void;
+    api.sendMessage.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        completeSend = resolve;
+      })
     );
-    expect(auth.deferDelivery).not.toHaveBeenCalled();
-    api.sendMessage.mockResolvedValue('sent');
-    auth.finishDelivery.mockRejectedValueOnce(new Error('receipt write failure'));
+    const firstDispatch = service.dispatchOtps();
+    await vi.waitFor(() => expect(api.sendMessage).toHaveBeenCalledOnce());
     await service.dispatchOtps();
-    expect(auth.deferDelivery).not.toHaveBeenCalled();
+    expect(auth.claimDeliveries).toHaveBeenCalledOnce();
+    expect(api.sendMessage).toHaveBeenCalledOnce();
+    completeSend('mock-delivery-id');
+    await firstDispatch;
   });
   it('cancels delivery when permission changes after beginDelivery', async () => {
     await service.requestCode(phone, 'ip');

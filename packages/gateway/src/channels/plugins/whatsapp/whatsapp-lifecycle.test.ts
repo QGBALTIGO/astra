@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WASocket } from '@whiskeysockets/baileys';
+import type { WASocket, proto } from '@whiskeysockets/baileys';
 
 const mocks = vi.hoisted(() => ({
   makeSocket: vi.fn(),
@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   setKeys: vi.fn(),
   saveCreds: vi.fn(),
   clearSession: vi.fn(),
+  generateMessage: vi.fn(),
+  generateMessageId: vi.fn(),
   emit: vi.fn(),
   warn: vi.fn(),
 }));
@@ -20,6 +22,8 @@ vi.mock('@whiskeysockets/baileys', () => ({
   DisconnectReason: { loggedOut: 401, restartRequired: 515 },
   fetchLatestBaileysVersion: mocks.fetchVersion,
   downloadMediaMessage: vi.fn(),
+  generateWAMessageFromContent: mocks.generateMessage,
+  generateMessageIDV2: mocks.generateMessageId,
   Browsers: { appropriate: vi.fn() },
   proto: { HistorySync: { HistorySyncType: {} } },
 }));
@@ -70,6 +74,7 @@ function createSocket(phone = '5511999999999') {
     sendPresenceUpdate: vi.fn().mockResolvedValue(undefined),
     presenceSubscribe: vi.fn().mockResolvedValue(undefined),
     sendMessage: vi.fn().mockResolvedValue({ key: { id: 'sent-message' } }),
+    relayMessage: vi.fn().mockResolvedValue(undefined),
   };
   return {
     socket,
@@ -116,6 +121,15 @@ function receivedMessages() {
     .filter((event) => event.message);
 }
 
+function accessCodeMessage(phone: string, sendBefore = new Date(Date.now() + 300_000)) {
+  return {
+    platformChatId: phone,
+    text: '*Astra · Código de acesso*\n\n*000123*',
+    copyCode: { label: 'Copiar código', code: '000123' },
+    sendBefore,
+  };
+}
+
 describe('WhatsApp connection lifecycle', () => {
   let sockets: ReturnType<typeof createSocket>[];
   let apis: WhatsAppChannelAPI[];
@@ -147,6 +161,13 @@ describe('WhatsApp connection lifecycle', () => {
     mocks.fetchVersion.mockResolvedValue({ version: [2, 3000, 1] });
     mocks.saveCreds.mockResolvedValue(undefined);
     mocks.clearSession.mockResolvedValue(undefined);
+    mocks.generateMessageId.mockReturnValue('native-copy-id');
+    mocks.generateMessage.mockImplementation(
+      (jid: string, content: proto.IMessage, options: { messageId: string }) => ({
+        key: { id: options.messageId, remoteJid: jid, fromMe: true },
+        message: content,
+      })
+    );
   });
 
   afterEach(async () => {
@@ -486,6 +507,229 @@ describe('WhatsApp connection lifecycle', () => {
     ).rejects.toThrow('delivery outcome unknown');
     await vi.advanceTimersByTimeAsync(15_001);
     expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it('relays one native copy-code action with six digits and leading zeros, without simulated typing', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const socket = sockets[0]!.socket;
+    const recipient = '5521999998888';
+    const outgoing = accessCodeMessage(recipient);
+
+    await expect(api.sendMessage(outgoing)).resolves.toBe('native-copy-id');
+
+    expect(mocks.generateMessageId).toHaveBeenCalledExactlyOnceWith(socket.user.id);
+    expect(mocks.generateMessage).toHaveBeenCalledWith(
+      `${recipient}@s.whatsapp.net`,
+      expect.any(Object),
+      { userJid: socket.user.id, messageId: 'native-copy-id' }
+    );
+    expect(socket.relayMessage).toHaveBeenCalledOnce();
+    const [jid, content, options] = socket.relayMessage.mock.calls[0]!;
+    expect(jid).toBe(`${recipient}@s.whatsapp.net`);
+    expect(options).toMatchObject({ messageId: 'native-copy-id' });
+    const interactive = (content as proto.IMessage).interactiveMessage;
+    expect(interactive?.body?.text).toBe(outgoing.text);
+    expect(interactive?.nativeFlowMessage?.buttons).toHaveLength(1);
+    const button = interactive?.nativeFlowMessage?.buttons?.[0];
+    expect(button?.name).toBe('cta_copy');
+    expect(JSON.parse(button?.buttonParamsJson ?? '{}')).toEqual({
+      display_text: 'Copiar código',
+      copy_code: '000123',
+    });
+    expect(socket.sendMessage).not.toHaveBeenCalled();
+    expect(socket.presenceSubscribe).not.toHaveBeenCalled();
+    expect(
+      socket.sendPresenceUpdate.mock.calls.some(([presence]) => presence === 'composing')
+    ).toBe(false);
+  });
+
+  it('rejects a malformed copy code before either native or text transport is invoked', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    await expect(
+      api.sendMessage({
+        ...accessCodeMessage(nextPhone),
+        copyCode: { label: 'Copiar código', code: '01234' },
+      })
+    ).rejects.toThrow('Invalid WhatsApp copy-code message');
+    expect(mocks.generateMessage).not.toHaveBeenCalled();
+    expect(sockets[0]!.socket.relayMessage).not.toHaveBeenCalled();
+    expect(sockets[0]!.socket.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(['120363000000000000@g.us', 'status@broadcast', '123456789012345@lid'])(
+    'never relays a copy code to a non-phone recipient',
+    async (recipient) => {
+      const api = newApi();
+      await api.connect();
+      sockets[0]!.emit('connection.update', { connection: 'open' });
+      await expect(api.sendMessage(accessCodeMessage(recipient))).rejects.toThrow(
+        'require an individual phone number'
+      );
+      expect(mocks.generateMessage).not.toHaveBeenCalled();
+      expect(sockets[0]!.socket.relayMessage).not.toHaveBeenCalled();
+      expect(sockets[0]!.socket.sendMessage).not.toHaveBeenCalled();
+    }
+  );
+
+  it('never retries a native OTP as text after an ambiguous relay failure', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    sockets[0]!.socket.relayMessage.mockRejectedValueOnce(new Error('delivery outcome unknown'));
+    await expect(api.sendMessage(accessCodeMessage(nextPhone))).rejects.toThrow(
+      'delivery outcome unknown'
+    );
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(sockets[0]!.socket.relayMessage).toHaveBeenCalledOnce();
+    expect(sockets[0]!.socket.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('counts an uncertain native delivery toward the recipient rate limit', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    sockets[0]!.socket.relayMessage.mockRejectedValueOnce(new Error('delivery outcome unknown'));
+    await expect(api.sendMessage(accessCodeMessage(nextPhone))).rejects.toThrow(
+      'delivery outcome unknown'
+    );
+    const sending = api.sendMessage(accessCodeMessage(nextPhone, new Date(Date.now() + 1000)));
+    const rejected = expect(sending).rejects.toThrow('expired before sending');
+    await vi.advanceTimersByTimeAsync(3_001);
+    await rejected;
+    expect(sockets[0]!.socket.relayMessage).toHaveBeenCalledOnce();
+    expect(sockets[0]!.socket.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('caches the generated native payload and blocks self-chat echoes before the relay receipt arrives', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const receipt = deferred<void>();
+    let cachedPayload: unknown;
+    sockets[0]!.socket.relayMessage.mockImplementation(
+      async (_jid: string, content: proto.IMessage, options: { messageId: string }) => {
+        const config = mocks.makeSocket.mock.calls[0]![0] as {
+          getMessage: (key: { id: string }) => Promise<proto.IMessage | undefined>;
+        };
+        cachedPayload = await config.getMessage({ id: options.messageId });
+        expect(cachedPayload).toEqual(content);
+        sockets[0]!.emit('messages.upsert', message(nextPhone, options.messageId, true));
+        return receipt.promise;
+      }
+    );
+    const sending = api.sendMessage(accessCodeMessage(nextPhone));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sockets[0]!.socket.relayMessage).toHaveBeenCalledOnce();
+    expect(cachedPayload).toMatchObject({ interactiveMessage: expect.any(Object) });
+    expect(receivedMessages()).toHaveLength(0);
+    receipt.resolve(undefined);
+    await expect(sending).resolves.toBe('native-copy-id');
+    sockets[0]!.emit('messages.upsert', message(nextPhone, 'native-copy-id', true));
+    expect(receivedMessages()).toHaveLength(0);
+  });
+
+  it.each([new Date(0), new Date(Number.NaN)])(
+    'does not prepare or relay an OTP with an expired or invalid deadline',
+    async (deadline) => {
+      const api = newApi();
+      await api.connect();
+      sockets[0]!.emit('connection.update', { connection: 'open' });
+      await expect(api.sendMessage(accessCodeMessage(nextPhone, deadline))).rejects.toThrow(
+        'expired before sending'
+      );
+      expect(mocks.generateMessage).not.toHaveBeenCalled();
+      expect(sockets[0]!.socket.relayMessage).not.toHaveBeenCalled();
+      expect(sockets[0]!.socket.sendMessage).not.toHaveBeenCalled();
+    }
+  );
+
+  it('drops a native OTP that expires while waiting for the recipient rate limit', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    await api.sendMessage({ platformChatId: nextPhone, text: 'Previous reply' });
+    const sending = api.sendMessage(accessCodeMessage(nextPhone, new Date(Date.now() + 1000)));
+    const rejected = expect(sending).rejects.toThrow('expired before sending');
+    await vi.advanceTimersByTimeAsync(3_001);
+    await rejected;
+    expect(sockets[0]!.socket.relayMessage).not.toHaveBeenCalled();
+    expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledOnce();
+    expect(mocks.generateMessage).not.toHaveBeenCalled();
+  });
+
+  it('stops OTP recovery at its own deadline and does not send after a later reconnect', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    sockets[0]!.emit('connection.update', closed(500));
+    const sending = api.sendMessage(accessCodeMessage(nextPhone, new Date(Date.now() + 500)));
+    const rejected = expect(sending).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(501);
+    await rejected;
+    await api.connect();
+    sockets[1]!.emit('connection.update', { connection: 'open' });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(sockets.every(({ socket }) => socket.relayMessage.mock.calls.length === 0)).toBe(true);
+    expect(sockets.every(({ socket }) => socket.sendMessage.mock.calls.length === 0)).toBe(true);
+    expect(mocks.generateMessage).not.toHaveBeenCalled();
+  });
+
+  it('preserves ordinary typing simulation but drops text that expires during the delay', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const sending = api.sendMessage({
+      platformChatId: '5521999998888',
+      text: 'A time-sensitive plain-text message.',
+      sendBefore: new Date(Date.now() + 100),
+    });
+    const rejected = expect(sending).rejects.toThrow('expired before sending');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sockets[0]!.socket.presenceSubscribe).toHaveBeenCalledOnce();
+    expect(sockets[0]!.socket.sendPresenceUpdate).toHaveBeenCalledWith(
+      'composing',
+      '5521999998888@s.whatsapp.net'
+    );
+    await vi.advanceTimersByTimeAsync(6_501);
+    await rejected;
+    expect(sockets[0]!.socket.sendMessage).not.toHaveBeenCalled();
+    expect(sockets[0]!.socket.relayMessage).not.toHaveBeenCalled();
+  });
+
+  it('relays a prepared OTP once through a replacement socket of the same account', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    sockets[0]!.emit('connection.update', closed(500));
+    const sending = api.sendMessage(accessCodeMessage(nextPhone));
+    await api.connect();
+    sockets[1]!.emit('connection.update', { connection: 'open' });
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(sending).resolves.toBe('native-copy-id');
+    expect(sockets[0]!.socket.relayMessage).not.toHaveBeenCalled();
+    expect(sockets[1]!.socket.relayMessage).toHaveBeenCalledOnce();
+    expect(sockets.every(({ socket }) => socket.sendMessage.mock.calls.length === 0)).toBe(true);
+  });
+
+  it('does not relay a waiting OTP after the connected WhatsApp account changes', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    sockets[0]!.emit('connection.update', closed(500));
+    const sending = api.sendMessage(accessCodeMessage(nextPhone));
+    const rejected = expect(sending).rejects.toThrow('connected account changed');
+    nextPhone = '5521888888888';
+    await api.connect();
+    sockets[1]!.emit('connection.update', { connection: 'open' });
+    await vi.advanceTimersByTimeAsync(250);
+    await rejected;
+    expect(sockets.every(({ socket }) => socket.relayMessage.mock.calls.length === 0)).toBe(true);
+    expect(sockets.every(({ socket }) => socket.sendMessage.mock.calls.length === 0)).toBe(true);
+    expect(mocks.generateMessage).not.toHaveBeenCalled();
   });
 
   it('retries a transient setup failure instead of leaving recovery permanently stopped', async () => {

@@ -20,6 +20,7 @@ import { tryExpenseRecordChannelReply, tryFinancingChannelReply } from './financ
 import { runInSessionLane } from '../services/agent/session-lane.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { withCustomerClock } from '../services/customer-date.js';
+import { tryAstraAccessReply } from './astra-access.js';
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -253,6 +254,9 @@ export async function processViaBus(
   if (!(await canProcessChannelMessage(message, deps.isAccessAllowed))) {
     return INACTIVE_CHANNEL_ACCESS_REPLY;
   }
+  const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
+  if (accessReply) return accessReply;
+
   const financingReply = message.attachments?.length
     ? null
     : await tryFinancingChannelReply(message, channelUser.ownpilotUserId);
@@ -502,6 +506,9 @@ export async function processDirectAgent(
   if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
     return INACTIVE_CHANNEL_ACCESS_REPLY;
   }
+  const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
+  if (accessReply) return accessReply;
+
   const financingReply = message.attachments?.length
     ? null
     : await tryFinancingChannelReply(message, userId);

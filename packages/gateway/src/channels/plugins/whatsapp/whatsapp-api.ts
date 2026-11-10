@@ -14,6 +14,8 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
+  generateWAMessageFromContent,
+  generateMessageIDV2,
   Browsers,
   type WASocket,
   type WAMessage,
@@ -42,6 +44,7 @@ import { MAX_MESSAGE_CHAT_MAP_SIZE } from '../../../config/defaults.js';
 import { splitMessage } from '../../utils/message-utils.js';
 import { renderUrlButtonAsText } from '../../utils/url-button.js';
 import { getSessionDir, clearSession } from './session-store.js';
+import { buildWhatsAppCopyCodePayload } from './whatsapp-copy-code.js';
 import { wsGateway } from '../../../ws/server.js';
 import { channelAssetStore } from '../../../services/channel-asset-store.js';
 import { SimpleTTLCache } from '../../../utils/simple-ttl-cache.js';
@@ -52,6 +55,12 @@ const RANDOM_UNIT_SCALE = 1_000_000_000;
 
 function randomUnit(): number {
   return randomInt(RANDOM_UNIT_SCALE) / RANDOM_UNIT_SCALE;
+}
+
+function assertSendDeadline(deadline: Date | undefined): void {
+  if (deadline && (!Number.isFinite(deadline.getTime()) || Date.now() >= deadline.getTime())) {
+    throw new Error('WhatsApp message expired before sending');
+  }
 }
 
 function metadataRecord(metadata: object): Record<string, unknown> {
@@ -633,6 +642,13 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   }
 
   async sendMessage(message: ChannelOutgoingMessage): Promise<string> {
+    assertSendDeadline(message.sendBefore);
+    if (message.copyCode && (message.urlButton || message.attachments?.length)) {
+      throw new Error('WhatsApp copy-code messages cannot contain other actions or attachments');
+    }
+    const copyPayload = message.copyCode
+      ? buildWhatsAppCopyCodePayload(message.text, message.copyCode)
+      : undefined;
     // Replies already being prepared may outlive a temporary transport outage.
     // Wait only before sending, for the same authenticated account, and never
     // retry sendMessage itself: a failed send may already have been delivered.
@@ -640,13 +656,19 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     if (!accountPhone) {
       throw new Error('WhatsApp is not connected');
     }
-    const recoveryDeadline = Date.now() + SEND_RECONNECT_WAIT_MS;
+    const recoveryDeadline = Math.min(
+      Date.now() + SEND_RECONNECT_WAIT_MS,
+      message.sendBefore?.getTime() ?? Infinity
+    );
     await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
 
     const jid = this.toJid(message.platformChatId);
+    if (copyPayload && !/^\d{7,15}@s\.whatsapp\.net$/.test(jid)) {
+      throw new Error('WhatsApp copy-code messages require an individual phone number');
+    }
     const isSelf = this.isSelfChat(jid);
-    // The pinned Baileys API has no supported native URL-button payload. Render
-    // the URL before sending; never retry a possibly delivered CTA as text.
+    // URL actions retain their text-link path. Copy-code messages use the
+    // native-flow relay below; neither path retries a possibly delivered CTA.
     const parts = splitMessage(renderUrlButtonAsText(message), WHATSAPP_MAX_LENGTH);
     let lastMessageId = '';
 
@@ -654,6 +676,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       // Anti-ban: rate limiting before each part
       await this.enforceRateLimit(jid);
       await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
+      assertSendDeadline(message.sendBefore);
 
       const options: Record<string, unknown> = {};
 
@@ -674,7 +697,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       // Anti-ban: typing indicator before sending.
       // Skip for self-chat — presenceSubscribe to your own JID is meaningless
       // and can cause connection instability (1-5s delay while socket may glitch).
-      if (!isSelf) {
+      if (!isSelf && !copyPayload) {
         await this.simulateTyping(jid, parts[i]!);
       }
 
@@ -683,26 +706,50 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       if (sock !== this.sock || this.status !== 'connected') {
         throw new Error('WhatsApp disconnected before sending');
       }
+      assertSendDeadline(message.sendBefore);
 
-      const result = await sock.sendMessage(
-        jid,
-        // CTA URLs are already usable as links; avoid an unnecessary preview fetch.
-        message.urlButton ? { text: parts[i]!, linkPreview: null } : { text: parts[i]! },
-        options
-      );
-      lastMessageId = result?.key?.id ?? '';
+      if (copyPayload) {
+        const userJid = sock.user?.id;
+        if (!userJid) throw new Error('WhatsApp account unavailable before sending');
+        const generated = generateWAMessageFromContent(jid, copyPayload.content, {
+          ...options,
+          userJid,
+          messageId: generateMessageIDV2(userJid),
+        });
+        const messageId = generated.key.id;
+        if (!messageId || !generated.message) {
+          throw new Error('WhatsApp copy-code message could not be prepared');
+        }
+        // Remember before relay: a self-chat echo may arrive before its receipt.
+        // Cache the exact protocol for same-ID decryption retries, never resend
+        // a possibly delivered OTP as a new text message after a relay failure.
+        this.rememberSentMessage(messageId);
+        this.cacheMessage(messageId, generated.message);
+        assertSendDeadline(message.sendBefore);
+        // Count even an ambiguous relay failure against the outbound rate limit.
+        this.recordSend(jid);
+        await sock.relayMessage(jid, generated.message, {
+          ...copyPayload.relayOptions,
+          messageId,
+        });
+        lastMessageId = messageId;
+      } else {
+        const result = await sock.sendMessage(
+          jid,
+          // CTA URLs are already usable as links; avoid an unnecessary preview fetch.
+          message.urlButton ? { text: parts[i]!, linkPreview: null } : { text: parts[i]! },
+          options
+        );
+        lastMessageId = result?.key?.id ?? '';
+      }
 
       // Record send time for rate limiting
-      this.recordSend(jid);
+      if (!copyPayload) this.recordSend(jid);
 
       if (lastMessageId) {
         this.trackMessage(lastMessageId, message.platformChatId);
         // Track our own sent messages to avoid self-chat loops
-        this.sentMessageIds.add(lastMessageId);
-        if (this.sentMessageIds.size > 500) {
-          const first = this.sentMessageIds.values().next().value;
-          if (first !== undefined) this.sentMessageIds.delete(first);
-        }
+        this.rememberSentMessage(lastMessageId);
       }
 
       // Small delay between split messages
@@ -1273,6 +1320,14 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       if (first !== undefined) this.messageCache.delete(first);
     }
     this.messageCache.set(id, message);
+  }
+
+  private rememberSentMessage(id: string): void {
+    this.sentMessageIds.add(id);
+    if (this.sentMessageIds.size > 500) {
+      const first = this.sentMessageIds.values().next().value;
+      if (first !== undefined) this.sentMessageIds.delete(first);
+    }
   }
 
   private async downloadAttachmentData(msg: WAMessage): Promise<Uint8Array | undefined> {

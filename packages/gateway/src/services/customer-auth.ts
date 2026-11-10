@@ -26,6 +26,7 @@ import {
   type CustomerSessionContext,
 } from './customer-identity.js';
 import { normalizeWhatsAppAccessPhone } from '../channels/channel-access-service.js';
+import { buildCustomerOtpMessage } from './customer-auth-messages.js';
 import { getLog } from './log.js';
 
 const log = getLog('CustomerAuth');
@@ -489,6 +490,7 @@ export class CustomerAuthService {
             continue;
           }
           const code = this.decryptCode(challenge.codeCiphertext);
+          const message = buildCustomerOtpMessage(code, challenge.purpose);
           if (!(await this.d.auth.beginDelivery(challenge.id, lease, this.d.now()))) continue;
           if (!(await this.canDeliver(challenge))) {
             await this.d.auth.finishDelivery(challenge.id, lease, 'cancelled');
@@ -502,7 +504,8 @@ export class CustomerAuthService {
           invoked = true;
           await fresh.api.sendMessage({
             platformChatId: challenge.phoneNumber,
-            text: `Seu código de acesso ao Astra é *${code}*.\n\nEle é válido por até 5 minutos a partir da solicitação. Não compartilhe este código. Se você não solicitou o acesso, ignore esta mensagem.`,
+            ...message,
+            sendBefore: challenge.expiresAt,
           });
           await this.d.auth.finishDelivery(challenge.id, lease, 'sent');
         } catch {
