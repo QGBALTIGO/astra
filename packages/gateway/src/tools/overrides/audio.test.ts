@@ -1399,7 +1399,7 @@ describe('translateAudioOverride', () => {
   it('blocks translating an arbitrary file outside the authorized workspace', async () => {
     setupDedicatedAudioConfig();
     const result = await executors.translate_audio!(
-      { source: '/app/data/private/other-user/voice.mp3', targetLanguage: 'pt-BR' },
+      { source: '../other-user/voice.mp3', targetLanguage: 'pt-BR' },
       defaultContext
     );
     expect(result.isError).toBe(true);
