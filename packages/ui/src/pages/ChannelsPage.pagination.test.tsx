@@ -35,6 +35,14 @@ vi.mock('../components/ToastProvider', () => ({
 vi.mock('../components/ChannelSetupModal', () => ({
   ChannelSetupModal: () => null,
 }));
+// Keep the real page, access panel and controls. Rendering hundreds of decorative
+// SVG trees adds Happy DOM work unrelated to pagination and contends with the
+// other package suites in CI; browser tests cover the actual icons and layout.
+vi.mock('../components/icons', async (importOriginal) => {
+  const icons = await importOriginal<typeof import('../components/icons')>();
+  const DecorativeIcon = () => null;
+  return Object.fromEntries(Object.keys(icons).map((name) => [name, DecorativeIcon]));
+});
 
 const list = vi.spyOn(channelsApi, 'list');
 const getUsers = vi.spyOn(channelsApi, 'getUsers');
