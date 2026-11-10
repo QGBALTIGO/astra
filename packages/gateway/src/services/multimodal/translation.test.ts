@@ -41,7 +41,7 @@ describe('Astra text translation', () => {
 
   it('uses an authenticated-scope cache only for the same sender', async () => {
     vi.stubEnv('GROQ_API_KEY', 'test-key');
-    const fetcher = vi.fn().mockResolvedValue(groqResponse('Hola'));
+    const fetcher = vi.fn().mockImplementation(async () => groqResponse('Hola'));
     vi.stubGlobal('fetch', fetcher);
     const a = await translateAstraText('Olá', 'es', { scope: 'demo:person-one' });
     const b = await translateAstraText('Olá', 'es', { scope: 'demo:person-one' });
