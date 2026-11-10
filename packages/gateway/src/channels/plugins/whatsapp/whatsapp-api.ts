@@ -80,6 +80,7 @@ const RATE_LIMIT_MAX_MESSAGES = 20; // max 20 messages per minute (global)
 const RATE_LIMIT_PER_JID_MS = 3_000; // min 3s gap per recipient
 const MESSAGE_CACHE_SIZE = 500; // getMessage cache for retry/decryption
 const PROCESSED_MSG_IDS_CAP = 5000; // dedup cap for processedMsgIds (shared across upsert + history sync)
+const SEND_RECONNECT_WAIT_MS = 15_000;
 
 // Connection state machine
 // disconnected → connecting → connected
@@ -156,6 +157,12 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
    */
   private stableConnectionTimer: ReturnType<typeof setTimeout> | null = null;
   private currentOperation: Promise<void> | null = null;
+  /** Invalidates asynchronous setup and callbacks when a connection is replaced. */
+  private connectionGeneration = 0;
+  /** Drain credentials and Signal-key writes before reopening/deleting auth. */
+  private authWriteQueue: Promise<void> = Promise.resolve();
+  private sessionCleanup: Promise<void> = Promise.resolve();
+  private connectedAccountPhone: string | null = null;
   private preventAutoReconnect = false; // Set by logout() to stop auto-reconnect
 
   // Anti-ban: message cache for getMessage callback (retry/decryption)
@@ -202,6 +209,11 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // ==========================================================================
 
   async connect(): Promise<void> {
+    return this.connectInternal(false);
+  }
+
+  private async connectInternal(automatic: boolean): Promise<void> {
+    const requestedGeneration = this.connectionGeneration;
     // State machine guard: prevent concurrent operations
     if (this.currentOperation) {
       log.debug('WhatsApp connect() waiting for current operation to complete...');
@@ -212,22 +224,33 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       }
     }
 
+    // A disconnect/logout requested while setup was pending takes precedence.
+    if (requestedGeneration !== this.connectionGeneration) return;
+    if (automatic && this.preventAutoReconnect) return;
+
     // If already connected or connecting, nothing to do
     if (this.internalState === 'connected' || this.internalState === 'connecting') {
       log.debug(`WhatsApp connect() skipped — already ${this.internalState}`);
       return;
     }
 
-    // Create new operation promise
-    this.currentOperation = this.doConnect();
+    if (!automatic) {
+      this.preventAutoReconnect = false;
+      this.reconnectAttempt = 0;
+      this.consecutive440Count = 0;
+    }
+
+    // Create new operation promise. A later logout may replace currentOperation.
+    const operation = this.doConnect(++this.connectionGeneration);
+    this.currentOperation = operation;
     try {
-      await this.currentOperation;
+      await operation;
     } finally {
-      this.currentOperation = null;
+      if (this.currentOperation === operation) this.currentOperation = null;
     }
   }
 
-  private async doConnect(): Promise<void> {
+  private async doConnect(generation: number): Promise<void> {
     // Final state check before proceeding
     if (this.internalState === 'connected' || this.internalState === 'connecting') {
       return;
@@ -243,15 +266,29 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     log.info('WhatsApp connecting...');
 
     try {
+      await this.sessionCleanup;
+      await this.authWriteQueue;
+      if (generation !== this.connectionGeneration) return;
       const sessionDir = getSessionDir(this.pluginId);
       const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+      if (generation !== this.connectionGeneration) return;
       const { version } = await fetchLatestBaileysVersion();
+      if (generation !== this.connectionGeneration) return;
 
-      this.sock = makeWASocket({
+      const authKeys: typeof state.keys = {
+        ...state.keys,
+        set: (data) => {
+          // Retired Baileys tasks must not recreate keys after logout/new QR.
+          if (generation !== this.connectionGeneration) return Promise.resolve();
+          return this.queueAuthWrite(() => state.keys.set(data));
+        },
+      };
+
+      const sock = makeWASocket({
         version,
         auth: {
           creds: state.creds,
-          keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
+          keys: makeCacheableSignalKeyStore(authKeys, baileysLogger),
         },
         printQRInTerminal: false,
         logger: baileysLogger,
@@ -287,14 +324,18 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
           return undefined;
         },
       });
+      this.sock = sock;
+      const isCurrentSocket = () => this.sock === sock && generation === this.connectionGeneration;
 
       // Handle connection updates (QR code, connect, disconnect)
-      this.sock.ev.on('connection.update', (update) => {
+      sock.ev.on('connection.update', (update) => {
+        if (!isCurrentSocket()) return;
         this.handleConnectionUpdate(update);
       });
 
       // Receive inbound direct messages from other contacts only in explicit multi-user mode.
-      this.sock.ev.on('messages.upsert', (upsert) => {
+      sock.ev.on('messages.upsert', (upsert) => {
+        if (!isCurrentSocket()) return;
         log.info(
           `[WhatsApp] UPSERT EVENT received — type: ${upsert.type}, count: ${upsert.messages.length}`
         );
@@ -342,21 +383,26 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
             }
           }
 
-          this.handleIncomingMessage(msg).catch((err) => {
+          this.handleIncomingMessage(msg, sock, generation).catch((err) => {
             log.error('Failed to handle WhatsApp message:', err);
           });
         }
       });
 
       // Save credentials on update
-      this.sock.ev.on('creds.update', saveCreds);
+      sock.ev.on('creds.update', () => {
+        if (!isCurrentSocket()) return;
+        void this.queueAuthWrite(saveCreds).catch(() => undefined);
+      });
 
       // Handle passive history sync (WhatsApp sends past messages on first connect)
       // Uses promise queue to serialize concurrent batches (Baileys can fire multiple events rapidly)
-      this.sock.ev.on(
+      sock.ev.on(
         'messaging-history.set',
         ({ messages, chats, contacts, syncType, progress, isLatest }) => {
+          if (!isCurrentSocket()) return;
           this.historySyncQueue = this.historySyncQueue.then(async () => {
+            if (!isCurrentSocket()) return;
             try {
               const syncTypeName =
                 syncType != null
@@ -373,6 +419,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
               const { ChannelMessagesRepository } =
                 await import('../../../db/repositories/channels/messages.js');
+              if (!isCurrentSocket()) return;
               const messagesRepo = new ChannelMessagesRepository();
 
               // Transform WAMessage[] to DB rows
@@ -490,6 +537,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
       log.info('WhatsApp socket created, waiting for authentication...');
     } catch (error) {
+      if (generation !== this.connectionGeneration) return;
+      this.cleanupSocket();
       this.internalState = 'error';
       this.status = 'error';
       this.emitConnectionEvent('error');
@@ -499,11 +548,10 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
   async disconnect(): Promise<void> {
     // Soft disconnect: tear down the socket but keep session files so the
-    // next connect() can resume without a fresh QR. We deliberately leave
-    // preventAutoReconnect at its existing value — cleanupSocket removes the
-    // connection.update listener, so no auto-reconnect can fire. logout()
-    // (below) is the hard variant that sets preventAutoReconnect=true.
-    this.preventAutoReconnect = false;
+    // next explicit connect() can resume without a fresh QR. Invalidate any
+    // setup that is still awaiting auth/version discovery as well as callbacks.
+    this.connectionGeneration++;
+    this.preventAutoReconnect = true;
     this.clearReconnectTimer();
     this.cleanupSocket();
 
@@ -512,6 +560,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     this.internalState = 'disconnected';
     this.status = 'disconnected';
     this.emitConnectionEvent('disconnected');
+    // Graceful shutdown must not exit while accepted auth writes are pending.
+    await this.authWriteQueue;
     log.info('WhatsApp disconnected (session preserved — reconnect without QR)');
   }
 
@@ -523,7 +573,26 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   async logout(): Promise<void> {
     // CRITICAL: Set flag to prevent auto-reconnect
     this.preventAutoReconnect = true;
+    this.connectionGeneration++;
     this.clearReconnectTimer();
+    this.internalState = 'disconnecting';
+    this.status = 'disconnected';
+    this.qrCode = null;
+
+    const pendingOperation = this.currentOperation;
+    const operation = this.doLogout(pendingOperation);
+    this.currentOperation = operation;
+    try {
+      await operation;
+    } finally {
+      if (this.currentOperation === operation) this.currentOperation = null;
+    }
+  }
+
+  private async doLogout(pendingOperation: Promise<void> | null): Promise<void> {
+    // In-flight setup has been invalidated. Wait for it to stop before removing
+    // auth files, and make subsequent connect() calls wait for this operation.
+    await pendingOperation?.catch(() => undefined);
 
     // Properly logout from WhatsApp servers
     if (this.sock) {
@@ -542,7 +611,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
     // Clear local session files
     try {
-      await clearSession(this.pluginId);
+      await this.queueSessionCleanup();
       log.info('WhatsApp session files cleared');
     } catch (err) {
       log.warn('Failed to clear WhatsApp session files:', err);
@@ -552,17 +621,26 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     this.qrCode = null;
     this.reconnectAttempt = 0;
     this.consecutive440Count = 0;
+    this.clearAccountCaches();
+    this.connectedAccountPhone = null;
+    this.config.my_phone = '';
     this.internalState = 'disconnected';
     this.status = 'disconnected';
-    this.preventAutoReconnect = false; // Reset for next time
+    // Only an explicit connect() can re-enable automatic reconnect after logout.
     this.emitConnectionEvent('disconnected');
     log.info('WhatsApp logged out (session cleared — new QR scan required)');
   }
 
   async sendMessage(message: ChannelOutgoingMessage): Promise<string> {
-    if (!this.sock || this.status !== 'connected') {
+    // Replies already being prepared may outlive a temporary transport outage.
+    // Wait only before sending, for the same authenticated account, and never
+    // retry sendMessage itself: a failed send may already have been delivered.
+    const accountPhone = this.connectedAccountPhone;
+    if (!accountPhone) {
       throw new Error('WhatsApp is not connected');
     }
+    const recoveryDeadline = Date.now() + SEND_RECONNECT_WAIT_MS;
+    await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
 
     const jid = this.toJid(message.platformChatId);
     const isSelf = this.isSelfChat(jid);
@@ -572,6 +650,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     for (let i = 0; i < parts.length; i++) {
       // Anti-ban: rate limiting before each part
       await this.enforceRateLimit(jid);
+      await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
 
       const options: Record<string, unknown> = {};
 
@@ -597,9 +676,9 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       }
 
       // Re-check connection after async delay — socket may have reconnected
-      const sock = this.sock;
-      if (!sock || this.status !== 'connected') {
-        throw new Error('WhatsApp disconnected while preparing to send');
+      const sock = await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
+      if (sock !== this.sock || this.status !== 'connected') {
+        throw new Error('WhatsApp disconnected before sending');
       }
 
       const result = await sock.sendMessage(jid, { text: parts[i]! }, options);
@@ -662,8 +741,10 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   getBotInfo(): { username?: string; firstName?: string } | null {
     // Try live sock.user first, fall back to configured my_phone
     const phone = this.sock?.user?.id
-      ? (this.sock.user.id.split(':')[0] ?? this.sock.user.id)
-      : this.config.my_phone || null;
+      ? this.phoneFromJid(this.sock.user.id)
+      : this.status === 'connected'
+        ? null
+        : this.config.my_phone || null;
     if (!phone) return null;
     return {
       username: phone,
@@ -747,7 +828,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
           return summaries;
         } finally {
-          this.groupsFetchInFlight = null;
+          if (this.sock === sock) this.groupsFetchInFlight = null;
         }
       })();
     }
@@ -887,27 +968,59 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   private cleanupSocket(): void {
     // Stable-reset timer is bound to the previous socket's lifetime.
     this.clearStableConnectionTimer();
-    if (this.sock) {
+    const sock = this.sock;
+    // Invalidate callbacks before end(), which can itself emit a close event.
+    this.sock = null;
+    this.groupsCache = null;
+    this.groupsRawParticipants = null;
+    this.groupsCacheTime = 0;
+    this.groupsFetchInFlight = null;
+    this.historySyncQueue = Promise.resolve();
+    if (sock) {
       try {
         // Remove all listeners first to prevent ghost events
-        this.sock.ev.removeAllListeners('connection.update');
-        this.sock.ev.removeAllListeners('messages.upsert');
-        this.sock.ev.removeAllListeners('creds.update');
-        this.sock.ev.removeAllListeners('messaging-history.set');
+        sock.ev.removeAllListeners('connection.update');
+        sock.ev.removeAllListeners('messages.upsert');
+        sock.ev.removeAllListeners('creds.update');
+        sock.ev.removeAllListeners('messaging-history.set');
       } catch {
         /* listeners may already be gone */
       }
       try {
-        this.sock.end(undefined);
+        sock.end(undefined);
       } catch {
         /* already closed */
       }
-      this.groupsCache = null;
-      this.groupsRawParticipants = null;
-      this.groupsCacheTime = 0;
-      this.historySyncQueue = Promise.resolve();
-      this.sock = null;
     }
+  }
+
+  private queueSessionCleanup(): Promise<void> {
+    this.sessionCleanup = this.sessionCleanup
+      .catch(() => undefined)
+      .then(() => this.authWriteQueue)
+      .then(() => clearSession(this.pluginId));
+    return this.sessionCleanup;
+  }
+
+  private queueAuthWrite(write: () => Promise<void> | void): Promise<void> {
+    const operation = this.authWriteQueue.then(write);
+    this.authWriteQueue = operation.catch((err) => {
+      log.error('Failed to persist WhatsApp authentication state:', err);
+    });
+    return operation;
+  }
+
+  /** In-memory protocol data belongs to the connected account, not the plugin. */
+  private clearAccountCaches(): void {
+    this.messageChatMap.clear();
+    this.sentMessageIds.clear();
+    this.messageCache.clear();
+    this.processedMsgIds.clear();
+    this.globalSendTimes = [];
+    this.perJidLastSend.clear();
+    this.msgRetryCounterCache.flushAll();
+    this.userDevicesCache.flushAll();
+    this.lastHistoryFetchTime = null;
   }
 
   private handleConnectionUpdate(update: {
@@ -936,6 +1049,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
     // Connected
     if (connection === 'open') {
+      this.clearReconnectTimer();
       this.internalState = 'connected';
       this.status = 'connected';
       this.qrCode = null;
@@ -955,21 +1069,18 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         ?.sendPresenceUpdate('unavailable')
         .catch(silentCatch('whatsapp.presenceUnavailable'));
 
-      const info = this.getBotInfo();
-      const sockPhone = this.sock?.user?.id?.split(':')[0] ?? '';
-
-      // Auto-populate my_phone from the connected account if not manually configured.
-      // This ensures self-chat detection works even without explicit Config Center setup.
-      if (!this.config.my_phone && sockPhone) {
+      const sockPhone = this.sock?.user?.id ? this.phoneFromJid(this.sock.user.id) : '';
+      // The authenticated account is authoritative, even after scanning a QR
+      // with a different number. A stale configured number is not self-chat.
+      if (sockPhone) {
+        if (this.connectedAccountPhone && this.connectedAccountPhone !== sockPhone) {
+          this.clearAccountCaches();
+        }
+        this.connectedAccountPhone = sockPhone;
         this.config.my_phone = sockPhone;
-        log.info(
-          `WhatsApp connected — phone=${sockPhone} display=${info?.username ?? 'unknown'} (my_phone auto-detected)`
-        );
-      } else {
-        log.info(
-          `WhatsApp connected — phone=${this.config.my_phone || sockPhone || '(unknown)'} display=${info?.username ?? 'unknown'}`
-        );
       }
+      const info = this.getBotInfo();
+      log.info('WhatsApp connected — authenticated account updated');
 
       // Broadcast status update
       try {
@@ -985,9 +1096,11 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
     // Disconnected
     if (connection === 'close') {
+      this.connectionGeneration++;
       // Cancel any pending stable-connection reset — the connection didn't
       // last long enough to clear the consecutive440Count.
-      this.clearStableConnectionTimer();
+      this.clearReconnectTimer();
+      this.cleanupSocket();
       const error = lastDisconnect?.error;
       const statusCode = (error as Boom)?.output?.statusCode;
       const isLoggedOut = statusCode === DisconnectReason.loggedOut;
@@ -1009,34 +1122,43 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         this.internalState = 'disconnected';
         this.status = 'disconnected';
         this.qrCode = null;
+        this.preventAutoReconnect = true;
         this.emitConnectionEvent('disconnected');
         log.error(
           `WhatsApp permanently disconnected (code: ${statusCode}) — reconnect DISABLED to prevent ban escalation`
         );
-        // Auto-clear stale session so the next connect() generates a fresh QR
-        clearSession(this.pluginId).catch((err) => {
-          log.warn('Failed to clear stale WhatsApp session', { error: String(err) });
-        });
+        // Only a confirmed logout invalidates credentials. Forbidden/account
+        // restrictions do not authorize destroying a possibly valid session.
+        if (isLoggedOut) {
+          this.clearAccountCaches();
+          this.connectedAccountPhone = null;
+          this.config.my_phone = '';
+          this.queueSessionCleanup().catch((err) => {
+            log.warn('Failed to clear stale WhatsApp session', { error: String(err) });
+          });
+        }
       } else {
         // Temporary disconnect — auto-reconnect with backoff
         this.internalState = 'reconnecting';
         this.status = 'reconnecting';
         this.emitConnectionEvent('reconnecting');
-        this.scheduleReconnect(statusCode);
-        const baseDelay = statusCode === 440 ? 10000 : 3000;
-        const delay = Math.min(baseDelay * Math.pow(2, this.reconnectAttempt - 1), 60000);
-        log.warn(`WhatsApp disconnected (code: ${statusCode}), reconnecting in ${delay}ms...`);
+        const delay = this.scheduleReconnect(statusCode);
+        if (delay !== null) {
+          log.warn(
+            `WhatsApp disconnected (code: ${statusCode}), reconnecting in ${Math.round(delay)}ms...`
+          );
+        }
       }
     }
   }
 
-  private scheduleReconnect(statusCode?: number): void {
+  private scheduleReconnect(statusCode?: number): number | null {
     this.clearReconnectTimer();
 
     // CRITICAL: Don't reconnect if prevented (e.g., after logout)
     if (this.preventAutoReconnect) {
       log.info('Auto-reconnect skipped — preventAutoReconnect flag is set');
-      return;
+      return null;
     }
 
     // Anti-ban: track consecutive 440 (connectionReplaced) errors
@@ -1049,7 +1171,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         this.internalState = 'error';
         this.status = 'error';
         this.emitConnectionEvent('error');
-        return;
+        return null;
       }
     } else {
       this.consecutive440Count = 0;
@@ -1061,20 +1183,27 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       this.internalState = 'error';
       this.status = 'error';
       this.emitConnectionEvent('error');
-      return;
+      return null;
     }
 
     // For 440 (connectionReplaced): use longer base delay to avoid reconnect storm
-    const baseDelay = statusCode === 440 ? 10000 : 3000;
+    const baseDelay =
+      statusCode === DisconnectReason.restartRequired ? 500 : statusCode === 440 ? 10000 : 3000;
     const exponentialDelay = baseDelay * Math.pow(2, this.reconnectAttempt);
     // Anti-ban: add jitter (0.5x to 1.5x) to prevent synchronized reconnects
     const jitter = 0.5 + randomUnit();
     const delay = Math.min(exponentialDelay * jitter, 120_000);
     this.reconnectAttempt++;
 
+    const generation = this.connectionGeneration;
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       // Double-check flag before reconnecting
-      if (this.preventAutoReconnect) {
+      if (
+        this.preventAutoReconnect ||
+        generation !== this.connectionGeneration ||
+        this.internalState !== 'reconnecting'
+      ) {
         log.info('Reconnect timer fired but auto-reconnect is prevented');
         return;
       }
@@ -1083,16 +1212,19 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       this.cleanupSocket();
       this.internalState = 'reconnecting';
       this.status = 'reconnecting';
-      this.connect().catch((err) => {
+      this.connectInternal(true).catch((err) => {
         log.error('WhatsApp reconnect failed:', err);
-        this.internalState = 'error';
-        this.status = 'error';
-        this.emitConnectionEvent('error');
+        if (this.preventAutoReconnect) return;
+        this.internalState = 'reconnecting';
+        this.status = 'reconnecting';
+        this.emitConnectionEvent('reconnecting');
+        this.scheduleReconnect();
       });
     }, delay);
     // unref so a pending reconnect timer doesn't hold the process open
     // during graceful shutdown — clearReconnectTimer() still runs.
     this.reconnectTimer.unref?.();
+    return delay;
   }
 
   private clearReconnectTimer(): void {
@@ -1100,6 +1232,26 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+  }
+
+  private async waitForConnectedAccount(accountPhone: string, deadline: number): Promise<WASocket> {
+    while (
+      !this.preventAutoReconnect &&
+      (this.status === 'reconnecting' || this.status === 'connecting') &&
+      Date.now() < deadline
+    ) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    }
+
+    const sock = this.sock;
+    if (!sock || this.status !== 'connected') {
+      throw new Error('WhatsApp is not connected after waiting for recovery');
+    }
+    const currentPhone = sock.user?.id ? this.phoneFromJid(sock.user.id) : null;
+    if (currentPhone !== accountPhone) {
+      throw new Error('WhatsApp connected account changed while preparing to send');
+    }
+    return sock;
   }
 
   // ==========================================================================
@@ -1179,13 +1331,14 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
    * Delay is proportional to text length (min 1s, max 5s).
    */
   private async simulateTyping(jid: string, text: string): Promise<void> {
-    if (!this.sock) return;
+    const sock = this.sock;
+    if (!sock) return;
     try {
       // Step 1: Go online (required before composing — Evolution API pattern)
-      await this.sock.sendPresenceUpdate('available');
-      await this.sock.presenceSubscribe(jid);
+      await sock.sendPresenceUpdate('available');
+      await sock.presenceSubscribe(jid);
       // Step 2: Start composing
-      await this.sock.sendPresenceUpdate('composing', jid);
+      await sock.sendPresenceUpdate('composing', jid);
 
       // Typing delay proportional to text length: ~50ms per char, min 1s, max 5s
       // Add Gaussian-like jitter for human-like behavior
@@ -1196,7 +1349,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       await new Promise((r) => setTimeout(r, delayMs));
 
       // Step 3: Stop composing
-      await this.sock.sendPresenceUpdate('paused', jid);
+      await sock.sendPresenceUpdate('paused', jid);
     } catch {
       // Non-fatal — don't block message send
     }
@@ -1206,7 +1359,14 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // Private — Message Processing
   // ==========================================================================
 
-  private async handleIncomingMessage(msg: WAMessage): Promise<void> {
+  private async handleIncomingMessage(
+    msg: WAMessage,
+    sourceSocket = this.sock,
+    generation = this.connectionGeneration
+  ): Promise<void> {
+    const isCurrentSocket = () =>
+      this.sock === sourceSocket && generation === this.connectionGeneration;
+    if (!isCurrentSocket()) return;
     log.info(
       `[WhatsApp] handleIncomingMessage called — jid: ${msg.key.remoteJid}, pushName: ${msg.pushName}`
     );
@@ -1310,6 +1470,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
     const messageId = msg.key.id ?? '';
 
+    if (!isCurrentSocket()) return;
+
     if (attachments.length > 0) {
       const platformChatId = isGroup ? remoteJid : phone;
       attachments.splice(
@@ -1331,6 +1493,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       displayName: msg.pushName || phone,
       username: phone,
     };
+
+    if (!isCurrentSocket()) return;
 
     const rawTs = msg.messageTimestamp;
     const timestamp =
@@ -1433,18 +1597,19 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
   /** Check if a message is sent to the user's own chat (self-chat). */
   private isSelfChat(remoteJid: string | null | undefined): boolean {
-    if (!remoteJid) return false;
+    if (!remoteJid?.endsWith('@s.whatsapp.net')) return false;
     const chatPhone = this.phoneFromJid(remoteJid);
 
     // Primary: compare against live sock.user.id
     // sock.user.id format: "905551234567:0@s.whatsapp.net" or "905551234567@s.whatsapp.net"
     // Use phoneFromJid to safely strip both "@..." and ":..." suffixes
-    if (this.sock?.user?.id) {
+    if (this.sock) {
+      if (!this.sock.user?.id) return false;
       const ownPhone = this.phoneFromJid(this.sock.user.id);
       log.debug(
         `[isSelfChat] sockPhone=${ownPhone} chatPhone=${chatPhone} match=${ownPhone === chatPhone}`
       );
-      if (ownPhone === chatPhone) return true;
+      return ownPhone === chatPhone;
     }
 
     // Fallback: compare against configured my_phone

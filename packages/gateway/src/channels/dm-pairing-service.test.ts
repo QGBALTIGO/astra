@@ -117,7 +117,7 @@ describe('DmPairingService', () => {
       platformUserId: 'sender-1',
       usedAt: new Date(),
     });
-    users.findByPlatform.mockResolvedValue({ id: 'channel-user-1' });
+    users.findByPlatform.mockResolvedValue({ id: 'channel-user-1', ownpilotUserId: 'default' });
 
     await expect(service.approvePendingSender('telegram', '654321')).resolves.toEqual({
       success: true,
@@ -145,7 +145,7 @@ describe('DmPairingService', () => {
         usedAt: new Date(),
       })
       .mockResolvedValueOnce(null);
-    users.findByPlatform.mockResolvedValue({ id: 'channel-user-1' });
+    users.findByPlatform.mockResolvedValue({ id: 'channel-user-1', ownpilotUserId: 'default' });
 
     const results = await Promise.all([
       service.approvePendingSender('telegram', '654321'),
@@ -160,6 +160,29 @@ describe('DmPairingService', () => {
     expect(users.updateStatus).toHaveBeenCalledOnce();
     expect(users.markVerified).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    ['whatsapp', 'whatsapp:5511999990001'],
+    ['telegram', 'workspace-user-2'],
+    ['whatsapp', 'default'],
+  ])(
+    'preserves the existing %s identity %s when approving a sender',
+    async (platform, ownpilotUserId) => {
+      const { service, requests, users } = createHarness();
+      requests.consumeByCode.mockResolvedValue({
+        id: 'token-1',
+        platformUserId: 'sender-1',
+        usedAt: new Date(),
+      });
+      users.findByPlatform.mockResolvedValue({ id: 'channel-user-1', ownpilotUserId });
+
+      await expect(service.approvePendingSender(platform, '654321')).resolves.toEqual({
+        success: true,
+      });
+
+      expect(users.markVerified).toHaveBeenCalledWith('channel-user-1', ownpilotUserId, 'admin');
+    }
+  );
 
   it('denies a sender and consumes an existing token', async () => {
     const { service, requests, users } = createHarness();

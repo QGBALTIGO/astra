@@ -112,6 +112,115 @@ describe('ExpensesRepository', () => {
   // get
   // ---------------------------------------------------------------------------
 
+  describe('createFromChannel', () => {
+    const input = {
+      date: '2026-11-10',
+      amount: 36.39,
+      currency: 'BRL',
+      category: 'food',
+      description: 'meu almoço',
+    };
+    const sourceKey = 'a'.repeat(64);
+
+    it('atomically inserts a stable channel key and returns the persisted expense', async () => {
+      mockAdapter.queryOne.mockImplementationOnce(async (_sql, params) =>
+        makeRow({ id: params![0], ...input })
+      );
+      const result = await repo.createFromChannel(input, sourceKey);
+      const [sql, params] = mockAdapter.queryOne.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain('ON CONFLICT (id) DO NOTHING');
+      expect(params[0]).toMatch(/^exp_ch_[a-f0-9]{64}$/);
+      expect(params.slice(1, 7)).toEqual([
+        'user-1',
+        '2026-11-10',
+        36.39,
+        'BRL',
+        'food',
+        'meu almoço',
+      ]);
+      expect(result.created).toBe(true);
+      expect(result.expense.id).toBe(params[0]);
+      expect(result.expense.amount).toBe(36.39);
+    });
+
+    it('returns the original expense on replay without modifying it', async () => {
+      mockAdapter.queryOne.mockImplementationOnce(async (_sql, params) =>
+        makeRow({ id: params![0], ...input })
+      );
+      const first = await repo.createFromChannel(input, sourceKey);
+      mockAdapter.queryOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(makeRow({ id: first.expense.id, ...input }));
+
+      const replay = await repo.createFromChannel({ ...input, amount: 99 }, sourceKey);
+      const [insertSql, insertParams] = mockAdapter.queryOne.mock.calls[1] as [string, unknown[]];
+      const [selectSql, selectParams] = mockAdapter.queryOne.mock.calls[2] as [string, unknown[]];
+      expect(insertSql).toContain('ON CONFLICT (id) DO NOTHING');
+      expect(insertSql).not.toContain('DO UPDATE');
+      expect(insertParams[0]).toBe(first.expense.id);
+      expect(selectSql).toContain('WHERE id = $1 AND user_id = $2');
+      expect(selectParams).toEqual([first.expense.id, 'user-1']);
+      expect(replay).toEqual({ created: false, expense: first.expense });
+    });
+
+    it('does not collapse distinct messages or different users with identical expense text', async () => {
+      for (let i = 0; i < 3; i++) {
+        mockAdapter.queryOne.mockImplementationOnce(async (_sql, params) =>
+          makeRow({ id: params![0], user_id: params![1], ...input })
+        );
+      }
+      const first = await repo.createFromChannel(input, sourceKey);
+      const secondMessage = await repo.createFromChannel(input, 'b'.repeat(64));
+      const otherUser = await new ExpensesRepository('user-2').createFromChannel(input, sourceKey);
+      expect(new Set([first.expense.id, secondMessage.expense.id, otherUser.expense.id]).size).toBe(
+        3
+      );
+      expect(otherUser.expense.userId).toBe('user-2');
+      expect(first.created && secondMessage.created && otherUser.created).toBe(true);
+    });
+
+    it('does not claim success if a conflicting record cannot be confirmed for this user', async () => {
+      mockAdapter.queryOne.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+      await expect(repo.createFromChannel(input, sourceKey)).rejects.toThrow(
+        'could not be confirmed'
+      );
+    });
+
+    it.each([0.01, 0.29, 36.39, 9_999_999_999.97, 9_999_999_999.99])(
+      'preserves valid cent amounts up to the DECIMAL(12, 2) limit: %s',
+      async (amount) => {
+        mockAdapter.queryOne.mockImplementationOnce(async (_sql, params) =>
+          makeRow({ ...input, id: params![0], amount: amount.toFixed(2) })
+        );
+        const result = await repo.createFromChannel({ ...input, amount }, sourceKey);
+        const [, params] = mockAdapter.queryOne.mock.calls[0] as [string, unknown[]];
+        expect(params[3]).toBe(amount);
+        expect(result.expense.amount).toBe(amount);
+        expect(result.created).toBe(true);
+      }
+    );
+
+    it.each([0, -1, NaN, Infinity, 36.399, 36.39000001, 10_000_000_000])(
+      'rejects an invalid monetary amount before writing: %s',
+      async (amount) => {
+        await expect(repo.createFromChannel({ ...input, amount }, sourceKey)).rejects.toThrow(
+          'Invalid'
+        );
+        expect(mockAdapter.queryOne).not.toHaveBeenCalled();
+      }
+    );
+
+    it('requires a user scope and a valid authenticated source key', async () => {
+      await expect(new ExpensesRepository('').createFromChannel(input, sourceKey)).rejects.toThrow(
+        'Invalid'
+      );
+      await expect(repo.createFromChannel(input, 'untrusted-message-id')).rejects.toThrow(
+        'Invalid'
+      );
+      expect(mockAdapter.queryOne).not.toHaveBeenCalled();
+    });
+  });
+
   describe('get', () => {
     it('scopes lookup by id AND user_id', async () => {
       mockAdapter.queryOne.mockResolvedValueOnce(makeRow());

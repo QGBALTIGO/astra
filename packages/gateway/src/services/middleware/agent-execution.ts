@@ -20,14 +20,25 @@ const log = getLog('Middleware:AgentExecution');
  */
 export function userFacingAgentError(message: NormalizedMessage, details: string): string {
   if (message.metadata?.source !== 'channel') return `Error: ${details}`;
-  if (
-    /(?:api|stream) error:\s*429\b|\bhttp\s*429\b|rate limit reached|tokens per minute|too many requests/i.test(
-      details
-    )
-  ) {
-    return '⚠️ O Groq atingiu temporariamente o limite de uso. Aguarde alguns instantes. Se a mensagem era para registrar algo, confira seus registros antes de repetir para evitar duplicidade.';
+  if (agentFailureKind(details) === 'agent_busy') {
+    return 'Sua mensagem anterior ainda está em processamento. Aguarde a resposta antes de reenviar.';
+  }
+  if (agentFailureKind(details) === 'rate_limited') {
+    return 'O serviço de IA atingiu temporariamente o limite de uso. Aguarde alguns instantes. Se a mensagem era para registrar algo, confira seus registros antes de repetir para evitar duplicidade.';
   }
   return 'Não consegui processar sua mensagem agora. Tente novamente em instantes.';
+}
+
+/** Log a useful category without copying provider bodies, prompts or secrets. */
+function agentFailureKind(details: string): 'agent_busy' | 'rate_limited' | 'agent_error' {
+  if (/agent is already processing a request/i.test(details)) return 'agent_busy';
+  if (
+    /(?:api|stream) error:\s*429\b|\bhttp\s*429\b|rate limit (?:reached|exceeded)|tokens per minute|too many requests/i.test(
+      details
+    )
+  )
+    return 'rate_limited';
+  return 'agent_error';
 }
 
 /** Minimal agent interface needed by this middleware */
@@ -202,6 +213,12 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
 
       if (!result.ok) {
         ctx.set('error', result.error);
+        log.warn('Agent returned a processing error', {
+          reason: agentFailureKind(result.error?.message ?? ''),
+          provider,
+          model,
+          durationMs,
+        });
 
         return {
           response: {

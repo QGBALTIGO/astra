@@ -434,10 +434,53 @@ export class ChannelServiceImpl implements IChannelService {
       const ownerUserId = await getOwnerUserId(message.platform);
       const whatsappMultiUser =
         message.platform === 'whatsapp' && process.env.ASTRA_WHATSAPP_MULTIUSER === 'true';
+      let authenticatedWhatsAppSelfChat = false;
+      let returningWhatsAppGuest = false;
+      if (
+        message.platform === 'whatsapp' &&
+        ownerUserId === null &&
+        message.metadata?.isGroup !== true
+      ) {
+        const api = this.getChannel(message.channelPluginId);
+        const botPhone =
+          api?.getStatus() === 'connected' ? api.getBotInfo?.()?.username : undefined;
+        authenticatedWhatsAppSelfChat =
+          message.metadata?.isSelfChat === true &&
+          message.metadata?.fromMe === true &&
+          Boolean(botPhone) &&
+          message.sender.platformUserId === botPhone;
+
+        // Ownership setup must not interrupt already approved customers. Only
+        // an existing, independently scoped customer can use this exception;
+        // never create a default user or auto-enroll an unknown sender here.
+        if (
+          !authenticatedWhatsAppSelfChat &&
+          whatsappMultiUser &&
+          message.metadata?.fromMe === false &&
+          message.metadata?.isSelfChat !== true &&
+          /^[1-9][0-9]{9,14}$/.test(message.sender.platformUserId)
+        ) {
+          const existing = await this.usersRepo.findByPlatform(
+            message.platform,
+            message.sender.platformUserId
+          );
+          returningWhatsAppGuest = Boolean(
+            existing?.isVerified &&
+            !existing.isBlocked &&
+            existing.status === 'active' &&
+            existing.ownpilotUserId === `whatsapp:${message.sender.platformUserId}`
+          );
+        }
+
+        if (!authenticatedWhatsAppSelfChat && !returningWhatsAppGuest) {
+          log.debug('Dropping unapproved WhatsApp sender while ownership is unclaimed');
+          return;
+        }
+      }
       const isWhatsAppGuest =
         whatsappMultiUser &&
-        ownerUserId !== null &&
-        ownerUserId !== message.sender.platformUserId &&
+        (returningWhatsAppGuest ||
+          (ownerUserId !== null && ownerUserId !== message.sender.platformUserId)) &&
         message.metadata?.isGroup !== true;
       const customerUserId = isWhatsAppGuest
         ? `whatsapp:${message.sender.platformUserId}`
@@ -456,6 +499,18 @@ export class ChannelServiceImpl implements IChannelService {
         avatarUrl: message.sender.avatarUrl,
         ...(customerUserId ? { ownpilotUserId: customerUserId } : {}),
       });
+
+      // Recheck the refreshed record: an approval revoked between the lookup
+      // above and findOrCreate must not fall through to auto-enrollment.
+      if (
+        returningWhatsAppGuest &&
+        (!channelUser.isVerified ||
+          channelUser.isBlocked ||
+          channelUser.status !== 'active' ||
+          channelUser.ownpilotUserId !== customerUserId)
+      ) {
+        return;
+      }
 
       // 1b. Emit first_seen event for new users
       if (channelUser.created) {
@@ -586,13 +641,10 @@ export class ChannelServiceImpl implements IChannelService {
         }
       } else {
         // No owner claimed yet.
-        // WhatsApp self-chat: the Baileys `fromMe` filter already guarantees only the
-        // account owner can reach this point via self-chat, so auto-claim them.
+        // Only a live authenticated self-chat can claim ownership. Previously
+        // approved, isolated customers may continue without claiming anything.
         if (message.platform === 'whatsapp') {
-          const api = this.getChannel(message.channelPluginId);
-          const botInfo = api?.getBotInfo?.();
-          const botPhone = botInfo?.username ?? '';
-          if (botPhone && message.sender.platformUserId === botPhone) {
+          if (authenticatedWhatsAppSelfChat) {
             await autoClaimOwnership(
               message.channelPluginId,
               message.platform,
@@ -603,12 +655,7 @@ export class ChannelServiceImpl implements IChannelService {
               userId: message.sender.platformUserId,
             });
             // Fall through — process this message normally
-          } else {
-            // fromMe=false message from another person before owner is set — just drop
-            log.debug('Dropping WhatsApp message from non-owner (no claim yet)', {
-              sender: message.sender.platformUserId,
-              botPhone,
-            });
+          } else if (!returningWhatsAppGuest) {
             return;
           }
         } else {

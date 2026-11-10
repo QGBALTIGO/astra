@@ -7,6 +7,8 @@ import { createHash } from 'node:crypto';
 import { runInExecContext } from '@ownpilot/core/agent';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 import { FinanceObligationsRepository } from '../db/repositories/finance-obligations.js';
+import { ExpensesRepository, type ExpenseCategory } from '../db/repositories/expenses.js';
+import { expenseCategoryLabelPtBr } from '../tools/expense-presentation.js';
 import { getLog } from '../services/log.js';
 
 const log = getLog('ChannelFinancing');
@@ -47,6 +49,143 @@ export function parseBrlCents(raw: string, multiplier?: string): number | null {
 function safeName(name: string): string | null {
   const clean = name.replace(/\s+/g, ' ').trim();
   return /^[a-z0-9][a-z0-9 -]{1,59}$/.test(clean) ? clean : null;
+}
+
+export interface ParsedChannelExpense {
+  amountCents: number;
+  description: string;
+  category: ExpenseCategory;
+}
+
+/**
+ * Deliberately narrow: only an explicit, completed, single BRL expense.
+ * Questions, dates, uncertainty, corrections and compound instructions stay
+ * with the assistant instead of causing an automatic financial write.
+ */
+export function parseChannelExpense(input: string): ParsedChannelExpense | null {
+  const text = input.trim();
+  const normalized = normalize(text);
+  if (
+    text.length > 300 ||
+    /[?;\r\n]/u.test(text) ||
+    /\b(?:nao|nunca|jamais|nem|talvez|acho|se|caso|amanha|ontem|anteontem|segunda|terca|quarta|quinta|sexta|sabado|domingo|semana|mes|ano|passado|passada|proximo|proxima|parcela|parcelas|parcelado|parcelada|estorno|estornado|reembolso|devolvido)\b/u.test(
+      normalized
+    )
+  ) {
+    return null;
+  }
+
+  const match = text.match(
+    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(?:gastei|paguei|acabei\s+de\s+(?:gastar|pagar))\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais?\s+)?(?:no|na|nos|nas|em|com|pelo|pela|pelos|pelas)\s+([\p{L}\p{M}\s'-]+)[.!]?$/iu
+  );
+  if (!match) return null;
+  // The legacy financing parser tolerates trailing sentence punctuation.
+  // A new automatic expense must instead have an entirely valid amount token.
+  if (!/^(?:\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[,.]\d{1,2})?)$/.test(match[1] ?? '')) {
+    return null;
+  }
+  const amountCents = parseBrlCents(match[1] ?? '');
+  const description = (match[2] ?? '').replace(/\s+/g, ' ').trim();
+  const detail = normalize(description);
+  if (
+    !amountCents ||
+    amountCents > 999_999_999_999 ||
+    description.length < 2 ||
+    description.length > 160 ||
+    /\b(?:e|mas|ou|porem|porque|depois|antes|agora|hoje|dia|registre|registra|anote|anota|apague|apaga|corrija|corrige|cancele|cancela|exclua|excluir|total|saldo|previsao|estimativa|dolares?|euros?)\b/u.test(
+      detail
+    )
+  ) {
+    return null;
+  }
+
+  let category: ExpenseCategory = 'other';
+  if (
+    /\b(?:almoco|jantar|cafe|lanche|padaria|restaurante|mercado|supermercado|ifood|pizza|comida|refeicao|alimentacao)\b/u.test(
+      detail
+    )
+  ) {
+    category = 'food';
+  } else if (
+    /\b(?:uber|taxi|gasolina|combustivel|onibus|metro|transporte|estacionamento|pedagio)\b/u.test(
+      detail
+    )
+  ) {
+    category = 'transport';
+  } else if (/\b(?:farmacia|remedio|medicamento|consulta|dentista|exame|saude)\b/u.test(detail)) {
+    category = 'health';
+  } else if (/\b(?:netflix|spotify|assinatura)\b/u.test(detail)) {
+    category = 'subscription';
+  } else if (/\b(?:internet|energia|luz|agua|telefone)\b/u.test(detail)) {
+    category = 'utilities';
+  }
+  return { amountCents, description, category };
+}
+
+/** Record a fully specified expense even when every LLM provider is busy. */
+export async function tryExpenseRecordChannelReply(
+  message: Pick<
+    ChannelIncomingMessage,
+    'text' | 'id' | 'channelPluginId' | 'platformChatId' | 'timestamp'
+  >,
+  userId: string
+): Promise<string | null> {
+  const intent = parseChannelExpense(message.text);
+  if (!intent) return null;
+  if (
+    !userId?.trim() ||
+    !message.id ||
+    !message.channelPluginId ||
+    !message.platformChatId ||
+    !(message.timestamp instanceof Date) ||
+    Number.isNaN(message.timestamp.getTime())
+  ) {
+    return 'Não consegui confirmar sua identidade ou a data desse gasto. O registro não foi iniciado.';
+  }
+
+  const sourceKey = createHash('sha256')
+    .update(JSON.stringify([userId, message.channelPluginId, message.platformChatId, message.id]))
+    .digest('hex');
+  // Keep the existing expense tool's local-calendar convention, using the
+  // incoming event time rather than the time a queued message gets processed.
+  const at = message.timestamp;
+  const date = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+  try {
+    const repo = new ExpensesRepository(userId);
+    const { expense, created } = await repo.createFromChannel(
+      {
+        date,
+        amount: intent.amountCents / 100,
+        currency: 'BRL',
+        category: intent.category,
+        description: intent.description,
+        source: 'channel',
+      },
+      sourceKey
+    );
+    if (created) {
+      // A failed UI notification must not turn a committed expense into a
+      // misleading failure that prompts the user to register it again.
+      try {
+        const { wsGateway } = await import('../ws/server.js');
+        wsGateway.broadcast('data:changed', {
+          entity: 'expense',
+          action: 'created',
+          id: expense.id,
+        });
+      } catch (error) {
+        log.warn('Expense saved but UI notification failed', { error });
+      }
+    }
+    const amount = currency(Math.round(expense.amount * 100));
+    const category = expenseCategoryLabelPtBr(expense.category);
+    return created
+      ? `Registrei ${amount} em ${category}: ${expense.description}.`
+      : `Esse gasto já estava registrado: ${amount} em ${category}: ${expense.description}.`;
+  } catch (error) {
+    log.warn('Channel expense persistence failed', { error });
+    return 'Não consegui confirmar o registro desse gasto agora. Consulte seus gastos antes de reenviar.';
+  }
 }
 
 export function parseFinancingIntent(input: string): ParsedIntent | null {

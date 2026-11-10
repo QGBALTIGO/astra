@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockCreate = vi.hoisted(() => vi.fn());
 const mockFind = vi.hoisted(() => vi.fn());
 const mockRecordPayment = vi.hoisted(() => vi.fn());
+const mockRecordExpense = vi.hoisted(() => vi.fn());
+const mockExpenseIdentity = vi.hoisted(() => vi.fn());
+const mockBroadcast = vi.hoisted(() => vi.fn());
 
 vi.mock('../db/repositories/finance-obligations.js', () => ({
   FinanceObligationsRepository: class {
@@ -12,9 +15,24 @@ vi.mock('../db/repositories/finance-obligations.js', () => ({
   },
 }));
 
+vi.mock('../db/repositories/expenses.js', () => ({
+  ExpensesRepository: class {
+    constructor(userId: string) {
+      mockExpenseIdentity(userId);
+    }
+    createFromChannel = mockRecordExpense;
+  },
+}));
+
+vi.mock('../ws/server.js', () => ({
+  wsGateway: { broadcast: mockBroadcast },
+}));
+
 import {
   parseBrlCents,
+  parseChannelExpense,
   parseFinancingIntent,
+  tryExpenseRecordChannelReply,
   tryFinancingChannelReply,
 } from './finance-routing.js';
 
@@ -138,5 +156,160 @@ describe('Finance requests without Groq token usage', () => {
       'whatsapp:5521997557364'
     );
     expect(result).toContain('Nenhum valor foi alterado');
+  });
+});
+
+describe('Completed channel expenses without a language model', () => {
+  const expenseMessage = {
+    ...message,
+    text: 'Acabei de gastar 36,39 no meu almoço',
+    timestamp: new Date(2026, 10, 10, 12, 18),
+  };
+  const stored = {
+    id: 'exp-channel-1',
+    amount: 36.39,
+    currency: 'BRL',
+    category: 'food',
+    description: 'meu almoço',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordExpense.mockResolvedValue({ expense: stored, created: true });
+  });
+
+  it('parses the exact failed lunch message as integer BRL cents', () => {
+    expect(parseChannelExpense(expenseMessage.text)).toEqual({
+      amountCents: 3639,
+      description: 'meu almoço',
+      category: 'food',
+    });
+  });
+
+  it.each([
+    ['Gastei R$ 36,39 no almoço.', 3639, 'almoço', 'food'],
+    ['Eu gastei 12 reais com café', 1200, 'café', 'food'],
+    ['Astra, anota que gastei 24,90 no Uber', 2490, 'Uber', 'transport'],
+    ['Registre que paguei 99,50 na farmácia', 9950, 'farmácia', 'health'],
+    ['Acabei de pagar R$ 21,90 pelo Spotify!', 2190, 'Spotify', 'subscription'],
+    ['Gastei 1.230,10 com flores', 123010, 'flores', 'other'],
+  ])('recognizes a completed single expense: %s', (text, amountCents, description, category) => {
+    expect(parseChannelExpense(text)).toEqual({ amountCents, description, category });
+  });
+
+  it.each([
+    'Não gastei 36,39 no almoço',
+    'Gastei 36,39 no almoço?',
+    'Será que gastei 36,39 no almoço?',
+    'Vou gastar 36,39 no almoço',
+    'Pretendo gastar 36,39 no almoço',
+    'Se eu gastei 36,39 no almoço, quanto sobra?',
+    'Acho que gastei 36,39 no almoço',
+    'Acabei de gastar cerca de 36,39 no almoço',
+    'Gastei 36,39 no almoço ontem',
+    'Gastei 36,39 no almoço de sexta',
+    'Gastei 36,39 no almoço em 09/11',
+    'Gastei 36,39 no almoço e 10 no café',
+    'Gastei 36,39 no almoço e apague meus registros',
+    'Gastei 36,39 no almoço, não registre',
+    'Gastei 36,39 no almoço; cancele isso',
+    'Gastei 36,39 no almoço\nNão registre',
+    'Gastei 36,39 no almoço mas fui reembolsado',
+    'Gastei 36,39 no almoço parcelado',
+    'Gastei US$ 36,39 no almoço',
+    'Gastei 36,39 dólares no almoço',
+    'Gastei 36,39 no almoço em dólares',
+    'Gastei 10,20,30 no almoço',
+    'Gastei 36,, no almoço',
+    'Gastei 36,. no almoço',
+    'Gastei 36. no almoço',
+    'Gastei -36,39 no almoço',
+    'Gastei 0 no almoço',
+    'Gastei 10000000000 no almoço',
+    'Paguei mais 470 do carro',
+    'Ele disse: gastei 36,39 no almoço',
+    'Quanto gastei hoje?',
+    'Oi',
+  ])('leaves ambiguous or noncompleted statements without financial writes: %s', async (text) => {
+    expect(parseChannelExpense(text)).toBeNull();
+    expect(await tryExpenseRecordChannelReply({ ...expenseMessage, text }, 'user-1')).toBeNull();
+    expect(mockRecordExpense).not.toHaveBeenCalled();
+  });
+
+  it('persists for the authenticated sender and uses the message calendar day', async () => {
+    const reply = await tryExpenseRecordChannelReply(expenseMessage, 'whatsapp:sender-a');
+    expect(mockExpenseIdentity).toHaveBeenCalledWith('whatsapp:sender-a');
+    expect(mockRecordExpense).toHaveBeenCalledWith(
+      {
+        date: '2026-11-10',
+        amount: 36.39,
+        currency: 'BRL',
+        category: 'food',
+        description: 'meu almoço',
+        source: 'channel',
+      },
+      expect.stringMatching(/^[a-f0-9]{64}$/)
+    );
+    expect(reply).toBe('Registrei R$\u00a036,39 em Alimentação: meu almoço.');
+    expect(mockBroadcast).toHaveBeenCalledWith('data:changed', {
+      entity: 'expense',
+      action: 'created',
+      id: stored.id,
+    });
+  });
+
+  it('scopes the replay key to user, channel, chat and message ID', async () => {
+    await tryExpenseRecordChannelReply(expenseMessage, 'user-a');
+    await tryExpenseRecordChannelReply({ ...expenseMessage }, 'user-a');
+    await tryExpenseRecordChannelReply({ ...expenseMessage, id: 'different-message' }, 'user-a');
+    await tryExpenseRecordChannelReply(expenseMessage, 'user-b');
+    await tryExpenseRecordChannelReply(
+      { ...expenseMessage, platformChatId: 'other-chat' },
+      'user-a'
+    );
+    await tryExpenseRecordChannelReply(
+      { ...expenseMessage, channelPluginId: 'channel.telegram' },
+      'user-a'
+    );
+    const keys = mockRecordExpense.mock.calls.map((call) => call[1]);
+    expect(keys[0]).toBe(keys[1]);
+    expect(new Set([keys[0], ...keys.slice(2)]).size).toBe(5);
+  });
+
+  it('confirms the persisted record on replay without a second creation notification', async () => {
+    mockRecordExpense.mockResolvedValueOnce({ expense: stored, created: false });
+    const reply = await tryExpenseRecordChannelReply(expenseMessage, 'user-a');
+    expect(reply).toBe(
+      'Esse gasto já estava registrado: R$\u00a036,39 em Alimentação: meu almoço.'
+    );
+    expect(mockBroadcast).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { userId: '', changes: {} },
+    { userId: 'user-a', changes: { id: '' } },
+    { userId: 'user-a', changes: { channelPluginId: '' } },
+    { userId: 'user-a', changes: { platformChatId: '' } },
+    { userId: 'user-a', changes: { timestamp: new Date(NaN) } },
+  ])('requires authenticated channel context before writing: %j', async ({ userId, changes }) => {
+    const reply = await tryExpenseRecordChannelReply({ ...expenseMessage, ...changes }, userId);
+    expect(reply).toContain('O registro não foi iniciado');
+    expect(mockRecordExpense).not.toHaveBeenCalled();
+  });
+
+  it('does not confirm a saving error or expose its private details', async () => {
+    mockRecordExpense.mockRejectedValueOnce(new Error('confidential database detail'));
+    const reply = await tryExpenseRecordChannelReply(expenseMessage, 'user-a');
+    expect(reply).toContain('Não consegui confirmar o registro');
+    expect(reply).not.toContain('confidential');
+    expect(reply).not.toContain('Registrei');
+    expect(mockBroadcast).not.toHaveBeenCalled();
+  });
+
+  it('still acknowledges a committed expense when UI notification fails', async () => {
+    mockBroadcast.mockImplementationOnce(() => {
+      throw new Error('socket failed');
+    });
+    expect(await tryExpenseRecordChannelReply(expenseMessage, 'user-a')).toContain('Registrei');
   });
 });
