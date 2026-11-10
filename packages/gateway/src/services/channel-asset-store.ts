@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 import type { ChannelAttachment } from '@ownpilot/core/channels';
 import {
@@ -237,6 +237,56 @@ export class ChannelAssetStore {
     return removedIds.length;
   }
 
+  /**
+   * Bounded scan for .part-* artifacts left by process crashes. Never follows
+   * symlinked directories, never touches complete assets, and waits at least
+   * one TTL before removing a partial file (to avoid racing active writers).
+   */
+  async purgeOrphanPartials(): Promise<number> {
+    const cutoff = Date.now() - Math.max(this.ttlMs, 15 * 60 * 1000);
+    const queue: Array<{ directory: string; depth: number }> = [
+      { directory: this.baseDir, depth: 0 },
+    ];
+    let examined = 0;
+    let removed = 0;
+
+    while (queue.length > 0 && examined < 2500) {
+      const current = queue.shift()!;
+      let entries;
+      try {
+        entries = await readdir(current.directory, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (++examined > 2500) break;
+        const filePath = join(current.directory, entry.name);
+        if (!isWithinManagedRoot(this.baseDir, filePath)) continue;
+        if (entry.isDirectory() && current.depth < 3) {
+          queue.push({ directory: filePath, depth: current.depth + 1 });
+          continue;
+        }
+        if (
+          !entry.isFile() ||
+          !/^[a-f0-9-]{36}\.[a-z0-9]+\.part-[a-f0-9-]{36}$/i.test(entry.name)
+        ) {
+          continue;
+        }
+        try {
+          const metadata = await stat(filePath);
+          if (metadata.mtimeMs < cutoff) {
+            await rm(filePath, { force: true });
+            removed++;
+          }
+        } catch {
+          // A writer may have renamed this file already; retry later.
+        }
+      }
+    }
+    return removed;
+  }
+
   private async purgeExpiredIfNeeded(): Promise<void> {
     const now = Date.now();
     if (now - this.lastPurgeAt < 15 * 60 * 1000) return;
@@ -256,7 +306,10 @@ export const channelAssetStore = new ChannelAssetStore();
 // Expiry cleanup also runs when traffic is idle. Do not keep the process alive.
 const channelAssetPurgeTimer = setInterval(
   () => {
-    void channelAssetStore.purgeExpired().catch(() => {
+    void Promise.all([
+      channelAssetStore.purgeExpired(),
+      channelAssetStore.purgeOrphanPartials(),
+    ]).catch(() => {
       log.warn('Scheduled channel asset cleanup failed');
     });
   },
