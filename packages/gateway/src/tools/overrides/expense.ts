@@ -38,8 +38,16 @@ export function registerExpenseOverrides(tools: ToolRegistry, userId: string): v
 
     // Replacing an executor must use updateExecutor: register() rejects duplicates.
     // Preserve the original qualified name and definition so tool discovery stays intact.
-    const updated = tools.updateExecutor(existing.definition.name, async (args) => {
-      const result = await executeExpenseTool(toolName, args as Record<string, unknown>, userId);
+    const updated = tools.updateExecutor(existing.definition.name, async (args, context) => {
+      // Shared registries may have been initialized for the operator. Always
+      // prefer the execution's authenticated user over the registry creator,
+      // otherwise a guest could read/write the operator's financial records.
+      const authenticatedUserId = context?.userId ?? userId;
+      const result = await executeExpenseTool(
+        toolName,
+        args as Record<string, unknown>,
+        authenticatedUserId
+      );
       return {
         content: result.success
           ? JSON.stringify(presentExpenseToolResult(toolName, result.result))
