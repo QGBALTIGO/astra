@@ -37,7 +37,11 @@ RUN pnpm build
 FROM node:22-alpine AS production
 
 # Install Chromium for headless browser automation (puppeteer-core)
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont su-exec
+# Lightweight CPU-only OCR and PDF text extraction; no external paid service.
+# Tesseract and language data are Apache-2.0. Poppler-utils is GPL-2.0-or-later:
+# retain package notices and distribute corresponding source where required.
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont su-exec \\
+    tesseract-ocr tesseract-ocr-data-por tesseract-ocr-data-eng poppler-utils
 
 # Install pnpm (pinned to match packageManager field)
 RUN corepack enable && corepack prepare pnpm@10.29.3 --activate
