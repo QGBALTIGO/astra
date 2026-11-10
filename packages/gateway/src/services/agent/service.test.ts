@@ -86,6 +86,11 @@ vi.mock('@ownpilot/core/tools', async (importOriginal) => {
   class MockToolRegistry {
     has = vi.fn(() => true);
     setConfigCenter = vi.fn();
+    // Real chat-agent initialization registers gateway tools, including
+    // translation; keep the mocked API aligned with ToolRegistry.register().
+    register = vi.fn(() => ({ ok: true, value: 'core.translate_text' }));
+    getNames = vi.fn(() => []);
+    unregister = vi.fn(() => true);
   }
   return {
     ...actual,
