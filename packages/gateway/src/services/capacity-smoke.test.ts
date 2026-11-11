@@ -60,15 +60,18 @@ describe('Astra isolated 500-user message handling', () => {
       expect(result.response.content).toBe('ack:sim-user-' + i);
     }
     const durations = results.map((r) => r.ms);
-    console.info('[ASTRA_SYNTHETIC_CAPACITY]', JSON.stringify({
-      mode: 'in-process-no-llm-no-whatsapp-no-database',
-      virtualUsers: 500,
-      syntheticReplies: 500,
-      elapsedMs: Math.round(performance.now() - started),
-      p50Ms: percentile(durations, .5),
-      p95Ms: percentile(durations, .95),
-      p99Ms: percentile(durations, .99),
-    }));
+    console.info(
+      '[ASTRA_SYNTHETIC_CAPACITY]',
+      JSON.stringify({
+        mode: 'in-process-no-llm-no-whatsapp-no-database',
+        virtualUsers: 500,
+        syntheticReplies: 500,
+        elapsedMs: Math.round(performance.now() - started),
+        p50Ms: percentile(durations, 0.5),
+        p95Ms: percentile(durations, 0.95),
+        p99Ms: percentile(durations, 0.99),
+      })
+    );
   });
 
   it('serializes 500 dependent turns across 25 synthetic sessions', async () => {

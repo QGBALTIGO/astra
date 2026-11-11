@@ -962,7 +962,13 @@ describe('MessageBus.process() — error handling', () => {
       metadata: result.response.metadata,
       warnings: result.warnings,
     });
-    for (const forbidden of ['SQLSTATE', 'private-123', '5511988877665', 'db-write-private', 'secret']) {
+    for (const forbidden of [
+      'SQLSTATE',
+      'private-123',
+      '5511988877665',
+      'db-write-private',
+      'secret',
+    ]) {
       expect(publicFields).not.toContain(forbidden);
     }
     expect(onError).toHaveBeenCalledWith(

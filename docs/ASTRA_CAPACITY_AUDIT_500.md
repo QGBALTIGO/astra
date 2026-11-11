@@ -10,16 +10,16 @@ necessidade completamente diferente de 500 solicitações enviadas no mesmo minu
 
 ### Infraestrutura observada (janela: 24 horas)
 
-| Item | Observado | Interpretação |
-| --- | --- | --- |
-| Gateway | 1 réplica, 2 vCPU limite, 1 GB RAM limite | Sem dados de stress real |
-| Volume gateway | 500 MB em /app/data | Railway não permite escalar réplicas do serviço com volume |
-| Pico de RAM | 0,318 GB | Baixo na carga atual; não comprova carga de 500 |
-| CPU gateway | Máx. amostra ~0,054 CPU_USAGE | Pouco uso observado; métrica não é benchmark |
-| PostgreSQL | 2 vCPU / 1 GB limites; ~0,070 GB pico RAM | Não recebeu teste de 500 conversas |
-| WhatsApp | Uma sessão Baileys por gateway | Não duplicar o socket ao escalar |
-| Ollama relay | MAX_JOBS = 6, MAX_WAIT_MS = 48s | O worker do PC executa o loop de inferência sequencialmente |
-| Saída WhatsApp | 20 mensagens / 60s global; intervalo de 3s por destinatário | Política de envio, não capacidade do servidor |
+| Item           | Observado                                                   | Interpretação                                               |
+| -------------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
+| Gateway        | 1 réplica, 2 vCPU limite, 1 GB RAM limite                   | Sem dados de stress real                                    |
+| Volume gateway | 500 MB em /app/data                                         | Railway não permite escalar réplicas do serviço com volume  |
+| Pico de RAM    | 0,318 GB                                                    | Baixo na carga atual; não comprova carga de 500             |
+| CPU gateway    | Máx. amostra ~0,054 CPU_USAGE                               | Pouco uso observado; métrica não é benchmark                |
+| PostgreSQL     | 2 vCPU / 1 GB limites; ~0,070 GB pico RAM                   | Não recebeu teste de 500 conversas                          |
+| WhatsApp       | Uma sessão Baileys por gateway                              | Não duplicar o socket ao escalar                            |
+| Ollama relay   | MAX_JOBS = 6, MAX_WAIT_MS = 48s                             | O worker do PC executa o loop de inferência sequencialmente |
+| Saída WhatsApp | 20 mensagens / 60s global; intervalo de 3s por destinatário | Política de envio, não capacidade do servidor               |
 
 **Teto teórico atual de saída:** 500 respostas únicas destinadas a usuários
 diferentes, admitindo a primeira leva no minuto zero e 20 envios por janela,
@@ -49,6 +49,7 @@ representativa de picos.
 ### Problemas ordenados por criticidade
 
 **P0/P1 (capacidade e confiabilidade):**
+
 1. Política de envio de 20/min faz a última resposta esperar ~24 min em
    pico de 500 solicitações. Limite configurado no Baileys — não é seguro
    aumentá-lo cegamente.
@@ -69,16 +70,12 @@ representativa de picos.
    Corrigido nesta branch com cancelamento do request e eliminação segura
    de IDs pendentes; retorno tardio do worker vira 410.
 
-**P2 (desempenho, privacidade e diagnóstico):**
-7. Flood guard gerava advertência com platformUserId (frequentemente
-   telefone). Removido esse dado das advertências na branch.
-8. Valores malformados de configuração do flood guard podiam resultar em
-   limite desabilitado ou comportamento incoerente. Agora são limitados.
-9. Métricas e tempos de resposta precisam ser separados por etapa:
-   enfileiramento, modelo escolhido, tokens, ferramentas, escrita PG,
-   envio, recibo. Habilitar tracing com retenção e proteção de PII.
-10. A versão atual de Railway pode estar atrasada em relação à main:
-    conferir imagem Docker exata antes de presumir correções implantadas.
+**P2 (desempenho, privacidade e diagnóstico):** 7. Flood guard gerava advertência com platformUserId (frequentemente
+telefone). Removido esse dado das advertências na branch. 8. Valores malformados de configuração do flood guard podiam resultar em
+limite desabilitado ou comportamento incoerente. Agora são limitados. 9. Métricas e tempos de resposta precisam ser separados por etapa:
+enfileiramento, modelo escolhido, tokens, ferramentas, escrita PG,
+envio, recibo. Habilitar tracing com retenção e proteção de PII. 10. A versão atual de Railway pode estar atrasada em relação à main:
+conferir imagem Docker exata antes de presumir correções implantadas.
 
 ### Bateria de 500 usuários (esta branch)
 

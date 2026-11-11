@@ -41,7 +41,12 @@ export class InboundFloodGuard {
   constructor(options: FloodGuardOptions = {}) {
     this.maxPerWindow = safeBound(options.maxPerWindow ?? DEFAULT_MAX, 20, 1, 200);
     this.windowMs = safeBound(options.windowMs ?? DEFAULT_WINDOW_MS, 60_000, 100, 3_600_000);
-    this.maxTracked = safeBound(options.maxTracked ?? DEFAULT_MAX_TRACKED, DEFAULT_MAX_TRACKED, 1, 100_000);
+    this.maxTracked = safeBound(
+      options.maxTracked ?? DEFAULT_MAX_TRACKED,
+      DEFAULT_MAX_TRACKED,
+      1,
+      100_000
+    );
   }
 
   /**
