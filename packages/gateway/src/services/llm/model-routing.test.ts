@@ -406,3 +406,47 @@ describe('model-routing', () => {
     });
   });
 });
+
+describe('opt-in local Ollama WhatsApp routing', () => {
+  it('prefers the local model only for text WhatsApp turns when explicitly enabled', async () => {
+    vi.stubEnv('ASTRA_CHANNEL_LOCAL_OLLAMA', 'true');
+    vi.stubEnv('ASTRA_ONLY_GROQ', 'false');
+    vi.stubEnv('ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN', 'a'.repeat(64));
+    try {
+      mockSettingsRepo.get.mockImplementation((key: string) => {
+        if (key === 'model_routing:channel:provider') return 'groq';
+        if (key === 'model_routing:channel:model') return 'openai/gpt-oss-120b';
+        if (key === 'model_routing:channel:fallback_provider') return 'zai';
+        if (key === 'model_routing:channel:fallback_model') return 'glm-4.7-flash';
+        return null;
+      });
+      const local = await resolveForChannel('channel.whatsapp');
+      expect(local.provider).toBe('ollama-local');
+      expect(local.model).toBe('qwen3:4b-instruct');
+      expect(local.fallbackProvider).toBe('zai');
+      expect(local.fallbackModel).toBe('glm-4.7-flash');
+
+      const media = await resolveForChannel('channel.whatsapp', { hasMedia: true });
+      expect(media.provider).toBe('groq');
+      const telegram = await resolveForChannel('channel.telegram');
+      expect(telegram.provider).toBe('groq');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('fails closed when token is missing or the operator disabled the pilot', async () => {
+    vi.stubEnv('ASTRA_CHANNEL_LOCAL_OLLAMA', 'true');
+    vi.stubEnv('ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN', '');
+    try {
+      const noKey = await resolveForChannel('channel.whatsapp');
+      expect(noKey.provider).not.toBe('ollama-local');
+      vi.stubEnv('ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN', 'a'.repeat(64));
+      vi.stubEnv('ASTRA_CHANNEL_LOCAL_OLLAMA', 'false');
+      const disabled = await resolveForChannel('channel.whatsapp');
+      expect(disabled.provider).not.toBe('ollama-local');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
