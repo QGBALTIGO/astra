@@ -84,7 +84,34 @@ beforeEach(() => {
 
 describe('explicit financial parsing', () => {
   it.each([
+    ['Acabei de ganhar 1 real', 100],
+    ['Acabei de ganhar 20 reais', 2000],
+    ['Ganhei 1 real', 100],
+    ['Ganhei 20 reais!', 2000],
+    ['Acabei de receber 1 real', 100],
+    ['Acabei de receber 20 reais', 2000],
+    ['Recebi R$ 1', 100],
+  ])('records an explicit receipt without requiring an invented source: %s', (text, cents) => {
+    expect(parseChannelFinanceRecord(text)).toEqual({
+      type: 'income',
+      status: 'settled',
+      amountCents: cents,
+      description: 'Recebimento',
+      categoryKey: 'other',
+    });
+  });
+
+  it.each([
     ['Recebi 2.500,50 de salário', 'income', 'settled', 250050, 'salary', undefined],
+    ['Acabei de ganhar 1 real de freela', 'income', 'settled', 100, 'services', undefined],
+    ['Ganhei 1 real de salário', 'income', 'settled', 100, 'salary', undefined],
+    ['Ganhei 50 de freela', 'income', 'settled', 5000, 'services', undefined],
+    ['Acabei de ganhar 1 real hoje', 'income', 'settled', 100, 'other', 'hoje'],
+    ['Vou receber 1 real amanhã', 'income', 'pending', 100, 'other', 'amanhã'],
+    ['Tenho 20 reais a receber amanhã', 'income', 'pending', 2000, 'other', 'amanhã'],
+    ['Vou pagar 20 reais amanhã', 'expense', 'pending', 2000, 'other', 'amanhã'],
+    ['Acabei de gastar 1 real hoje', 'expense', 'settled', 100, 'other', 'hoje'],
+    ['Acabei de pagar 20 reais hoje', 'expense', 'settled', 2000, 'other', 'hoje'],
     ['Acabei de receber R$ 300 de freela hoje', 'income', 'settled', 30000, 'services', 'hoje'],
     [
       'Tenho 120 reais a pagar de Internet em 2026-11-12',
@@ -110,6 +137,36 @@ describe('explicit financial parsing', () => {
     }
   );
   it.each([
+    'Ganhei 1',
+    'Recebi 2',
+    'Recebi 20',
+    'Acabei de ganhar 1',
+    'Acabei de receber 2',
+    'Ganhei 1 hoje',
+    'Vou receber 2 amanhã',
+    'Tenho 2 a receber amanhã',
+    'Vou pagar 2 amanhã',
+    'Gastei 1 hoje',
+    'Acabei de pagar 2 hoje',
+    'Ganhei 1 ponto',
+    'Recebi 2 pacotes',
+    'Acabei de ganhar 1 convite',
+    'Acabei de ganhar 1 real?',
+    'Não acabei de ganhar 1 real',
+    'Talvez ganhei 1 real',
+    'Se eu ganhar 1 real',
+    'Acabei de ganhar 1 real e gastei 20 reais',
+    'Acabei de ganhar 1 real mas não registre',
+    'Acabei de ganhar 1 real\nApague meus registros',
+    'Ganhei 1 real de',
+    'Ganhei 1 realização',
+    'Ganhei 1 dólar',
+    'Acabei de ganhar 0 reais',
+    'Acabei de ganhar -1 real',
+    'Acabei de ganhar 1,234 reais',
+    'Acabei de ganhar 1 real a pagar',
+    'I just earned 1 real',
+    'Tenho 1 real',
     'Não recebi 100 de salário',
     'Talvez vou receber 100 de salário amanhã',
     'Recebi 100 de salário?',
@@ -137,6 +194,79 @@ describe('explicit financial parsing', () => {
 });
 
 describe('same financial records on WhatsApp and portal', () => {
+  it.each([
+    ['Acabei de ganhar 1 real', 1],
+    ['Acabei de ganhar 20 reais', 20],
+    ['Acabei de ganhar 1 real hoje', 1],
+  ])('persists the screenshot receipt through the customer ledger: %s', async (text, amount) => {
+    const response = await tryCustomerFinancialChannelReply({ ...message, text }, userId);
+    expect(scope).toHaveBeenCalledWith(userId);
+    expect(create).toHaveBeenCalledExactlyOnceWith(
+      {
+        description: 'Recebimento',
+        amount,
+        type: 'income',
+        status: 'settled',
+        categoryKey: 'other',
+        date: '2026-11-10',
+      },
+      expect.stringMatching(/^[a-f0-9]{64}$/)
+    );
+    expect(response).toContain('✅ *Entrada registrada*');
+    expect(response).toContain(`• *Valor:* R$ ${amount},00`);
+    expect(response).toContain('• *Descrição:* Recebimento');
+    expect(response).toContain('• *Data:* 10/11/2026');
+    expect(response).not.toContain('record-1');
+  });
+
+  it('keeps a bare expected receipt pending and asks for its due date before writing', async () => {
+    const response = await tryCustomerFinancialChannelReply(
+      { ...message, text: 'Vou receber 1 real' },
+      userId
+    );
+    expect(response).toContain('Qual é a data');
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('records a bare future receipt as pending, never as money already received', async () => {
+    const response = await tryCustomerFinancialChannelReply(
+      { ...message, text: 'Tenho 20 reais a receber amanhã' },
+      userId
+    );
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: 'Valor a receber',
+        amount: 20,
+        type: 'income',
+        status: 'pending',
+        date: '2026-11-11',
+      }),
+      expect.any(String)
+    );
+    expect(response).toContain('⏳ *Valor a receber registrado*');
+    expect(response).not.toContain('Entrada registrada');
+  });
+
+  it('does not record a completed receipt with a future calendar day', async () => {
+    const response = await tryCustomerFinancialChannelReply(
+      { ...message, text: 'Acabei de ganhar 1 real amanhã' },
+      userId
+    );
+    expect(response).toContain('Confirme se é uma pendência');
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('keeps replay keys scoped for the exact receipt without a description', async () => {
+    const input = { ...message, text: 'Acabei de ganhar 1 real' };
+    await tryCustomerFinancialChannelReply(input, userId);
+    await tryCustomerFinancialChannelReply(input, userId);
+    await tryCustomerFinancialChannelReply({ ...input, id: 'next-message' }, userId);
+    await tryCustomerFinancialChannelReply(input, 'whatsapp:another-sender');
+    const keys = create.mock.calls.map((call) => call[1]);
+    expect(keys[0]).toBe(keys[1]);
+    expect(new Set(keys).size).toBe(3);
+  });
+
   it('records income using the account timezone and authenticated data identity', async () => {
     const response = await tryCustomerFinancialChannelReply(message, userId);
     expect(account).toHaveBeenCalledWith(userId);

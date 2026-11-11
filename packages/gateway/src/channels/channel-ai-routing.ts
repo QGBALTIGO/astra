@@ -25,6 +25,7 @@ import { channelToolsForMessage, recentChannelText } from './tool-selection.js';
 import { restoreChannelHistory } from './restore-history.js';
 import { formatAstraMessage, formatReminderConfirmation } from './response-presentation.js';
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
+import { parseRelativeReminderRequest } from './relative-reminder.js';
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -221,20 +222,10 @@ export async function tryScheduleRelativeChannelReminder(
     Partial<Pick<ChannelIncomingMessage, 'timestamp'>>,
   userId: string
 ): Promise<string | null> {
-  const match = message.text
-    .trim()
-    .match(
-      /^(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar)\s+(?:em|daqui(?:\s+(?:a|uns?|umas?))?)\s+(\d{1,5})\s*(minutos?|min|horas?|h)\s+(?:para|pra|de|que)\s+(.+)$/iu
-    );
-  if (!match) return null;
-
-  const title = match[3]!.trim().replace(/[.!?]+$/, '');
-  const amount = Number(match[1]);
-  const isHours = /^(?:h|hora)/i.test(match[2]!);
-  const delayMinutes = isHours ? amount * 60 : amount;
-  if (!title || delayMinutes < 1 || delayMinutes > 366 * 24 * 60) {
-    return 'Informe o que deseja lembrar e um prazo válido.';
-  }
+  const request = parseRelativeReminderRequest(message.text);
+  if (!request) return null;
+  if (request.kind === 'invalid') return request.message;
+  const { title, delaySeconds } = request;
 
   const { executeChannelReminderTool } = await import('../tools/channel-reminder-tools.js');
   return runInExecContext(
@@ -247,7 +238,7 @@ export async function tryScheduleRelativeChannelReminder(
     async () => {
       const result = await executeChannelReminderTool(
         'schedule_channel_reminder',
-        { title, delay_minutes: delayMinutes },
+        { title, delay_seconds: delaySeconds },
         userId
       );
       if (!result.success) {
@@ -258,14 +249,11 @@ export async function tryScheduleRelativeChannelReminder(
       if (!saved)
         return 'Não consegui confirmar o horário desse lembrete. Confira sua agenda antes de repetir o pedido.';
       if (saved.status !== 'pending') {
-        return formatAstraMessage(
-          'ℹ️ Lembrete já registrado',
-          [
-            { label: 'Assunto', value: saved.title ?? title },
-            { label: 'Data e hora', value: saved.horarioLocal ?? '' },
-          ],
-          'Esse lembrete já estava registrado nesta conversa.'
-        );
+        return formatReminderConfirmation({
+          title: saved.title ?? title,
+          horarioLocal: saved.horarioLocal ?? '',
+          status: saved.status,
+        });
       }
       if (!saved.horarioLocal)
         return formatAstraMessage(

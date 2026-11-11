@@ -45,6 +45,7 @@ jobs:
           src/channels/timezone-routing.test.ts
           src/channels/finance-routing.test.ts
           src/channels/customer-finance-routing.test.ts
+          src/channels/relative-reminder.test.ts
           src/channels/channel-ai-routing-quick.test.ts
           src/channels/tool-selection.test.ts
           src/channels/plugins/whatsapp/index.test.ts
@@ -62,3 +63,47 @@ jobs:
           name: astra-reviewed-source
           path: /tmp/astra-reviewed-source.tar
           retention-days: 1
+
+  screenshot-postgres:
+    name: Screenshot requests with real PostgreSQL and reminder clock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: astra_screenshot_ci_only
+          POSTGRES_DB: astratest_screenshots
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astratest -d astratest_screenshots"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build core imports
+        run: pnpm --filter @ownpilot/core build
+      - name: Persist screenshot requests and dispatch a real 20-second reminder
+        env:
+          ASTRA_WHATSAPP_SCREENSHOT_SMOKE: '1'
+          NODE_ENV: test
+          DATABASE_URL: ''
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: '5432'
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: astra_screenshot_ci_only
+          POSTGRES_DB: astratest_screenshots
+          OWNPILOT_DATA_DIR: ${{ runner.temp }}/astra-screenshot-smoke
+          LOG_LEVEL: error
+        run: pnpm --filter @ownpilot/gateway exec node --import tsx scripts/whatsapp-screenshot-smoke.ts

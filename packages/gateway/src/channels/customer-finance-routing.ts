@@ -84,16 +84,18 @@ export function parseChannelFinanceRecord(input: string): ChannelFinanceRecord |
     text = text.slice(0, dateSuffix.index).trim();
   }
   const match =
-    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(recebi|ganhei|acabei\s+de\s+receber|vou\s+receber|tenho\s+a\s+receber|vou\s+pagar|tenho\s+a\s+pagar|tenho|gastei|paguei)\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais?\s+)?(?:(a\s+receber|a\s+pagar)\s+)?(?:de|do|da|dos|das|em|no|na|com|por)\s+([\p{L}\p{M}\s'-]+)[.!]?$/iu.exec(
+    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(recebi|ganhei|acabei\s+de\s+(?:receber|ganhar|gastar|pagar)|vou\s+receber|tenho\s+a\s+receber|vou\s+pagar|tenho\s+a\s+pagar|tenho|gastei|paguei)\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:(?:real|reais)\b\s*)?(?:(a\s+receber|a\s+pagar)\b\s*)?(?:(?:de|do|da|dos|das|em|no|na|nos|nas|com|por|pelo|pela|pelos|pelas)\s+([\p{L}\p{M}\s'-]+))?[.!]?$/iu.exec(
       text
     );
   if (!match) return null;
+  // Without a description, a bare count may refer to items rather than money.
+  if (!match[4] && !/(?:r\$|(?:real|reais)\b)/i.test(text)) return null;
   const action = normalize(match[1]!);
   const state = normalize(match[3] ?? '');
   if (action === 'tenho' && !state) return null;
   const pending = /^(?:vou|tenho)/.test(action);
   const type: CustomerTransactionType =
-    /receber/.test(action) || /receber/.test(state) || /^(?:recebi|ganhei)/.test(action)
+    /\b(?:recebi|ganhei|ganhar|receber)\b/.test(action) || /receber/.test(state)
       ? 'income'
       : 'expense';
   // Completed expense statements without an explicit day keep the established
@@ -107,7 +109,17 @@ export function parseChannelFinanceRecord(input: string): ChannelFinanceRecord |
       (/receber/.test(action) && /pagar/.test(state)))
   )
     return null;
-  const description = match[4]!.replace(/\s+/g, ' ').trim();
+  // A completed monetary statement does not need a merchant or income source.
+  // Keep a neutral label when the user did not provide one; never infer a payer.
+  const description = match[4]
+    ? match[4].replace(/\s+/g, ' ').trim()
+    : pending
+      ? type === 'income'
+        ? 'Valor a receber'
+        : 'Valor a pagar'
+      : type === 'income'
+        ? 'Recebimento'
+        : 'Despesa';
   const detail = normalize(description);
   if (
     description.length < 2 ||

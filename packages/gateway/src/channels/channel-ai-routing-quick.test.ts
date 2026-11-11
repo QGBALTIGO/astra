@@ -185,9 +185,120 @@ describe('Agendamento direto e gratuito pelo canal', () => {
     expect(response).toContain('jogar o lixo fora');
     expect(mockSchedule).toHaveBeenCalledWith(
       'schedule_channel_reminder',
-      { title: 'jogar o lixo fora', delay_minutes: 1 },
+      { title: 'jogar o lixo fora', delay_seconds: 60 },
       'default'
     );
+  });
+
+  it('agenda exatamente o pedido de 20 segundos do print sem pedir conversão', async () => {
+    mockSchedule.mockResolvedValueOnce({
+      success: true,
+      result: { status: 'pending', title: 'vê o pc', horarioLocal: '11/11/2026, 10:05:20' },
+    });
+    const response = await tryScheduleRelativeChannelReminder(
+      { ...message, text: 'Me lembre daqui 20 segundos pra vê o pc' },
+      'default'
+    );
+    expect(response).toContain('✅ *Lembrete agendado*');
+    expect(response).toContain('• *Assunto:* vê o pc');
+    expect(response).toContain('10:05:20');
+    expect(mockSchedule).toHaveBeenCalledWith(
+      'schedule_channel_reminder',
+      { title: 'vê o pc', delay_seconds: 20 },
+      'default'
+    );
+    expect(response).not.toMatch(/quantos minutos|intervalo em minutos/);
+  });
+
+  it.each(['bus', 'direct'] as const)(
+    'encaminha o pedido em segundos diretamente para persistência pelo fluxo %s',
+    async (path) => {
+      const input = {
+        ...message,
+        platform: 'whatsapp' as const,
+        channelPluginId: 'channel.whatsapp',
+        text: 'Me lembre daqui 20 segundos pra vê o pc',
+        timestamp: new Date('2026-11-11T14:05:00Z'),
+        attachments: [],
+      };
+      mockSchedule.mockResolvedValueOnce({
+        success: true,
+        result: { status: 'pending', title: 'vê o pc', horarioLocal: '11/11/2026, 10:05:20' },
+      });
+      const bus = { process: vi.fn() };
+      const response =
+        path === 'bus'
+          ? await processViaBus(
+              bus as never,
+              input as never,
+              { sessionId: 'seconds-session', conversationId: null },
+              { ownpilotUserId: 'default' },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : await processDirectAgent(input as never, 'default', async () => true);
+      expect(response).toContain('✅ *Lembrete agendado*');
+      expect(response).toContain('10:05:20');
+      expect(mockSchedule).toHaveBeenCalledExactlyOnceWith(
+        'schedule_channel_reminder',
+        { title: 'vê o pc', delay_seconds: 20 },
+        'default'
+      );
+      expect(bus.process).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['bus', 'direct'] as const)(
+    'mantém a verificação de acesso para o pedido em segundos no fluxo %s',
+    async (path) => {
+      const input = {
+        ...message,
+        platform: 'whatsapp' as const,
+        text: 'Me lembre daqui 20 segundos pra vê o pc',
+        attachments: [],
+      };
+      const bus = { process: vi.fn() };
+      const response =
+        path === 'bus'
+          ? await processViaBus(
+              bus as never,
+              input as never,
+              { sessionId: 'seconds-session', conversationId: null },
+              { ownpilotUserId: 'default' },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => false,
+              }
+            )
+          : await processDirectAgent(input as never, 'default', async () => false);
+      expect(response).toContain('inativo');
+      expect(mockSchedule).not.toHaveBeenCalled();
+      expect(bus.process).not.toHaveBeenCalled();
+    }
+  );
+
+  it('preserva minutos e segundos combinados e recusa prazo zero antes de gravar', async () => {
+    await tryScheduleRelativeChannelReminder(
+      { ...message, text: 'Me lembre daqui 1 minuto e 20 segundos pra olhar o pc' },
+      'default'
+    );
+    expect(mockSchedule).toHaveBeenCalledWith(
+      'schedule_channel_reminder',
+      { title: 'olhar o pc', delay_seconds: 80 },
+      'default'
+    );
+    mockSchedule.mockClear();
+    const invalid = await tryScheduleRelativeChannelReminder(
+      { ...message, text: 'Me lembre daqui 0 segundos pra olhar o pc' },
+      'default'
+    );
+    expect(invalid).toBeTruthy();
+    expect(invalid).not.toMatch(/agendado|salvo/);
+    expect(mockSchedule).not.toHaveBeenCalled();
   });
 
   it('interpreta horas relativas e preserva o prazo', async () => {
@@ -206,7 +317,7 @@ describe('Agendamento direto e gratuito pelo canal', () => {
     expect(response).toContain('11/11/2026, 12:00');
     expect(mockSchedule).toHaveBeenCalledWith(
       'schedule_channel_reminder',
-      { title: 'ligar para o dentista', delay_minutes: 120 },
+      { title: 'ligar para o dentista', delay_seconds: 7200 },
       'default'
     );
   });
@@ -242,12 +353,23 @@ describe('Agendamento direto e gratuito pelo canal', () => {
     expect(response).not.toContain('DB');
   });
 
-  it('reconhece duplicidade de lembrete em retries do mesmo evento', async () => {
-    mockSchedule.mockResolvedValueOnce({
-      success: true,
-      result: { status: 'delivered' },
-    });
-    const response = await tryScheduleRelativeChannelReminder(message, 'default');
-    expect(response).toContain('já estava registrado');
-  });
+  it.each([
+    ['delivered', 'Lembrete enviado'],
+    ['cancelled', 'Lembrete cancelado'],
+    ['failed', 'Lembrete não enviado'],
+    ['sending', 'Lembrete em envio'],
+  ])(
+    'apresenta o estado persistido %s quando recebe o mesmo evento novamente',
+    async (status, title) => {
+      mockSchedule.mockResolvedValueOnce({
+        success: true,
+        result: { status, title: 'Assunto salvo', horarioLocal: '11/11/2026, 10:05:20' },
+      });
+      const response = await tryScheduleRelativeChannelReminder(message, 'default');
+      expect(response).toContain(title);
+      expect(response).toContain('Assunto salvo');
+      expect(response).toContain('10:05:20');
+      expect(response).not.toMatch(/Vou avisar|Lembrete agendado/);
+    }
+  );
 });

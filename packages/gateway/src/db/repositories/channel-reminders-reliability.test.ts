@@ -46,3 +46,53 @@ describe('atomic reminder rescheduling', () => {
     ).toBeNull();
   });
 });
+
+describe('expired reminder replay lookup', () => {
+  it('reads only the original event owned by the exact user, channel and chat', async () => {
+    f.queryOne.mockResolvedValue({
+      id: 'saved',
+      user_id: 'user-a',
+      title: 'Conferir PC',
+      remind_at: '2026-11-11T14:05:20Z',
+      channel_plugin_id: 'channel.whatsapp',
+      platform_chat_id: 'chat-a',
+      status: 'delivered',
+      attempts: 1,
+      delivery_id: 'delivery-a',
+    });
+    const result = await new ChannelRemindersRepository().getByDedupeKeyForChat(
+      'original-event-hash',
+      'user-a',
+      'channel.whatsapp',
+      'chat-a'
+    );
+
+    expect(f.queryOne).toHaveBeenCalledOnce();
+    const [sql, params] = f.queryOne.mock.calls[0]!;
+    expect(sql).toMatch(/^SELECT \* FROM channel_reminders/);
+    expect(sql).toContain('dedupe_key = $1 AND user_id = $2');
+    expect(sql).toContain('channel_plugin_id = $3 AND platform_chat_id = $4');
+    expect(sql).not.toMatch(/INSERT|UPDATE|DELETE|status\s*=/);
+    expect(params).toEqual(['original-event-hash', 'user-a', 'channel.whatsapp', 'chat-a']);
+    expect(result).toMatchObject({
+      id: 'saved',
+      remindAt: new Date('2026-11-11T14:05:20Z'),
+      status: 'delivered',
+      attempts: 1,
+      deliveryId: 'delivery-a',
+    });
+  });
+
+  it('returns no record for a different event or owner without any write', async () => {
+    f.queryOne.mockResolvedValue(null);
+    expect(
+      await new ChannelRemindersRepository().getByDedupeKeyForChat(
+        'unknown-event',
+        'another-user',
+        'channel.telegram',
+        'another-chat'
+      )
+    ).toBeNull();
+    expect(f.queryOne).toHaveBeenCalledOnce();
+  });
+});

@@ -15,6 +15,11 @@ describe('channel finance tool selection', () => {
     'Troque esse gasto para receita',
     'Liste minhas receitas deste mês',
     'Ganhei 50 de freela',
+    'Acabei de ganhar 1 real',
+    'Acabei de ganhar 20 reais',
+    'Acabei de receber R$ 0,01',
+    'Acabei de gastar 1 real',
+    'Acabei de pagar 1 real',
     'Quais foram meus gastos?',
     'Quais pagamentos estão pendentes?',
     'Minha fatura está correta?',
@@ -27,10 +32,20 @@ describe('channel finance tool selection', () => {
     expect(tools).not.toContain('core.execute_shell');
   });
 
-  it.each(['Quero uma receita de bolo', 'Uma receita com frango', 'Receita de sobremesa'])(
-    'does not mistake cooking for financial income: %s',
-    (text) => expect(channelToolsForMessage(text)).toEqual([])
+  it.each([
+    'Quero uma receita de bolo',
+    'Uma receita com frango',
+    'Receita de sobremesa',
+    'Esse vídeo é real?',
+  ])('does not mistake cooking for financial income: %s', (text) =>
+    expect(channelToolsForMessage(text)).toEqual([])
   );
+
+  it('keeps reminder tools available when the requested unit is seconds', () => {
+    expect(channelToolsForMessage('20 segundos')).toEqual(
+      expect.arrayContaining(['core.schedule_channel_reminder', 'core.reschedule_channel_reminder'])
+    );
+  });
 
   it('keeps correction tools available for a short contextual follow-up', () => {
     const previous = recentChannelText({

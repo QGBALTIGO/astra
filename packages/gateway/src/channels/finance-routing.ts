@@ -79,16 +79,18 @@ export function parseChannelExpense(input: string): ParsedChannelExpense | null 
   }
 
   const match = text.match(
-    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(?:gastei|paguei|acabei\s+de\s+(?:gastar|pagar))\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:reais?\s+)?(?:no|na|nos|nas|em|com|pelo|pela|pelos|pelas)\s+([\p{L}\p{M}\s'-]+)[.!]?$/iu
+    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(?:gastei|paguei|acabei\s+de\s+(?:gastar|pagar))\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:(?:real|reais)\b\s*)?(?:(?:no|na|nos|nas|em|com|pelo|pela|pelos|pelas)\s+([\p{L}\p{M}\s'-]+))?[.!]?$/iu
   );
   if (!match) return null;
+  // Without a description, require the sender to identify the value as money.
+  if (!match[2] && !/(?:r\$|(?:real|reais)\b)/i.test(text)) return null;
   // The legacy financing parser tolerates trailing sentence punctuation.
   // A new automatic expense must instead have an entirely valid amount token.
   if (!/^(?:\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[,.]\d{1,2})?)$/.test(match[1] ?? '')) {
     return null;
   }
   const amountCents = parseBrlCents(match[1] ?? '');
-  const description = (match[2] ?? '').replace(/\s+/g, ' ').trim();
+  const description = (match[2] ?? 'Despesa').replace(/\s+/g, ' ').trim();
   const detail = normalize(description);
   if (
     !amountCents ||
@@ -238,7 +240,7 @@ export function parseFinancingIntent(input: string): ParsedIntent | null {
   // Only unambiguous, completed payments. A scheduled/expected installment
   // or "vou pagar" must never be automatically deducted.
   const paid = text.match(
-    /\b(?:paguei|abati|dei\s+baixa\s+em)\s+(?:mais\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(mil|k)?\s*(?:reais?)?\s+(?:do|da)\s+([a-z0-9 -]{2,60}?)(?:[.!?,;]|$)/u
+    /\b(?:paguei|abati|dei\s+baixa\s+em)\s+(?:mais\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(mil|k)?\s*(?:real|reais)?\s+(?:do|da)\s+([a-z0-9 -]{2,60}?)(?:[.!?,;]|$)/u
   );
   if (paid) {
     const amountCents = parseBrlCents(paid[1] ?? '', paid[2]);
