@@ -54,6 +54,11 @@ function takeJob(): Job | undefined {
   return undefined;
 }
 
+function removeQueuedJob(id: string): void {
+  const index = queue.indexOf(id);
+  if (index >= 0) queue.splice(index, 1);
+}
+
 function wakeWorkers(): void {
   for (const resolve of listeners) resolve();
   listeners.clear();
@@ -136,12 +141,42 @@ export function registerOllamaRelayRoutes(app: Hono): void {
     const id = randomUUID();
     try {
       const result = await new Promise<Completion>((resolve, reject) => {
-        const timer = setTimeout(() => {
+        const signal = c.req.raw.signal;
+        const onAbort = () => {
+          // A disconnected caller must not occupy one of the six local slots
+          // for another 48 seconds. The worker does NOT execute account tools.
+          clearTimeout(timer);
+          signal.removeEventListener('abort', onAbort);
           jobs.delete(id);
+          removeQueuedJob(id);
+          reject(new Error('Local model client disconnected'));
+        };
+        const timer = setTimeout(() => {
+          signal.removeEventListener('abort', onAbort);
+          jobs.delete(id);
+          removeQueuedJob(id);
           reject(new Error('Local model timed out'));
         }, MAX_WAIT_MS);
         timer.unref?.();
-        jobs.set(id, { id, payload: { ...payload, stream: false }, resolve, reject, timer });
+        if (signal.aborted) {
+          clearTimeout(timer);
+          reject(new Error('Local model client disconnected'));
+          return;
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+        jobs.set(id, {
+          id,
+          payload: { ...payload, stream: false },
+          resolve: (value) => {
+            signal.removeEventListener('abort', onAbort);
+            resolve(value);
+          },
+          reject: (error) => {
+            signal.removeEventListener('abort', onAbort);
+            reject(error);
+          },
+          timer,
+        });
         queue.push(id);
         wakeWorkers();
       });
