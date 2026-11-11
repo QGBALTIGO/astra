@@ -89,7 +89,7 @@ describe('Channel responses use persisted facts without internal details', () =>
 
   it('a reassuring negative phrase is not evidence of success', () => {
     expect(safeChannelResponse('Não se preocupe, o lembrete foi criado.', [])).toContain(
-      'Não consegui confirmar'
+      'não tenho uma alteração confirmada'
     );
     expect(safeChannelResponse('Não agendei o lembrete.', [])).toBe('Não agendei o lembrete.');
   });
