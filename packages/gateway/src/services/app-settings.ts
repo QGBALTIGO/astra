@@ -55,6 +55,7 @@ export const TOOL_GROUPS_KEY = 'tool_groups';
  */
 const ASTRA_PROVIDER_ENV_KEYS: Readonly<Record<string, string>> = {
   groq: 'GROQ_API_KEY',
+  'ollama-local': 'ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN',
   google: 'GOOGLE_GENERATIVE_AI_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
   zai: 'ZHIPU_API_KEY',
