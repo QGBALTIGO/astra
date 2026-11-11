@@ -72,7 +72,13 @@ function map(row: PlanRow): CustomerPlan {
 
 function validate(input: CustomerPlanInput): Required<CustomerPlanInput> {
   const amount = customerMoneyCents(input.amount);
-  const progress = customerMoneyCents(input.progress ?? 0);
+  const rawProgress = input.progress ?? 0;
+  const progress = Math.round(rawProgress * 100);
+  if (!Number.isFinite(rawProgress) || !Number.isSafeInteger(progress) ||
+      progress < 0 || progress > 999_999_999_999 ||
+      progress / 100 !== rawProgress) {
+    throw new Error('Valor guardado inválido.');
+  }
   const categoryId = input.categoryId?.trim() || null;
   const installmentsTotal = input.installmentsTotal ?? null;
   const installmentsPaid = input.installmentsPaid ?? null;
@@ -150,7 +156,7 @@ export class CustomerPlanningRepository extends BaseRepository {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [
         randomUUID(), this.userId, value.kind, value.title,
-        customerMoneyCents(value.amount), customerMoneyCents(value.progress),
+        customerMoneyCents(value.amount), Math.round(value.progress * 100),
         value.categoryId, value.installmentsTotal, value.installmentsPaid,
         value.nextDueDate, value.notes,
       ]
@@ -169,7 +175,7 @@ export class CustomerPlanningRepository extends BaseRepository {
         WHERE id = $1 AND user_id = $2 RETURNING *`,
       [
         id, this.userId, value.kind, value.title,
-        customerMoneyCents(value.amount), customerMoneyCents(value.progress),
+        customerMoneyCents(value.amount), Math.round(value.progress * 100),
         value.categoryId, value.installmentsTotal, value.installmentsPaid,
         value.nextDueDate, value.notes,
       ]
