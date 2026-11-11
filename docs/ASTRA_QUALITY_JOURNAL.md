@@ -36,6 +36,7 @@ ID. Indicadores:
 As regras geram **indícios para investigação**, nunca uma afirmação automática
 de que um lançamento no banco estava errado.
 
+Os identificadores de envio passam por um hash SHA-256 antes de serem salvos.
 **Nenhum** número de telefone, texto original, conteúdo de áudio, chave Pix,
 CPF, credencial, código de seis dígitos, dado financeiro pessoal ou argumento
 de ferramenta entra nas novas tabelas. O texto é inspecionado apenas em
