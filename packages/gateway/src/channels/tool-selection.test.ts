@@ -90,7 +90,6 @@ describe('Channel opinion questions do not authorize financial actions', () => {
   });
 });
 
-
 describe('Conversational drafting and AI-only responses', () => {
   it.each([
     'Pede pro meu namorado me fazer pix de 100$',

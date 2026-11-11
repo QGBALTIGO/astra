@@ -192,7 +192,8 @@ describe('createAgentExecutionMiddleware', () => {
           ok: true,
           value: {
             id: 'bad-menu',
-            content: 'Não entendi bem o que você quer. Quer que eu: 1. Registe uma entrada de R$ 100?',
+            content:
+              'Não entendi bem o que você quer. Quer que eu: 1. Registe uma entrada de R$ 100?',
           },
         })
         .mockResolvedValueOnce({

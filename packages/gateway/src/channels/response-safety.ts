@@ -227,9 +227,7 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
   // Legacy error prose can be echoed by the model from prior chat turns.
   // Never show the obsolete error banner to WhatsApp users again.
   const legacyErrorBanner =
-    /(?:^|\n)[^\p{L}\p{N}]{0,12}nao consegui confirmar (?:o pedido|a execucao)\b/u.test(
-      lower
-    );
+    /(?:^|\n)[^\p{L}\p{N}]{0,12}nao consegui confirmar (?:o pedido|a execucao)\b/u.test(lower);
   const statements = lower
     .split(/[.!?\n]+/)
     .map((sentence) =>

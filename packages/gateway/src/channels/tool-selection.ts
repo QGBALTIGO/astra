@@ -48,9 +48,7 @@ export function isConversationalOnlyChannelRequest(text: string): boolean {
     /^(?:me ajuda|pode me ajudar|quero ajuda)\s+(?:a\s+)?(?:pedir|escrever|responder|falar|dizer)\b/.test(
       input
     ) ||
-    /^(?:quero|preciso)\s+(?:mandar|enviar|escrever)\s+(?:uma\s+)?mensagem\b/.test(
-      input
-    )
+    /^(?:quero|preciso)\s+(?:mandar|enviar|escrever)\s+(?:uma\s+)?mensagem\b/.test(input)
   );
 }
 
