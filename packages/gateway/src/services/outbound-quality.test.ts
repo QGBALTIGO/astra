@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockQuery = vi.hoisted(() => vi.fn().mockResolvedValue([]));
@@ -60,7 +61,12 @@ describe('Astra outbound quality: privacy and reproducibility', () => {
     expect(sql).toContain('ON CONFLICT (channel_id, external_id) DO NOTHING');
     expect(sql).toContain('astra_outbound_quality_daily');
     expect(sql).toContain('SELECT count(*)');
-    expect(values).toEqual(['channel.whatsapp', 'opaque-id', privateMessage.length, '[]']);
+    const receiptHash = createHash('sha256')
+      .update('channel.whatsapp')
+      .update('\0')
+      .update('opaque-id')
+      .digest('hex');
+    expect(values).toEqual(['channel.whatsapp', receiptHash, privateMessage.length, '[]']);
     expect(JSON.stringify(values)).not.toContain('194283');
     expect(JSON.stringify(values)).not.toContain('ultra-privada');
     expect(JSON.stringify(values)).not.toContain('5511999999999');
