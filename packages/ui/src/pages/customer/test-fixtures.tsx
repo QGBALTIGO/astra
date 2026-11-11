@@ -146,6 +146,22 @@ export function mockCustomerApi(customer: Customer = structuredClone(customerFix
     deleteCategory: vi
       .spyOn(customerApi, 'deleteCategory')
       .mockResolvedValue({ deleted: true, archived: false }),
+    plans: vi.spyOn(customerApi, 'plans').mockResolvedValue({ plans: [] }),
+    createPlan: vi.spyOn(customerApi, 'createPlan').mockImplementation(async (body) => ({
+      plan: { ...body, id: 'test-plan', progress: body.progress ?? 0,
+        categoryId: body.categoryId ?? null, installmentsTotal: body.installmentsTotal ?? null,
+        installmentsPaid: body.installmentsPaid ?? null, nextDueDate: body.nextDueDate ?? null,
+        notes: body.notes ?? null, createdAt: '2026-11-10T16:00:00Z',
+        updatedAt: '2026-11-10T16:00:00Z' },
+    })),
+    updatePlan: vi.spyOn(customerApi, 'updatePlan').mockImplementation(async (id, body) => ({
+      plan: { ...body, id, progress: body.progress ?? 0,
+        categoryId: body.categoryId ?? null, installmentsTotal: body.installmentsTotal ?? null,
+        installmentsPaid: body.installmentsPaid ?? null, nextDueDate: body.nextDueDate ?? null,
+        notes: body.notes ?? null, createdAt: '2026-11-10T16:00:00Z',
+        updatedAt: '2026-11-10T16:00:00Z' },
+    })),
+    deletePlan: vi.spyOn(customerApi, 'deletePlan').mockResolvedValue({ deleted: true }),
     agenda: vi.spyOn(customerApi, 'agenda').mockResolvedValue({ items: [agendaFixture] }),
     createAgenda: vi.spyOn(customerApi, 'createAgenda').mockResolvedValue({ item: agendaFixture }),
     updateAgenda: vi.spyOn(customerApi, 'updateAgenda').mockResolvedValue({ item: agendaFixture }),
