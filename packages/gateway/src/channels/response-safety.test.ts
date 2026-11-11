@@ -140,6 +140,64 @@ describe('Channel responses use persisted facts without internal details', () =>
     expect(reply).not.toContain('uma tarefa salva');
   });
 
+  it('preserves an honest partial-failure notice beside a successful reminder', () => {
+    const text = 'Não consegui criar a tarefa. O lembrete foi agendado para 12/11 às 11h46.';
+    expect(
+      safeChannelResponse(`${text} (ID: ${id})`, [
+        reminder(),
+        {
+          name: 'core.add_task',
+          arguments: '',
+          content: '{"success":false,"error":"save failed"}',
+          isError: true,
+        },
+      ])
+    ).toBe(text);
+  });
+
+  it('does not discard another successful operation when confirming a reminder', () => {
+    const text = 'Tarefa concluída. Lembrete agendado para 12/11 às 11h46.';
+    expect(
+      safeChannelResponse(text, [
+        reminder(),
+        {
+          name: 'core.complete_task',
+          arguments: '',
+          content: '{"success":true}',
+          isError: false,
+        },
+      ])
+    ).toBe(text);
+  });
+
+  it('keeps both reminders and their amounts after removing internal IDs', () => {
+    const secondId = '8c6bea07-cf9c-4a47-ad27-513b34115070';
+    const second = reminder();
+    second.content = JSON.stringify({
+      success: true,
+      result: {
+        id: secondId,
+        title: 'Receber R$ 770,00',
+        horarioLocal: '20/11/2026, 12:00',
+        status: 'pending',
+      },
+    });
+    expect(
+      safeChannelResponse(
+        `Lembretes agendados:\nCodex em 12/11 às 11h46 (ID: ${id})\nReceber R$ 770,00 em 20/11 às 12h (ID: ${secondId})`,
+        [reminder(), second]
+      )
+    ).toBe('Lembretes agendados:\nCodex em 12/11 às 11h46\nReceber R$ 770,00 em 20/11 às 12h');
+  });
+
+  it('does not claim no new reminder was created when another reminder was saved', () => {
+    const text =
+      'O lembrete anterior já foi enviado. O novo lembrete foi agendado para 12/11 às 11h46.';
+    const pending = reminder();
+    pending.content = pending.content.replace(id, '8c6bea07-cf9c-4a47-ad27-513b34115070');
+    expect(safeChannelResponse(text, [reminder('delivered'), pending])).toBe(text);
+  });
+
   it('an ID copied from an old message does not prove a new reminder was saved', () => {
     const reply = safeChannelResponse(`O lembrete foi criado com o ID ${id}.`, []);
     expect(reply).toContain('Não consegui confirmar');

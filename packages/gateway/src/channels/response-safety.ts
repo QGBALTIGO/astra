@@ -200,14 +200,24 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
       unsupported = true;
   }
   const internalTool = INTERNAL_TOOL.test(clean);
+  // A reminder-only acknowledgement must not replace the result of a compound
+  // request. Count actual operations, including failed ones and repeated calls
+  // to the same tool; discovery/wrapper receipts do not represent extra work.
+  const operations = receipts.filter(
+    (receipt) =>
+      !/^(?:use_tool|batch_use_tool|search_tools|get_tool_help)$/.test(normalizeName(receipt.name))
+  );
+  const onlyReminder =
+    operations.length === 1 &&
+    /^(?:schedule|reschedule)_channel_reminder$/.test(normalizeName(operations[0]!.name));
   // A single reminder acknowledgement always uses its persisted local time,
   // even if the model's otherwise clean text repeats a wrong offset or hour.
-  const reminder = reminderConfirmation(receipts);
+  const reminder = onlyReminder ? reminderConfirmation(receipts) : null;
   const otherWrites = [...tools].some((name) =>
     /^(?:add_|batch_add_|create_|batch_create_|record_|update_|delete_|cancel_)/.test(name)
   );
   if (reminder && !unsupported && !otherWrites) return reminder;
-  if (!otherWrites) {
+  if (onlyReminder && !otherWrites) {
     for (const receipt of receipts) {
       if (
         receipt.isError ||
@@ -225,19 +235,21 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
   }
   if (!protocol.test(text) && !internalTool && clean && !unsupported && !removedIdentifiers)
     return clean;
-  // Read-only lists often contain an ID beside a useful amount/title. Keep
-  // those values instead of discarding the answer solely for an ID decoration.
+  // Lists and compound reminder requests often contain an ID beside a useful
+  // amount/title. Keep the complete answer, including any partial-failure notice,
+  // instead of discarding operations solely for an ID decoration.
   if (
     removedIdentifiers &&
     clean &&
     !unsupported &&
     !internalTool &&
     !protocol.test(text) &&
-    ![...tools].some((name) =>
-      /^(?:schedule_|reschedule_|add_|batch_add_|create_|batch_create_|record_|update_|delete_|cancel_)/.test(
-        name
-      )
-    )
+    ((!onlyReminder && has('schedule_channel_reminder', 'reschedule_channel_reminder')) ||
+      ![...tools].some((name) =>
+        /^(?:schedule_|reschedule_|add_|batch_add_|create_|batch_create_|record_|update_|delete_|cancel_)/.test(
+          name
+        )
+      ))
   ) {
     return clean;
   }
