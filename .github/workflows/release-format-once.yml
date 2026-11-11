@@ -1,0 +1,38 @@
+name: Release formatting repair
+on:
+  push:
+    branches: ['fix/release-format-20261111']
+permissions:
+  contents: read
+jobs:
+  format:
+    if: github.ref == 'refs/heads/fix/release-format-20261111'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Format only the five files flagged by CI
+        env:
+          HUSKY: '0'
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = e0b1c4e0f5019548c88c1c7b44541374ccb5e0ad
+          files=(packages/gateway/src/services/agent/service.ts packages/gateway/src/tools/channel-reminder-tools.test.ts packages/gateway/src/tools/channel-reminder-tools.ts packages/gateway/src/tools/customer-finance-tools.test.ts packages/gateway/src/tools/customer-finance-tools.ts)
+          pnpm exec prettier --write "${files[@]}"
+          pnpm format:check
+          git diff --check
+          git add -- "${files[@]}"
+          git rm .github/workflows/release-format-once.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style: format WhatsApp reliability release without behavior changes'
+          git push origin HEAD:fix/release-format-20261111
+          echo "Formatted commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
