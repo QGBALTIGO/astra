@@ -1,61 +1,28 @@
 name: WhatsApp reliability regression
+
 on:
-  push:
-    branches: ['fix/whatsapp-reliability-20261110']
+  pull_request:
+    paths:
+      - 'packages/core/**'
+      - 'packages/gateway/**'
+      - '.github/workflows/whatsapp-reliability.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
+
 concurrency:
-  group: whatsapp-reliability-${{ github.ref }}
+  group: whatsapp-reliability-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
 jobs:
-  prepare:
-    if: github.ref == 'refs/heads/fix/whatsapp-reliability-20261110'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 12
-    permissions:
-      contents: write
-    outputs:
-      sha: ${{ steps.commit.outputs.sha }}
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
-      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Apply reviewed source patch only on repair branch
-        id: commit
-        env:
-          HUSKY: '0'
-        run: |
-          set -euo pipefail
-          if [ -f .github/repairs/astra-01.bin ]; then
-            test "$(git rev-parse HEAD:packages/core/src/agent/providers/fallback.ts)" = '5a36203d325da8e2a05ab4ac13cc9c65fc2f88e6'
-            cat .github/repairs/astra-0*.bin > /tmp/astra.patch.gz
-            echo '3eebd7ed308f149228557c0514645288df3704842d768373a2cc487dadb492c2  /tmp/astra.patch.gz' | sha256sum -c -
-            gzip -dc /tmp/astra.patch.gz > /tmp/astra.patch
-            git apply --check --unidiff-zero /tmp/astra.patch
-            git apply --unidiff-zero /tmp/astra.patch
-            git add packages
-            git diff --cached --name-only --diff-filter=ACM -z | xargs -0 pnpm exec prettier --write
-            git add packages
-            git rm .github/repairs/astra-0*.bin
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'fix: reliable channel tools, scoped memories, financial ledger and exact reminders'
-            git push origin HEAD:fix/whatsapp-reliability-20261110
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   regression:
-    needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
-          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:

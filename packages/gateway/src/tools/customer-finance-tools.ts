@@ -119,7 +119,7 @@ function transactionStatus(value: unknown): CustomerTransactionInput['status'] {
 export async function executeCustomerFinanceTool(
   toolName: string,
   args: Record<string, unknown>,
-  userId: string
+  userId?: string
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   if (!userId) return { success: false, error: 'Usuário autenticado obrigatório.' };
   const repo = new CustomerFinanceRepository(userId);
