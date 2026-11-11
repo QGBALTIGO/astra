@@ -14,7 +14,7 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
       input
     );
   if (
-    /\b(?:lembre|lembra|lembrete|lembretes|avise|avisar|aviso|alarme|reagend\w*|minutos?|codex)\b/.test(
+    /\b(?:lembre|lembra|lembrete|lembretes|avise|avisar|aviso|alarme|reagend\w*|segundos?|minutos?|codex)\b/.test(
       input
     )
   ) {
@@ -27,7 +27,7 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
   }
   if (
     mentionsFinancialIncome ||
-    /\b(?:reais|recebi|receber|recebimentos?|ganhei|salarios?|entrada|entradas|saida|saidas|despesa|despesas|gastei|gastos?|paguei|pagamentos?|financeiro|saldo|valor|cakto|lancamento|lancamentos|faturas?)\b|r\s*\$/.test(
+    /\b(?:reais|recebi|receber|recebimentos?|ganhei|ganhar|salarios?|entrada|entradas|saida|saidas|despesa|despesas|gastei|gastar|gastos?|paguei|pagar|pagamentos?|financeiro|saldo|valor|cakto|lancamento|lancamentos|faturas?)\b|\b\d[\d.,]*\s*real\b|r\s*\$/.test(
       input
     )
   ) {

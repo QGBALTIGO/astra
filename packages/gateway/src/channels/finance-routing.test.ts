@@ -125,6 +125,16 @@ describe('Finance requests without Groq token usage', () => {
     expect(result).toMatch(/• \*Falta pagar:\* R\$\s70\.600,00/);
   });
 
+  it.each([
+    ['Paguei 1 real do carro', 100],
+    ['Paguei 20 reais do carro', 2000],
+  ])(
+    'recognizes singular and plural BRL on a completed financing payment: %s',
+    (text, amountCents) => {
+      expect(parseFinancingIntent(text)).toEqual({ kind: 'payment', name: 'carro', amountCents });
+    }
+  );
+
   it('does not process hypothetical payments or ambiguous statements', async () => {
     for (const text of [
       'Vou pagar R$ 470 do carro no mês que vem',
@@ -202,6 +212,12 @@ describe('Completed channel expenses without a language model', () => {
 
   it.each([
     ['Gastei R$ 36,39 no almoço.', 3639, 'almoço', 'food'],
+    ['Acabei de gastar 1 real', 100, 'Despesa', 'other'],
+    ['Acabei de pagar 20 reais', 2000, 'Despesa', 'other'],
+    ['Gastei 20 reais', 2000, 'Despesa', 'other'],
+    ['Paguei R$ 1', 100, 'Despesa', 'other'],
+    ['Gastei 1 real com café', 100, 'café', 'food'],
+    ['Gastei 50 com café', 5000, 'café', 'food'],
     ['Eu gastei 12 reais com café', 1200, 'café', 'food'],
     ['Astra, anota que gastei 24,90 no Uber', 2490, 'Uber', 'transport'],
     ['Registre que paguei 99,50 na farmácia', 9950, 'farmácia', 'health'],
@@ -212,6 +228,19 @@ describe('Completed channel expenses without a language model', () => {
   });
 
   it.each([
+    'Gastei 1',
+    'Paguei 2',
+    'Acabei de gastar 1',
+    'Acabei de pagar 2',
+    'Gastei 1 ponto',
+    'Paguei 2 fichas',
+    'Gastei 1 real?',
+    'Não gastei 1 real',
+    'Gastei 1 real e ganhei 20 reais',
+    'Gastei 1 real mas fui reembolsado',
+    'Gastei 1 real em',
+    'Paguei 1 realização',
+    'Acabei de gastar 1 dólar',
     'Não gastei 36,39 no almoço',
     'Gastei 36,39 no almoço?',
     'Será que gastei 36,39 no almoço?',
@@ -275,6 +304,25 @@ describe('Completed channel expenses without a language model', () => {
       action: 'created',
       id: stored.id,
     });
+  });
+
+  it('keeps a bare completed expense on the established provider-key path', async () => {
+    mockRecordExpense.mockImplementationOnce(async (input) => ({
+      expense: { ...stored, ...input },
+      created: true,
+    }));
+    const reply = await tryExpenseRecordChannelReply(
+      { ...expenseMessage, text: 'Acabei de gastar 1 real' },
+      'whatsapp:sender-a'
+    );
+    expect(mockExpenseIdentity).toHaveBeenCalledWith('whatsapp:sender-a');
+    expect(mockRecordExpense).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ amount: 1, description: 'Despesa', category: 'other' }),
+      expect.stringMatching(/^[a-f0-9]{64}$/)
+    );
+    expect(reply).toContain('✅ *Despesa registrada*');
+    expect(reply).toContain('• *Valor:* R$ 1,00');
+    expect(reply).toContain('• *Descrição:* Despesa');
   });
 
   it('keeps a late-night WhatsApp expense on the customer calendar day', async () => {

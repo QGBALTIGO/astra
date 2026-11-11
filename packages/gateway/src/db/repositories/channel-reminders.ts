@@ -44,6 +44,22 @@ function mapReminder(row: ReminderRow): ChannelReminder {
 }
 
 export class ChannelRemindersRepository extends BaseRepository {
+  /** Read a retried incoming event without moving its deadline or delivery state. */
+  async getByDedupeKeyForChat(
+    dedupeKey: string,
+    userId: string,
+    channelPluginId: string,
+    platformChatId: string
+  ): Promise<ChannelReminder | null> {
+    const row = await this.queryOne<ReminderRow>(
+      `SELECT * FROM channel_reminders
+       WHERE dedupe_key = $1 AND user_id = $2
+         AND channel_plugin_id = $3 AND platform_chat_id = $4`,
+      [dedupeKey, userId, channelPluginId, platformChatId]
+    );
+    return row ? mapReminder(row) : null;
+  }
+
   async schedule(input: {
     userId: string;
     title: string;
