@@ -152,7 +152,7 @@ describe('createAgentExecutionMiddleware', () => {
       expect(result.response.content).toBe(
         saved
           ? 'Lembrete agendado.'
-          : 'Não consegui confirmar a execução desse pedido. Não vou informar que ficou pronto sem verificar. Confira seus registros antes de tentar novamente; para um lembrete, informe o assunto e o horário.'
+          : '⚠️ *Não consegui confirmar o pedido*\n\nNão consegui confirmar a execução. Confira seus registros antes de tentar novamente.'
       );
       expect(agent.setAdditionalTools).toHaveBeenCalledWith(
         expect.arrayContaining(['core.schedule_channel_reminder'])
