@@ -230,6 +230,12 @@ export function CustomerConfirm({
     </CustomerDialog>
   );
 }
+/** Stable, compact date text: keep the native picker but never show its oversized iOS locale string. */
+function compactPeriodDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : 'Selecionar data';
+}
+
 export function PeriodPicker({
   value,
   onChange,
@@ -306,23 +312,35 @@ export function PeriodPicker({
       </div>
       {preset === 'custom' ? (
         <div className="ac-period-dates">
-          <label>
-            De
-            <input
-              aria-label="Data inicial"
-              type="date"
-              value={value.from}
-              onChange={(event) => onChange({ ...value, from: event.target.value })}
-            />
+          <label className="ac-period-date">
+            <span className="ac-period-date-label">De</span>
+            <span className="ac-period-date-control">
+              <span className="ac-period-date-text" aria-hidden="true">
+                {compactPeriodDate(value.from)}
+              </span>
+              <Calendar aria-hidden="true" />
+              <input
+                aria-label="Data inicial"
+                type="date"
+                value={value.from}
+                onChange={(event) => onChange({ ...value, from: event.target.value })}
+              />
+            </span>
           </label>
-          <label>
-            Até
-            <input
-              aria-label="Data final"
-              type="date"
-              value={value.to}
-              onChange={(event) => onChange({ ...value, to: event.target.value })}
-            />
+          <label className="ac-period-date">
+            <span className="ac-period-date-label">Até</span>
+            <span className="ac-period-date-control">
+              <span className="ac-period-date-text" aria-hidden="true">
+                {compactPeriodDate(value.to)}
+              </span>
+              <Calendar aria-hidden="true" />
+              <input
+                aria-label="Data final"
+                type="date"
+                value={value.to}
+                onChange={(event) => onChange({ ...value, to: event.target.value })}
+              />
+            </span>
           </label>
         </div>
       ) : null}
