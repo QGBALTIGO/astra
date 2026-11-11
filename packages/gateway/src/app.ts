@@ -32,6 +32,7 @@ import { registerAutomationRoutes } from './routes/register/automation.js';
 import { registerIntegrationRoutes } from './routes/register/integration.js';
 import { registerOpenApiRoutes } from './routes/openapi.js';
 import { registerV2Routes } from './routes/register/v2.js';
+import { registerOllamaRelayRoutes } from './routes/ollama-relay.js';
 import { customerRoutes } from './routes/customer/index.js';
 import {
   RATE_LIMIT_WINDOW_MS,
@@ -267,6 +268,11 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
     app.use('/api/*', createRateLimitMiddleware(fullConfig.rateLimit));
     app.use('/webhooks/*', createRateLimitMiddleware(fullConfig.rateLimit));
   }
+
+  // Bearer-authenticated outbound-only local inference bridge. This path is
+  // intentionally separate from owner UI sessions/API keys and never public without
+  // the dedicated operator-managed 256-bit token.
+  registerOllamaRelayRoutes(app);
 
   // Customer sessions have their own namespace and never set owner/API auth.
   // Mount after global security/rate limits and before all owner middleware.
