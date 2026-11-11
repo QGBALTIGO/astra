@@ -144,8 +144,8 @@ for (const theme of ['light', 'dark'] as const) {
     });
   }
 
-  for (const width of [320, 390, 430, 600, 640, 768]) {
-    test(`custom period date fields fit at ${width}px in ${theme}`, async ({ page }, info) => {
+  for (const width of [320, 360, 375, 390, 414, 430, 600, 640, 768, 1024]) {
+    test(`compact custom dates fit at ${width}px in ${theme}`, async ({ page }, info) => {
       await page.setViewportSize({ width, height: 900 });
       const failures = await prepare(page, theme);
       await page.goto('/cliente');
@@ -164,7 +164,20 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(to).toHaveValue('2026-11-11');
       await fits(page);
 
-      const [container, first, last] = await Promise.all([
+      const controls = dates.locator('.ac-period-date-control');
+      const startControl = controls.nth(0);
+      const endControl = controls.nth(1);
+      const displayed = dates.locator('.ac-period-date-text');
+      // The user's screenshot showed full Portuguese month strings taking
+      // excessive height; the visible text must be fixed-width and compact.
+      await expect(displayed.nth(0)).toHaveText('13/10/2026');
+      await expect(displayed.nth(1)).toHaveText('11/11/2026');
+      await expect(from).toHaveCSS('opacity', '0');
+      await expect(to).toHaveCSS('opacity', '0');
+      const [container, first, last, dateArea, actualStart, actualEnd] = await Promise.all([
+        dates.boundingBox(),
+        startControl.boundingBox(),
+        endControl.boundingBox(),
         dates.boundingBox(),
         from.boundingBox(),
         to.boundingBox(),
@@ -172,26 +185,35 @@ for (const theme of ['light', 'dark'] as const) {
       expect(container).not.toBeNull();
       expect(first).not.toBeNull();
       expect(last).not.toBeNull();
-      for (const box of [first!, last!]) {
-        expect(box.width).toBeGreaterThan(200);
-        expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(dateArea).not.toBeNull();
+      for (const [index, box] of [first!, last!].entries()) {
+        expect(box.width).toBeGreaterThan(width < 640 ? 112 : 200);
+        expect(box.height).toBeGreaterThanOrEqual(46);
+        expect(box.height).toBeLessThanOrEqual(54);
         expect(box.x).toBeGreaterThanOrEqual(container!.x - 1);
         expect(box.x + box.width).toBeLessThanOrEqual(container!.x + container!.width + 1);
         expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+        const input = [actualStart!, actualEnd!][index]!;
+        expect(input.x).toBeGreaterThanOrEqual(box.x - 1);
+        expect(input.y).toBeGreaterThanOrEqual(box.y - 1);
+        expect(input.x + input.width).toBeLessThanOrEqual(box.x + box.width + 1);
+        expect(input.y + input.height).toBeLessThanOrEqual(box.y + box.height + 1);
       }
-      if (width < 640) {
-        // Native iOS dates are too long for two half-width inputs.
-        expect(last!.y).toBeGreaterThanOrEqual(first!.y + first!.height + 8);
-      } else {
-        expect(Math.abs(last!.y - first!.y)).toBeLessThanOrEqual(1);
-        expect(last!.x).toBeGreaterThanOrEqual(first!.x + first!.width + 8);
-      }
+      // Dates and labels share a row at every tested viewport, unlike the
+      // previous mobile fix that forced two large stacked fields.
+      expect(Math.abs(last!.y - first!.y)).toBeLessThanOrEqual(1);
+      expect(last!.x).toBeGreaterThanOrEqual(first!.x + first!.width + 8);
+      expect(dateArea!.height).toBeLessThanOrEqual(94);
       if (width <= 767) {
         await expect(from).toHaveCSS('font-size', '16px');
         await expect(to).toHaveCSS('font-size', '16px');
       }
-      if (width === 390 && theme === 'dark') {
-        await info.attach('custom-dates-390-dark', {
+      // Fill and native touch share the same real input; no fake date state.
+      await from.tap();
+      await expect(from).toBeFocused();
+      await expect(from).toHaveValue('2026-10-13');
+      if ([320, 390, 414, 768].includes(width)) {
+        await info.attach(`compact-dates-${width}-${theme}`, {
           body: await dates.screenshot(),
           contentType: 'image/png',
         });
