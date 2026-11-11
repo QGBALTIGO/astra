@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
   Calendar, ChevronRight, Edit3, Plus, Receipt, Repeat, Target, Trash2,
 } from '../../components/icons';
@@ -70,6 +70,7 @@ export function CustomerPlanning({
   loading,
   error,
   onChanged,
+  openSignal = 0,
 }: {
   plans: CustomerPlan[];
   summary: CustomerFinanceSummary | null | undefined;
@@ -79,6 +80,7 @@ export function CustomerPlanning({
   loading: boolean;
   error: Error | null;
   onChanged: (message: string) => void;
+  openSignal?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [selectedKind, setSelectedKind] = useState<CustomerPlanKind>('goal');
@@ -97,6 +99,14 @@ export function CustomerPlanning({
   const [notes, setNotes] = useState('');
   const formId = useId();
   const lock = useRef(false);
+  useEffect(() => {
+    if (openSignal > 0) {
+      setOpen(true);
+      setShowForm(false);
+      setRemoving(null);
+      setMessage(null);
+    }
+  }, [openSignal]);
   const expenseCategories = categories.filter((category) => category.type === 'expense' && !category.archived);
   const selected = plans.filter((plan) => plan.kind === selectedKind);
 
