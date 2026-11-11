@@ -2829,7 +2829,6 @@ html[data-astra-input='keyboard'] .astra-customer .ac-period-date-control:focus-
   }
 }
 
-
 /* Astra customer command center — progressive enhancement of the existing portal. */
 .astra-customer .ac-command-center .ac-page-heading {
   margin-bottom: 16px;
@@ -2864,7 +2863,10 @@ html[data-astra-input='keyboard'] .astra-customer .ac-period-date-control:focus-
   background: var(--ac-surface);
   font-weight: 600;
   font-size: 12px;
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
 }
 .astra-customer .ac-quick-action:hover:not(:disabled) {
   background: var(--ac-accent-soft);
@@ -3241,11 +3243,19 @@ html[data-astra-input='keyboard'] .astra-customer .ac-period-date-control:focus-
   }
 }
 @media print {
-  @page { margin: 18mm; }
-  body { background: white !important; }
-  .astra-customer * { visibility: hidden !important; }
+  @page {
+    margin: 18mm;
+  }
+  body {
+    background: white !important;
+  }
+  .astra-customer * {
+    visibility: hidden !important;
+  }
   .astra-customer .ac-print-report,
-  .astra-customer .ac-print-report * { visibility: visible !important; }
+  .astra-customer .ac-print-report * {
+    visibility: visible !important;
+  }
   .astra-customer .ac-print-report {
     display: block !important;
     position: absolute;
@@ -3255,7 +3265,9 @@ html[data-astra-input='keyboard'] .astra-customer .ac-period-date-control:focus-
     padding: 0;
     color: #111;
     background: #fff;
-    font: 12pt system-ui, sans-serif;
+    font:
+      12pt system-ui,
+      sans-serif;
   }
   .astra-customer .ac-print-report h1 {
     color: #111;

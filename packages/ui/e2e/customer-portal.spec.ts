@@ -342,12 +342,16 @@ async function mockCustomerApi(
     } else if (method === 'POST' && path === '/planning') {
       const input = body as unknown as CustomerPlanInput;
       const plan: CustomerPlan = {
-        ...input, id: 'synthetic-plan-' + (plans.length + 1), progress: input.progress ?? 0,
+        ...input,
+        id: 'synthetic-plan-' + (plans.length + 1),
+        progress: input.progress ?? 0,
         categoryId: input.categoryId ?? null,
         installmentsTotal: input.installmentsTotal ?? null,
         installmentsPaid: input.installmentsPaid ?? null,
-        nextDueDate: input.nextDueDate ?? null, notes: input.notes ?? null,
-        createdAt: NOW.toISOString(), updatedAt: NOW.toISOString(),
+        nextDueDate: input.nextDueDate ?? null,
+        notes: input.notes ?? null,
+        createdAt: NOW.toISOString(),
+        updatedAt: NOW.toISOString(),
       };
       plans = [...plans, plan];
       data = { plan };
@@ -360,14 +364,17 @@ async function mockCustomerApi(
       }
       const input = body as unknown as CustomerPlanInput;
       const updated: CustomerPlan = {
-        ...existing, ...input, progress: input.progress ?? 0,
+        ...existing,
+        ...input,
+        progress: input.progress ?? 0,
         categoryId: input.categoryId ?? null,
         installmentsTotal: input.installmentsTotal ?? null,
         installmentsPaid: input.installmentsPaid ?? null,
-        nextDueDate: input.nextDueDate ?? null, notes: input.notes ?? null,
+        nextDueDate: input.nextDueDate ?? null,
+        notes: input.notes ?? null,
         updatedAt: NOW.toISOString(),
       };
-      plans = plans.map((plan) => plan.id === id ? updated : plan);
+      plans = plans.map((plan) => (plan.id === id ? updated : plan));
       data = { plan: updated };
     } else if (method === 'DELETE' && /^\/planning\/[^/]+$/.test(path)) {
       const id = decodeURIComponent(path.split('/').at(-1)!);
@@ -790,8 +797,10 @@ for (const screen of [
       hub = page.getByRole('dialog', { name: 'Meu planejamento' });
       await expect(hub).toContainText('105,00');
       await hub.getByRole('button', { name: 'Excluir planejamento Internet mensal' }).click();
-      await page.getByRole('dialog', { name: 'Excluir planejamento?' })
-        .getByRole('button', { name: 'Excluir planejamento' }).click();
+      await page
+        .getByRole('dialog', { name: 'Excluir planejamento?' })
+        .getByRole('button', { name: 'Excluir planejamento' })
+        .click();
       hub = page.getByRole('dialog', { name: 'Meu planejamento' });
       await expect(hub).not.toContainText('Internet mensal');
       const writes = api.mutations.filter((event) => event.path.startsWith('/planning'));

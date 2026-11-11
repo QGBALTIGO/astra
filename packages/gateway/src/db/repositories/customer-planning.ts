@@ -74,17 +74,25 @@ function validate(input: CustomerPlanInput): Required<CustomerPlanInput> {
   const amount = customerMoneyCents(input.amount);
   const rawProgress = input.progress ?? 0;
   const progress = Math.round(rawProgress * 100);
-  if (!Number.isFinite(rawProgress) || !Number.isSafeInteger(progress) ||
-      progress < 0 || progress > 999_999_999_999 ||
-      progress / 100 !== rawProgress) {
+  if (
+    !Number.isFinite(rawProgress) ||
+    !Number.isSafeInteger(progress) ||
+    progress < 0 ||
+    progress > 999_999_999_999 ||
+    progress / 100 !== rawProgress
+  ) {
     throw new Error('Valor guardado inválido.');
   }
   const categoryId = input.categoryId?.trim() || null;
   const installmentsTotal = input.installmentsTotal ?? null;
   const installmentsPaid = input.installmentsPaid ?? null;
-  if (!['goal', 'budget', 'installment', 'subscription'].includes(input.kind) ||
-      typeof input.title !== 'string' || !input.title.trim() ||
-      input.title.trim().length > 120 || /[\u0000-\u001f]/.test(input.title)) {
+  if (
+    !['goal', 'budget', 'installment', 'subscription'].includes(input.kind) ||
+    typeof input.title !== 'string' ||
+    !input.title.trim() ||
+    input.title.trim().length > 120 ||
+    /[\u0000-\u001f]/.test(input.title)
+  ) {
     throw new Error('Dados do planejamento inválidos.');
   }
   if (amount <= 0 || progress < 0) throw new Error('Valores devem ser positivos.');
@@ -92,11 +100,16 @@ function validate(input: CustomerPlanInput): Required<CustomerPlanInput> {
     throw new Error('O valor guardado não pode ultrapassar a meta.');
   }
   if (input.kind === 'budget' && !categoryId) throw new Error('Selecione uma categoria.');
-  if (input.kind === 'installment' && (
-    !Number.isInteger(installmentsTotal) || installmentsTotal! < 1 ||
-    installmentsTotal! > 360 || !Number.isInteger(installmentsPaid) ||
-    installmentsPaid! < 0 || installmentsPaid! > installmentsTotal!
-  )) throw new Error('Confira a quantidade de parcelas.');
+  if (
+    input.kind === 'installment' &&
+    (!Number.isInteger(installmentsTotal) ||
+      installmentsTotal! < 1 ||
+      installmentsTotal! > 360 ||
+      !Number.isInteger(installmentsPaid) ||
+      installmentsPaid! < 0 ||
+      installmentsPaid! > installmentsTotal!)
+  )
+    throw new Error('Confira a quantidade de parcelas.');
   if (input.kind !== 'installment' && (installmentsTotal !== null || installmentsPaid !== null)) {
     throw new Error('Parcelas são exclusivas de financiamentos.');
   }
@@ -155,10 +168,17 @@ export class CustomerPlanningRepository extends BaseRepository {
           installments_total, installments_paid, next_due_date, notes)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [
-        randomUUID(), this.userId, value.kind, value.title,
-        customerMoneyCents(value.amount), Math.round(value.progress * 100),
-        value.categoryId, value.installmentsTotal, value.installmentsPaid,
-        value.nextDueDate, value.notes,
+        randomUUID(),
+        this.userId,
+        value.kind,
+        value.title,
+        customerMoneyCents(value.amount),
+        Math.round(value.progress * 100),
+        value.categoryId,
+        value.installmentsTotal,
+        value.installmentsPaid,
+        value.nextDueDate,
+        value.notes,
       ]
     );
     if (!row) throw new Error('Não foi possível salvar o planejamento.');
@@ -174,20 +194,27 @@ export class CustomerPlanningRepository extends BaseRepository {
           next_due_date = $10, notes = $11, updated_at = NOW()
         WHERE id = $1 AND user_id = $2 RETURNING *`,
       [
-        id, this.userId, value.kind, value.title,
-        customerMoneyCents(value.amount), Math.round(value.progress * 100),
-        value.categoryId, value.installmentsTotal, value.installmentsPaid,
-        value.nextDueDate, value.notes,
+        id,
+        this.userId,
+        value.kind,
+        value.title,
+        customerMoneyCents(value.amount),
+        Math.round(value.progress * 100),
+        value.categoryId,
+        value.installmentsTotal,
+        value.installmentsPaid,
+        value.nextDueDate,
+        value.notes,
       ]
     );
     return row ? map(row) : null;
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.execute(
-      'DELETE FROM customer_plans WHERE id = $1 AND user_id = $2',
-      [id, this.userId]
-    );
+    const result = await this.execute('DELETE FROM customer_plans WHERE id = $1 AND user_id = $2', [
+      id,
+      this.userId,
+    ]);
     return result.changes > 0;
   }
 }

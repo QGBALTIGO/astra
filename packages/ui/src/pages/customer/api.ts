@@ -210,8 +210,7 @@ export const customerApi = {
       '/finance/categories/' + encodeURIComponent(id),
       { method: 'DELETE', params: { transferToId } }
     ),
-  plans: (signal?: AbortSignal) =>
-    request<{ plans: CustomerPlan[] }>('/planning', { signal }),
+  plans: (signal?: AbortSignal) => request<{ plans: CustomerPlan[] }>('/planning', { signal }),
   createPlan: (body: CustomerPlanInput) =>
     request<{ plan: CustomerPlan }>('/planning', { method: 'POST', body }),
   updatePlan: (id: string, body: CustomerPlanInput) =>

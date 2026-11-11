@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import {
-  Calendar, ChevronRight, Copy, FileText, MessageSquare, Plus, Target,
-  Lightbulb, Clock,
+  Calendar,
+  ChevronRight,
+  Copy,
+  FileText,
+  MessageSquare,
+  Plus,
+  Target,
+  Lightbulb,
+  Clock,
 } from '../../components/icons';
 import { CustomerDialog } from './components';
 import { dateLabel, dateTimeLabel, money, periodLabel } from './helpers';
@@ -38,9 +45,16 @@ export function CustomerQuickActions({
   return (
     <nav className="ac-quick-actions" aria-label="Ações rápidas">
       {actions.map(({ title, icon: Icon, run, disabled }) => (
-        <button className="ac-quick-action" key={title} type="button"
-          disabled={disabled} onClick={run}>
-          <span className="ac-quick-action-icon"><Icon aria-hidden="true" /></span>
+        <button
+          className="ac-quick-action"
+          key={title}
+          type="button"
+          disabled={disabled}
+          onClick={run}
+        >
+          <span className="ac-quick-action-icon">
+            <Icon aria-hidden="true" />
+          </span>
           <span>{title}</span>
         </button>
       ))}
@@ -75,22 +89,35 @@ export function CustomerInsights({
       </div>
       <div className="ac-day-overview-grid">
         <div className="ac-day-observation">
-          <span className="ac-day-icon"><Clock aria-hidden="true" /></span>
+          <span className="ac-day-icon">
+            <Clock aria-hidden="true" />
+          </span>
           <span className="ac-day-observation-text">
             <strong>Seu próximo compromisso</strong>
             <span>{next ? next.title : 'Sem compromissos nos próximos dias'}</span>
             {next ? (
               <small>
-                {next.startAt ? dateTimeLabel(next.startAt, timeZone) :
-                  next.dueDate ? dateLabel(next.dueDate) : 'Sem data definida'}
+                {next.startAt
+                  ? dateTimeLabel(next.startAt, timeZone)
+                  : next.dueDate
+                    ? dateLabel(next.dueDate)
+                    : 'Sem data definida'}
               </small>
             ) : null}
           </span>
-          <button type="button" className="ac-icon-button" aria-label="Abrir agenda"
-            onClick={onAgenda}><ChevronRight aria-hidden="true" /></button>
+          <button
+            type="button"
+            className="ac-icon-button"
+            aria-label="Abrir agenda"
+            onClick={onAgenda}
+          >
+            <ChevronRight aria-hidden="true" />
+          </button>
         </div>
         <div className="ac-day-observation">
-          <span className="ac-day-icon"><Target aria-hidden="true" /></span>
+          <span className="ac-day-icon">
+            <Target aria-hidden="true" />
+          </span>
           <span className="ac-day-observation-text">
             <strong>Projeção do período</strong>
             <span>{money(projected, hidden)}</span>
@@ -99,17 +126,22 @@ export function CustomerInsights({
         </div>
         {category ? (
           <div className="ac-day-observation ac-day-observation--wide">
-            <span className="ac-day-icon"><Lightbulb aria-hidden="true" /></span>
+            <span className="ac-day-icon">
+              <Lightbulb aria-hidden="true" />
+            </span>
             <span className="ac-day-observation-text">
               <strong>Categoria com maior despesa</strong>
               <span>{category.name}</span>
-              <small>{hidden ? 'Valores ocultos' : money(category.total)} no período selecionado</small>
+              <small>
+                {hidden ? 'Valores ocultos' : money(category.total)} no período selecionado
+              </small>
             </span>
           </div>
         ) : null}
       </div>
       <p className="ac-day-disclaimer">
-        Projeção ilustrativa com pendências já cadastradas, sem garantia de recebimento ou pagamento.
+        Projeção ilustrativa com pendências já cadastradas, sem garantia de recebimento ou
+        pagamento.
       </p>
     </section>
   );
@@ -129,13 +161,22 @@ export function AstraPrompts() {
   return (
     <>
       <section className="ac-assistant-card">
-        <span className="ac-assistant-icon"><MessageSquare aria-hidden="true" /></span>
+        <span className="ac-assistant-icon">
+          <MessageSquare aria-hidden="true" />
+        </span>
         <div>
           <strong>Converse com o Astra</strong>
           <p>Peça análises, organize suas finanças ou crie lembretes pelo WhatsApp.</p>
         </div>
-        <button type="button" className="ac-icon-button" aria-label="Ver sugestões para o Astra"
-          onClick={() => { setOpen(true); setMessage(''); }}>
+        <button
+          type="button"
+          className="ac-icon-button"
+          aria-label="Ver sugestões para o Astra"
+          onClick={() => {
+            setOpen(true);
+            setMessage('');
+          }}
+        >
           <ChevronRight aria-hidden="true" />
         </button>
       </section>
@@ -144,14 +185,25 @@ export function AstraPrompts() {
           <p className="ac-muted">Copie um exemplo e envie na conversa do Astra pelo WhatsApp.</p>
           <div className="ac-assistant-prompts">
             {PROMPTS.map((prompt) => (
-              <button type="button" key={prompt}
-                onClick={() => void copy(prompt)} className="ac-assistant-prompt">
-                <span>{prompt}</span><Copy aria-hidden="true" />
+              <button
+                type="button"
+                key={prompt}
+                onClick={() => void copy(prompt)}
+                className="ac-assistant-prompt"
+              >
+                <span>{prompt}</span>
+                <Copy aria-hidden="true" />
               </button>
             ))}
           </div>
-          {message ? <p className="ac-field-help" role="status">{message}</p> : null}
-          <p className="ac-muted">As respostas dependem dos registros e das integrações disponíveis na sua conta.</p>
+          {message ? (
+            <p className="ac-field-help" role="status">
+              {message}
+            </p>
+          ) : null}
+          <p className="ac-muted">
+            As respostas dependem dos registros e das integrações disponíveis na sua conta.
+          </p>
         </CustomerDialog>
       ) : null}
     </>
@@ -175,14 +227,31 @@ export function CustomerPrintReport({
       <p>Valores realizados e pendentes são mostrados separadamente.</p>
       <table>
         <tbody>
-          <tr><th>Entradas recebidas</th><td>{money(summary.income, hidden)}</td></tr>
-          <tr><th>Despesas pagas</th><td>{money(summary.expenses, hidden)}</td></tr>
-          <tr><th>Resultado realizado</th><td>{money(summary.result, hidden)}</td></tr>
-          <tr><th>A receber</th><td>{money(summary.pendingIncome, hidden)}</td></tr>
-          <tr><th>A pagar</th><td>{money(summary.pendingExpenses, hidden)}</td></tr>
+          <tr>
+            <th>Entradas recebidas</th>
+            <td>{money(summary.income, hidden)}</td>
+          </tr>
+          <tr>
+            <th>Despesas pagas</th>
+            <td>{money(summary.expenses, hidden)}</td>
+          </tr>
+          <tr>
+            <th>Resultado realizado</th>
+            <td>{money(summary.result, hidden)}</td>
+          </tr>
+          <tr>
+            <th>A receber</th>
+            <td>{money(summary.pendingIncome, hidden)}</td>
+          </tr>
+          <tr>
+            <th>A pagar</th>
+            <td>{money(summary.pendingExpenses, hidden)}</td>
+          </tr>
           <tr>
             <th>Projeção (sem garantia)</th>
-            <td>{money(summary.result + summary.pendingIncome - summary.pendingExpenses, hidden)}</td>
+            <td>
+              {money(summary.result + summary.pendingIncome - summary.pendingExpenses, hidden)}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -191,7 +260,8 @@ export function CustomerPrintReport({
         <tbody>
           {summary.categories.map((category) => (
             <tr key={category.id}>
-              <th>{category.name}</th><td>{money(category.total, hidden)}</td>
+              <th>{category.name}</th>
+              <td>{money(category.total, hidden)}</td>
             </tr>
           ))}
         </tbody>

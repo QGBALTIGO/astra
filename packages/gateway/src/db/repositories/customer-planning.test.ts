@@ -13,13 +13,21 @@ class MemoryPlanning extends CustomerPlanningRepository {
     if (sql.includes('RETURNING')) {
       const [id, , kind, title, amount, progress, category, total, paid, due, notes] = params!;
       return {
-        id, kind, title, amount_cents: String(amount), progress_cents: String(progress),
-        category_id: category, installments_total: total, installments_paid: paid,
-        next_due_date: due, notes, created_at: '2026-11-11T12:00:00Z',
+        id,
+        kind,
+        title,
+        amount_cents: String(amount),
+        progress_cents: String(progress),
+        category_id: category,
+        installments_total: total,
+        installments_paid: paid,
+        next_due_date: due,
+        notes,
+        created_at: '2026-11-11T12:00:00Z',
         updated_at: '2026-11-11T12:00:00Z',
       } as T;
     }
-    return this.rows[0] as T ?? null;
+    return (this.rows[0] as T) ?? null;
   }
   override async query<T extends object>(sql: string, params?: unknown[]): Promise<T[]> {
     this.calls.push({ sql, params });
@@ -44,26 +52,47 @@ describe('isolated customer planning records', () => {
 
   it('validates realistic budgets and installment progress', async () => {
     const repo = new MemoryPlanning('whatsapp:test');
-    await expect(repo.create({ kind: 'budget', title: 'Alimentação', amount: 350,
-      categoryId: 'food' })).resolves.toMatchObject({ kind: 'budget', categoryId: 'food' });
-    await expect(repo.create({ kind: 'installment', title: 'Carro', amount: 470,
-      installmentsTotal: 12, installmentsPaid: 3 })).resolves.toMatchObject({
-        kind: 'installment', installmentsTotal: 12, installmentsPaid: 3,
-      });
-    await expect(repo.create({ kind: 'goal', title: 'Inválida', amount: 20,
-      progress: 21 })).rejects.toThrow(/ultrapassar/);
-    await expect(repo.create({ kind: 'budget', title: 'Sem categoria', amount: 100 }))
-      .rejects.toThrow(/categoria/);
-    await expect(repo.create({ kind: 'installment', title: 'Impossível', amount: 470,
-      installmentsTotal: 4, installmentsPaid: 5 })).rejects.toThrow(/parcelas/);
+    await expect(
+      repo.create({ kind: 'budget', title: 'Alimentação', amount: 350, categoryId: 'food' })
+    ).resolves.toMatchObject({ kind: 'budget', categoryId: 'food' });
+    await expect(
+      repo.create({
+        kind: 'installment',
+        title: 'Carro',
+        amount: 470,
+        installmentsTotal: 12,
+        installmentsPaid: 3,
+      })
+    ).resolves.toMatchObject({
+      kind: 'installment',
+      installmentsTotal: 12,
+      installmentsPaid: 3,
+    });
+    await expect(
+      repo.create({ kind: 'goal', title: 'Inválida', amount: 20, progress: 21 })
+    ).rejects.toThrow(/ultrapassar/);
+    await expect(
+      repo.create({ kind: 'budget', title: 'Sem categoria', amount: 100 })
+    ).rejects.toThrow(/categoria/);
+    await expect(
+      repo.create({
+        kind: 'installment',
+        title: 'Impossível',
+        amount: 470,
+        installmentsTotal: 4,
+        installmentsPaid: 5,
+      })
+    ).rejects.toThrow(/parcelas/);
   });
 
   it('rejects floating-point and negative amounts rather than rounding silently', async () => {
     const repo = new MemoryPlanning('whatsapp:test');
-    await expect(repo.create({ kind: 'subscription', title: 'Internet', amount: 99.999 }))
-      .rejects.toThrow(/casas decimais/);
-    await expect(repo.create({ kind: 'goal', title: 'Reserva', amount: 200, progress: -1 }))
-      .rejects.toThrow();
+    await expect(
+      repo.create({ kind: 'subscription', title: 'Internet', amount: 99.999 })
+    ).rejects.toThrow(/casas decimais/);
+    await expect(
+      repo.create({ kind: 'goal', title: 'Reserva', amount: 200, progress: -1 })
+    ).rejects.toThrow();
   });
 
   it('returns only rows scoped by user and caps the initial list', async () => {
@@ -81,8 +110,7 @@ describe('isolated customer planning records', () => {
   it('rejects more than 80 stored plans without inventing entries', async () => {
     const repo = new MemoryPlanning('whatsapp:test');
     repo.count = 80;
-    await expect(repo.create({ kind: 'goal', title: 'Extra', amount: 20 }))
-      .rejects.toThrow(/80/);
+    await expect(repo.create({ kind: 'goal', title: 'Extra', amount: 20 })).rejects.toThrow(/80/);
     expect(repo.calls.some((entry) => entry.sql.includes('INSERT INTO'))).toBe(false);
   });
 });
