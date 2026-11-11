@@ -79,7 +79,7 @@ export function parseChannelExpense(input: string): ParsedChannelExpense | null 
   }
 
   const match = text.match(
-    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(?:gastei|paguei|acabei\s+de\s+(?:gastar|pagar))\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:(?:real|reais)\b\s*)?(?:(?:no|na|nos|nas|em|com|pelo|pela|pelos|pelas)\s+([\p{L}\p{M}\s'-]+))?[.!]?$/iu
+    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(?:gastei|paguei|acabei\s+de\s+(?:gastar|pagar))\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:(?:real|reais)\b\s*)?(?:(?:no|na|nos|nas|em|com|pelo|pela|pelos|pelas|de)\s+([\p{L}\p{M}\s'-]+))?[.!]?$/iu
   );
   if (!match) return null;
   // Without a description, require the sender to identify the value as money.
@@ -123,6 +123,12 @@ export function parseChannelExpense(input: string): ParsedChannelExpense | null 
     category = 'subscription';
   } else if (/\b(?:internet|energia|luz|agua|telefone)\b/u.test(detail)) {
     category = 'utilities';
+  }
+  // "Paguei 470 de gasolina" is a clear expense, but "paguei 470 de
+  // entrada" may modify a financing balance. Only handle "de" when the
+  // merchant/purpose already maps to a known expense category.
+  if (/\d[\d.,]*\s*(?:reais?\s+)?de\s+/u.test(normalized) && category === 'other') {
+    return null;
   }
   return { amountCents, description, category };
 }
