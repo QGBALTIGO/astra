@@ -193,7 +193,7 @@ export async function executeChannelReminderTool(
     ) {
       return {
         success: false,
-        error: 'Informe horário com fuso, por exemplo: 2026-11-08T09:00:00-04:00.',
+        error: 'Informe horário ISO 8601 com fuso, por exemplo: 2026-11-08T09:00:00-04:00.',
       };
     }
     remindAt = new Date(value);
