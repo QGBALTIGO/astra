@@ -126,6 +126,95 @@ describe('createAgentExecutionMiddleware', () => {
     middleware = createAgentExecutionMiddleware();
   });
 
+  it('drafts a Pix request naturally with the model, without exposing financial tools', async () => {
+    const text = 'Oi, amor! Você conseguiria me fazer um Pix de R$ 100? ❤️';
+    const agent = createAgent({
+      chat: vi.fn().mockResolvedValue({
+        ok: true,
+        value: {
+          id: 'draft-response',
+          content: text,
+          usage: { promptTokens: 12, completionTokens: 23, totalTokens: 35 },
+        },
+      }),
+    });
+    const ctx = createContext({ store: { agent, userId: 'synthetic' } });
+    const msg = createMessage({
+      content: 'Pede pro meu namorado me fazer pix de 100$',
+      metadata: { source: 'channel', platform: 'whatsapp' },
+    });
+    const result = await middleware(msg, ctx, vi.fn());
+    expect(result.response.content).toBe(text);
+    expect(agent.chat).toHaveBeenCalledTimes(1);
+    expect(agent.setAdditionalTools).not.toHaveBeenCalled();
+    const options = agent.chat.mock.calls[0][1] as {
+      onBeforeToolCall: () => Promise<{ approved: boolean }>;
+    };
+    expect((await options.onBeforeToolCall()).approved).toBe(false);
+  });
+
+  it('regenerates conversationally when the model repeats an old error banner', async () => {
+    const agent = createAgent({
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          value: {
+            id: 'old-error',
+            content:
+              '⚠️ *Não consegui confirmar o pedido*\n\nNão consegui confirmar a execução. Confira seus registros antes de tentar novamente.',
+          },
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          value: {
+            id: 'fresh-answer',
+            content: 'Se for um carinho de coração e couber no orçamento, pode ser uma boa ideia.',
+          },
+        }),
+    });
+    const ctx = createContext({ store: { agent, userId: 'synthetic' } });
+    const msg = createMessage({
+      content: 'A Gabrieli merece pix de 100 reais?',
+      metadata: { source: 'channel', platform: 'whatsapp' },
+    });
+    const result = await middleware(msg, ctx, vi.fn());
+    expect(result.response.content).toContain('carinho de coração');
+    expect(result.response.content).not.toContain('Não consegui confirmar');
+    expect(agent.chat).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a misguided finance menu for a drafting request without tools', async () => {
+    const agent = createAgent({
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          value: {
+            id: 'bad-menu',
+            content:
+              'Não entendi bem o que você quer. Quer que eu: 1. Registe uma entrada de R$ 100?',
+          },
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          value: {
+            id: 'drafted',
+            content: 'Amor, consegue me fazer um Pix de R$ 100 hoje? ❤️',
+          },
+        }),
+    });
+    const ctx = createContext({ store: { agent, userId: 'synthetic' } });
+    const msg = createMessage({
+      content: 'Pede pro meu namorado me fazer pix de 100$',
+      metadata: { source: 'channel', platform: 'whatsapp' },
+    });
+    const result = await middleware(msg, ctx, vi.fn());
+    expect(result.response.content).toContain('Amor, consegue');
+    expect(result.response.content).not.toContain('Registe uma entrada');
+    expect(agent.chat).toHaveBeenCalledTimes(2);
+  });
+
   it('routes a Pix opinion to the AI without permitting tool execution', async () => {
     const agent = createAgent({
       chat: vi.fn().mockResolvedValue({

@@ -27,7 +27,8 @@ import {
 } from './response-safety.js';
 import {
   channelToolsForMessage,
-  isConversationalOnlyChannelQuestion,
+  isConversationalOnlyChannelRequest,
+  needsConversationalRewrite,
   recentChannelText,
 } from './tool-selection.js';
 import { restoreChannelHistory } from './restore-history.js';
@@ -690,10 +691,10 @@ async function processDirectAgentInSession(
     )
   );
   const channelReceipts: ChannelToolReceipt[] = [];
-  const opinionOnly =
-    !message.attachments?.length && isConversationalOnlyChannelQuestion(interpreted.text);
+  const conversationOnly =
+    !message.attachments?.length && isConversationalOnlyChannelRequest(interpreted.text);
   agent.setAdditionalTools?.(
-    opinionOnly
+    conversationOnly
       ? []
       : channelToolsForMessage(interpreted.text, recentChannelText(agent.getConversation()))
   );
@@ -706,7 +707,7 @@ async function processDirectAgentInSession(
       onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
     },
     () =>
-      opinionOnly
+      conversationOnly
         ? agent.chat(interpreted.text, {
             onBeforeToolCall: async () => ({
               approved: false,
@@ -721,11 +722,15 @@ async function processDirectAgentInSession(
     const { extractMemoriesFromResponse } = await import('../utils/memory-extraction.js');
     const { content: stripped } = extractMemoriesFromResponse(result.value.content);
     const response = safeChannelResponse(stripped, channelReceipts);
-    if (!opinionOnly || channelReceipts.length > 0 || response !== CHANNEL_UNVERIFIED_REPLY)
+    if (
+      !conversationOnly ||
+      channelReceipts.length > 0 ||
+      (response !== CHANNEL_UNVERIFIED_REPLY && !needsConversationalRewrite(response))
+    )
       return response;
     try {
       const second = await agent.chat(
-        'Responda naturalmente à pergunta anterior em português. Dê sua opinião sem inventar fatos nem dizer que fez pagamentos ou registros.',
+        'Releia o pedido original. Dê sua opinião ou escreva a mensagem pronta para copiar, conforme a intenção, em português natural. Não use ferramentas, não afirme ter feito pagamentos ou registros nem mostre mensagens técnicas.',
         {
           onBeforeToolCall: async () => ({
             approved: false,
@@ -735,7 +740,8 @@ async function processDirectAgentInSession(
       );
       if (second.ok) {
         const checked = safeChannelResponse(second.value.content, []);
-        if (checked !== CHANNEL_UNVERIFIED_REPLY) return checked;
+        if (checked !== CHANNEL_UNVERIFIED_REPLY && !needsConversationalRewrite(checked))
+          return checked;
       }
     } catch {
       // A failed rewording must not trigger financial actions or expose internals.

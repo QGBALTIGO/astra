@@ -224,6 +224,10 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     .toLowerCase();
   // Negate the action itself, not the entire sentence: "Não se preocupe, criei"
   // is still a success claim, and a failed action cannot excuse another claim.
+  // Legacy error prose can be echoed by the model from prior chat turns.
+  // Never show the obsolete error banner to WhatsApp users again.
+  const legacyErrorBanner =
+    /(?:^|\n)[^\p{L}\p{N}]{0,12}nao consegui confirmar (?:o pedido|a execucao)\b/u.test(lower);
   const statements = lower
     .split(/[.!?\n]+/)
     .map((sentence) =>
@@ -390,7 +394,8 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     clean &&
     !unsupported &&
     !removedIdentifiers &&
-    failureAcknowledged
+    failureAcknowledged &&
+    !legacyErrorBanner
   )
     return clean;
   // Lists and compound reminder requests often contain an ID beside a useful
@@ -403,6 +408,7 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     failureAcknowledged &&
     !internalTool &&
     !protocol.test(text) &&
+    !legacyErrorBanner &&
     ((!onlyReminder && has('schedule_channel_reminder', 'reschedule_channel_reminder')) ||
       ![...tools].some((name) =>
         /^(?:schedule_|reschedule_|add_|batch_add_|create_|batch_create_|record_|update_|delete_|cancel_)/.test(

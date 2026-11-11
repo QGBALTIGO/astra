@@ -36,6 +36,16 @@ describe('Channel responses use persisted facts without internal details', () =>
     expect(CHANNEL_UNVERIFIED_REPLY).not.toMatch(/tool_call|thinking|stack|erro interno|⚠️/i);
   });
 
+  it.each([
+    '⚠️ *Não consegui confirmar o pedido*\n\nNão consegui confirmar a execução. Confira seus registros antes de tentar novamente.',
+    'Não consegui confirmar a execução. Confira seus registros antes de tentar novamente.',
+  ])('does not echo the deprecated error banner from old conversation history', (text) => {
+    const cleaned = safeChannelResponse(text, []);
+    expect(cleaned).toBe(CHANNEL_UNVERIFIED_REPLY);
+    expect(cleaned).not.toContain('Não consegui confirmar o pedido');
+    expect(cleaned).not.toContain('Não consegui confirmar a execução');
+  });
+
   it('rebuilds the screenshot UUID acknowledgement from the saved reminder', () => {
     const text = `Lembrete agendado!\nO lembrete foi criado com o ID ${id} e está pendente de envio nesta conversa.`;
     expect(safeChannelResponse(text, [reminder()])).toBe(

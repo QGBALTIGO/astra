@@ -14,6 +14,9 @@ const ALLOWED_FREE_MODELS: Readonly<Record<string, ReadonlySet<string>>> = {
   zai: new Set(['glm-4.7-flash', 'glm-4.5-flash']),
   openrouter: new Set(['openrouter/free']),
   google: new Set(['gemini-2.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.6-flash']),
+  // Groq Free Plan includes these models within rate limits. Explicit opt-in
+  // only: API keys may also belong to paid Developer plans.
+  groq: new Set(['openai/gpt-oss-20b', 'openai/gpt-oss-120b']),
 };
 
 function isAllowedFreeRoute(route: AstraFallbackRoute): boolean {

@@ -663,7 +663,7 @@ async function createChatAgentInstance(
   const outputBuffer = Math.min(
     AGENT_DEFAULT_MAX_TOKENS,
     modelMaxOutput,
-    channelMode ? 768 : Number.POSITIVE_INFINITY
+    channelMode ? (provider === 'ollama-local' ? 1536 : 768) : Number.POSITIVE_INFINITY
   );
   const computedMemoryMaxTokens = router.computeMemoryMaxTokens({
     ctxWindow,
@@ -675,8 +675,11 @@ async function createChatAgentInstance(
   // window can exceed the organisation's TPM cap on a single WhatsApp message.
   // Persistent conversation history and long-term memories are not deleted.
   const memoryMaxTokens = channelMode
-    ? Math.min(computedMemoryMaxTokens, 1_536)
+    ? Math.min(computedMemoryMaxTokens, provider === 'ollama-local' ? 3072 : 1_536)
     : computedMemoryMaxTokens;
+
+  // A local 4B model may need longer than the Groq-oriented 20s channel cap.
+  const channelPrimaryTimeout = provider === 'ollama-local' ? 52_000 : 20_000;
 
   const config: AgentConfig = {
     name: isCliProvider
@@ -692,7 +695,7 @@ async function createChatAgentInstance(
       headers: providerConfig?.headers,
       endpoint: providerConfig?.endpoint,
       features: providerConfig?.features,
-      ...(channelMode ? { timeout: 20_000, maxRetries: 0 } : {}),
+      ...(channelMode ? { timeout: channelPrimaryTimeout, maxRetries: 0 } : {}),
     },
     model: {
       model,
@@ -809,7 +812,7 @@ async function createChatAgentInstance(
             resolvedAuth,
             baseUrl,
             headers: providerConfig?.headers,
-            ...(channelMode ? { timeout: 20_000 } : {}),
+            ...(channelMode ? { timeout: channelPrimaryTimeout } : {}),
             maxRetries: 0,
           },
           fallbacks: usableFallbacks,

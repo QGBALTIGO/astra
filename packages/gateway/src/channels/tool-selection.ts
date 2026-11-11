@@ -21,9 +21,53 @@ export function isConversationalOnlyChannelQuestion(text: string): boolean {
   );
 }
 
+/** Ask the model to write or advise, never to execute a payment or write data. */
+export function isConversationalOnlyChannelRequest(text: string): boolean {
+  if (isConversationalOnlyChannelQuestion(text)) return true;
+  const input = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/^(?:astra[,!:]?\s+)?(?:por favor[, ]+\s*)?/, '');
+  // Compound requests must go through the normal, verified action pipeline.
+  if (
+    /\be\s+(?:registr[ae]|anot[ae]|salv[ae]|agend[ae]|crie|canc[ae]le|exclua|pague|transfira)\b/.test(
+      input
+    )
+  ) {
+    return false;
+  }
+  return (
+    /^(?:pede|peca|fala|diz|diga)\s+(?:pro|pra|para\s+(?:o|a)|ao|a)\s+(?:(?:meu|minha|o|a)\s+)?(?:namorad[oa]|marido|esposa|mae|pai|amig[oa]|client[ea]|chefe|irma[oa])\b/.test(
+      input
+    ) ||
+    /^(?:(?:pode|poderia|consegue)\s+)?(?:escrev(?:a|e|er)|redig(?:a|e|ir)|mont(?:a|e|ar)|cri(?:a|e|ar)|faz|faca|fazer|ger(?:a|e|ar))\s+(?:(?:uma|um)\s+)?(?:mensagem|texto|recado|pedido|convite|resposta)\b/.test(
+      input
+    ) ||
+    /^(?:me ajuda|pode me ajudar|quero ajuda)\s+(?:a\s+)?(?:pedir|escrever|responder|falar|dizer)\b/.test(
+      input
+    ) ||
+    /^(?:quero|preciso)\s+(?:mandar|enviar|escrever)\s+(?:uma\s+)?mensagem\b/.test(input)
+  );
+}
+
+/** Detect a generic assistant error or a misunderstanding of a chat request. */
+export function needsConversationalRewrite(text: string): boolean {
+  const input = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[*_~]/g, '')
+    .toLowerCase()
+    .trim();
+  return /^(?:nao entendi bem o que voce quer|nao consegui confirmar (?:o pedido|a execucao)|ainda nao tenho uma alteracao confirmada)/.test(
+    input
+  );
+}
+
 /** Small native tool set per intent; discovery remains available for everything else. */
 export function channelToolsForMessage(text: string, previousText = ''): string[] {
-  if (isConversationalOnlyChannelQuestion(text)) return [];
+  if (isConversationalOnlyChannelRequest(text)) return [];
   const input = `${text}\n${previousText.slice(-2500)}`
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')

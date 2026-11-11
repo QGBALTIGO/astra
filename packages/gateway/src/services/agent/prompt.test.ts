@@ -15,6 +15,12 @@ describe('agent-prompt', () => {
   // ---------------------------------------------------------------------------
   // Exports
   // ---------------------------------------------------------------------------
+  it('instructs the WhatsApp model to write messages instead of booking or transferring', () => {
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('CONVERSA E REDAÇÃO');
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('mensagem natural');
+    expect(CHANNEL_SYSTEM_PROMPT).toContain('não use respostas fixas');
+  });
+
   describe('exports', () => {
     it('exports BASE_SYSTEM_PROMPT as a string', () => {
       expect(typeof BASE_SYSTEM_PROMPT).toBe('string');
