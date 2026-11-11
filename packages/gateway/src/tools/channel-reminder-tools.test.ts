@@ -124,12 +124,12 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
 
   it('cannot list or cancel reminders outside the authorized chat', async () => {
     await executeChannelReminderTool('list_channel_reminders', {}, 'default');
-    await executeChannelReminderTool(
+    const result = await executeChannelReminderTool(
       'cancel_channel_reminder',
-      'reschedule_channel_reminder',
       { reminder_id: 'reminder-123' },
       'default'
     );
+    expect(result.success).toBe(true);
     expect(fixtures.listForChat).toHaveBeenCalledWith('default', 'channel.telegram', 'chat-123');
     expect(fixtures.cancel).toHaveBeenCalledWith(
       'reminder-123',
