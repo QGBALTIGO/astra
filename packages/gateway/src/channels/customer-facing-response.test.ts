@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { customerFacingText, savedReminderConfirmation } from './customer-facing-response.js';
 import { safeChannelResponse, type ChannelToolReceipt } from './response-safety.js';
 
-const id = '54676012-ea88-44ff-8bac-267ee4264d6b';
+const id = '12345678-1234-4234-8234-123456789abc';
 function receipt(overrides: Record<string, unknown> = {}): ChannelToolReceipt {
   return {
     name: 'core.schedule_channel_reminder',
@@ -49,9 +49,12 @@ describe('customer-facing WhatsApp confirmations', () => {
     expect(savedReminderConfirmation([call])).toContain('*Lembrete reagendado!*');
   });
 
-  it.each(['sent', 'failed', 'cancelled', 'sending'])('does not promise delivery for %s', (status) => {
-    expect(savedReminderConfirmation([receipt({ status })])).toBeNull();
-  });
+  it.each(['sent', 'failed', 'cancelled', 'sending'])(
+    'does not promise delivery for %s',
+    (status) => {
+      expect(savedReminderConfirmation([receipt({ status })])).toBeNull();
+    }
+  );
 
   it.each([
     { title: '' },
@@ -74,6 +77,16 @@ describe('customer-facing WhatsApp confirmations', () => {
     const result = safeChannelResponse('Lembrete agendado! Tarefa criada!', [receipt(), failed]);
     expect(result).toContain('Não consegui confirmar');
     expect(result).not.toContain(id);
+  });
+
+  it('does not hide a failed meta-tool envelope', () => {
+    const failed = { ...receipt(), name: 'use_tool', content: '{"success":false}' };
+    expect(savedReminderConfirmation([receipt(), failed])).toBeNull();
+  });
+
+  it('leaves batch results to the per-action response safety checks', () => {
+    const batch = { ...receipt(), name: 'batch_use_tool' };
+    expect(savedReminderConfirmation([receipt(), batch])).toBeNull();
   });
 
   it('preserves money, dates, times, phones and security codes', () => {

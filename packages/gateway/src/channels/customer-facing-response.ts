@@ -31,8 +31,15 @@ export function savedReminderConfirmation(receipts: ChannelToolReceipt[]): strin
   for (const receipt of receipts) {
     const name = toolName(receipt.name);
     if (/^(?:list_|get_|search_)/.test(name)) continue;
-    if (name === 'use_tool' || name === 'batch_use_tool') {
+    if (name === 'batch_use_tool') return null;
+    if (name === 'use_tool') {
       if (receipt.isError) return null;
+      try {
+        const result = JSON.parse(receipt.content);
+        if (result?.success === false || result?.isError === true || result?.error) return null;
+      } catch {
+        return null;
+      }
       continue;
     }
     if (name !== 'schedule_channel_reminder' && name !== 'reschedule_channel_reminder') return null;
@@ -42,6 +49,7 @@ export function savedReminderConfirmation(receipts: ChannelToolReceipt[]): strin
       const saved = envelope?.result;
       if (
         envelope?.success !== true ||
+        envelope.isError === true ||
         envelope.error ||
         saved?.status !== 'pending' ||
         typeof saved.title !== 'string' ||
