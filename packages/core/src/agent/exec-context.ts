@@ -30,6 +30,10 @@ export interface ExecContext {
   readonly channelPluginId?: string;
   readonly platformChatId?: string;
   readonly channelMessageId?: string;
+  /** Original receive instant, for relative reminders despite model latency. */
+  readonly channelMessageTimestamp?: number;
+  /** In-process receipt only: observes actual registry results, including nested meta calls. */
+  readonly onToolResult?: (receipt: { name: string; content: string; isError: boolean }) => void;
 }
 
 const storage = new AsyncLocalStorage<ExecContext>();

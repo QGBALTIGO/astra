@@ -26,6 +26,7 @@ import { buildPageContextSection, type PageContext } from './page-context-sectio
 import { getLog } from '../log.js';
 import { SoulsRepository } from '../../db/repositories/souls.js';
 import { customerAccountsRepo } from '../../db/repositories/customer-accounts.js';
+import { withCustomerClock } from '../customer-date.js';
 
 const log = getLog('Middleware:ContextInjection');
 
@@ -227,7 +228,8 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
               // Build a fresh ## Current Context block (rounded to hour)
               const tc = getTimeContext(customerAccount?.timeZone);
               const rounded = new Date(tc.currentTime);
-              if (!customerAccount) rounded.setMinutes(0, 0, 0);
+              if (!customerAccount && message.metadata.source !== 'channel')
+                rounded.setMinutes(0, 0, 0);
               const timeStr = rounded.toLocaleString(undefined, {
                 timeZone: customerAccount?.timeZone,
                 year: 'numeric',
@@ -282,8 +284,15 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
             dataHintSuffix +
             focusSuffix;
 
-      if (finalPrompt !== currentSystemPrompt) {
-        agent.updateSystemPrompt(finalPrompt);
+      const freshPrompt =
+        message.metadata.source === 'channel'
+          ? withCustomerClock(
+              finalPrompt,
+              customerAccount?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande'
+            )
+          : finalPrompt;
+      if (freshPrompt !== currentSystemPrompt) {
+        agent.updateSystemPrompt(freshPrompt);
       }
 
       // Debug: record injection breakdown in debugLog so /api/v1/debug shows it
@@ -471,6 +480,7 @@ function buildDataHintSection(routing: RequestRouting | undefined): string {
  */
 function stripInjectedSections(prompt: string): string {
   const markers = [
+    '\n\n---\n\n## Astra customer clock',
     // Extension sections (injected by context-injection or agent-service at creation)
     '\n\n## Extension:',
     '\n\n## Skill:',

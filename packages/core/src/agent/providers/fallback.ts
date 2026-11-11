@@ -105,7 +105,7 @@ export class FallbackProvider implements IProvider {
     if (index === 0) return request;
     const fallbackModel = this.orderedConfigs[index]?.defaultModel;
     if (!fallbackModel) return request;
-    return { ...request, model: fallbackModel };
+    return { ...request, model: { ...request.model, ...fallbackModel } };
   }
 
   // ── Circuit Breaker ─────────────────────────────────────────────

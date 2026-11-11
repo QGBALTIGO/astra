@@ -15,12 +15,14 @@ import type { IMessageBus, NormalizedMessage } from '@ownpilot/core/services';
 import type { StreamCallbacks } from '@ownpilot/core/services';
 import type { ChannelSessionsRepository } from '../db/repositories/channels/sessions.js';
 import { truncate } from '../utils/common.js';
-import { stripInternalTags } from './normalizers/base.js';
 import { tryExpenseRecordChannelReply, tryFinancingChannelReply } from './finance-routing.js';
 import { runInSessionLane } from '../services/agent/session-lane.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { withCustomerClock } from '../services/customer-date.js';
 import { tryAstraAccessReply } from './astra-access.js';
+import { safeChannelResponse, type ChannelToolReceipt } from './response-safety.js';
+import { channelToolsForMessage, recentChannelText } from './tool-selection.js';
+import { restoreChannelHistory } from './restore-history.js';
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -37,6 +39,37 @@ export function deterministicChannelReply(text: string): string | null {
     return 'Oi! Como posso ajudar você hoje?';
   }
   return null;
+}
+
+/** Current time is a clock read, never an LLM estimate rounded to the hour. */
+export async function tryClockChannelReply(
+  text: string,
+  userId: string,
+  now = new Date()
+): Promise<string | null> {
+  const input = normalizeChannelIntent(text)
+    .replace(/[?!.,]+$/, '')
+    .trim();
+  if (
+    !/^(?:que horas (?:sao|e)(?: agora)?|qual (?:e )?(?:a hora|o horario)(?: agora)?|hora atual|que dia e hoje)$/.test(
+      input
+    )
+  )
+    return null;
+  try {
+    const account = userId.startsWith('whatsapp:')
+      ? await customerAccountsRepo.getByDataUserId(userId)
+      : null;
+    const timeZone = account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
+    const local = new Intl.DateTimeFormat('pt-BR', {
+      timeZone,
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(now);
+    return `Agora: ${local} (${timeZone}).`;
+  } catch {
+    return 'Não consegui consultar seu horário agora.';
+  }
 }
 
 type ExpenseSummaryPeriod =
@@ -155,13 +188,14 @@ export async function tryExpenseSummaryChannelReply(
  * Ambiguous requests still go to the assistant instead of creating a wrong task.
  */
 export async function tryScheduleRelativeChannelReminder(
-  message: Pick<ChannelIncomingMessage, 'text' | 'id' | 'channelPluginId' | 'platformChatId'>,
+  message: Pick<ChannelIncomingMessage, 'text' | 'id' | 'channelPluginId' | 'platformChatId'> &
+    Partial<Pick<ChannelIncomingMessage, 'timestamp'>>,
   userId: string
 ): Promise<string | null> {
   const match = message.text
     .trim()
     .match(
-      /^(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar)\s+(?:em|daqui\s+a)\s+(\d{1,5})\s*(minutos?|min|horas?|h)\s+(?:para|pra|de|que)\s+(.+)$/iu
+      /^(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar)\s+(?:em|daqui(?:\s+(?:a|uns?|umas?))?)\s+(\d{1,5})\s*(minutos?|min|horas?|h)\s+(?:para|pra|de|que)\s+(.+)$/iu
     );
   if (!match) return null;
 
@@ -179,6 +213,7 @@ export async function tryScheduleRelativeChannelReminder(
       channelPluginId: message.channelPluginId,
       platformChatId: message.platformChatId,
       channelMessageId: message.id,
+      channelMessageTimestamp: message.timestamp?.getTime(),
     },
     async () => {
       const result = await executeChannelReminderTool(
@@ -256,6 +291,10 @@ export async function processViaBus(
   }
   const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
   if (accessReply) return accessReply;
+  const clockReply = message.attachments?.length
+    ? null
+    : await tryClockChannelReply(message.text, channelUser.ownpilotUserId);
+  if (clockReply) return clockReply;
 
   const financingReply = message.attachments?.length
     ? null
@@ -353,7 +392,15 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
   // Load session conversation for context continuity
   let activeConversationId = latestSession?.conversationId ?? session.conversationId;
   if (activeConversationId) {
-    if (!agent.getMemory().has(activeConversationId)) {
+    if (
+      !agent.getMemory().has(activeConversationId) &&
+      !(await restoreChannelHistory(
+        agent.getMemory(),
+        activeConversationId,
+        channelUser.ownpilotUserId,
+        agent.getConversation().systemPrompt
+      ))
+    ) {
       // Conversation lost (server restart, agent cache eviction) — create a new one
       const systemPrompt = agent.getConversation().systemPrompt;
       const newConv = agent.getMemory().create(systemPrompt);
@@ -418,7 +465,7 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
       conversationId: activeConversationId ?? undefined,
       agentId: 'default',
     },
-    timestamp: new Date(),
+    timestamp: message.timestamp,
   };
 
   // Build stream callbacks for progress updates
@@ -430,16 +477,8 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
       }
     : undefined;
 
-  // Direct tool calling only works while the tool registry fits the provider's
-  // hard 128-function limit. With more tools (plugins, MCP, extensions), keep
-  // discovery via search_tools/use_tool instead of sending an invalid request.
-  // The same policy applies to Telegram and WhatsApp, including simple greetings.
-  const directToolCount = agent
-    .getAllToolDefinitions()
-    .filter((tool) => tool.name !== 'use_tool' && tool.name !== 'batch_use_tool').length;
-  // Groq's 8K TPM budget requires the compact four-meta-tool path even
-  // when a smaller registry technically fits the 128-tool schema cap.
-  const useDirectTools = effectiveProvider !== 'groq' && directToolCount <= 128;
+  // Use intent-selected native tools plus discovery, never the entire registry.
+  const useDirectTools = false;
 
   // Process through the pipeline with context.
   try {
@@ -448,6 +487,7 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
         channelPluginId: message.channelPluginId,
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
+        channelMessageTimestamp: message.timestamp?.getTime(),
       },
       () =>
         bus.process(normalized, {
@@ -508,6 +548,10 @@ export async function processDirectAgent(
   }
   const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
   if (accessReply) return accessReply;
+  const clockReply = message.attachments?.length
+    ? null
+    : await tryClockChannelReply(message.text, userId);
+  if (clockReply) return clockReply;
 
   const financingReply = message.attachments?.length
     ? null
@@ -518,6 +562,11 @@ export async function processDirectAgent(
     ? null
     : await tryExpenseRecordChannelReply(message, userId);
   if (expenseRecordReply) return expenseRecordReply;
+
+  const reminderReply = message.attachments?.length
+    ? null
+    : await tryScheduleRelativeChannelReminder(message, userId);
+  if (reminderReply) return reminderReply;
 
   const expenseReply = message.attachments?.length
     ? null
@@ -571,27 +620,35 @@ async function processDirectAgentInSession(
   const { enrichWhatsAppMedia } = await import('./normalizers/media-understanding.js');
   const incoming = await getNormalizer(message.platform).normalizeIncoming(message);
   const interpreted = await enrichWhatsAppMedia(message, incoming);
-  if (userId.startsWith('whatsapp:')) {
-    const account = await customerAccountsRepo.getByDataUserId(userId);
-    if (account)
-      agent.updateSystemPrompt(
-        withCustomerClock(agent.getConversation().systemPrompt ?? '', account.timeZone)
-      );
-  }
+  const account = userId.startsWith('whatsapp:')
+    ? await customerAccountsRepo.getByDataUserId(userId)
+    : null;
+  agent.updateSystemPrompt(
+    withCustomerClock(
+      agent.getConversation().systemPrompt ?? '',
+      account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande'
+    )
+  );
+  const channelReceipts: ChannelToolReceipt[] = [];
+  agent.setAdditionalTools?.(
+    channelToolsForMessage(interpreted.text, recentChannelText(agent.getConversation()))
+  );
   const result = await runInExecContext(
     {
       channelPluginId: message.channelPluginId,
       platformChatId: message.platformChatId,
       channelMessageId: message.id,
+      channelMessageTimestamp: message.timestamp?.getTime(),
+      onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
     },
     () => agent.chat(interpreted.text)
-  );
+  ).finally(() => agent.clearAdditionalTools?.());
 
   if (result.ok) {
     // Strip internal tags so channel users never see prompt-control markup.
     const { extractMemoriesFromResponse } = await import('../utils/memory-extraction.js');
     const { content: stripped } = extractMemoriesFromResponse(result.value.content);
-    return stripInternalTags(stripped);
+    return safeChannelResponse(stripped, channelReceipts);
   }
   return 'Não consegui processar sua mensagem agora. Tente novamente em instantes.';
 }

@@ -30,6 +30,7 @@ import { getErrorMessage } from '../../services/error-utils.js';
 import { desanitizeToolName } from '../tool-namespace.js';
 import { getAuthHeader, type ResolvedAuth } from './configs/types.js';
 import { readSseData, runProviderHealthCheck } from './shared.js';
+import { groqResponseOptions } from './groq-response-options.js';
 
 /**
  * Build the Authorization header from either the new `resolvedAuth`
@@ -130,6 +131,7 @@ export class OpenAIProvider extends BaseProvider {
     }
 
     const body = {
+      ...groqResponseOptions(this.config.baseUrl, request.model.model, request.model.maxTokens),
       model: request.model.model,
       messages: this.buildMessages(request.messages),
       max_tokens: request.model.maxTokens,
@@ -259,6 +261,7 @@ export class OpenAIProvider extends BaseProvider {
     }
 
     const body = {
+      ...groqResponseOptions(this.config.baseUrl, request.model.model, request.model.maxTokens),
       model: request.model.model,
       messages: this.buildMessages(request.messages),
       max_tokens: request.model.maxTokens,

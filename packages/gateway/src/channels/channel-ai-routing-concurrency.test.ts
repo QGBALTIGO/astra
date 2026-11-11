@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@ownpilot/core/agent', () => ({
   runInExecContext: (_context: unknown, fn: () => unknown) => fn(),
 }));
+vi.mock('./restore-history.js', () => ({ restoreChannelHistory: async () => false }));
 vi.mock('@ownpilot/core/costs', () => ({ pricingByExactKey: new Map() }));
 vi.mock('./finance-routing.js', () => ({
   tryFinancingChannelReply: mocks.financing,
@@ -91,6 +92,7 @@ function makeAgent() {
     getMemory: () => memory,
     getConversation: () => ({ id: 'conversation-a', systemPrompt: 'assistant' }),
     loadConversation: vi.fn(),
+    updateSystemPrompt: vi.fn(),
     setRequestApproval: vi.fn(),
     getAllToolDefinitions: () => [],
     chat: vi.fn(),

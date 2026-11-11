@@ -101,6 +101,25 @@ export class ChannelRemindersRepository extends BaseRepository {
     return result.changes > 0;
   }
 
+  /** Atomic, tenant/conversation-scoped change. Never move an in-flight delivery. */
+  async reschedule(
+    id: string,
+    userId: string,
+    channelPluginId: string,
+    platformChatId: string,
+    remindAt: Date
+  ): Promise<ChannelReminder | null> {
+    const row = await this.queryOne<ReminderRow>(
+      `UPDATE channel_reminders SET remind_at = $5, next_attempt_at = $5,
+       attempts = 0, last_error = NULL, updated_at = NOW()
+       WHERE id = $1 AND user_id = $2 AND channel_plugin_id = $3
+         AND platform_chat_id = $4 AND status = 'pending'
+       RETURNING *`,
+      [id, userId, channelPluginId, platformChatId, remindAt]
+    );
+    return row ? mapReminder(row) : null;
+  }
+
   /** SKIP LOCKED makes parallel replicas claim different reminder rows. */
   async claimDue(limit = 20): Promise<ChannelReminder[]> {
     // If an instance crashed while sending its fifth attempt, mark the

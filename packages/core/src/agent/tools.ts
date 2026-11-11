@@ -469,6 +469,19 @@ export class ToolRegistry {
         pluginId: tool.pluginId,
       });
       result = afterCtx.data.result;
+      // Never let telemetry failure turn a successful write into a retriable error.
+      try {
+        getExecContext()?.onToolResult?.({
+          name,
+          content:
+            typeof result.content === 'string'
+              ? result.content
+              : (JSON.stringify(result.content) ?? 'null'),
+          isError: result.isError ?? false,
+        });
+      } catch {
+        log.warn('Tool result observer failed');
+      }
 
       // Emit tool executed event (success)
       const successPayload: ToolExecutedData = {

@@ -199,26 +199,34 @@ describe('FallbackProvider', () => {
       });
 
       primary.complete.mockResolvedValue(err(new InternalError('fail')));
-      const req = { messages: [{ role: 'user', content: 'hi' }], model: { model: 'gpt-4o' } };
+      const req = {
+        messages: [{ role: 'user', content: 'hi' }],
+        model: { model: 'gpt-4o', maxTokens: 768, temperature: 0.4 },
+      };
       await provider.complete(req as Record<string, unknown>);
 
       // Primary saw the original model; fallback saw the swapped model.
       expect(primary.complete).toHaveBeenCalledWith(
-        expect.objectContaining({ model: { model: 'gpt-4o' } })
+        expect.objectContaining({ model: { model: 'gpt-4o', maxTokens: 768, temperature: 0.4 } })
       );
       expect(fallback.complete).toHaveBeenCalledWith(
-        expect.objectContaining({ model: { model: 'claude-sonnet-4-6' } })
+        expect.objectContaining({
+          model: { model: 'claude-sonnet-4-6', maxTokens: 768, temperature: 0.4 },
+        })
       );
     });
 
     it('leaves the request model unchanged for fallbacks without a defaultModel', async () => {
       const { provider, primary, fallback } = createTestProvider();
       primary.complete.mockResolvedValue(err(new InternalError('fail')));
-      const req = { messages: [{ role: 'user', content: 'hi' }], model: { model: 'gpt-4o' } };
+      const req = {
+        messages: [{ role: 'user', content: 'hi' }],
+        model: { model: 'gpt-4o', maxTokens: 768, temperature: 0.4 },
+      };
       await provider.complete(req as Record<string, unknown>);
       // No defaultModel on the fallback → request model passes through untouched.
       expect(fallback.complete).toHaveBeenCalledWith(
-        expect.objectContaining({ model: { model: 'gpt-4o' } })
+        expect.objectContaining({ model: { model: 'gpt-4o', maxTokens: 768, temperature: 0.4 } })
       );
     });
   });

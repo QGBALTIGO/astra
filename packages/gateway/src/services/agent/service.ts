@@ -42,6 +42,7 @@ import {
 } from './prompt.js';
 import { registerExpenseOverrides } from '../../tools/overrides/expense.js';
 import { FINANCING_TOOLS } from '../../tools/financing-tools.js';
+import { CUSTOMER_FINANCE_TOOLS } from '../../tools/customer-finance-tools.js';
 import {
   registerGatewayTools,
   registerDynamicTools,
@@ -100,24 +101,6 @@ import {
 } from '../cli/chat-provider.js';
 
 const log = getLog('AgentService');
-
-/**
- * Frequent personal-assistant intents can call these tools directly, avoiding
- * extra model round trips for search_tools + get_tool_help + use_tool.
- * Everything else remains available through meta-tool discovery.
- */
-const FAST_CHANNEL_TOOLS = [
-  'core.schedule_channel_reminder',
-  'core.list_channel_reminders',
-  'core.cancel_channel_reminder',
-  'core.add_expense',
-  'core.query_expenses',
-  'core.expense_summary',
-  'core.add_calendar_event',
-  'core.list_calendar_events',
-  'core.add_task',
-  'core.list_tasks',
-] as const;
 
 // =============================================================================
 // CLI Provider Correlation (links MCP tool calls to chat SSE streams)
@@ -579,6 +562,7 @@ async function createChatAgentInstance(
       ...PERSONAL_DATA_TOOLS.map((def) => `core.${def.name}`),
       ...CHANNEL_REMINDER_TOOLS.map((def) => `core.${def.name}`),
       ...FINANCING_TOOLS.map((def) => `core.${def.name}`),
+      ...CUSTOMER_FINANCE_TOOLS.map((def) => `core.${def.name}`),
       'search_tools',
       'get_tool_help',
       'use_tool',
@@ -609,7 +593,7 @@ async function createChatAgentInstance(
     ...SOUL_COMMUNICATION_TOOLS,
   ];
   const chatAlwaysIncluded = [
-    ...(channelMode ? FINANCING_TOOLS : []),
+    ...(channelMode ? [...FINANCING_TOOLS, ...CUSTOMER_FINANCE_TOOLS] : []),
     ...DYNAMIC_TOOL_DEFINITIONS,
     ...CHANNEL_REMINDER_TOOLS,
     ...activeCustomToolDefs,
@@ -661,10 +645,7 @@ async function createChatAgentInstance(
   // Extension sections are now injected per-request by the context-injection middleware
   // based on routing decisions from the request-preprocessor middleware.
 
-  const chatMetaToolFilter = [
-    ...AI_META_TOOL_NAMES,
-    ...(channelMode ? FAST_CHANNEL_TOOLS : []),
-  ].map((name) => unsafeToolId(name));
+  const chatMetaToolFilter = AI_META_TOOL_NAMES.map((name) => unsafeToolId(name));
 
   const router = getLLMRouter();
   const ctxWindow = router.getContextWindow(provider, model);
@@ -678,7 +659,7 @@ async function createChatAgentInstance(
   const outputBuffer = Math.min(
     AGENT_DEFAULT_MAX_TOKENS,
     modelMaxOutput,
-    channelMode && provider === 'groq' ? 768 : Number.POSITIVE_INFINITY
+    channelMode ? 768 : Number.POSITIVE_INFINITY
   );
   const computedMemoryMaxTokens = router.computeMemoryMaxTokens({
     ctxWindow,
@@ -689,10 +670,9 @@ async function createChatAgentInstance(
   // Keep conversational history bounded for Groq channels: even a 128K context
   // window can exceed the organisation's TPM cap on a single WhatsApp message.
   // Persistent conversation history and long-term memories are not deleted.
-  const memoryMaxTokens =
-    channelMode && provider === 'groq'
-      ? Math.min(computedMemoryMaxTokens, 2_048)
-      : computedMemoryMaxTokens;
+  const memoryMaxTokens = channelMode
+    ? Math.min(computedMemoryMaxTokens, 1_536)
+    : computedMemoryMaxTokens;
 
   const config: AgentConfig = {
     name: isCliProvider
@@ -708,6 +688,7 @@ async function createChatAgentInstance(
       headers: providerConfig?.headers,
       endpoint: providerConfig?.endpoint,
       features: providerConfig?.features,
+      ...(channelMode ? { timeout: 20_000, maxRetries: 0 } : {}),
     },
     model: {
       model,
@@ -719,8 +700,8 @@ async function createChatAgentInstance(
     },
     // CLI providers handle tool calling internally via ToolBridge (prompt-based),
     // so the agent loop itself doesn't need to do tool calling rounds.
-    maxTurns: isCliProvider ? 1 : AGENT_DEFAULT_MAX_TURNS,
-    maxToolCalls: isCliProvider ? 0 : AGENT_DEFAULT_MAX_TOOL_CALLS,
+    maxTurns: isCliProvider ? 1 : channelMode ? 6 : AGENT_DEFAULT_MAX_TURNS,
+    maxToolCalls: isCliProvider ? 0 : channelMode ? 10 : AGENT_DEFAULT_MAX_TOOL_CALLS,
     tools: isCliProvider ? [] : chatMetaToolFilter,
     requestApproval: createApprovalCallback(),
     memory: { maxTokens: memoryMaxTokens },
@@ -807,7 +788,8 @@ async function createChatAgentInstance(
           resolvedAuth: fbResolvedAuth,
           baseUrl: fbConfig?.baseUrl,
           headers: fbConfig?.headers,
-          defaultModel: { model: candidate.model },
+          defaultModel: { model: candidate.model, maxTokens: outputBuffer },
+          ...(channelMode ? { timeout: 20_000 } : {}),
           // A second retry against the same exhausted key delays WhatsApp
           // responses and wastes quota. Use the next configured provider.
           maxRetries: 0,
@@ -823,9 +805,11 @@ async function createChatAgentInstance(
             resolvedAuth,
             baseUrl,
             headers: providerConfig?.headers,
+            ...(channelMode ? { timeout: 20_000 } : {}),
             maxRetries: 0,
           },
           fallbacks: usableFallbacks,
+          ...(channelMode ? { circuitBreakerThreshold: 1, circuitBreakerCooldown: 60_000 } : {}),
           onFallback: (failed, _error, next) => {
             // Deliberately exclude exception text, API keys and user prompts.
             log.warn(`Astra failover activated (${String(failed)} -> ${String(next)})`);

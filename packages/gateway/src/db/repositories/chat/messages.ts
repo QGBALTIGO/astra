@@ -111,6 +111,19 @@ export class MessagesRepository extends BaseRepository {
     return rows.map(rowToMessage);
   }
 
+  /** Read only the authenticated tenant's recent history; never trust a session ID alone. */
+  async getRecentForUser(conversationId: string, userId: string, count = 24): Promise<Message[]> {
+    const rows = await this.query<MessageRow>(
+      `SELECT * FROM (
+        SELECT m.* FROM messages m JOIN conversations c ON c.id = m.conversation_id
+        WHERE m.conversation_id = $1 AND c.user_id = $2
+        ORDER BY m.created_at DESC, m.id DESC LIMIT $3
+      ) recent ORDER BY created_at ASC, id ASC`,
+      [conversationId, userId, Math.max(1, Math.min(50, Math.trunc(count)))]
+    );
+    return rows.map(rowToMessage);
+  }
+
   async delete(id: string): Promise<boolean> {
     const result = await this.execute(`DELETE FROM messages WHERE id = $1`, [id]);
     return result.changes > 0;

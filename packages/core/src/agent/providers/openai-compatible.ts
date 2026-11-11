@@ -701,7 +701,7 @@ export class OpenAICompatibleProvider implements IProvider {
       if (response.status !== 429) return { response };
 
       const errorText = await response.text().catch(() => '');
-      if (attempt === 1) return { response, errorText };
+      if (attempt === 1 || this.config.maxRetries === 0) return { response, errorText };
 
       const delayMs = providerRateLimitRetryDelayMs(response.headers, errorText);
       if (delayMs === null) return { response, errorText };

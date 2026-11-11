@@ -16,7 +16,7 @@
  * - History: Important events, milestones, experiences
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getLog } from '../services/get-log.js';
@@ -853,6 +853,14 @@ export function createPersonalMemoryStore(
   userId: string,
   storageDir?: string
 ): PersonalMemoryStore {
+  if (/^(?:whatsapp|telegram):[A-Za-z0-9_.@-]{1,128}$/.test(userId)) {
+    const partition = `channel-${createHash('sha256').update(userId).digest('hex')}`;
+    const root = process.env.OWNPILOT_DATA_DIR;
+    return new PersonalMemoryStore(
+      partition,
+      storageDir ?? (root ? path.join(root, 'personal', partition) : undefined)
+    );
+  }
   return new PersonalMemoryStore(userId, storageDir);
 }
 

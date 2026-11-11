@@ -25,13 +25,13 @@ export function addCalendarDays(day: string, days: number): string {
 /** Refresh the direct-agent fallback clock without accumulating old sections. */
 export function withCustomerClock(prompt: string, timeZone: string, now = new Date()): string {
   const marker = '\n\n---\n\n## Astra customer clock';
-  const base = prompt.split(marker)[0] ?? prompt;
+  const base = prompt.replace(/\n\n---\n\n## Astra customer clock[\s\S]*?(?=\n\n---\n\n|$)/g, '');
   const local = new Intl.DateTimeFormat('pt-BR', {
     timeZone,
     dateStyle: 'full',
     timeStyle: 'short',
   }).format(now);
-  return `${base}${marker}\nHorário atual do cliente: ${local}. Fuso: ${timeZone}.\nUse este horário para hoje, amanhã, compromissos e lembretes. Salve instantes como ISO 8601 com o offset correto. O painel e o WhatsApp usam os mesmos registros.`;
+  return `${base}${marker}\nHorário atual do cliente: ${local}. Fuso IANA: ${timeZone}. Instante UTC: ${now.toISOString()}.\nUse este horário para hoje, amanhã, compromissos e lembretes. Salve instantes como ISO 8601 com o offset correto. O painel e o WhatsApp usam os mesmos registros.`;
 }
 
 /** Convert a local midnight into an instant; offset is recalculated across DST boundaries. */
@@ -72,4 +72,41 @@ export function customerDayStart(day: string, timeZone: string): Date {
     instant = high;
   }
   return new Date(instant);
+}
+
+/** Resolve a wall-clock time in an IANA zone, rejecting missing/repeated DST hours. */
+export function customerLocalDateTime(value: string, timeZone: string): Date {
+  if (
+    !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(value) ||
+    !validCalendarDay(value.slice(0, 10))
+  ) {
+    throw new Error('Data e hora local inválidas. Use YYYY-MM-DDTHH:mm.');
+  }
+  const wallText = value.length === 16 ? `${value}:00` : value;
+  const wall = Date.parse(`${wallText}Z`);
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const localText = (date: Date) => {
+    const parts = formatter.formatToParts(date);
+    const part = (name: string) => parts.find((p) => p.type === name)!.value;
+    return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}:${part('second')}`;
+  };
+  const candidates = new Set<number>();
+  for (const delta of [-36, -12, 0, 12, 36]) {
+    const sample = wall + delta * 3_600_000;
+    const offset = Date.parse(`${localText(new Date(sample))}Z`) - sample;
+    const candidate = wall - offset;
+    if (localText(new Date(candidate)) === wallText) candidates.add(candidate);
+  }
+  if (candidates.size !== 1)
+    throw new Error('Horário inexistente ou ambíguo neste fuso. Confirme o horário e o offset.');
+  return new Date([...candidates][0]!);
 }
