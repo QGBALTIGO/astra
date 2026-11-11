@@ -183,6 +183,12 @@ export function loadProviderConfig(id: string): ProviderConfig | null {
   try {
     const configPath = path.join(getProviderDataDir(), `${id}.json`);
     const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as ProviderConfig;
+    if (id === 'ollama-local') {
+      // Requests remain on the loopback of this Railway gateway, not the public PC.
+      const port = process.env.PORT ?? '3000';
+      if (!/^\d{2,5}$/.test(port)) return null;
+      config.baseUrl = 'http://127.0.0.1:' + port + '/_internal/astra-ollama/v1';
+    }
     // Merge coding-agent persona headers beneath any inline `headers` so
     // gated endpoints (e.g. Kimi For Coding) present a whitelisted client.
     const personaHeaders = resolveClientPersonaHeaders(config.clientPersona);
