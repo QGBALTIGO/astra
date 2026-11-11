@@ -78,7 +78,7 @@ export function CustomerPlanning({
   hidden: boolean;
   canWrite: boolean;
   loading: boolean;
-  error: Error | null;
+  error?: Error;
   onChanged: (message: string) => void;
   openSignal?: number;
 }) {
