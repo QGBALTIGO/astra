@@ -6,6 +6,8 @@ import type {
   CustomerAgendaItem,
   CustomerCategory,
   CustomerFinanceSummary,
+  CustomerPlan,
+  CustomerPlanInput,
   CustomerTransaction,
   TransactionInput,
 } from '../src/pages/customer/types';
@@ -118,6 +120,7 @@ async function mockCustomerApi(
       notes: null,
     }),
   ];
+  let plans: CustomerPlan[] = [];
   let agenda: CustomerAgendaItem[] = [
     {
       id: 'synthetic-event',
@@ -278,7 +281,7 @@ async function mockCustomerApi(
     } else if (
       !customer.access.canWrite &&
       method !== 'GET' &&
-      (path.startsWith('/finance/') || path.startsWith('/agenda'))
+      (path.startsWith('/finance/') || path.startsWith('/agenda') || path.startsWith('/planning'))
     ) {
       await fail(403, 'ACCESS_EXPIRED', 'Renove o acesso para alterar seus registros.');
       return;
@@ -334,6 +337,42 @@ async function mockCustomerApi(
         renewalUrl: null,
         supportUrl: null,
       };
+    } else if (method === 'GET' && path === '/planning') {
+      data = { plans };
+    } else if (method === 'POST' && path === '/planning') {
+      const input = body as unknown as CustomerPlanInput;
+      const plan: CustomerPlan = {
+        ...input, id: 'synthetic-plan-' + (plans.length + 1), progress: input.progress ?? 0,
+        categoryId: input.categoryId ?? null,
+        installmentsTotal: input.installmentsTotal ?? null,
+        installmentsPaid: input.installmentsPaid ?? null,
+        nextDueDate: input.nextDueDate ?? null, notes: input.notes ?? null,
+        createdAt: NOW.toISOString(), updatedAt: NOW.toISOString(),
+      };
+      plans = [...plans, plan];
+      data = { plan };
+    } else if (method === 'PATCH' && /^\/planning\/[^/]+$/.test(path)) {
+      const id = decodeURIComponent(path.split('/').at(-1)!);
+      const existing = plans.find((plan) => plan.id === id);
+      if (!existing) {
+        await fail(404, 'NOT_FOUND', 'Planejamento não encontrado.');
+        return;
+      }
+      const input = body as unknown as CustomerPlanInput;
+      const updated: CustomerPlan = {
+        ...existing, ...input, progress: input.progress ?? 0,
+        categoryId: input.categoryId ?? null,
+        installmentsTotal: input.installmentsTotal ?? null,
+        installmentsPaid: input.installmentsPaid ?? null,
+        nextDueDate: input.nextDueDate ?? null, notes: input.notes ?? null,
+        updatedAt: NOW.toISOString(),
+      };
+      plans = plans.map((plan) => plan.id === id ? updated : plan);
+      data = { plan: updated };
+    } else if (method === 'DELETE' && /^\/planning\/[^/]+$/.test(path)) {
+      const id = decodeURIComponent(path.split('/').at(-1)!);
+      plans = plans.filter((plan) => plan.id !== id);
+      data = { deleted: true };
     } else if (method === 'GET' && path === '/finance/categories') {
       data = { categories };
     } else if (method === 'GET' && path === '/finance/summary') {
