@@ -96,6 +96,27 @@ CREATE TABLE IF NOT EXISTS channel_messages (
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+
+-- Astra quality journal: compact metadata only, no content/phone/prompts.
+-- Raw chat remains in the existing channel_messages and messages tables.
+CREATE TABLE IF NOT EXISTS astra_outbound_quality_events (
+  channel_id TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  char_count INTEGER NOT NULL CHECK (char_count BETWEEN 0 AND 65535),
+  flags JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(flags) = 'array'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (channel_id, external_id)
+);
+
+-- One tiny counter per UTC day / channel / classification. No personal text.
+CREATE TABLE IF NOT EXISTS astra_outbound_quality_daily (
+  day DATE NOT NULL,
+  channel_id TEXT NOT NULL,
+  flag TEXT NOT NULL,
+  count BIGINT NOT NULL DEFAULT 0 CHECK (count >= 0),
+  PRIMARY KEY (day, channel_id, flag)
+);
+
 -- Cost tracking table
 CREATE TABLE IF NOT EXISTS costs (
   id TEXT PRIMARY KEY,
@@ -337,6 +358,7 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_error ON request_logs(error);
 CREATE INDEX IF NOT EXISTS idx_channel_messages_channel ON channel_messages(channel_id);
 CREATE INDEX IF NOT EXISTS idx_channel_messages_created ON channel_messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_channel_messages_conversation ON channel_messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_astra_outbound_quality_events_created ON astra_outbound_quality_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_costs_provider ON costs(provider);
 CREATE INDEX IF NOT EXISTS idx_costs_created ON costs(created_at);
 CREATE INDEX IF NOT EXISTS idx_costs_conversation ON costs(conversation_id);

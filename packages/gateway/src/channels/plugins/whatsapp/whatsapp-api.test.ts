@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockEmit = vi.hoisted(() => vi.fn());
+const mockRecordOutboundQuality = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('../../../services/outbound-quality.js', () => ({
+  recordOutboundQuality: mockRecordOutboundQuality,
+}));
 
 vi.mock('@whiskeysockets/baileys', () => ({
   default: vi.fn(),

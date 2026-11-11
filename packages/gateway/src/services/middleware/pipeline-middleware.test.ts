@@ -396,7 +396,7 @@ describe('Pipeline Middleware', () => {
       );
     });
 
-    it('passes message content and source in requestBody', async () => {
+    it('logs only message length and source without duplicating private content', async () => {
       const middleware = createAuditMiddleware();
       const message = createMockMessage({
         content: 'My message',
@@ -411,7 +411,7 @@ describe('Pipeline Middleware', () => {
 
       expect(mockLogsLog).toHaveBeenCalledWith(
         expect.objectContaining({
-          requestBody: { message: 'My message', source: 'telegram' },
+          requestBody: { messageChars: 'My message'.length, source: 'telegram' },
         })
       );
     });

@@ -48,6 +48,7 @@ import { buildWhatsAppCopyCodePayload } from './whatsapp-copy-code.js';
 import { fetchWhatsAppProfilePicture } from './whatsapp-profile-picture.js';
 import { wsGateway } from '../../../ws/server.js';
 import { channelAssetStore } from '../../../services/channel-asset-store.js';
+import { recordOutboundQuality } from '../../../services/outbound-quality.js';
 import { SimpleTTLCache } from '../../../utils/simple-ttl-cache.js';
 
 const log = getLog('WhatsApp');
@@ -739,6 +740,9 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         this.trackMessage(lastMessageId, message.platformChatId);
         // Track our own sent messages to avoid self-chat loops
         this.rememberSentMessage(lastMessageId);
+        // Track every confirmed transport segment, including automation
+        // and access notices; only compact metadata is persisted.
+        await recordOutboundQuality(this.pluginId, lastMessageId, parts[i]!);
       }
 
       // Small delay between split messages

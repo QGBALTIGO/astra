@@ -31,6 +31,14 @@ const mockEmbeddingCleanup = vi.fn().mockResolvedValue(10);
 const mockJobsCleanup = vi.fn().mockResolvedValue(0);
 const mockJobsCleanupHistory = vi.fn().mockResolvedValue(0);
 const mockProviderMetricsPurge = vi.fn().mockResolvedValue(0);
+const mockQualityDetails = vi.fn().mockResolvedValue(0);
+const mockQualityDaily = vi.fn().mockResolvedValue(0);
+vi.mock('./outbound-quality.js', () => ({
+  outboundQualityRepo: {
+    cleanupDetail: mockQualityDetails,
+    cleanupDaily: mockQualityDaily,
+  },
+}));
 
 vi.mock('../db/repositories/claws.js', () => ({
   getClawsRepository: () => ({

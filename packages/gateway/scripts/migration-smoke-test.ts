@@ -16,6 +16,7 @@
 import { initializeAdapter, closeAdapter } from '../src/db/adapters/index.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { OutboundQualityRepository } from '../src/services/outbound-quality.js';
 import { ChannelUsersRepository } from '../src/db/repositories/channels/users.js';
 import {
   ChannelAccessNotificationsRepository,
@@ -45,6 +46,8 @@ const CRITICAL_TABLES = [
   'claws',
   'agent_souls',
   'channel_messages',
+  'astra_outbound_quality_events',
+  'astra_outbound_quality_daily',
   'channel_access_notifications',
   'dm_pairing_requests',
   'triggers',
@@ -524,6 +527,46 @@ async function verifyChannelAccessNotifications(
   );
 }
 
+/** Verify real PostgreSQL deduplication and daily quality counters on synthetic data only. */
+async function verifyOutboundQualityPersistence(
+  adapter: Awaited<ReturnType<typeof initializeAdapter>>
+): Promise<void> {
+  const channelId = 'ci.quality.' + randomUUID();
+  const repo = new OutboundQualityRepository();
+  try {
+    const message = { channelId, externalId: 'synthetic-1', text: 'Uma mensagem de teste.' };
+    await repo.record(message);
+    await repo.record(message); // a retry must NOT increment the counter
+    await repo.record({
+      channelId,
+      externalId: 'synthetic-2',
+      text: 'Não consegui confirmar o pedido.',
+    });
+    const report = await repo.summary(channelId, 1);
+    assert.equal(report.totalSent, 2, 'Repeated delivery must count only once');
+    assert.equal(
+      report.flags.legacy_error_banner,
+      1,
+      'Legacy error must be detectable without storing its text'
+    );
+    const row = await adapter.queryOne<{ external_id: string; char_count: number }>(
+      'SELECT external_id, char_count FROM astra_outbound_quality_events WHERE channel_id = $1 ORDER BY external_id LIMIT 1',
+      [channelId]
+    );
+    assert.match(row?.external_id ?? '', /^[a-f0-9]{64}$/);
+    assert.ok((row?.char_count ?? 0) > 0);
+    console.log('[smoke] Outbound quality journal, privacy and idempotent daily rollups passed');
+  } finally {
+    // Strictly synthetic, locally scoped cleanup. No customer data is read.
+    await adapter.execute('DELETE FROM astra_outbound_quality_events WHERE channel_id = $1', [
+      channelId,
+    ]);
+    await adapter.execute('DELETE FROM astra_outbound_quality_daily WHERE channel_id = $1', [
+      channelId,
+    ]);
+  }
+}
+
 async function main(): Promise<void> {
   if (!process.env.DATABASE_URL && !process.env.POSTGRES_HOST) {
     console.error('[smoke] DATABASE_URL or POSTGRES_HOST must be set');
@@ -559,6 +602,7 @@ async function main(): Promise<void> {
 
   console.log(`[smoke] OK — all ${CRITICAL_TABLES.length} critical tables present`);
 
+  await verifyOutboundQualityPersistence(adapter);
   await verifyChannelAccessPersistence(adapter);
   await verifyCustomerAuthPersistence(adapter);
   await verifyCustomerPortalPersistence(adapter);

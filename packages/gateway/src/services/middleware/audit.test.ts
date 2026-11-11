@@ -470,7 +470,7 @@ describe('createAuditMiddleware', () => {
         model: 'claude-3',
         endpoint: 'chat/completions',
         method: 'POST',
-        requestBody: { message: 'What is AI?', source: 'channel' },
+        requestBody: { messageChars: 'What is AI?'.length, source: 'channel' },
         responseBody: { contentLength: 'AI is artificial intelligence.'.length },
         statusCode: 200,
         inputTokens: 10,
