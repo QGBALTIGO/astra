@@ -144,6 +144,62 @@ for (const theme of ['light', 'dark'] as const) {
     });
   }
 
+  for (const width of [320, 390, 430, 600, 640, 768]) {
+    test(`custom period date fields fit at ${width}px in ${theme}`, async ({ page }, info) => {
+      await page.setViewportSize({ width, height: 900 });
+      const failures = await prepare(page, theme);
+      await page.goto('/cliente');
+      const panel = page.locator('.ac-tab-panel:not([hidden])');
+      const preset = panel.getByLabel('Período', { exact: true });
+      await preset.selectOption('custom');
+
+      const dates = panel.locator('.ac-period-dates');
+      const from = dates.getByLabel('Data inicial');
+      const to = dates.getByLabel('Data final');
+      await expect(from).toBeVisible();
+      await expect(to).toBeVisible();
+      await from.fill('2026-10-13');
+      await to.fill('2026-11-11');
+      await expect(from).toHaveValue('2026-10-13');
+      await expect(to).toHaveValue('2026-11-11');
+      await fits(page);
+
+      const [container, first, last] = await Promise.all([
+        dates.boundingBox(),
+        from.boundingBox(),
+        to.boundingBox(),
+      ]);
+      expect(container).not.toBeNull();
+      expect(first).not.toBeNull();
+      expect(last).not.toBeNull();
+      for (const box of [first!, last!]) {
+        expect(box.width).toBeGreaterThan(200);
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.x).toBeGreaterThanOrEqual(container!.x - 1);
+        expect(box.x + box.width).toBeLessThanOrEqual(container!.x + container!.width + 1);
+        expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+      }
+      if (width < 640) {
+        // Native iOS dates are too long for two half-width inputs.
+        expect(last!.y).toBeGreaterThanOrEqual(first!.y + first!.height + 8);
+      } else {
+        expect(Math.abs(last!.y - first!.y)).toBeLessThanOrEqual(1);
+        expect(last!.x).toBeGreaterThanOrEqual(first!.x + first!.width + 8);
+      }
+      if (width <= 767) {
+        await expect(from).toHaveCSS('font-size', '16px');
+        await expect(to).toHaveCSS('font-size', '16px');
+      }
+      if (width === 390 && theme === 'dark') {
+        await info.attach('custom-dates-390-dark', {
+          body: await dates.screenshot(),
+          contentType: 'image/png',
+        });
+      }
+      expect(failures).toEqual([]);
+    });
+  }
+
   test(`touch, keyboard and filters remain usable in ${theme}`, async ({ page }, info) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const failures = await prepare(page, theme);
