@@ -218,15 +218,9 @@ async function seed(phone: string): Promise<Customer> {
   };
 }
 
-const adapter = await initializeAdapter({
-  type: 'postgres',
-  postgresHost: process.env.POSTGRES_HOST,
-  postgresPort: Number(process.env.POSTGRES_PORT ?? 5432),
-  postgresDatabase: TEST_DATABASE,
-  postgresUser: 'astratest',
-  postgresPassword: TEST_PASSWORD,
-  postgresPoolSize: 10,
-});
+// Use the production configuration builder after the isolation guards. The
+// PostgreSQL adapter consumes its connection URL, not the individual fields.
+const adapter = await initializeAdapter();
 
 async function reminders(customer: Customer) {
   return channelRemindersRepo.listForChat(customer.userId, PLUGIN, customer.phone);
