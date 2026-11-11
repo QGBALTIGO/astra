@@ -190,6 +190,25 @@ export async function resolveForChannel(
   pluginId: string,
   options?: { hasMedia?: boolean }
 ): Promise<ResolvedRouting> {
+  // Operator-controlled pilot: direct text-only WhatsApp turns to the PC.
+  // Audio/image handling and all other channels keep their configured provider.
+  // A missing bridge key disables the pilot rather than silently misrouting.
+  if (
+    !options?.hasMedia &&
+    /^channel\.whatsapp(?:[.-]|$)/i.test(pluginId) &&
+    process.env.ASTRA_CHANNEL_LOCAL_OLLAMA === 'true' &&
+    process.env.ASTRA_ONLY_GROQ !== 'true' &&
+    (process.env.ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN?.length ?? 0) >= 32
+  ) {
+    const configured = getChannelRouting();
+    return {
+      provider: 'ollama-local',
+      model: 'qwen3:4b-instruct',
+      fallbackProvider: configured.fallbackProvider,
+      fallbackModel: configured.fallbackModel,
+      source: 'channel',
+    };
+  }
   const baseChannel = getChannelRouting();
   const pluginDefault = getChannelScopedRouting(pluginId, 'default');
 
