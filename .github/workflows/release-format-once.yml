@@ -1,16 +1,33 @@
 name: Release formatting repair
+
 on:
   push:
     branches: ['fix/release-format-20261111']
+
 permissions:
   contents: read
+
 jobs:
   format:
     if: github.ref == 'refs/heads/fix/release-format-20261111'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 35
     permissions:
       contents: write
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ownpilot
+          POSTGRES_PASSWORD: ownpilot_ci_password
+          POSTGRES_DB: ownpilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ownpilot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -20,21 +37,42 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Format only the five files flagged by CI
-        env:
-          HUSKY: '0'
+      - name: Verify immutable release base
         run: |
           set -euo pipefail
           base=e0b1c4e0f5019548c88c1c7b44541374ccb5e0ad
           git merge-base --is-ancestor "$base" HEAD
-          files=(packages/gateway/src/services/agent/service.ts packages/gateway/src/tools/channel-reminder-tools.test.ts packages/gateway/src/tools/channel-reminder-tools.ts packages/gateway/src/tools/customer-finance-tools.test.ts packages/gateway/src/tools/customer-finance-tools.ts)
-          git diff --name-only "$base" HEAD -- . ':!.github/workflows/release-format-once.yml' > /tmp/release-input-diff
-          test ! -s /tmp/release-input-diff
-          pnpm exec prettier --write "${files[@]}"
-          pnpm format:check
+          git diff --exit-code "$base" HEAD -- . ':!.github/workflows/release-format-once.yml'
+          echo "Release base: $base" >> "$GITHUB_STEP_SUMMARY"
+          echo "Validation commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - run: pnpm install --frozen-lockfile
+      - name: Format only the five files flagged by CI
+        run: |
+          pnpm exec prettier --write packages/gateway/src/services/agent/service.ts packages/gateway/src/tools/channel-reminder-tools.test.ts packages/gateway/src/tools/channel-reminder-tools.ts packages/gateway/src/tools/customer-finance-tools.test.ts packages/gateway/src/tools/customer-finance-tools.ts
           git diff --check
-          git add -- "${files[@]}"
+          git diff --stat
+      - name: Format check
+        run: pnpm format:check
+      - name: Production dependency audit
+        run: pnpm audit:prod
+      - name: Build
+        run: pnpm build
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
+      - name: Run uncached tests
+        run: TURBO_FORCE=true pnpm test
+      - name: Commit formatting only when changed
+        env:
+          HUSKY: '0'
+        run: |
+          set -euo pipefail
+          git add -- packages/gateway/src/services/agent/service.ts packages/gateway/src/tools/channel-reminder-tools.test.ts packages/gateway/src/tools/channel-reminder-tools.ts packages/gateway/src/tools/customer-finance-tools.test.ts packages/gateway/src/tools/customer-finance-tools.ts
+          if git diff --cached --quiet; then
+            echo 'Formatting already valid; uncached validation passed.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'style: format WhatsApp reliability release without behavior changes'
