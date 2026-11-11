@@ -46,12 +46,14 @@ jobs:
           src/channels/finance-routing.test.ts
           src/channels/customer-finance-routing.test.ts
           src/channels/relative-reminder.test.ts
+          src/channels/daily-greeting.test.ts
           src/channels/channel-ai-routing-quick.test.ts
           src/channels/tool-selection.test.ts
           src/channels/plugins/whatsapp/index.test.ts
           src/channels/plugins/whatsapp/whatsapp-lifecycle.test.ts
           src/channels/plugins/whatsapp/libsignal-logging.test.ts
           src/services/channel-reminder-worker.test.ts
+          src/services/daily-greeting-worker.test.ts
       - name: Lint core and gateway
         run: pnpm --filter @ownpilot/core --filter @ownpilot/gateway lint
       - name: Archive tested source

@@ -26,6 +26,7 @@ import { restoreChannelHistory } from './restore-history.js';
 import { formatAstraMessage, formatReminderConfirmation } from './response-presentation.js';
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
+import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -341,6 +342,11 @@ export async function processViaBus(
     : await tryExpenseRecordChannelReply(message, channelUser.ownpilotUserId);
   if (expenseRecordReply) return expenseRecordReply;
 
+  const greetingReply = message.attachments?.length
+    ? null
+    : await tryDailyGreetingChannelReply(message, channelUser.ownpilotUserId);
+  if (greetingReply) return greetingReply;
+
   const reminderReply = message.attachments?.length
     ? null
     : await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId);
@@ -601,6 +607,11 @@ export async function processDirectAgent(
     ? null
     : await tryExpenseRecordChannelReply(message, userId);
   if (expenseRecordReply) return expenseRecordReply;
+
+  const greetingReply = message.attachments?.length
+    ? null
+    : await tryDailyGreetingChannelReply(message, userId);
+  if (greetingReply) return greetingReply;
 
   const reminderReply = message.attachments?.length
     ? null
