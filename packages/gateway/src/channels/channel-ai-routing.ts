@@ -66,7 +66,8 @@ export async function tryClockChannelReply(
       dateStyle: 'short',
       timeStyle: 'short',
     }).format(now);
-    return `Agora: ${local} (${timeZone}).`;
+    const place = timeZone.split('/').at(-1)?.replace(/_/g, ' ') ?? timeZone;
+    return `Agora: ${local} (${place}).`;
   } catch {
     return 'Não consegui consultar seu horário agora.';
   }
@@ -224,17 +225,15 @@ export async function tryScheduleRelativeChannelReminder(
       if (!result.success) {
         return 'Não consegui agendar esse lembrete. Nenhum aviso foi confirmado.';
       }
-      const saved = result.result as { status?: string };
+      const saved = result.result as
+        { status?: string; title?: string; horarioLocal?: string } | undefined;
+      if (!saved)
+        return 'Não consegui confirmar o horário desse lembrete. Confira sua agenda antes de repetir o pedido.';
       if (saved.status !== 'pending') {
         return 'Esse lembrete já estava registrado nesta conversa.';
       }
-      const timeLabel =
-        delayMinutes >= 60 && delayMinutes % 60 === 0
-          ? String(delayMinutes / 60) + (delayMinutes === 60 ? ' hora' : ' horas')
-          : String(delayMinutes) + (delayMinutes === 1 ? ' minuto' : ' minutos');
-      return (
-        '⏰ Vou lembrar você de "' + title + '" daqui a ' + timeLabel + ' aqui nesta conversa.'
-      );
+      if (!saved.horarioLocal) return 'Lembrete salvo. Consulte o horário na sua agenda.';
+      return `⏰ Vou lembrar você de "${saved.title ?? title}" em ${saved.horarioLocal}, aqui nesta conversa.`;
     }
   );
 }
@@ -626,7 +625,9 @@ async function processDirectAgentInSession(
   agent.updateSystemPrompt(
     withCustomerClock(
       agent.getConversation().systemPrompt ?? '',
-      account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande'
+      account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande',
+      new Date(),
+      message.timestamp
     )
   );
   const channelReceipts: ChannelToolReceipt[] = [];

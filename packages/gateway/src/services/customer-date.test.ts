@@ -48,4 +48,37 @@ describe('customer calendar days', () => {
     expect(refreshed).toContain('1 de dezembro');
     expect(refreshed.split('## Astra customer clock')).toHaveLength(2);
   });
+
+  it('preserves the meaning of tomorrow when processing crosses the customer midnight', () => {
+    const prompt = withCustomerClock(
+      'Astra system prompt',
+      'America/Campo_Grande',
+      new Date('2026-11-12T04:01:00Z'),
+      new Date('2026-11-12T03:59:00Z')
+    );
+
+    expect(prompt).toContain(
+      'Horário atual do cliente: quinta-feira, 12 de novembro de 2026 às 00:01'
+    );
+    expect(prompt).toContain(
+      'Referência do pedido (recebimento): quarta-feira, 11 de novembro de 2026 às 23:59'
+    );
+    expect(prompt).toContain('Instante UTC do pedido: 2026-11-12T03:59:00.000Z');
+    expect(prompt).toContain('Resolva hoje, amanhã e prazos relativos pela referência do pedido');
+  });
+
+  it.each([new Date(Number.NaN), new Date('2026-11-12T05:00:00Z')])(
+    'does not seed scheduling with an invalid or future receive timestamp',
+    (receivedAt) => {
+      const prompt = withCustomerClock(
+        'Astra system prompt',
+        'America/Campo_Grande',
+        new Date('2026-11-12T04:01:00Z'),
+        receivedAt
+      );
+
+      expect(prompt).toContain('Instante UTC do pedido: 2026-11-12T04:01:00.000Z');
+      expect(prompt).not.toContain('Invalid Date');
+    }
+  );
 });

@@ -571,6 +571,10 @@ async function createChatAgentInstance(
     // Receipt recognition may invoke shared model providers; defer it until
     // the service has a per-customer media and quota policy.
     customerTools.delete('core.parse_receipt');
+    // Customer writes must use the typed ledger shared with the dashboard.
+    // Legacy expense-only writers cannot represent income or pending balances.
+    customerTools.delete('core.add_expense');
+    customerTools.delete('core.batch_add_expenses');
     for (const name of tools.getNames()) {
       if (!customerTools.has(name)) tools.unregister(name);
     }

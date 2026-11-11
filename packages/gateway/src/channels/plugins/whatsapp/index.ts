@@ -88,8 +88,16 @@ export function buildWhatsAppChannelPlugin() {
           platformChatId: String(params.jid),
           text: String(params.text),
         });
+        if (typeof msgId !== 'string' || !msgId.trim()) {
+          return {
+            content:
+              'Não foi possível confirmar o envio da mensagem. Não reenviar automaticamente.',
+            isError: true,
+          };
+        }
         return {
-          content: `Message sent to ${params.jid} (message ID: ${msgId})`,
+          content: 'Mensagem enviada.',
+          metadata: { messageId: msgId },
         };
       }
     )

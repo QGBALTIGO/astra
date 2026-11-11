@@ -5,9 +5,12 @@ import type { ToolDefinition } from '@ownpilot/core/tools';
 import {
   CustomerFinanceError,
   CustomerFinanceRepository,
+  validateCustomerFinanceDate,
   type CustomerTransactionInput,
   type CustomerTransactionQuery,
 } from '../db/repositories/customer-finance.js';
+import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
+import { customerLocalDay } from '../services/customer-date.js';
 
 const fields = {
   description: { type: 'string', description: 'Descrição informada pelo usuário.' },
@@ -44,9 +47,9 @@ export const CUSTOMER_FINANCE_TOOLS: ToolDefinition[] = [
   {
     name: 'list_transactions',
     category: 'Finance',
-    brief: 'Buscar lançamentos financeiros e seus IDs reais',
+    brief: 'Buscar entradas, saídas e pendências financeiras',
     description:
-      'Consulta entradas, saídas e pendências do usuário. Use antes de corrigir/excluir; não invente IDs. Se houver vários resultados compatíveis, pergunte qual.',
+      'Consulta entradas, saídas e pendências do usuário. Use antes de corrigir/excluir; não invente IDs. IDs retornados são internos: não exiba nem peça ao usuário. Se houver vários resultados compatíveis, diferencie por descrição, valor e data e pergunte qual.',
     parameters: {
       type: 'object',
       properties: {
@@ -64,7 +67,7 @@ export const CUSTOMER_FINANCE_TOOLS: ToolDefinition[] = [
     category: 'Finance',
     brief: 'Corrigir um lançamento existente sem duplicar',
     description:
-      'Corrige pelo ID real: valor, descrição, data, entrada/saída e pendente/realizado. Para trocar despesa por entrada atualize type=income, não exclua e recrie. Não confirma recebimento quando o valor ainda está previsto.',
+      'Corrige pelo ID interno consultado: valor, descrição, data, entrada/saída e pendente/realizado. Para trocar despesa por entrada atualize type=income, não exclua e recrie. Não confirma recebimento quando o valor ainda está previsto. Na resposta use descrição, valor e data; nunca exiba ou peça o ID.',
     parameters: {
       type: 'object',
       properties: { transaction_id: { type: 'string' }, ...fields },
@@ -76,7 +79,7 @@ export const CUSTOMER_FINANCE_TOOLS: ToolDefinition[] = [
     category: 'Finance',
     brief: 'Excluir lançamento solicitado pelo usuário',
     description:
-      'Exclusão lógica, individual e restrita ao usuário, usando ID consultado. Não use para simplesmente corrigir o tipo.',
+      'Exclusão lógica, individual e restrita ao usuário, usando ID interno consultado. Não use para simplesmente corrigir o tipo. Na confirmação use descrição, valor e data; nunca exiba ou peça o ID.',
     parameters: {
       type: 'object',
       properties: { transaction_id: { type: 'string' } },
@@ -114,6 +117,24 @@ function transactionStatus(value: unknown): CustomerTransactionInput['status'] {
   if (value !== 'pending' && value !== 'settled')
     throw new CustomerFinanceError('Informe pendente ou realizado.');
   return value;
+}
+
+async function validateSettlementDate(
+  date: string,
+  status: CustomerTransactionInput['status'],
+  userId: string
+): Promise<void> {
+  validateCustomerFinanceDate(date);
+  if (status !== 'settled') return;
+  const account = await customerAccountsRepo.getByDataUserId(userId);
+  const timestamp = getExecContext()?.channelMessageTimestamp;
+  const at =
+    typeof timestamp === 'number' && Number.isFinite(timestamp) ? new Date(timestamp) : new Date();
+  const today = customerLocalDay(at, account?.timeZone ?? 'America/Campo_Grande');
+  if (date > today)
+    throw new CustomerFinanceError(
+      'Essa data ainda não chegou. Valores previstos devem ficar pendentes; confirme a data real do recebimento ou pagamento antes de registrar como realizado.'
+    );
 }
 
 export async function executeCustomerFinanceTool(
@@ -154,6 +175,7 @@ export async function executeCustomerFinanceTool(
       const date = text(args.date, 'a data');
       if (typeof args.amount !== 'number')
         throw new CustomerFinanceError('Informe o valor em reais.');
+      await validateSettlementDate(date, status, userId);
       const categories = await repo.listCategories();
       const category =
         categories.find(
@@ -218,7 +240,19 @@ export async function executeCustomerFinanceTool(
       }
       if (!Object.keys(patch).length)
         throw new CustomerFinanceError('Informe a correção desejada.');
+      await validateSettlementDate(
+        patch.date ?? current.date,
+        patch.status ?? current.status,
+        userId
+      );
       const transaction = await repo.updateTransaction(id, patch);
+      // The record may have been removed after getTransaction by the portal
+      // or another channel request. A null write is not a successful receipt.
+      if (!transaction)
+        throw new CustomerFinanceError(
+          'Lançamento não encontrado. A alteração não foi salva.',
+          404
+        );
       return {
         success: true,
         result: { transaction, message: 'Lançamento atualizado, sem criar duplicata.' },

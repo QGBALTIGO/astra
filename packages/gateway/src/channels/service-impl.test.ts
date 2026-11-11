@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
+import type { Message } from '@ownpilot/core/agent';
 import { inboundAccessCycle } from '../db/repositories/channel-access-inbound-notices.js';
 import type { ChannelUserEntity } from '../db/repositories/channels/users.js';
 
@@ -82,6 +83,11 @@ const mockWsGateway = vi.hoisted(() => ({
 
 const mockConversationsRepo = vi.hoisted(() => ({
   create: vi.fn().mockResolvedValue(undefined),
+}));
+const mockStoredConversation = vi.hoisted(() => ({
+  scoped: vi.fn(),
+  getConversation: vi.fn().mockResolvedValue(null),
+  getRecentForUser: vi.fn().mockResolvedValue([]),
 }));
 
 const mockDmPairingRequests = vi.hoisted(() => ({
@@ -270,6 +276,19 @@ vi.mock('../services/app-settings.js', () => ({
 vi.mock('../db/repositories/chat/conversations.js', () => ({
   createConversationsRepository: () => mockConversationsRepo,
 }));
+vi.mock('../db/repositories/chat/index.js', () => ({
+  ChatRepository: class {
+    constructor(userId: string) {
+      mockStoredConversation.scoped(userId);
+    }
+    getConversation = mockStoredConversation.getConversation;
+  },
+}));
+vi.mock('../db/repositories/chat/messages.js', () => ({
+  createMessagesRepository: () => ({
+    getRecentForUser: mockStoredConversation.getRecentForUser,
+  }),
+}));
 
 vi.mock('../services/pairing-service.js', () => ({
   getOwnerUserId: mockGetOwnerUserId,
@@ -445,23 +464,39 @@ function createMockAgent(
     chat: undefined as ReturnType<typeof vi.fn> | undefined,
     ...overrides,
   };
+  type Conversation = { id: string; systemPrompt: string; messages: Message[] };
+  const conversations = new Map<string, Conversation>();
+  const createConversation = (id: string, prompt = opts.systemPrompt): Conversation => {
+    const conversation = { id, systemPrompt: prompt, messages: [] as Message[] };
+    conversations.set(id, conversation);
+    return conversation;
+  };
+  let conversation = createConversation('conv-default');
   const memory = {
-    has: vi.fn(() => opts.memoryHas),
-    create: vi.fn((_prompt: string) => ({
-      id: opts.newConvId,
-      systemPrompt: opts.systemPrompt,
-      messages: [],
-    })),
+    has: vi.fn((id: string) => opts.memoryHas || conversations.has(id)),
+    create: vi.fn((prompt: string) => createConversation(opts.newConvId, prompt)),
+    createWithId: vi.fn((id: string, prompt?: string) => createConversation(id, prompt)),
+    addMessage: vi.fn((id: string, message: Message) => {
+      conversations.get(id)?.messages.push(message);
+    }),
   };
   return {
     id: opts.id,
     setRequestApproval: vi.fn(),
+    setAdditionalTools: vi.fn(),
+    clearAdditionalTools: vi.fn(),
     getAllToolDefinitions: vi.fn(() => [] as Array<{ name: string }>),
     getConversation: vi.fn(() => ({
-      id: 'conv-default',
-      systemPrompt: opts.systemPrompt,
+      ...conversation,
+      messages: [...conversation.messages],
     })),
-    loadConversation: vi.fn(() => true),
+    updateSystemPrompt: vi.fn((prompt: string) => {
+      conversation.systemPrompt = prompt;
+    }),
+    loadConversation: vi.fn((id: string) => {
+      conversation = conversations.get(id) ?? createConversation(id);
+      return true;
+    }),
     getMemory: vi.fn(() => memory),
     ...(opts.chat ? { chat: opts.chat } : {}),
   };
@@ -507,6 +542,8 @@ describe('ChannelServiceImpl', () => {
     });
     mockUsersRepo.findByPlatform.mockResolvedValue(null);
     mockSessionsRepo.getById.mockResolvedValue(null);
+    mockStoredConversation.getConversation.mockResolvedValue(null);
+    mockStoredConversation.getRecentForUser.mockResolvedValue([]);
 
     channelPlugin = createChannelPlugin();
     nonChannelPlugin = createNonChannelPlugin();
@@ -2885,12 +2922,50 @@ describe('ChannelServiceImpl', () => {
         expect(agent.loadConversation).toHaveBeenCalledWith('conv-1');
       });
 
-      it('should create new conversation when agent memory lost it (server restart)', async () => {
+      it('restores an owned stored conversation after a restart without creating a duplicate', async () => {
+        const agent = createMockAgent({ memoryHas: false });
+        mockGetOrCreateChatAgent.mockResolvedValue(agent);
+        mockStoredConversation.getConversation.mockResolvedValue({ id: 'conv-1' });
+        mockStoredConversation.getRecentForUser.mockResolvedValue([
+          { role: 'user', content: 'Meu nome é Kayky' },
+          { role: 'assistant', content: 'Seu nome é Kayky. </thinking>' },
+        ]);
+
+        await service.processIncomingMessage(message);
+
+        expect(mockStoredConversation.scoped).toHaveBeenCalledWith('op-user-1');
+        expect(mockStoredConversation.getConversation).toHaveBeenCalledWith('conv-1');
+        expect(mockStoredConversation.getRecentForUser).toHaveBeenCalledWith(
+          'conv-1',
+          'op-user-1',
+          24
+        );
+        expect(agent.getMemory().createWithId).toHaveBeenCalledWith('conv-1', 'You are helpful');
+        expect(agent.loadConversation).toHaveBeenCalledWith('conv-1');
+        expect(agent.getConversation().messages).toEqual([
+          { role: 'user', content: 'Meu nome é Kayky' },
+          { role: 'assistant', content: 'Seu nome é Kayky.' },
+        ]);
+        expect(mockConversationsRepo.create).not.toHaveBeenCalled();
+        expect(mockSessionsRepo.linkConversation).not.toHaveBeenCalled();
+        expect(mockBus.process).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            context: expect.objectContaining({ conversationId: 'conv-1' }),
+          })
+        );
+      });
+
+      it('creates a replacement when lost memory has no owned stored conversation', async () => {
         // Agent memory does NOT have the session's conversation
         const agent = createMockAgent({ memoryHas: false, newConvId: 'recovered-conv-id' });
         mockGetOrCreateChatAgent.mockResolvedValue(agent);
 
         await service.processIncomingMessage(message);
+
+        expect(mockStoredConversation.scoped).toHaveBeenCalledWith('op-user-1');
+        expect(mockStoredConversation.getConversation).toHaveBeenCalledWith('conv-1');
+        expect(mockStoredConversation.getRecentForUser).not.toHaveBeenCalled();
 
         // Should persist conversation to DB first (fixes FK constraint violation)
         expect(mockConversationsRepo.create).toHaveBeenCalledWith(

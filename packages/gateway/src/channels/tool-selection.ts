@@ -6,6 +6,13 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     .toLowerCase();
   const tools = new Set<string>();
   const add = (...names: string[]) => names.forEach((name) => tools.add(`core.${name}`));
+  // "Receita" means both income and a cooking recipe in Portuguese. Keep
+  // cooking requests out of financial tool selection.
+  const mentionsFinancialIncome =
+    /\breceitas?\b/.test(input) &&
+    !/\b(?:culinari\w*|ingredientes?|cozinhar|preparar|bolo|bolos|frango|arroz|jantar|almoco|sobremesa|sobremesas|chocolate|pudim|pao|paes)\b/.test(
+      input
+    );
   if (
     /\b(?:lembre|lembra|lembrete|lembretes|avise|avisar|aviso|alarme|reagend\w*|minutos?|codex)\b/.test(
       input
@@ -19,7 +26,8 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     );
   }
   if (
-    /\b(?:reais|recebi|receber|recebimento|entrada|entradas|saida|saidas|despesa|despesas|gastei|paguei|financeiro|saldo|valor|cakto|lancamento|lancamentos)\b|r\s*\$/.test(
+    mentionsFinancialIncome ||
+    /\b(?:reais|recebi|receber|recebimentos?|ganhei|salarios?|entrada|entradas|saida|saidas|despesa|despesas|gastei|gastos?|paguei|pagamentos?|financeiro|saldo|valor|cakto|lancamento|lancamentos|faturas?)\b|r\s*\$/.test(
       input
     )
   ) {

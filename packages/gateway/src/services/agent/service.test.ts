@@ -1403,14 +1403,14 @@ describe('getOrCreateChatAgent', () => {
 
     const config = mockCreateAgent.mock.calls.at(-1)?.[0] as ChatAgentTestConfig | undefined;
     expect(config?.model.maxTokens).toBe(768);
-    expect(config?.memory.maxTokens).toBe(2048);
+    expect(config?.memory.maxTokens).toBe(1536);
     expect(mockInjectMemoryIntoPrompt).toHaveBeenCalledWith(
       expect.stringContaining('português do Brasil'),
       expect.objectContaining({ includeToolDescriptions: false })
     );
-    expect(config?.tools).toEqual(
-      expect.arrayContaining(['core.schedule_channel_reminder', 'core.add_expense'])
-    );
+    expect(config?.tools).toEqual(['search_tools', 'get_tool_help', 'use_tool', 'batch_use_tool']);
+    // Native schemas are selected per message, keeping unrelated tools out of the prompt.
+    expect(config?.tools).not.toContain('core.add_expense');
     expect(config?.systemPrompt).toContain('Astra');
     expect(config?.systemPrompt).toContain('português do Brasil');
     expect(
@@ -1447,9 +1447,9 @@ describe('getOrCreateChatAgent', () => {
     expect(configs[0]?.model.maxTokens).toBe(8192);
     expect(configs[0]?.memory.maxTokens).toBeGreaterThan(2048);
     expect(configs[1]?.model.maxTokens).toBe(768);
-    expect(configs[1]?.memory.maxTokens).toBe(2048);
+    expect(configs[1]?.memory.maxTokens).toBe(1536);
     expect(configs[2]?.model.maxTokens).toBe(768);
-    expect(configs[2]?.memory.maxTokens).toBe(2048);
+    expect(configs[2]?.memory.maxTokens).toBe(1536);
   });
 
   it('returns cached chat agent', async () => {
@@ -2734,7 +2734,7 @@ describe('extended branch coverage', () => {
       expect.objectContaining({
         fallbacks: [
           expect.objectContaining({
-            defaultModel: { model: 'claude-3' },
+            defaultModel: { model: 'claude-3', maxTokens: 8192 },
           }),
         ],
       })

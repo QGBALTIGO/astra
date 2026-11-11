@@ -35,6 +35,16 @@ jobs:
         run: pnpm --filter @ownpilot/core exec vitest run src/agent/whatsapp-runtime.test.ts src/agent/providers/fallback.test.ts src/agent/providers/openai-provider.test.ts src/agent/providers/openai-compatible.test.ts src/memory/personal.test.ts src/agent/tools.test.ts
       - name: Screenshot cases, memory, dates and financial safety
         run: pnpm --filter @ownpilot/gateway exec vitest run src/channels/whatsapp-reliability.test.ts src/channels/restore-history.test.ts src/channels/channel-ai-routing-access.test.ts src/channels/channel-ai-routing-concurrency.test.ts src/tools/channel-reminder-tools.test.ts src/tools/customer-finance-tools.test.ts src/db/repositories/channel-reminders-reliability.test.ts src/db/repositories/chat/messages.test.ts src/services/middleware/agent-execution.test.ts src/services/middleware/context-injection.test.ts src/services/customer-date.test.ts
+      - name: Reply presentation, reminder delivery and WhatsApp transport
+        run: >-
+          pnpm --filter @ownpilot/gateway exec vitest run
+          src/channels/response-safety.test.ts
+          src/channels/channel-ai-routing-quick.test.ts
+          src/channels/tool-selection.test.ts
+          src/channels/plugins/whatsapp/index.test.ts
+          src/channels/plugins/whatsapp/whatsapp-lifecycle.test.ts
+          src/channels/plugins/whatsapp/libsignal-logging.test.ts
+          src/services/channel-reminder-worker.test.ts
       - name: Lint core and gateway
         run: pnpm --filter @ownpilot/core --filter @ownpilot/gateway lint
       - name: Archive tested source

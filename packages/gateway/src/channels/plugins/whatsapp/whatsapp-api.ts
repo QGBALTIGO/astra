@@ -182,6 +182,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // Anti-ban: rate limiting
   private globalSendTimes: number[] = [];
   private perJidLastSend = new Map<string, number>();
+  /** Admit sends atomically so concurrent replies cannot bypass the limits. */
+  private sendRateLimitQueue: Promise<void> = Promise.resolve();
 
   // Anti-ban: message deduplication (prevent double AI responses on reconnect)
   private processedMsgIds = new Set<string>();
@@ -328,10 +330,10 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         getMessage: async (key) => {
           const cached = this.messageCache.get(key.id ?? '');
           if (cached) {
-            log.info(`[getMessage] Cache HIT for ${key.id}`);
+            log.debug('[getMessage] Cached message available for protocol retry');
             return cached;
           }
-          log.info(`[getMessage] Cache MISS for ${key.id}`);
+          log.debug('[getMessage] Message unavailable in protocol retry cache');
           return undefined;
         },
       });
@@ -360,14 +362,12 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
         if (upsert.type !== 'notify') return;
         for (const msg of upsert.messages) {
-          log.info(
-            `[WhatsApp] Processing message — jid: ${msg.key.remoteJid}, fromMe: ${msg.key.fromMe}, id: ${msg.key.id}`
-          );
+          log.debug('[WhatsApp] Processing message', { fromMe: msg.key.fromMe === true });
 
           // Anti-ban: deduplication — skip already-processed messages (reconnect replays)
           const msgId = msg.key.id;
           if (msgId && this.processedMsgIds.has(msgId)) {
-            log.info(`[WhatsApp] Skipping duplicate message ${msgId}`);
+            log.debug('[WhatsApp] Skipping duplicate message');
             continue;
           }
 
@@ -488,9 +488,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
                   timestamp = new Date((rawTs as { toNumber(): number }).toNumber() * 1000);
                 } else {
                   // No valid timestamp — skip message (bad data is worse than missing data)
-                  log.warn(
-                    `[WhatsApp] History sync: skipping message ${messageId} — no valid timestamp`
-                  );
+                  log.warn('[WhatsApp] History sync: skipping message without a valid timestamp');
                   continue;
                 }
 
@@ -674,11 +672,6 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     let lastMessageId = '';
 
     for (let i = 0; i < parts.length; i++) {
-      // Anti-ban: rate limiting before each part
-      await this.enforceRateLimit(jid);
-      await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
-      assertSendDeadline(message.sendBefore);
-
       const options: Record<string, unknown> = {};
 
       // Reply context for first part — include fromMe flag so Baileys can locate
@@ -695,15 +688,15 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         }
       }
 
-      // Anti-ban: typing indicator before sending.
-      // Skip for self-chat — presenceSubscribe to your own JID is meaningless
-      // and can cause connection instability (1-5s delay while socket may glitch).
-      if (!isSelf && !copyPayload) {
-        await this.simulateTyping(jid, parts[i]!);
-      }
-
-      // Re-check connection after async delay — socket may have reconnected
-      const sock = await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
+      // Typing is shown while the AI is working through sendTyping(). Once the
+      // reply is ready, do not add an artificial 1–6s delay. Transport throttles
+      // still apply, including to concurrent sends and ambiguous failures.
+      const sock = await this.acquireSendSlot(
+        jid,
+        accountPhone,
+        recoveryDeadline,
+        message.sendBefore
+      );
       if (sock !== this.sock || this.status !== 'connected') {
         throw new Error('WhatsApp disconnected before sending');
       }
@@ -727,8 +720,6 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         this.rememberSentMessage(messageId);
         this.cacheMessage(messageId, generated.message);
         assertSendDeadline(message.sendBefore);
-        // Count even an ambiguous relay failure against the outbound rate limit.
-        this.recordSend(jid);
         await sock.relayMessage(jid, generated.message, {
           ...copyPayload.relayOptions,
           messageId,
@@ -743,9 +734,6 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         );
         lastMessageId = result?.key?.id ?? '';
       }
-
-      // Record send time for rate limiting
-      if (!copyPayload) this.recordSend(jid);
 
       if (lastMessageId) {
         this.trackMessage(lastMessageId, message.platformChatId);
@@ -763,7 +751,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     // Only relevant for non-self-chat (self-chat has no presence observers)
     if (!isSelf) {
       try {
-        await this.sock?.sendPresenceUpdate('unavailable');
+        void this.sock?.sendPresenceUpdate('unavailable').catch(() => undefined);
       } catch {
         // Non-fatal
       }
@@ -785,10 +773,14 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // ==========================================================================
 
   async sendTyping(platformChatId: string): Promise<void> {
-    if (!this.sock) return;
+    const sock = this.sock;
+    if (!sock || this.status !== 'connected') return;
     try {
       const jid = this.toJid(platformChatId);
-      await this.sock.sendPresenceUpdate('composing', jid);
+      if (this.isSelfChat(jid)) return;
+      // Presence is cosmetic: a slow presence acknowledgement must not delay
+      // the request entering the AI pipeline or the eventual response.
+      void sock.sendPresenceUpdate('composing', jid).catch(() => undefined);
     } catch {
       // Non-fatal
     }
@@ -1022,16 +1014,14 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // Private — Connection Handling
   // ==========================================================================
 
-  /**
-   * Schedule a deferred reset of consecutive440Count. If the connection
-   * stays `open` for STABLE_CONNECTION_MS without another disconnect, we
-   * trust it and clear the counter. Any disconnect within the window
-   * cancels the scheduled reset via clearStableConnectionTimer().
-   */
+  /** Reset retry/conflict budgets only after a sustained healthy connection. */
   private scheduleStableConnectionReset(): void {
     this.clearStableConnectionTimer();
+    const generation = this.connectionGeneration;
     this.stableConnectionTimer = setTimeout(() => {
+      if (generation !== this.connectionGeneration || this.status !== 'connected') return;
       this.consecutive440Count = 0;
+      this.reconnectAttempt = 0;
       this.stableConnectionTimer = null;
     }, STABLE_CONNECTION_MS);
     this.stableConnectionTimer.unref?.();
@@ -1133,7 +1123,6 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       this.internalState = 'connected';
       this.status = 'connected';
       this.qrCode = null;
-      this.reconnectAttempt = 0;
       this.preventAutoReconnect = false; // Reset on successful connection
       // Defer the consecutive-440 reset until the connection has been stable
       // long enough to trust it. Resetting immediately on `open` lets a
@@ -1241,25 +1230,26 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       return null;
     }
 
-    // Anti-ban: track consecutive 440 (connectionReplaced) errors
+    // Count replacements until the socket is stable. Interleaved transport
+    // errors (e.g. 408) must not give a competing connection a fresh budget.
     if (statusCode === 440) {
       this.consecutive440Count++;
       if (this.consecutive440Count >= MAX_CONSECUTIVE_440) {
         log.error(
-          `WhatsApp: ${MAX_CONSECUTIVE_440} consecutive 440 errors — stopping reconnect to avoid ban`
+          `WhatsApp: ${MAX_CONSECUTIVE_440} repeated 440 errors — stopping reconnect until manual recovery`
         );
+        this.preventAutoReconnect = true;
         this.internalState = 'error';
         this.status = 'error';
         this.emitConnectionEvent('error');
         return null;
       }
-    } else {
-      this.consecutive440Count = 0;
     }
 
     // Anti-ban: max reconnect attempts
     if (this.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
       log.error(`WhatsApp: max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached — giving up`);
+      this.preventAutoReconnect = true;
       this.internalState = 'error';
       this.status = 'error';
       this.emitConnectionEvent('error');
@@ -1335,7 +1325,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   }
 
   // ==========================================================================
-  // Private — Anti-Ban: Rate Limiting & Typing Simulation
+  // Private — Outbound Rate Limiting
   // ==========================================================================
 
   /** Cache a message for getMessage retry/decryption. */
@@ -1373,11 +1363,11 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
     // Per-JID rate limit: min 3s between messages to same recipient
     const lastSend = this.perJidLastSend.get(jid);
-    if (lastSend) {
+    if (lastSend !== undefined) {
       const elapsed = now - lastSend;
       if (elapsed < RATE_LIMIT_PER_JID_MS) {
         const waitMs = RATE_LIMIT_PER_JID_MS - elapsed;
-        log.info(`[RateLimit] Per-JID throttle for ${jid}: waiting ${waitMs}ms`);
+        log.debug('[RateLimit] Recipient throttle', { waitMs });
         await new Promise((r) => setTimeout(r, waitMs));
       }
     }
@@ -1399,6 +1389,29 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     }
   }
 
+  private acquireSendSlot(
+    jid: string,
+    accountPhone: string,
+    recoveryDeadline: number,
+    sendBefore: Date | undefined
+  ): Promise<WASocket> {
+    const operation = this.sendRateLimitQueue.then(async () => {
+      assertSendDeadline(sendBefore);
+      await this.enforceRateLimit(jid);
+      const sock = await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
+      assertSendDeadline(sendBefore);
+      // Reserve before invoking transport: errors may still mean delivery, and
+      // the next concurrent caller must see this attempt in the rate window.
+      this.recordSend(jid);
+      return sock;
+    });
+    this.sendRateLimitQueue = operation.then(
+      () => undefined,
+      () => undefined
+    );
+    return operation;
+  }
+
   /** Record a message send for rate limiting. */
   private recordSend(jid: string): void {
     const now = Date.now();
@@ -1409,37 +1422,6 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     if (this.perJidLastSend.size > 100) {
       const first = this.perJidLastSend.keys().next().value;
       if (first !== undefined) this.perJidLastSend.delete(first);
-    }
-  }
-
-  /**
-   * Anti-ban: simulate typing before sending a message.
-   * Full pattern: available → presenceSubscribe → composing → delay → paused
-   * After send, caller should ensure 'unavailable' is sent (done in sendMessage).
-   * Delay is proportional to text length (min 1s, max 5s).
-   */
-  private async simulateTyping(jid: string, text: string): Promise<void> {
-    const sock = this.sock;
-    if (!sock) return;
-    try {
-      // Step 1: Go online (required before composing — Evolution API pattern)
-      await sock.sendPresenceUpdate('available');
-      await sock.presenceSubscribe(jid);
-      // Step 2: Start composing
-      await sock.sendPresenceUpdate('composing', jid);
-
-      // Typing delay proportional to text length: ~50ms per char, min 1s, max 5s
-      // Add Gaussian-like jitter for human-like behavior
-      const baseMs = Math.min(Math.max(text.length * 50, 1000), 5000);
-      const jitter = 0.7 + randomUnit() * 0.6; // 0.7x to 1.3x
-      const delayMs = Math.round(baseMs * jitter);
-      log.info(`[Typing] Simulating ${delayMs}ms typing for ${text.length} chars to ${jid}`);
-      await new Promise((r) => setTimeout(r, delayMs));
-
-      // Step 3: Stop composing
-      await sock.sendPresenceUpdate('paused', jid);
-    } catch {
-      // Non-fatal — don't block message send
     }
   }
 
@@ -1455,9 +1437,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     const isCurrentSocket = () =>
       this.sock === sourceSocket && generation === this.connectionGeneration;
     if (!isCurrentSocket()) return;
-    log.info(
-      `[WhatsApp] handleIncomingMessage called — jid: ${msg.key.remoteJid}, pushName: ${msg.pushName}`
-    );
+    log.debug('[WhatsApp] Handling incoming message');
     const remoteJid = this.resolveIncomingJid(msg.key);
     if (!remoteJid) return;
 
@@ -1468,15 +1448,13 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     const isGroup = remoteJid.endsWith('@g.us');
     const isDM = remoteJid.endsWith('@s.whatsapp.net');
     if (!isDM && !isGroup) {
-      log.info(
-        `[WhatsApp] Skipping non-chat message from ${remoteJid} (only @s.whatsapp.net and @g.us processed)`
-      );
+      log.debug('[WhatsApp] Skipping non-chat message');
       return;
     }
 
     // Skip group messages where participant cannot be determined (guard BEFORE phone extraction)
     if (isGroup && !msg.key.participant) {
-      log.info(`[WhatsApp] Skipping group message without participant from ${remoteJid}`);
+      log.debug('[WhatsApp] Skipping group message without a participant');
       return;
     }
 
@@ -1627,7 +1605,10 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
           { message: channelMessage }
         )
       );
-      log.info(`[msg] → dispatched to pipeline: "${text.slice(0, 60)}" from chatId=${phone}`);
+      log.info('[msg] Dispatched to pipeline', {
+        textLength: text.length,
+        attachmentCount: attachments.length,
+      });
     } catch (err) {
       log.error('Failed to emit WhatsApp message event:', err);
     }
@@ -1664,7 +1645,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
     const altJid = typeof key.remoteJidAlt === 'string' ? key.remoteJidAlt : null;
     if (altJid && altJid.endsWith('@s.whatsapp.net')) {
-      log.info(`[WhatsApp] LID resolved: ${remoteJid} -> ${altJid}`);
+      log.debug('[WhatsApp] Resolved temporary contact identity');
       return altJid;
     }
 
@@ -1694,17 +1675,11 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     if (this.sock) {
       if (!this.sock.user?.id) return false;
       const ownPhone = this.phoneFromJid(this.sock.user.id);
-      log.debug(
-        `[isSelfChat] sockPhone=${ownPhone} chatPhone=${chatPhone} match=${ownPhone === chatPhone}`
-      );
       return ownPhone === chatPhone;
     }
 
     // Fallback: compare against configured my_phone
     if (this.config.my_phone) {
-      log.debug(
-        `[isSelfChat] cfgPhone=${this.config.my_phone} chatPhone=${chatPhone} match=${this.config.my_phone === chatPhone}`
-      );
       return this.config.my_phone === chatPhone;
     }
 

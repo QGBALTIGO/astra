@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   profilePicture: vi.fn(),
   emit: vi.fn(),
   warn: vi.fn(),
+  info: vi.fn(),
 }));
 
 vi.mock('@whiskeysockets/baileys', () => ({
@@ -30,7 +31,7 @@ vi.mock('@whiskeysockets/baileys', () => ({
 }));
 vi.mock('pino', () => ({ default: vi.fn(() => ({})) }));
 vi.mock('../../../services/log.js', () => ({
-  getLog: () => ({ info: vi.fn(), warn: mocks.warn, error: vi.fn(), debug: vi.fn() }),
+  getLog: () => ({ info: mocks.info, warn: mocks.warn, error: vi.fn(), debug: vi.fn() }),
 }));
 vi.mock('../../../config/defaults.js', () => ({ MAX_MESSAGE_CHAT_MAP_SIZE: 1000 }));
 vi.mock('../../utils/message-utils.js', () => ({ splitMessage: (text: string) => [text] }));
@@ -379,7 +380,7 @@ describe('WhatsApp connection lifecycle', () => {
     sockets[0]!.emit('connection.update', { connection: 'open' });
     for (let index = 0; index < 2; index++) {
       sockets[index]!.emit('connection.update', closed(440));
-      await vi.advanceTimersByTimeAsync(15_001);
+      await vi.advanceTimersByTimeAsync(30_001);
       sockets[index + 1]!.emit('connection.update', { connection: 'open' });
     }
     mocks.warn.mockClear();
@@ -388,6 +389,52 @@ describe('WhatsApp connection lifecycle', () => {
     expect(mocks.warn).not.toHaveBeenCalledWith(expect.stringContaining('reconnecting in'));
     await vi.advanceTimersByTimeAsync(120_000);
     expect(sockets).toHaveLength(3);
+  });
+
+  it('keeps replacement protection when transient errors interrupt the conflict storm', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    for (const [index, code] of [440, 408, 440, 408].entries()) {
+      sockets[index]!.emit('connection.update', closed(code));
+      await vi.advanceTimersByTimeAsync(120_001);
+      sockets[index + 1]!.emit('connection.update', { connection: 'open' });
+    }
+    sockets[4]!.emit('connection.update', closed(440));
+    expect(api.getStatus()).toBe('error');
+    await vi.advanceTimersByTimeAsync(360_000);
+    expect(sockets).toHaveLength(5);
+  });
+
+  it('caps reconnects even when each unstable socket briefly opens', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    for (let index = 0; index < 10; index++) {
+      sockets[index]!.emit('connection.update', closed(408));
+      await vi.advanceTimersByTimeAsync(120_001);
+      sockets[index + 1]!.emit('connection.update', { connection: 'open' });
+    }
+    sockets[10]!.emit('connection.update', closed(408));
+    expect(api.getStatus()).toBe('error');
+    await vi.advanceTimersByTimeAsync(360_000);
+    expect(sockets).toHaveLength(11);
+  });
+
+  it('restores the retry budget only after the connection is stable', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    for (let index = 0; index < 2; index++) {
+      sockets[index]!.emit('connection.update', closed(440));
+      await vi.advanceTimersByTimeAsync(30_001);
+      sockets[index + 1]!.emit('connection.update', { connection: 'open' });
+    }
+    await vi.advanceTimersByTimeAsync(120_001);
+    sockets[2]!.emit('connection.update', closed(440));
+    expect(api.getStatus()).toBe('reconnecting');
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(sockets).toHaveLength(4);
   });
 
   it('drains credential updates before the restart required after QR pairing', async () => {
@@ -515,6 +562,96 @@ describe('WhatsApp connection lifecycle', () => {
     await vi.advanceTimersByTimeAsync(3_001);
     await rejected;
     expect(sockets[1]!.socket.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('delivers a ready customer reply without a simulated typing delay', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const startedAt = Date.now();
+    await expect(
+      api.sendMessage({ platformChatId: '5521888888888', text: 'Lembrete agendado para amanhã.' })
+    ).resolves.toBe('sent-message');
+    expect(Date.now()).toBe(startedAt);
+    expect(sockets[0]!.socket.presenceSubscribe).not.toHaveBeenCalled();
+  });
+
+  it('does not wait for cosmetic presence acknowledgements', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const presence = deferred<void>();
+    sockets[0]!.socket.sendPresenceUpdate.mockReturnValue(presence.promise);
+    await api.sendTyping('5521888888888');
+    await expect(
+      api.sendMessage({ platformChatId: '5521888888888', text: 'Pronto.' })
+    ).resolves.toBe('sent-message');
+    presence.resolve();
+  });
+
+  it('throttles concurrent replies to the same recipient without delaying the first', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const first = api.sendMessage({ platformChatId: '5521888888888', text: 'Primeira.' });
+    const second = api.sendMessage({ platformChatId: '5521888888888', text: 'Segunda.' });
+    await first;
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await second;
+    expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts an ambiguous transport failure against the recipient limit without retrying it', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const socket = sockets[0]!.socket;
+    socket.sendMessage.mockRejectedValueOnce(new Error('delivery outcome unknown'));
+    await expect(
+      api.sendMessage({ platformChatId: '5521888888888', text: 'Possivelmente enviada.' })
+    ).rejects.toThrow('delivery outcome unknown');
+    const next = api.sendMessage({ platformChatId: '5521888888888', text: 'Outro pedido.' });
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(socket.sendMessage).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await next;
+    expect(socket.sendMessage).toHaveBeenCalledTimes(2);
+    expect(socket.sendMessage.mock.calls[1]?.[1]).toEqual({ text: 'Outro pedido.' });
+  });
+
+  it('enforces the global limit when different recipients send concurrently', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const sends = Array.from({ length: 21 }, (_, index) =>
+      api.sendMessage({
+        platformChatId: `552199999${String(index).padStart(4, '0')}`,
+        text: 'Pronto.',
+      })
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledTimes(20);
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledTimes(20);
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.all(sends);
+    expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledTimes(21);
+  });
+
+  it('keeps message contents, recipient phones and protocol IDs out of operational logs', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const incoming = message(nextPhone, 'private-protocol-id', true);
+    incoming.messages[0]!.message.conversation = 'Código particular 938471';
+    sockets[0]!.emit('messages.upsert', incoming);
+    const logged = JSON.stringify(mocks.info.mock.calls);
+    expect(logged).not.toContain(nextPhone);
+    expect(logged).not.toContain('private-protocol-id');
+    expect(logged).not.toContain('938471');
+    expect(receivedMessages()).toHaveLength(1);
   });
 
   it('waits for the same account to reconnect before sending a prepared reply once', async () => {
@@ -762,10 +899,11 @@ describe('WhatsApp connection lifecycle', () => {
     expect(mocks.generateMessage).not.toHaveBeenCalled();
   });
 
-  it('preserves ordinary typing simulation but drops text that expires during the delay', async () => {
+  it('drops ordinary text that expires during required recipient throttling', async () => {
     const api = newApi();
     await api.connect();
     sockets[0]!.emit('connection.update', { connection: 'open' });
+    await api.sendMessage({ platformChatId: '5521999998888', text: 'Previous reply.' });
     const sending = api.sendMessage({
       platformChatId: '5521999998888',
       text: 'A time-sensitive plain-text message.',
@@ -773,14 +911,10 @@ describe('WhatsApp connection lifecycle', () => {
     });
     const rejected = expect(sending).rejects.toThrow('expired before sending');
     await vi.advanceTimersByTimeAsync(0);
-    expect(sockets[0]!.socket.presenceSubscribe).toHaveBeenCalledOnce();
-    expect(sockets[0]!.socket.sendPresenceUpdate).toHaveBeenCalledWith(
-      'composing',
-      '5521999998888@s.whatsapp.net'
-    );
-    await vi.advanceTimersByTimeAsync(6_501);
+    expect(sockets[0]!.socket.presenceSubscribe).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(3_001);
     await rejected;
-    expect(sockets[0]!.socket.sendMessage).not.toHaveBeenCalled();
+    expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledOnce();
     expect(sockets[0]!.socket.relayMessage).not.toHaveBeenCalled();
   });
 
