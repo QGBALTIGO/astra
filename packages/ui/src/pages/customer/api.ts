@@ -8,6 +8,8 @@ import type {
   CustomerFinanceSummary,
   CustomerIntegrations,
   CustomerPeriod,
+  CustomerPlan,
+  CustomerPlanInput,
   CustomerSession,
   CustomerTransaction,
   CustomerTransactionFilters,
@@ -208,6 +210,19 @@ export const customerApi = {
       '/finance/categories/' + encodeURIComponent(id),
       { method: 'DELETE', params: { transferToId } }
     ),
+  plans: (signal?: AbortSignal) =>
+    request<{ plans: CustomerPlan[] }>('/planning', { signal }),
+  createPlan: (body: CustomerPlanInput) =>
+    request<{ plan: CustomerPlan }>('/planning', { method: 'POST', body }),
+  updatePlan: (id: string, body: CustomerPlanInput) =>
+    request<{ plan: CustomerPlan }>('/planning/' + encodeURIComponent(id), {
+      method: 'PATCH',
+      body,
+    }),
+  deletePlan: (id: string) =>
+    request<{ deleted: boolean }>('/planning/' + encodeURIComponent(id), {
+      method: 'DELETE',
+    }),
   agenda: (period: CustomerPeriod, signal?: AbortSignal) =>
     request<{ items: CustomerAgendaItem[] }>('/agenda', { params: period, signal }),
   createAgenda: (body: AgendaInput, idempotencyKey: string) =>
