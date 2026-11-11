@@ -8,6 +8,7 @@
  * Each successfully acknowledged transport segment creates one small event;
  * the repository makes retries idempotent and maintains compact daily totals.
  */
+import { createHash } from 'node:crypto';
 import { BaseRepository } from '../db/repositories/base.js';
 import { getLog } from './log.js';
 
@@ -68,6 +69,11 @@ export class OutboundQualityRepository extends BaseRepository {
     )
       return;
     const flags = classifyOutboundResponse(data.text);
+    const receiptHash = createHash('sha256')
+      .update(data.channelId)
+      .update('\0')
+      .update(data.externalId)
+      .digest('hex');
     await this.query(
       `WITH inserted AS (
         INSERT INTO astra_outbound_quality_events
@@ -91,7 +97,7 @@ export class OutboundQualityRepository extends BaseRepository {
       SELECT count(*) AS counted FROM counted`,
       [
         data.channelId,
-        data.externalId,
+        receiptHash,
         Math.min(data.text.length, 65535),
         JSON.stringify(flags),
       ]
