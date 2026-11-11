@@ -1,5 +1,6 @@
 /** Final channel boundary: model text is not proof of a database write. */
 import { stripInternalTags } from './normalizers/base.js';
+import { customerFacingText, savedReminderConfirmation } from './customer-facing-response.js';
 
 export interface ChannelToolReceipt {
   name: string;
@@ -38,7 +39,7 @@ export function successfulChannelTools(receipts: ChannelToolReceipt[]): Set<stri
 }
 
 export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]): string {
-  const clean = stripInternalTags(text);
+  const clean = customerFacingText(stripInternalTags(text));
   const tools = successfulChannelTools(receipts);
   const has = (...names: string[]) => names.some((name) => tools.has(name));
   const lower = clean
@@ -92,7 +93,9 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     )
       unsupported = true;
   }
-  if (!protocol.test(text) && clean && !unsupported) return clean;
+  if (!protocol.test(text) && clean && !unsupported) {
+    return savedReminderConfirmation(receipts) ?? clean;
+  }
   const confirmed: string[] = [];
   if (has('schedule_channel_reminder', 'reschedule_channel_reminder'))
     confirmed.push('um lembrete salvo');
