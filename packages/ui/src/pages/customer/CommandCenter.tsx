@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Calendar, ChevronRight, Copy, FileText, MessageSquare, Plus, Target, X,
+  Calendar, ChevronRight, Copy, FileText, MessageSquare, Plus, Target,
   Lightbulb, Clock,
 } from '../../components/icons';
 import { CustomerDialog } from './components';
@@ -20,18 +20,20 @@ export function CustomerQuickActions({
   onPlanning,
   onReport,
   canWrite,
+  reportReady,
 }: {
   onNewTransaction: () => void;
   onAgenda: () => void;
   onPlanning: () => void;
   onReport: () => void;
   canWrite: boolean;
+  reportReady: boolean;
 }) {
   const actions = [
     { title: 'Registrar', icon: Plus, run: onNewTransaction, disabled: !canWrite },
     { title: 'Agenda', icon: Calendar, run: onAgenda, disabled: false },
     { title: 'Metas', icon: Target, run: onPlanning, disabled: false },
-    { title: 'Relatório', icon: FileText, run: onReport, disabled: false },
+    { title: 'Relatório', icon: FileText, run: onReport, disabled: !reportReady },
   ];
   return (
     <nav className="ac-quick-actions" aria-label="Ações rápidas">
