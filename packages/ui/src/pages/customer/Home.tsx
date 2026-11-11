@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Calendar, ChevronRight, Eye, EyeOff, TrendingUp, Receipt } from '../../components/icons';
+import { AstraPrompts, CustomerInsights, CustomerPrintReport, CustomerQuickActions } from './CommandCenter';
+import { CustomerPlanning } from './Planning';
 import { customerApi } from './api';
 import { CustomerEmpty, CustomerError, CustomerSkeleton, PeriodPicker } from './components';
 import {
@@ -16,6 +18,7 @@ import { TransactionRows } from './Transactions';
 import type {
   Customer,
   CustomerFinanceSummary,
+  CustomerCategory,
   CustomerPeriod,
   CustomerTransaction,
   CustomerTransactionFilters,
@@ -146,6 +149,9 @@ export function CustomerHome({
   onAgenda,
   onHideAmounts,
   hiding,
+  categories,
+  onNewTransaction,
+  onChanged,
 }: {
   customer: Customer;
   active: boolean;
@@ -157,6 +163,9 @@ export function CustomerHome({
   onAgenda: () => void;
   onHideAmounts: () => void;
   hiding: boolean;
+  categories: CustomerCategory[];
+  onNewTransaction: () => void;
+  onChanged: (message: string) => void;
 }) {
   const summary = useCustomerQuery(
     `home:${period.from}:${period.to}`,
@@ -164,6 +173,8 @@ export function CustomerHome({
     active && validPeriod(period),
     revision
   );
+  const plans = useCustomerQuery('planning', (signal) => customerApi.plans(signal), active, revision);
+  const [planningOpenSignal, setPlanningOpenSignal] = useState(0);
   const today = dateInZone(new Date(), customer.timeZone);
   const upcoming = useCustomerQuery(
     `upcoming:${today}:${customer.timeZone}`,
@@ -172,16 +183,20 @@ export function CustomerHome({
     revision
   );
   const name = customer.displayName.trim().split(/\s+/)[0] || 'por aqui';
+  const hour = Number(new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit', hour12: false, timeZone: customer.timeZone,
+  }).format(new Date()));
+  const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
   const hidden = customer.hideAmounts;
   const biggest = summary.data?.categories[0];
   const nextItems = upcoming.data?.items.filter((item) => !item.completed).slice(0, 4) ?? [];
   return (
-    <div className="ac-page">
+    <div className="ac-page ac-command-center">
       <header className="ac-page-heading">
         <div>
           <p className="ac-eyebrow">SEU DIA, COM MAIS CLAREZA</p>
-          <h1>Olá, {name}.</h1>
-          <p>Suas finanças e seus próximos passos, juntos.</p>
+          <h1>{greeting}, {name}.</h1>
+          <p>Seu dinheiro, suas metas e seus próximos passos, juntos.</p>
         </div>
         <button
           type="button"
@@ -194,6 +209,14 @@ export function CustomerHome({
           <span>{hidden ? 'Mostrar valores' : 'Ocultar valores'}</span>
         </button>
       </header>
+      <CustomerQuickActions
+        onNewTransaction={onNewTransaction}
+        onAgenda={onAgenda}
+        onPlanning={() => setPlanningOpenSignal((value) => value + 1)}
+        onReport={() => window.print()}
+        canWrite={customer.access.canWrite}
+        reportReady={Boolean(summary.data)}
+      />
       <PeriodPicker value={period} onChange={onPeriod} timeZone={customer.timeZone} />
       {summary.error ? <CustomerError error={summary.error} onRetry={summary.retry} /> : null}
       {summary.loading && !summary.data ? (
@@ -289,6 +312,8 @@ export function CustomerHome({
               <ChevronRight aria-hidden="true" />
             </button>
           </div>
+          <CustomerInsights summary={summary.data} upcoming={nextItems}
+            timeZone={customer.timeZone} hidden={hidden} onAgenda={onAgenda} />
           <section className="ac-card">
             <div className="ac-card-heading">
               <div>
@@ -315,6 +340,11 @@ export function CustomerHome({
           </section>
         </>
       ) : null}
+      <CustomerPlanning plans={plans.data?.plans ?? []} summary={summary.data}
+        categories={categories} hidden={hidden} canWrite={customer.access.canWrite}
+        loading={plans.loading} error={plans.error} onChanged={onChanged}
+        openSignal={planningOpenSignal} />
+      <AstraPrompts />
       <div className="ac-home-columns">
         <section className="ac-card ac-card--flush">
           <div className="ac-card-heading ac-card-heading--padded">
@@ -409,6 +439,7 @@ export function CustomerHome({
           ) : null}
         </section>
       </div>
+      {summary.data ? <CustomerPrintReport summary={summary.data} period={period} hidden={hidden} /> : null}
       {biggest && biggest.total > 0 && !hidden ? (
         <button
           type="button"
