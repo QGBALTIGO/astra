@@ -90,6 +90,7 @@ export class OutboundQualityRepository extends BaseRepository {
           UNION ALL
           SELECT jsonb_array_elements_text(e.flags)
         ) f
+        WHERE TRUE
         ON CONFLICT (day, channel_id, flag)
           DO UPDATE SET count = astra_outbound_quality_daily.count + EXCLUDED.count
         RETURNING flag
