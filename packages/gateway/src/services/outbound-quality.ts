@@ -95,12 +95,7 @@ export class OutboundQualityRepository extends BaseRepository {
         RETURNING flag
       )
       SELECT count(*) AS counted FROM counted`,
-      [
-        data.channelId,
-        receiptHash,
-        Math.min(data.text.length, 65535),
-        JSON.stringify(flags),
-      ]
+      [data.channelId, receiptHash, Math.min(data.text.length, 65535), JSON.stringify(flags)]
     );
   }
 
@@ -124,7 +119,9 @@ export class OutboundQualityRepository extends BaseRepository {
       channelId,
       days: boundedDays,
       totalSent: totals.sent ?? 0,
-      flags: Object.fromEntries(QUALITY_FLAG_NAMES.map((flag) => [flag, totals[flag] ?? 0])) as Record<QualityFlag, number>,
+      flags: Object.fromEntries(
+        QUALITY_FLAG_NAMES.map((flag) => [flag, totals[flag] ?? 0])
+      ) as Record<QualityFlag, number>,
       recommendations: recommendQualityImprovements(totals),
     };
   }

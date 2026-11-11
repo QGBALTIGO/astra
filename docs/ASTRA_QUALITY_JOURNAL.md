@@ -42,7 +42,7 @@ CPF, credencial, código de seis dígitos, dado financeiro pessoal ou argumento
 de ferramenta entra nas novas tabelas. O texto é inspecionado apenas em
 memória e descartado. A identidade do destinatário não é registrada nelas.
 
-A captura ocorre somente *após* confirmação de envio no transporte. Erros
+A captura ocorre somente _após_ confirmação de envio no transporte. Erros
 de telemetria não bloqueiam a resposta ao usuário e **não geram reenvio**:
 evita-se o problema do envio já entregue e do registro local ter falhado.
 Mensagens longas divididas em segmentos são registradas por segmento.
@@ -76,7 +76,7 @@ cada conta; o ID do canal, sozinho, não comprova autorização.
 2. Agregar indícios por dia e agrupar causas (fallback, vazamento técnico,
    interpretação de intenção, mensagens genéricas).
 3. Reproduzir com cenários sintéticos no Astra Simulation & Reliability Lab.
-4. Propor pequenas alterações em *pull requests* revisáveis.
+4. Propor pequenas alterações em _pull requests_ revisáveis.
 5. Exigir testes de segurança, banco, WhatsApp e regressão antes do merge.
 6. Publicar com rollback somente após gates críticos, e avaliar novamente.
 
