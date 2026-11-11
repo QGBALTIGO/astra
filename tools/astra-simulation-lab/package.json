@@ -1,0 +1,21 @@
+{
+  "name": "astra-simulation-reliability-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated, synthetic-only Astra simulation generator and source regression lab",
+  "scripts": {
+    "test": "vitest run --maxWorkers=1 --no-file-parallelism",
+    "generate": "node lab.mjs generate",
+    "verify": "node lab.mjs verify",
+    "probe": "node lab.mjs probe",
+    "report": "node lab.mjs report"
+  },
+  "devDependencies": {
+    "fast-check": "4.10.2",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  }
+}

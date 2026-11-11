@@ -1,0 +1,48 @@
+name: Astra Simulation & Reliability Lab
+
+on:
+  pull_request:
+    paths:
+      - 'tools/astra-simulation-lab/**'
+      - 'packages/gateway/src/channels/finance-routing.ts'
+      - 'packages/gateway/src/channels/tool-selection.ts'
+      - '.github/workflows/astra-simulation-lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-only-checks:
+    name: Synthetic fixture and source regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tools/astra-simulation-lab/package-lock.json
+      - name: Install small isolated test dependencies
+        run: npm ci --prefix tools/astra-simulation-lab --ignore-scripts --no-audit --no-fund
+      - name: Run Vitest and fast-check
+        run: npm test --prefix tools/astra-simulation-lab
+      - name: Generate synthetic smoke fixtures only
+        run: node tools/astra-simulation-lab/lab.mjs generate --out "${{ runner.temp }}/astra-sim" --personas 300 --stories 300 --scenarios 5000 --seed 20261111
+      - name: Validate exact synthetic quotas and lifecycle integrity
+        run: node tools/astra-simulation-lab/lab.mjs verify --out "${{ runner.temp }}/astra-sim"
+      - name: Probe real Astra source functions, no network or DB
+        run: node tools/astra-simulation-lab/lab.mjs probe --out "${{ runner.temp }}/astra-sim"
+      - name: Build static report
+        run: node tools/astra-simulation-lab/lab.mjs report --out "${{ runner.temp }}/astra-sim"
+      - name: Upload synthetic-only report (no credentials)
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-simulation-lab-smoke
+          path: |
+            ${{ runner.temp }}/astra-sim/index.html
+            ${{ runner.temp }}/astra-sim/manifest.json
+            ${{ runner.temp }}/astra-sim/validation.json
+            ${{ runner.temp }}/astra-sim/source-probes.json
+          retention-days: 7

@@ -1,0 +1,10 @@
+node_modules/
+.amostra/
+amostra/
+.astra-sim-artifacts/
+artifacts/
+*.jsonl
+manifest.json
+validation.json
+source-probes.json
+index.html
