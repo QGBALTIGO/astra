@@ -97,6 +97,30 @@ export interface CustomerFinanceSummary {
   categories: { id: string; name: string; color: string; total: number; percentage: number }[];
   recent: CustomerTransaction[];
 }
+export type CustomerPlanKind = 'goal' | 'budget' | 'installment' | 'subscription';
+export interface CustomerPlanInput {
+  kind: CustomerPlanKind;
+  title: string;
+  amount: number;
+  progress?: number;
+  categoryId?: string | null;
+  installmentsTotal?: number | null;
+  installmentsPaid?: number | null;
+  nextDueDate?: string | null;
+  notes?: string | null;
+}
+export interface CustomerPlan extends CustomerPlanInput {
+  id: string;
+  progress: number;
+  categoryId: string | null;
+  installmentsTotal: number | null;
+  installmentsPaid: number | null;
+  nextDueDate: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type AgendaKind = 'event' | 'task' | 'reminder' | 'bill';
 export interface CustomerAgendaItem {
   id: string;
