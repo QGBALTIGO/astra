@@ -69,6 +69,7 @@ import { DmPairingService } from './dm-pairing-service.js';
 import { isChannelUserAccessActive } from './channel-access-service.js';
 import { emitConnectionEvent } from './connection-events.js';
 import { wsGateway } from '../ws/server.js';
+import { recordOutboundQuality } from '../services/outbound-quality.js';
 import { getErrorMessage } from '../utils/common.js';
 import { getLog } from '../services/log.js';
 import { claimOwnership, getOwnerUserId, autoClaimOwnership } from '../services/pairing-service.js';
@@ -189,6 +190,7 @@ export class ChannelServiceImpl implements IChannelService {
     try {
       await this.assertOutgoingAccess(api, message.platformChatId);
       const messageId = await api.sendMessage(message);
+      await recordOutboundQuality(channelPluginId, messageId, message.text);
 
       // Emit sent event
       try {
@@ -237,6 +239,7 @@ export class ChannelServiceImpl implements IChannelService {
         const api = getChannelApi(plugin);
         await this.assertOutgoingAccess(api, message.platformChatId);
         const messageId = await api.sendMessage(message);
+        await recordOutboundQuality(plugin.manifest.id, messageId, message.text);
         results.set(plugin.manifest.id, messageId);
       } catch (error) {
         log.error(`Failed to send to ${plugin.manifest.id}`, {
@@ -259,6 +262,7 @@ export class ChannelServiceImpl implements IChannelService {
         if (api.getStatus() === 'connected') {
           await this.assertOutgoingAccess(api, message.platformChatId);
           const messageId = await api.sendMessage(message);
+          await recordOutboundQuality(plugin.manifest.id, messageId, message.text);
           results.set(plugin.manifest.id, messageId);
         }
       } catch (error) {
@@ -1162,6 +1166,9 @@ export class ChannelServiceImpl implements IChannelService {
           options: replyWithVoice ? { telegram: { asVoice: true } } : undefined,
         });
       }
+
+      // Quality events contain no message text and dedupe against transport logs.
+      await recordOutboundQuality(message.channelPluginId, sentMessageId, responseText);
 
       // Save outgoing message to channel_messages table
       // (bus persistence middleware handles the main messages table separately)
