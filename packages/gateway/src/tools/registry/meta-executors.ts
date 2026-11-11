@@ -209,7 +209,7 @@ export async function executeBatchUseTool(
           return {
             idx,
             tool_name,
-            ok: true,
+            ok: !result.value.isError,
             content:
               typeof result.value.content === 'string'
                 ? result.value.content

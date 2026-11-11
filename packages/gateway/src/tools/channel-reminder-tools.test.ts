@@ -5,10 +5,12 @@ const fixtures = vi.hoisted(() => ({
     channelPluginId: 'channel.telegram',
     platformChatId: 'chat-123',
     channelMessageId: 'message-123',
+    channelMessageTimestamp: undefined as number | undefined,
   },
   schedule: vi.fn(),
   listForChat: vi.fn(),
   cancel: vi.fn(),
+  reschedule: vi.fn(),
 }));
 
 vi.mock('@ownpilot/core/agent', () => ({
@@ -19,7 +21,12 @@ vi.mock('../db/repositories/channel-reminders.js', () => ({
     schedule: fixtures.schedule,
     listForChat: fixtures.listForChat,
     cancel: fixtures.cancel,
+    reschedule: fixtures.reschedule,
   },
+}));
+
+vi.mock('../db/repositories/customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: async () => ({ timeZone: 'America/Campo_Grande' }) },
 }));
 
 import { CHANNEL_REMINDER_TOOLS, executeChannelReminderTool } from './channel-reminder-tools.js';
@@ -32,6 +39,7 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
     fixtures.ctx.channelPluginId = 'channel.telegram';
     fixtures.ctx.platformChatId = 'chat-123';
     fixtures.ctx.channelMessageId = 'message-123';
+    fixtures.ctx.channelMessageTimestamp = undefined;
     fixtures.schedule.mockImplementation(async (input) => ({
       id: 'reminder-123',
       status: 'pending',
@@ -47,6 +55,7 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
       'schedule_channel_reminder',
       'list_channel_reminders',
       'cancel_channel_reminder',
+      'reschedule_channel_reminder',
     ]);
   });
 
@@ -115,11 +124,12 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
 
   it('cannot list or cancel reminders outside the authorized chat', async () => {
     await executeChannelReminderTool('list_channel_reminders', {}, 'default');
-    await executeChannelReminderTool(
+    const result = await executeChannelReminderTool(
       'cancel_channel_reminder',
       { reminder_id: 'reminder-123' },
       'default'
     );
+    expect(result.success).toBe(true);
     expect(fixtures.listForChat).toHaveBeenCalledWith('default', 'channel.telegram', 'chat-123');
     expect(fixtures.cancel).toHaveBeenCalledWith(
       'reminder-123',
@@ -128,4 +138,76 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
       'chat-123'
     );
   });
+  it('keeps a relative deadline anchored to message receipt, not provider latency', async () => {
+    fixtures.ctx.channelMessageTimestamp = Date.now() - 90_000;
+    await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'Verificar frango', delay_minutes: 40 },
+      'default'
+    );
+    expect(fixtures.schedule.mock.calls.at(-1)?.[0].remindAt.getTime()).toBe(
+      Date.now() - 90_000 + 40 * 60_000
+    );
+  });
+  it('uses the saved IANA zone for local times', async () => {
+    const result = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'Codex', local_datetime: '2026-11-10T18:40' },
+      'whatsapp:synthetic'
+    );
+    expect(result.success).toBe(true);
+    expect(fixtures.schedule.mock.calls.at(-1)?.[0].remindAt.toISOString()).toBe(
+      '2026-11-10T22:40:00.000Z'
+    );
+  });
+  it('reschedules the same pending record without a second insert', async () => {
+    fixtures.reschedule.mockImplementation(async (id, _user, _plugin, _chat, remindAt) => ({
+      id,
+      title: 'Codex',
+      remindAt,
+      status: 'pending',
+    }));
+    const result = await executeChannelReminderTool(
+      'reschedule_channel_reminder',
+      { reminder_id: 'old-id', local_datetime: '2026-11-10T18:40' },
+      'whatsapp:synthetic'
+    );
+    expect(result.success).toBe(true);
+    expect(fixtures.reschedule).toHaveBeenCalledWith(
+      'old-id',
+      'whatsapp:synthetic',
+      'channel.telegram',
+      'chat-123',
+      new Date('2026-11-10T22:40:00Z')
+    );
+    expect(fixtures.schedule).not.toHaveBeenCalled();
+  });
+  it('does not claim a failed/missing reschedule succeeded', async () => {
+    fixtures.reschedule.mockResolvedValue(null);
+    expect(
+      (
+        await executeChannelReminderTool(
+          'reschedule_channel_reminder',
+          { reminder_id: 'foreign-id', delay_minutes: 5 },
+          'default'
+        )
+      ).success
+    ).toBe(false);
+    expect(fixtures.schedule).not.toHaveBeenCalled();
+  });
+  it.each(['2027-02-30T12:00:00-04:00', '2026-11-20T24:00:00-04:00'])(
+    'rejects normalized invalid ISO date %s',
+    async (value) => {
+      expect(
+        (
+          await executeChannelReminderTool(
+            'schedule_channel_reminder',
+            { title: 'Test', remind_at: value },
+            'default'
+          )
+        ).success
+      ).toBe(false);
+      expect(fixtures.schedule).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -70,6 +70,18 @@ describe('MessagesRepository', () => {
     repo = new MessagesRepository();
   });
 
+  it('restores bounded chronological history only for the authenticated conversation owner', async () => {
+    mockAdapter.query.mockResolvedValueOnce([makeMessageRow()]);
+    const result = await repo.getRecentForUser('conv-1', 'user-1', 100);
+    expect(result).toHaveLength(1);
+    expect(mockAdapter.query).toHaveBeenCalledWith(expect.stringContaining('c.user_id = $2'), [
+      'conv-1',
+      'user-1',
+      50,
+    ]);
+    expect(mockAdapter.query.mock.calls.at(-1)?.[0]).toContain('ORDER BY created_at ASC, id ASC');
+  });
+
   // ---- create ----
 
   describe('create', () => {

@@ -70,6 +70,7 @@ function applyOpenAICompatibleOverrides(
     baseUrl: config.baseUrl ?? baseConfig.baseUrl,
     endpoint: config.endpoint ?? baseConfig.endpoint,
     timeout: config.timeout ?? baseConfig.timeout,
+    maxRetries: config.maxRetries ?? baseConfig.maxRetries,
     headers: config.headers ? { ...baseConfig.headers, ...config.headers } : baseConfig.headers,
     features: config.features
       ? { ...baseConfig.features, ...config.features }

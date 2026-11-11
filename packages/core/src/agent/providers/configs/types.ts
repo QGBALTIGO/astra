@@ -152,6 +152,8 @@ export interface ProviderConfig {
   endpoint?: string;
   /** Default timeout in ms */
   timeout?: number;
+  /** Explicit transport retry budget; zero lets the fallback chain take over. */
+  maxRetries?: number;
   /** API version (for versioned APIs) */
   apiVersion?: string;
   /** Documentation URL */

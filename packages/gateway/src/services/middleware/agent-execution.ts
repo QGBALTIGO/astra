@@ -7,10 +7,12 @@
 
 import { randomUUID } from 'node:crypto';
 import type { MessageMiddleware, StreamCallbacks } from '@ownpilot/core/services';
-import type { ContentPart } from '@ownpilot/core/agent';
+import { getExecContext, runInExecContext, type ContentPart } from '@ownpilot/core/agent';
 import type { NormalizedMessage, MessageProcessingResult } from '@ownpilot/core/services';
 import { checkToolCallApproval } from '../../assistant/index.js';
 import { getLog } from '../log.js';
+import { safeChannelResponse, type ChannelToolReceipt } from '../../channels/response-safety.js';
+import { channelToolsForMessage, recentChannelText } from '../../channels/tool-selection.js';
 
 const log = getLog('Middleware:AgentExecution');
 
@@ -57,7 +59,11 @@ interface ChatAgent {
     };
     error?: { message: string; stack?: string };
   }>;
-  getConversation(): { id: string; systemPrompt?: string };
+  getConversation(): {
+    id: string;
+    systemPrompt?: string;
+    messages?: readonly { content: unknown }[];
+  };
   setAdditionalTools?(tools: string[]): void;
   clearAdditionalTools?(): void;
   setDirectToolMode?(enabled: boolean): void;
@@ -92,7 +98,10 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
     const provider = ctx.get<string>('provider') ?? 'unknown';
     const model = ctx.get<string>('model') ?? 'unknown';
     const conversationId = ctx.get<string>('conversationId');
-    const directTools = ctx.get<string[]>('directTools');
+    const directTools =
+      message.metadata.source === 'channel'
+        ? channelToolsForMessage(message.content, recentChannelText(agent.getConversation()))
+        : ctx.get<string[]>('directTools');
     const stream = ctx.get<StreamCallbacks>('stream');
 
     // Expose direct tools if requested
@@ -122,6 +131,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
     }
 
     const startTime = Date.now();
+    const channelReceipts: ChannelToolReceipt[] = [];
 
     try {
       const chatOptions: Record<string, unknown> = {};
@@ -190,7 +200,16 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         chatContent = parts;
       }
 
-      const result = await agent.chat(chatContent, chatOptions);
+      const result =
+        message.metadata.source === 'channel'
+          ? await runInExecContext(
+              {
+                ...getExecContext(),
+                onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
+              },
+              () => agent.chat(chatContent, chatOptions)
+            )
+          : await agent.chat(chatContent, chatOptions);
 
       // Clear direct tools after chat
       if (directTools?.length && agent.clearAdditionalTools) {
@@ -246,11 +265,23 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         ctx.set('usage', result.value.usage);
       }
 
+      if (message.metadata.source === 'channel') {
+        log.info('Channel turn completed', {
+          provider,
+          model,
+          durationMs,
+          toolExecutions: channelReceipts.length,
+          toolFailures: channelReceipts.filter((r) => r.isError).length,
+        });
+      }
       const responseMessage: NormalizedMessage = {
         id: result.value?.id ?? randomUUID(),
         sessionId: message.sessionId,
         role: 'assistant',
-        content: result.value?.content ?? '',
+        content:
+          message.metadata.source === 'channel'
+            ? safeChannelResponse(result.value?.content ?? '', channelReceipts)
+            : (result.value?.content ?? ''),
         metadata: {
           source: message.metadata.source,
           provider,

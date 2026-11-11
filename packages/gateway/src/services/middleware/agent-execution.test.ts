@@ -20,7 +20,8 @@ const { FIXED_UUID, mockCheckToolCallApproval, mockLog } = vi.hoisted(() => ({
   mockLog: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock('node:crypto', () => ({
+vi.mock('node:crypto', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:crypto')>()),
   randomUUID: () => FIXED_UUID,
 }));
 
@@ -33,6 +34,7 @@ vi.mock('../log.js', () => ({
 }));
 
 // Import after mocks are set up
+import { getExecContext, runInExecContext } from '@ownpilot/core/agent';
 import { createAgentExecutionMiddleware } from './agent-execution.js';
 
 // ---------------------------------------------------------------------------
@@ -123,6 +125,41 @@ describe('createAgentExecutionMiddleware', () => {
     vi.clearAllMocks();
     middleware = createAgentExecutionMiddleware();
   });
+
+  it.each([true, false])(
+    'channel confirmation requires a real execution receipt: %s',
+    async (saved) => {
+      const agent = createAgent({
+        chat: vi.fn(async () => {
+          if (saved)
+            getExecContext()?.onToolResult?.({
+              name: 'core.schedule_channel_reminder',
+              content: '{"id":"test-reminder"}',
+              isError: false,
+            });
+          return { ok: true, value: { content: 'Lembrete agendado. </thinking>' } };
+        }),
+      });
+      const ctx = createContext({ store: { agent, provider: 'synthetic', model: 'synthetic' } });
+      const msg = createMessage({
+        content: 'Me lembre de testar',
+        metadata: { source: 'channel' },
+      });
+      const result = await runInExecContext(
+        { channelMessageId: 'm', channelPluginId: 'channel.whatsapp', platformChatId: 'synthetic' },
+        () => middleware(msg, ctx, vi.fn())
+      );
+      expect(result.response.content).toBe(
+        saved
+          ? 'Lembrete agendado.'
+          : 'Não consegui confirmar a execução desse pedido. Não vou informar que ficou pronto sem verificar. Confira seus registros antes de tentar novamente; para um lembrete, informe o assunto e o horário.'
+      );
+      expect(agent.setAdditionalTools).toHaveBeenCalledWith(
+        expect.arrayContaining(['core.schedule_channel_reminder'])
+      );
+      expect(agent.clearAdditionalTools).toHaveBeenCalled();
+    }
+  );
 
   // =========================================================================
   // No agent in context

@@ -13,27 +13,23 @@ import { flattenChatWidgetsToText } from '../../utils/chat-widgets.js';
 import { splitMessage } from '../utils/message-utils.js';
 
 /** Internal tags that should never leak to channel users */
-const INTERNAL_TAG_PATTERNS = [
-  /<(?:think|thinking)>[\s\S]*?<\/(?:think|thinking)>/gi,
-  /<(?:think|thinking)>[\s\S]*$/gi,
-  /<memories>[\s\S]*?<\/memories>/gi,
-  /<memories>[\s\S]*$/gi,
-  /<suggestions>[\s\S]*?<\/suggestions>/gi,
-  /<suggestions>[\s\S]*$/gi,
-  /<system>[\s\S]*?<\/system>/gi,
-  /<system>[\s\S]*$/gi,
-  /<context>[\s\S]*?<\/context>/gi,
-  /<context>[\s\S]*$/gi,
-];
+const INTERNAL_TAG_NAMES =
+  'think|thinking|analysis|reasoning|memories|suggestions|system|context|tool_call|tool_calls|function_call|function_calls|arg_key|arg_value';
 
-/**
- * Strip all internal tags from a response string.
- */
+/** Model control markup is data, never an executable instruction. */
 export function stripInternalTags(text: string): string {
   let result = text;
-  for (const pattern of INTERNAL_TAG_PATTERNS) {
-    result = result.replace(pattern, '');
+  const paired = new RegExp(`<(${INTERNAL_TAG_NAMES})(?:\\s[^>]*)?>[\\s\\S]*?<\\/\\1\\s*>`, 'gi');
+  // Nested wrappers can be removed in successive bounded passes.
+  for (let pass = 0; pass < 4; pass++) {
+    const cleaned = result.replace(paired, '');
+    if (cleaned === result) break;
+    result = cleaned;
   }
+  result = result
+    .replace(new RegExp(`<(?:(?:${INTERNAL_TAG_NAMES}))(?:\\s[^>]*)?>[\\s\\S]*$`, 'gi'), '')
+    .replace(new RegExp(`<\\/(?:${INTERNAL_TAG_NAMES})\\s*>`, 'gi'), '')
+    .replace(/<\|(?:im_start|im_end|start|end|message|channel|return|call)[^>]*\|>/gi, '');
   return result.trim();
 }
 

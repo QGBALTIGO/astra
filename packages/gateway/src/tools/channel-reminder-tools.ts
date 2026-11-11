@@ -6,13 +6,15 @@ import { createHash } from 'node:crypto';
 import type { ToolDefinition } from '@ownpilot/core/tools';
 import { getExecContext } from '@ownpilot/core/agent';
 import { channelRemindersRepo } from '../db/repositories/channel-reminders.js';
+import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
+import { customerLocalDateTime, validCalendarDay } from '../services/customer-date.js';
 
 const createReminderDef: ToolDefinition = {
   name: 'schedule_channel_reminder',
   category: 'Automation',
   brief: 'Agendar lembrete com entrega real por WhatsApp ou Telegram',
   description:
-    'Agenda envio real de lembrete na conversa atual. Use para "me lembre em 1 minuto", "me avise amanhã às 8h" e pedidos de alerta. Não use add_task para prometer notificação. Nunca invente horário: se não estiver claro, pergunte antes. Informe title e exatamente um entre delay_minutes ou remind_at (ISO 8601 com Z ou offset de fuso).',
+    'Agenda envio real de lembrete na conversa atual. Use para "me lembre em 1 minuto", "me avise amanhã às 8h" e pedidos de alerta. Não use add_task para prometer notificação. Nunca invente horário: se não estiver claro, pergunte antes. Informe title e exatamente um entre delay_minutes, local_datetime ou remind_at. Prefira local_datetime para hora local: o servidor resolve o fuso cadastrado; não invente offsets.',
   parameters: {
     type: 'object',
     properties: {
@@ -23,6 +25,11 @@ const createReminderDef: ToolDefinition = {
       delay_minutes: {
         type: 'number',
         description: 'Minutos a partir de agora (ex.: 1). Use para pedidos relativos.',
+      },
+      local_datetime: {
+        type: 'string',
+        description:
+          'Dia e hora locais YYYY-MM-DDTHH:mm, SEM offset. Só use se o usuário informou a hora. O servidor aplica o fuso cadastrado.',
       },
       remind_at: {
         type: 'string',
@@ -55,10 +62,29 @@ const cancelReminderDef: ToolDefinition = {
   },
 };
 
+const rescheduleReminderDef: ToolDefinition = {
+  name: 'reschedule_channel_reminder',
+  category: 'Automation',
+  brief: 'Alterar horário de um lembrete existente',
+  description:
+    'Reagenda atomicamente um lembrete pendente desta conversa. Consulte list_channel_reminders para obter o ID. Não crie outro lembrete nem invente a hora.',
+  parameters: {
+    type: 'object',
+    properties: {
+      reminder_id: { type: 'string' },
+      delay_minutes: { type: 'number' },
+      local_datetime: { type: 'string', description: 'YYYY-MM-DDTHH:mm no fuso cadastrado.' },
+      remind_at: { type: 'string', description: 'ISO com offset explícito.' },
+    },
+    required: ['reminder_id'],
+  },
+};
+
 export const CHANNEL_REMINDER_TOOLS: ToolDefinition[] = [
   createReminderDef,
   listReminderDef,
   cancelReminderDef,
+  rescheduleReminderDef,
 ];
 
 export async function executeChannelReminderTool(
@@ -107,36 +133,67 @@ export async function executeChannelReminderTool(
       : { success: false, error: 'Lembrete não encontrado, já entregue ou em envio.' };
   }
 
-  if (toolName !== 'schedule_channel_reminder') {
+  const rescheduling = toolName === 'reschedule_channel_reminder';
+  if (toolName !== 'schedule_channel_reminder' && !rescheduling) {
     return { success: false, error: 'Ferramenta de lembrete desconhecida.' };
   }
 
   const title = typeof args.title === 'string' ? args.title.trim() : '';
-  if (!title || title.length > 160) {
+  if (!rescheduling && (!title || title.length > 160)) {
     return { success: false, error: 'O lembrete precisa de um título entre 1 e 160 caracteres.' };
   }
 
   const hasMinutes = args.delay_minutes !== undefined;
   const hasDate = args.remind_at !== undefined;
-  if (hasMinutes === hasDate) {
-    return { success: false, error: 'Informe somente delay_minutes ou remind_at, nunca ambos.' };
+  const hasLocal = args.local_datetime !== undefined;
+  if ([hasMinutes, hasDate, hasLocal].filter(Boolean).length !== 1) {
+    return {
+      success: false,
+      error:
+        'Informe exatamente um prazo: delay_minutes, local_datetime ou remind_at. Se falta a hora, pergunte ao usuário.',
+    };
   }
+  if (rescheduling && (typeof args.reminder_id !== 'string' || !args.reminder_id.trim())) {
+    return { success: false, error: 'Consulte o ID do lembrete que será reagendado.' };
+  }
+  const account = userId.startsWith('whatsapp:')
+    ? await customerAccountsRepo.getByDataUserId(userId)
+    : null;
+  const timeZone = account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
   let remindAt: Date;
   if (hasMinutes) {
     const minutes = args.delay_minutes;
     if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) {
       return { success: false, error: 'O prazo precisa ser um número positivo de minutos.' };
     }
-    remindAt = new Date(Date.now() + minutes * 60_000);
+    const receivedAt = ctx.channelMessageTimestamp;
+    const anchor =
+      typeof receivedAt === 'number' && Number.isFinite(receivedAt) && receivedAt <= Date.now()
+        ? receivedAt
+        : Date.now();
+    remindAt = new Date(anchor + minutes * 60_000);
+  } else if (hasLocal) {
+    try {
+      if (typeof args.local_datetime !== 'string') throw new Error('Horário local inválido.');
+      remindAt = customerLocalDateTime(args.local_datetime, timeZone);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Horário local inválido.',
+      };
+    }
   } else {
     const value = args.remind_at;
     if (
       typeof value !== 'string' ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+      !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(
+        value
+      ) ||
+      !validCalendarDay(value.slice(0, 10))
     ) {
       return {
         success: false,
-        error: 'Informe horário com fuso, por exemplo: 2026-11-08T09:00:00-04:00.',
+        error: 'Informe horário ISO 8601 com fuso, por exemplo: 2026-11-08T09:00:00-04:00.',
       };
     }
     remindAt = new Date(value);
@@ -159,6 +216,37 @@ export async function executeChannelReminderTool(
     .digest('hex');
 
   try {
+    if (rescheduling) {
+      const saved = await channelRemindersRepo.reschedule(
+        String(args.reminder_id),
+        userId,
+        ctx.channelPluginId,
+        ctx.platformChatId,
+        remindAt
+      );
+      return saved
+        ? {
+            success: true,
+            result: {
+              id: saved.id,
+              title: saved.title,
+              status: saved.status,
+              agendadoPara: saved.remindAt.toISOString(),
+              timeZone,
+              horarioLocal: new Intl.DateTimeFormat('pt-BR', {
+                timeZone,
+                dateStyle: 'short',
+                timeStyle: 'short',
+              }).format(saved.remindAt),
+              message: 'Lembrete reagendado, mantendo o mesmo registro.',
+            },
+          }
+        : {
+            success: false,
+            error:
+              'Lembrete não encontrado, já entregue ou em envio. Nenhum reagendamento realizado.',
+          };
+    }
     const saved = await channelRemindersRepo.schedule({
       userId,
       title,
@@ -173,6 +261,12 @@ export async function executeChannelReminderTool(
         id: saved.id,
         title: saved.title,
         agendadoPara: saved.remindAt.toISOString(),
+        timeZone,
+        horarioLocal: new Intl.DateTimeFormat('pt-BR', {
+          timeZone,
+          dateStyle: 'short',
+          timeStyle: 'short',
+        }).format(saved.remindAt),
         status: saved.status,
         message:
           saved.status === 'pending'
