@@ -84,7 +84,20 @@ jobs:
 
       - name: Install Playwright Browsers
         if: github.event_name == 'pull_request'
-        run: pnpm --filter @ownpilot/ui exec playwright install chromium --with-deps
+        run: |
+          set -euo pipefail
+          # The runner's preferred Azure mirror repeatedly failed DNS resolution.
+          # Use Ubuntu's signed archive while preserving suites, components and keys.
+          for astra_apt_source in \
+            /etc/apt/sources.list.d/ubuntu.sources \
+            /etc/apt/sources.list; do
+            if [ -f "$astra_apt_source" ]; then
+              sudo sed -i -E \
+                's#(mirror\+file:/etc/apt/apt-mirrors\.txt|https?://azure\.archive\.ubuntu\.com/ubuntu/?)([[:space:]]|$)#https://archive.ubuntu.com/ubuntu/\2#g' \
+                "$astra_apt_source"
+            fi
+          done
+          pnpm --filter @ownpilot/ui exec playwright install chromium --with-deps
 
       - name: Boot isolated PostgreSQL gateway for Playwright
         if: github.event_name == 'pull_request'
