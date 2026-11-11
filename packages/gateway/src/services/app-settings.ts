@@ -308,6 +308,7 @@ export async function getDefaultModel(provider?: string): Promise<string | null>
   // Keep the legacy DB-first behavior unless Astra explicitly pins a Groq
   // primary via deployment configuration.
   if (
+    (provider === undefined || provider === 'ollama-local') &&
     process.env.ASTRA_PRIMARY_PROVIDER === 'ollama-local' &&
     (process.env.ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN?.length ?? 0) >= 32
   ) {
