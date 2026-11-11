@@ -145,6 +145,14 @@ export class MessageBus implements IMessageBus {
         // stack trace, stage name, SQL error, credential, or internal warning.
         // Preserve the detailed error for non-channel diagnostic consumers.
         const channelError = message.metadata.source === 'channel';
+        // Preserve safe channel type for downstream formatters; never echo
+        // chat IDs, phone numbers or arbitrary metadata in an error response.
+        const platform = message.metadata.platform;
+        const safePlatform =
+          typeof platform === 'string' &&
+          /^(?:whatsapp|telegram|discord|slack|email|signal|line|matrix)$/.test(platform)
+            ? platform
+            : undefined;
         const publicError = new Error(
           'Não tenho confirmação desse pedido agora. Se envolveu uma operação, confira o histórico antes de repetir.'
         );
@@ -166,7 +174,11 @@ export class MessageBus implements IMessageBus {
               ? publicError.message
               : `Error in pipeline stage '${stageName}': ${err.message}`,
             metadata: channelError
-              ? { source: message.metadata.source, errorCode: 'CHANNEL_PROCESSING_FAILED' }
+              ? {
+                  source: message.metadata.source,
+                  ...(safePlatform ? { platform: safePlatform } : {}),
+                  errorCode: 'CHANNEL_PROCESSING_FAILED',
+                }
               : {
                   ...message.metadata,
                   error: err.message,
