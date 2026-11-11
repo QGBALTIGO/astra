@@ -11,6 +11,9 @@ import {
   isFailedChannelReceipt,
 } from './receipt-state.js';
 
+export const CHANNEL_UNVERIFIED_REPLY =
+  'Ainda não tenho uma alteração confirmada para mostrar. Se era só uma pergunta, podemos continuar nossa conversa normalmente.';
+
 export interface ChannelToolReceipt {
   name: string;
   arguments: string;
@@ -464,17 +467,11 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
       ),
     ];
     const notice = needsReview
-      ? formatAstraMessage(
-          '⚠️ Uma parte precisa de atenção',
-          [],
-          `Não consegui confirmar ${pending.length ? pending.join(' e ') : 'as demais partes do pedido'}. Confira o que foi salvo antes de tentar novamente.`
-        )
+      ? `Sobre ${pending.length ? pending.join(' e ') : 'as demais partes do pedido'}, ainda não tenho confirmação. Confira os registros antes de repetir, para evitar duplicidade.`
       : '';
     return [...details, summary, notice].filter(Boolean).join('\n\n');
   }
-  return formatAstraMessage(
-    '⚠️ Não consegui confirmar o pedido',
-    [],
-    'Não consegui confirmar a execução. Confira seus registros antes de tentar novamente.'
-  );
+  return failures.length
+    ? 'Essa alteração ainda não está confirmada. Confira seus registros antes de pedir novamente, para evitar duplicidade.'
+    : CHANNEL_UNVERIFIED_REPLY;
 }

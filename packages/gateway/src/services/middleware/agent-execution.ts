@@ -11,8 +11,16 @@ import { getExecContext, runInExecContext, type ContentPart } from '@ownpilot/co
 import type { NormalizedMessage, MessageProcessingResult } from '@ownpilot/core/services';
 import { checkToolCallApproval } from '../../assistant/index.js';
 import { getLog } from '../log.js';
-import { safeChannelResponse, type ChannelToolReceipt } from '../../channels/response-safety.js';
-import { channelToolsForMessage, recentChannelText } from '../../channels/tool-selection.js';
+import {
+  CHANNEL_UNVERIFIED_REPLY,
+  safeChannelResponse,
+  type ChannelToolReceipt,
+} from '../../channels/response-safety.js';
+import {
+  channelToolsForMessage,
+  isConversationalOnlyChannelQuestion,
+  recentChannelText,
+} from '../../channels/tool-selection.js';
 
 const log = getLog('Middleware:AgentExecution');
 
@@ -98,6 +106,10 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
     const provider = ctx.get<string>('provider') ?? 'unknown';
     const model = ctx.get<string>('model') ?? 'unknown';
     const conversationId = ctx.get<string>('conversationId');
+    const opinionOnly =
+      message.metadata.source === 'channel' &&
+      !message.attachments?.length &&
+      isConversationalOnlyChannelQuestion(message.content);
     const directTools =
       message.metadata.source === 'channel'
         ? channelToolsForMessage(message.content, recentChannelText(agent.getConversation()))
@@ -184,6 +196,15 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         };
       }
 
+      if (opinionOnly) {
+        // An opinion containing "Pix" or "reais" is not authorization to
+        // move money or change records. Reject even discovery/meta-tool calls.
+        chatOptions.onBeforeToolCall = async () => ({
+          approved: false,
+          reason: 'O usuário pediu apenas uma opinião, sem ações.',
+        });
+      }
+
       // Convert attachments to ContentPart[] for vision models
       let chatContent: string | readonly ContentPart[] = message.content;
       if (message.attachments?.length) {
@@ -260,9 +281,44 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         };
       }
 
-      // Store usage
-      if (result.value?.usage) {
-        ctx.set('usage', result.value.usage);
+      let safeOpinionReply: string | undefined;
+      let measuredUsage = result.value?.usage;
+      if (opinionOnly && channelReceipts.length === 0) {
+        const initial = safeChannelResponse(result.value?.content ?? '', []);
+        if (initial === CHANNEL_UNVERIFIED_REPLY) {
+          // A single tool-free second chance, never another financial attempt.
+          try {
+            const second = await agent.chat(
+              'Responda naturalmente à pergunta anterior em português. É uma opinião, não um pedido de pagamento ou registro. Não diga que realizou ações, não use ferramentas e não invente fatos sobre a pessoa mencionada.',
+              {
+                onBeforeToolCall: async () => ({
+                  approved: false,
+                  reason: 'Apenas resposta conversacional, sem ações.',
+                }),
+              }
+            );
+            if (second.ok && second.value?.content) {
+              const checked = safeChannelResponse(second.value.content, []);
+              if (checked !== CHANNEL_UNVERIFIED_REPLY) {
+                safeOpinionReply = checked;
+              }
+              if (second.value.usage && measuredUsage) {
+                measuredUsage = {
+                  promptTokens: measuredUsage.promptTokens + second.value.usage.promptTokens,
+                  completionTokens: measuredUsage.completionTokens + second.value.usage.completionTokens,
+                  totalTokens: measuredUsage.totalTokens + second.value.usage.totalTokens,
+                };
+              }
+            }
+          } catch {
+            log.warn('A tool-free conversational retry failed');
+          }
+        }
+      }
+
+      // Store actual usage, including a regenerated opinion when applicable.
+      if (measuredUsage) {
+        ctx.set('usage', measuredUsage);
       }
 
       if (message.metadata.source === 'channel') {
@@ -280,7 +336,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         role: 'assistant',
         content:
           message.metadata.source === 'channel'
-            ? safeChannelResponse(result.value?.content ?? '', channelReceipts)
+            ? (safeOpinionReply ?? safeChannelResponse(result.value?.content ?? '', channelReceipts))
             : (result.value?.content ?? ''),
         metadata: {
           source: message.metadata.source,
@@ -300,10 +356,10 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
                 })()
               : {},
           })),
-          tokens: result.value?.usage
+          tokens: measuredUsage
             ? {
-                input: result.value.usage.promptTokens,
-                output: result.value.usage.completionTokens,
+                input: measuredUsage.promptTokens,
+                output: measuredUsage.completionTokens,
               }
             : undefined,
           routing: ctx.get('routing') ?? undefined,
