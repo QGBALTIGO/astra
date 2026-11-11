@@ -2828,3 +2828,473 @@ html[data-astra-input='keyboard'] .astra-customer .ac-period-date-control:focus-
     scroll-behavior: auto !important;
   }
 }
+
+/* Astra customer command center — progressive enhancement of the existing portal. */
+.astra-customer .ac-command-center .ac-page-heading {
+  margin-bottom: 16px;
+}
+.astra-customer .ac-command-center .ac-stat--result {
+  padding: 20px 24px;
+}
+.astra-customer .ac-command-center .ac-stat--result .ac-stat-value {
+  margin: 12px 0;
+  font-size: clamp(27px, 3vw, 36px);
+}
+.astra-customer .ac-command-center .ac-stat--result p {
+  margin-top: 0;
+}
+.astra-customer .ac-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 2px 0 22px;
+}
+.astra-customer .ac-quick-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 57px;
+  padding: 10px 12px;
+  border: 1px solid var(--ac-border);
+  border-radius: 14px;
+  color: var(--ac-text);
+  background: var(--ac-surface);
+  font-weight: 600;
+  font-size: 12px;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+.astra-customer .ac-quick-action:hover:not(:disabled) {
+  background: var(--ac-accent-soft);
+  border-color: var(--ac-link);
+  transform: translateY(-1px);
+}
+.astra-customer .ac-quick-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.astra-customer .ac-quick-action-icon {
+  display: grid;
+  place-items: center;
+  width: 33px;
+  height: 33px;
+  border-radius: 10px;
+  background: var(--ac-accent-soft);
+  color: var(--ac-link);
+  flex: none;
+}
+.astra-customer .ac-quick-action-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.astra-customer .ac-day-overview {
+  padding: 20px;
+  margin-bottom: 22px;
+  border: 1px solid var(--ac-border);
+  border-radius: 17px;
+  background: var(--ac-surface);
+}
+.astra-customer .ac-day-overview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.astra-customer .ac-day-overview-head h2 {
+  font-size: 17px;
+}
+.astra-customer .ac-day-overview-head > svg {
+  width: 20px;
+  height: 20px;
+  color: var(--ac-link);
+}
+.astra-customer .ac-day-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.astra-customer .ac-day-observation {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--ac-border);
+  border-radius: 12px;
+  background: var(--ac-soft);
+}
+.astra-customer .ac-day-observation--wide {
+  grid-column: 1 / -1;
+}
+.astra-customer .ac-day-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 35px;
+  height: 35px;
+  border-radius: 10px;
+  background: var(--ac-accent-soft);
+  color: var(--ac-link);
+}
+.astra-customer .ac-day-icon svg {
+  width: 17px;
+  height: 17px;
+}
+.astra-customer .ac-day-observation-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+}
+.astra-customer .ac-day-observation-text strong {
+  font-size: 11px;
+  color: var(--ac-muted);
+}
+.astra-customer .ac-day-observation-text > span {
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.astra-customer .ac-day-observation-text small {
+  color: var(--ac-muted);
+  font-size: 10px;
+}
+.astra-customer .ac-day-disclaimer {
+  margin-top: 13px;
+  color: var(--ac-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.astra-customer .ac-plan-hub {
+  margin-top: 4px;
+}
+.astra-customer .ac-plan-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.astra-customer .ac-plan-preview-item {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--ac-border);
+  border-radius: 12px;
+  background: var(--ac-soft);
+  color: var(--ac-text);
+  text-align: left;
+}
+.astra-customer .ac-plan-preview-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  font-size: 12px;
+}
+.astra-customer .ac-plan-preview-title strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.astra-customer .ac-plan-preview-title svg {
+  width: 15px;
+  height: 15px;
+  color: var(--ac-muted);
+}
+.astra-customer .ac-plan-preview-progress,
+.astra-customer .ac-plan-progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin: 13px 0 8px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--ac-border);
+}
+.astra-customer .ac-plan-preview-progress > span,
+.astra-customer .ac-plan-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ac-accent);
+  transition: width 250ms ease;
+}
+.astra-customer .ac-plan-preview-item small {
+  font-size: 10px;
+  color: var(--ac-muted);
+}
+.astra-customer .ac-plan-hub-empty,
+.astra-customer .ac-plan-empty {
+  color: var(--ac-muted);
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+.astra-customer .ac-plan-hub-button {
+  display: inline-flex;
+  margin-top: 14px;
+  min-height: 42px;
+}
+.astra-customer .ac-plan-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 16px 0;
+}
+.astra-customer .ac-plan-tabs button {
+  min-width: 0;
+  min-height: 42px;
+  padding: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ac-muted);
+  background: var(--ac-soft);
+  border: 1px solid var(--ac-border);
+  border-radius: 10px;
+}
+.astra-customer .ac-plan-tabs button.is-active {
+  background: var(--ac-accent-soft);
+  color: var(--ac-link);
+  border-color: var(--ac-link);
+}
+.astra-customer .ac-plan-intro {
+  margin: 0 0 12px;
+}
+.astra-customer .ac-plan-actions,
+.astra-customer .ac-plan-row-heading,
+.astra-customer .ac-plan-row-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+.astra-customer .ac-plan-actions {
+  margin: 12px 0;
+}
+.astra-customer .ac-plan-actions strong {
+  font-size: 15px;
+}
+.astra-customer .ac-plan-actions .ac-button {
+  min-height: 40px;
+}
+.astra-customer .ac-plan-list {
+  display: grid;
+  gap: 10px;
+}
+.astra-customer .ac-plan-row {
+  border: 1px solid var(--ac-border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.astra-customer .ac-plan-row-heading strong {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.astra-customer .ac-plan-row-heading svg {
+  color: var(--ac-link);
+}
+.astra-customer .ac-plan-row > p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ac-text);
+}
+.astra-customer .ac-plan-row > small {
+  display: block;
+  font-size: 11px;
+  color: var(--ac-muted);
+  line-height: 1.5;
+}
+.astra-customer .ac-plan-row-actions {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.astra-customer .ac-plan-row-actions .ac-button {
+  min-height: 37px;
+  font-size: 12px;
+}
+.astra-customer .ac-plan-form {
+  display: grid;
+  gap: 13px;
+}
+.astra-customer .ac-plan-form > label,
+.astra-customer .ac-plan-form-pair label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ac-muted);
+}
+.astra-customer .ac-plan-form-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.astra-customer .ac-assistant-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--ac-border);
+  background: var(--ac-surface);
+  border-radius: 16px;
+  padding: 17px 19px;
+  margin-bottom: 24px;
+}
+.astra-customer .ac-assistant-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 39px;
+  height: 39px;
+  color: var(--ac-link);
+  background: var(--ac-accent-soft);
+  border-radius: 12px;
+}
+.astra-customer .ac-assistant-card > div {
+  flex: 1;
+  min-width: 0;
+}
+.astra-customer .ac-assistant-card strong {
+  font-size: 13px;
+}
+.astra-customer .ac-assistant-card p {
+  font-size: 11px;
+  color: var(--ac-muted);
+  margin-top: 3px;
+}
+.astra-customer .ac-assistant-prompts {
+  display: grid;
+  gap: 9px;
+  margin: 15px 0;
+}
+.astra-customer .ac-assistant-prompt {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 45px;
+  padding: 11px 14px;
+  color: var(--ac-text);
+  text-align: left;
+  background: var(--ac-soft);
+  border: 1px solid var(--ac-border);
+  border-radius: 10px;
+}
+.astra-customer .ac-assistant-prompt:hover {
+  border-color: var(--ac-link);
+}
+.astra-customer .ac-assistant-prompt svg {
+  width: 17px;
+  height: 17px;
+  color: var(--ac-link);
+}
+.astra-customer .ac-print-report {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .astra-customer .ac-quick-actions {
+    gap: 7px;
+    margin-bottom: 17px;
+  }
+  .astra-customer .ac-quick-action {
+    flex-direction: column;
+    min-height: 75px;
+    gap: 6px;
+    padding: 9px 4px;
+    font-size: 10px;
+    border-radius: 12px;
+  }
+  .astra-customer .ac-quick-action-icon {
+    width: 30px;
+    height: 30px;
+  }
+  .astra-customer .ac-command-center .ac-stat--result {
+    padding: 17px 19px;
+  }
+  .astra-customer .ac-command-center .ac-stat--result .ac-stat-value {
+    font-size: clamp(28px, 7vw, 34px);
+    margin: 9px 0;
+  }
+  .astra-customer .ac-day-overview {
+    padding: 15px;
+    margin-bottom: 18px;
+  }
+  .astra-customer .ac-day-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+  .astra-customer .ac-day-observation {
+    padding: 11px 12px;
+  }
+  .astra-customer .ac-plan-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .astra-customer .ac-plan-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .astra-customer .ac-quick-action,
+  .astra-customer .ac-plan-preview-progress > span,
+  .astra-customer .ac-plan-progress > span {
+    transition: none;
+  }
+}
+@media print {
+  @page {
+    margin: 18mm;
+  }
+  body {
+    background: white !important;
+  }
+  .astra-customer * {
+    visibility: hidden !important;
+  }
+  .astra-customer .ac-print-report,
+  .astra-customer .ac-print-report * {
+    visibility: visible !important;
+  }
+  .astra-customer .ac-print-report {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 0;
+    color: #111;
+    background: #fff;
+    font:
+      12pt system-ui,
+      sans-serif;
+  }
+  .astra-customer .ac-print-report h1 {
+    color: #111;
+    font-size: 23pt;
+    margin-bottom: 14px;
+  }
+  .astra-customer .ac-print-report h2 {
+    color: #111;
+    font-size: 15pt;
+    margin: 22px 0 10px;
+  }
+  .astra-customer .ac-print-report p {
+    margin-bottom: 10px;
+  }
+  .astra-customer .ac-print-report table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+  }
+  .astra-customer .ac-print-report th,
+  .astra-customer .ac-print-report td {
+    border-bottom: 1px solid #d6d6d6;
+    text-align: left;
+    padding: 10px 5px;
+  }
+  .astra-customer .ac-print-report td {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+}

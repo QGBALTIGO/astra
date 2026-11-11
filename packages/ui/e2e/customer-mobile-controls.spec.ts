@@ -56,7 +56,8 @@ async function prepare(page: Page, theme: 'light' | 'dark') {
         categories: [],
         recent: [],
       };
-    } else if (path === '/agenda') {
+    } else if (path === '/planning') data = { plans: [] };
+    else if (path === '/agenda') {
       data = { items: [], period, timeZone: customer.timeZone };
     } else if (path === '/sessions') data = { sessions: [] };
     else if (path === '/integrations') {

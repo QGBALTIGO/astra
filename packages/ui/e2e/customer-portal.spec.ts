@@ -6,6 +6,8 @@ import type {
   CustomerAgendaItem,
   CustomerCategory,
   CustomerFinanceSummary,
+  CustomerPlan,
+  CustomerPlanInput,
   CustomerTransaction,
   TransactionInput,
 } from '../src/pages/customer/types';
@@ -118,6 +120,7 @@ async function mockCustomerApi(
       notes: null,
     }),
   ];
+  let plans: CustomerPlan[] = [];
   let agenda: CustomerAgendaItem[] = [
     {
       id: 'synthetic-event',
@@ -278,7 +281,7 @@ async function mockCustomerApi(
     } else if (
       !customer.access.canWrite &&
       method !== 'GET' &&
-      (path.startsWith('/finance/') || path.startsWith('/agenda'))
+      (path.startsWith('/finance/') || path.startsWith('/agenda') || path.startsWith('/planning'))
     ) {
       await fail(403, 'ACCESS_EXPIRED', 'Renove o acesso para alterar seus registros.');
       return;
@@ -334,6 +337,49 @@ async function mockCustomerApi(
         renewalUrl: null,
         supportUrl: null,
       };
+    } else if (method === 'GET' && path === '/planning') {
+      data = { plans };
+    } else if (method === 'POST' && path === '/planning') {
+      const input = body as unknown as CustomerPlanInput;
+      const plan: CustomerPlan = {
+        ...input,
+        id: 'synthetic-plan-' + (plans.length + 1),
+        progress: input.progress ?? 0,
+        categoryId: input.categoryId ?? null,
+        installmentsTotal: input.installmentsTotal ?? null,
+        installmentsPaid: input.installmentsPaid ?? null,
+        nextDueDate: input.nextDueDate ?? null,
+        notes: input.notes ?? null,
+        createdAt: NOW.toISOString(),
+        updatedAt: NOW.toISOString(),
+      };
+      plans = [...plans, plan];
+      data = { plan };
+    } else if (method === 'PATCH' && /^\/planning\/[^/]+$/.test(path)) {
+      const id = decodeURIComponent(path.split('/').at(-1)!);
+      const existing = plans.find((plan) => plan.id === id);
+      if (!existing) {
+        await fail(404, 'NOT_FOUND', 'Planejamento não encontrado.');
+        return;
+      }
+      const input = body as unknown as CustomerPlanInput;
+      const updated: CustomerPlan = {
+        ...existing,
+        ...input,
+        progress: input.progress ?? 0,
+        categoryId: input.categoryId ?? null,
+        installmentsTotal: input.installmentsTotal ?? null,
+        installmentsPaid: input.installmentsPaid ?? null,
+        nextDueDate: input.nextDueDate ?? null,
+        notes: input.notes ?? null,
+        updatedAt: NOW.toISOString(),
+      };
+      plans = plans.map((plan) => (plan.id === id ? updated : plan));
+      data = { plan: updated };
+    } else if (method === 'DELETE' && /^\/planning\/[^/]+$/.test(path)) {
+      const id = decodeURIComponent(path.split('/').at(-1)!);
+      plans = plans.filter((plan) => plan.id !== id);
+      data = { deleted: true };
     } else if (method === 'GET' && path === '/finance/categories') {
       data = { categories };
     } else if (method === 'GET' && path === '/finance/summary') {
@@ -656,7 +702,7 @@ for (const screen of [
       await code.fill('123456');
       await page.getByRole('button', { name: 'Acessar meu painel' }).click();
       await expect(page).toHaveURL(/\/cliente$/);
-      await expect(page.getByRole('heading', { name: 'Olá, Ana.', level: 1 })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Boa tarde, Ana.', level: 1 })).toBeVisible();
       await expectPaidExpenses(page, '182,50');
       await fit(page);
       await shot(page, info, screen.name, 'home');
@@ -679,7 +725,7 @@ for (const screen of [
       await preferences.getByRole('button', { name: 'Salvar preferências', exact: true }).click();
       await expect(preferences).toHaveCount(0);
       await expect(page.locator('.astra-customer.ac-app')).toHaveAttribute('data-theme', 'dark');
-      await navigate(page, 'Início', 'Olá, Ana.');
+      await navigate(page, 'Início', 'Boa tarde, Ana.');
       await shot(page, info, screen.name, 'home-dark');
       expect(
         api.mutations.some(
@@ -691,6 +737,81 @@ for (const screen of [
       ).toBe(true);
       expect(api.mutations.filter((entry) => entry.path === '/auth/request-code')).toHaveLength(1);
       expect(api.mutations.filter((entry) => entry.path === '/auth/verify-code')).toHaveLength(2);
+      clean(api);
+    });
+
+    test('creates, edits and removes personal plans without changing financial transactions', async ({
+      page,
+    }, info) => {
+      const api = await mockCustomerApi(page, { authenticated: true, theme: 'dark' });
+      await page.goto('/cliente', { waitUntil: 'domcontentloaded' });
+      await expect(page.getByRole('heading', { name: 'Meu planejamento' })).toBeVisible();
+      await page.locator('.ac-quick-actions').getByRole('button', { name: 'Metas' }).click();
+      let hub = page.getByRole('dialog', { name: 'Meu planejamento' });
+      await expect(hub).toBeVisible();
+      await hub.getByRole('button', { name: 'Adicionar' }).click();
+      let form = page.getByRole('dialog', { name: 'Novo planejamento' });
+      await form.getByLabel('Nome').fill('Reserva de emergência');
+      await form.getByLabel('Meta (R$)').fill('2000,00');
+      await form.getByLabel('Valor já guardado (R$)').fill('450,00');
+      await form.getByRole('button', { name: 'Salvar', exact: true }).click();
+      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
+      await expect(hub).toContainText('Reserva de emergência');
+      await expect(hub).toContainText('450,00');
+
+      await hub.getByRole('button', { name: 'Orçamentos', exact: true }).click();
+      await hub.getByRole('button', { name: 'Adicionar' }).click();
+      form = page.getByRole('dialog', { name: 'Novo planejamento' });
+      await form.getByLabel('Nome').fill('Alimentação mensal');
+      await form.getByLabel('Limite por período (R$)').fill('350,00');
+      await form.getByLabel('Categoria de despesas').selectOption(FOOD_CATEGORY);
+      await form.getByRole('button', { name: 'Salvar', exact: true }).click();
+      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
+      await expect(hub).toContainText('Alimentação mensal');
+      await expect(hub).toContainText('18,00');
+
+      await hub.getByRole('button', { name: 'Parcelas', exact: true }).click();
+      await hub.getByRole('button', { name: 'Adicionar' }).click();
+      form = page.getByRole('dialog', { name: 'Novo planejamento' });
+      await form.getByLabel('Nome').fill('Financiamento do carro');
+      await form.getByLabel('Valor de cada parcela (R$)').fill('470,00');
+      await form.getByLabel('Total de parcelas').fill('12');
+      await form.getByLabel('Já pagas').fill('3');
+      await form.getByRole('button', { name: 'Salvar', exact: true }).click();
+      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
+      await expect(hub).toContainText('9 de 12 parcelas restantes');
+
+      await hub.getByRole('button', { name: 'Assinaturas', exact: true }).click();
+      await hub.getByRole('button', { name: 'Adicionar' }).click();
+      form = page.getByRole('dialog', { name: 'Novo planejamento' });
+      await form.getByLabel('Nome').fill('Internet mensal');
+      await form.getByLabel('Valor mensal (R$)').fill('99,90');
+      await form.getByLabel('Próxima data (opcional)').fill('2026-12-05');
+      await form.getByRole('button', { name: 'Salvar', exact: true }).click();
+      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
+      await expect(hub).toContainText('Internet mensal');
+      await hub.getByRole('button', { name: 'Editar' }).click();
+      form = page.getByRole('dialog', { name: 'Editar planejamento' });
+      await form.getByLabel('Valor mensal (R$)').fill('105,00');
+      await form.getByRole('button', { name: 'Salvar', exact: true }).click();
+      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
+      await expect(hub).toContainText('105,00');
+      await hub.getByRole('button', { name: 'Excluir planejamento Internet mensal' }).click();
+      await page
+        .getByRole('dialog', { name: 'Excluir planejamento?' })
+        .getByRole('button', { name: 'Excluir planejamento' })
+        .click();
+      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
+      await expect(hub).not.toContainText('Internet mensal');
+      const writes = api.mutations.filter((event) => event.path.startsWith('/planning'));
+      expect(writes.filter((event) => event.method === 'POST')).toHaveLength(4);
+      expect(writes.filter((event) => event.method === 'PATCH')).toHaveLength(1);
+      expect(writes.filter((event) => event.method === 'DELETE')).toHaveLength(1);
+      expect(api.mutations.filter((event) => event.path.startsWith('/finance/'))).toHaveLength(0);
+      await hub.getByRole('button', { name: 'Fechar' }).click();
+      await expectPaidExpenses(page, '182,50');
+      await shot(page, info, screen.name, 'command-center-plans');
+      await fit(page);
       clean(api);
     });
 
@@ -726,7 +847,7 @@ for (const screen of [
         status: 'settled',
         categoryId: FOOD_CATEGORY,
       });
-      await navigate(page, 'Início', 'Olá, Ana.');
+      await navigate(page, 'Início', 'Boa tarde, Ana.');
       await expectPaidExpenses(page, '218,89');
       await shot(page, info, screen.name, 'home-after-expense');
       await navigate(page, 'Transações', 'Transações');
