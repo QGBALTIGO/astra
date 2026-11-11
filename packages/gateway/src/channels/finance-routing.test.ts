@@ -202,6 +202,17 @@ describe('Completed channel expenses without a language model', () => {
     mockRecordExpense.mockResolvedValue({ expense: stored, created: true });
   });
 
+  it('recognizes the clear petrol payment but does not guess a financing down-payment', () => {
+    expect(parseChannelExpense('Paguei 470 de gasolina')).toEqual({
+      amountCents: 47000,
+      description: 'gasolina',
+      category: 'transport',
+    });
+    expect(parseChannelExpense('Paguei 470 de entrada')).toBeNull();
+    expect(parseChannelExpense('A Gabrieli merece Pix de 100 reais?')).toBeNull();
+    expect(mockRecordExpense).not.toHaveBeenCalled();
+  });
+
   it('parses the exact failed lunch message as integer BRL cents', () => {
     expect(parseChannelExpense(expenseMessage.text)).toEqual({
       amountCents: 3639,

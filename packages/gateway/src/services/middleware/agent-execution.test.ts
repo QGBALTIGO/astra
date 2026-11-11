@@ -126,6 +126,74 @@ describe('createAgentExecutionMiddleware', () => {
     middleware = createAgentExecutionMiddleware();
   });
 
+  it('routes a Pix opinion to the AI without permitting tool execution', async () => {
+    const agent = createAgent({
+      chat: vi.fn().mockResolvedValue({
+        ok: true,
+        value: {
+          id: 'opinion-1',
+          content: 'Depende do carinho e do orçamento — eu conversaria com ela primeiro. 😊',
+          usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        },
+      }),
+    });
+    const ctx = createContext({ store: { agent, userId: 'synthetic' } });
+    const msg = createMessage({
+      content: 'A Gabrieli merece pix de 100 reais?',
+      metadata: { source: 'channel', platform: 'whatsapp' },
+    });
+    const result = await middleware(msg, ctx, vi.fn());
+    expect(result.response.content).toContain('Depende do carinho');
+    expect(result.response.content).not.toContain('Não consegui confirmar');
+    expect(agent.setAdditionalTools).not.toHaveBeenCalled();
+    expect(agent.chat).toHaveBeenCalledTimes(1);
+    const options = agent.chat.mock.calls[0][1] as {
+      onBeforeToolCall: (tool: { id: string; name: string; arguments: string }) => Promise<{
+        approved: boolean;
+      }>;
+    };
+    const approval = await options.onBeforeToolCall({
+      id: 'sim-opinion',
+      name: 'core.record_transaction',
+      arguments: '{"amount":100}',
+    });
+    expect(approval.approved).toBe(false);
+    expect(mockCheckToolCallApproval).not.toHaveBeenCalled();
+  });
+
+  it('reasks the AI without tools if its first opinion falsely claims a saved payment', async () => {
+    const agent = createAgent({
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          value: {
+            id: 'bad-opinion',
+            content: 'Registrei uma entrada de R$ 100.',
+            usage: { promptTokens: 12, completionTokens: 9, totalTokens: 21 },
+          },
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          value: {
+            id: 'natural-opinion',
+            content: 'Se os R$ 100 não fizerem falta e for de coração, pode ser um gesto bonito.',
+            usage: { promptTokens: 20, completionTokens: 15, totalTokens: 35 },
+          },
+        }),
+    });
+    const ctx = createContext({ store: { agent, userId: 'synthetic' } });
+    const msg = createMessage({
+      content: 'A Gabrieli merece Pix de 100 reais?',
+      metadata: { source: 'channel', platform: 'whatsapp' },
+    });
+    const result = await middleware(msg, ctx, vi.fn());
+    expect(result.response.content).toContain('gesto bonito');
+    expect(result.response.content).not.toContain('Registrei');
+    expect(agent.chat).toHaveBeenCalledTimes(2);
+    expect(result.response.metadata?.tokens).toEqual({ input: 32, output: 24 });
+  });
+
   it.each([true, false])(
     'channel confirmation requires a real execution receipt: %s',
     async (saved) => {
@@ -152,7 +220,7 @@ describe('createAgentExecutionMiddleware', () => {
       expect(result.response.content).toBe(
         saved
           ? 'Lembrete agendado.'
-          : '⚠️ *Não consegui confirmar o pedido*\n\nNão consegui confirmar a execução. Confira seus registros antes de tentar novamente.'
+          : 'Ainda não tenho uma alteração confirmada para mostrar. Se era só uma pergunta, podemos continuar nossa conversa normalmente.'
       );
       expect(agent.setAdditionalTools).toHaveBeenCalledWith(
         expect.arrayContaining(['core.schedule_channel_reminder'])

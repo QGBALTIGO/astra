@@ -20,8 +20,16 @@ import { runInSessionLane } from '../services/agent/session-lane.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { withCustomerClock } from '../services/customer-date.js';
 import { tryAstraAccessReply } from './astra-access.js';
-import { safeChannelResponse, type ChannelToolReceipt } from './response-safety.js';
-import { channelToolsForMessage, recentChannelText } from './tool-selection.js';
+import {
+  CHANNEL_UNVERIFIED_REPLY,
+  safeChannelResponse,
+  type ChannelToolReceipt,
+} from './response-safety.js';
+import {
+  channelToolsForMessage,
+  isConversationalOnlyChannelQuestion,
+  recentChannelText,
+} from './tool-selection.js';
 import { restoreChannelHistory } from './restore-history.js';
 import { formatAstraMessage, formatReminderConfirmation } from './response-presentation.js';
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
@@ -682,8 +690,12 @@ async function processDirectAgentInSession(
     )
   );
   const channelReceipts: ChannelToolReceipt[] = [];
+  const opinionOnly =
+    !message.attachments?.length && isConversationalOnlyChannelQuestion(interpreted.text);
   agent.setAdditionalTools?.(
-    channelToolsForMessage(interpreted.text, recentChannelText(agent.getConversation()))
+    opinionOnly
+      ? []
+      : channelToolsForMessage(interpreted.text, recentChannelText(agent.getConversation()))
   );
   const result = await runInExecContext(
     {
@@ -693,14 +705,42 @@ async function processDirectAgentInSession(
       channelMessageTimestamp: message.timestamp?.getTime(),
       onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
     },
-    () => agent.chat(interpreted.text)
+    () =>
+      opinionOnly
+        ? agent.chat(interpreted.text, {
+            onBeforeToolCall: async () => ({
+              approved: false,
+              reason: 'Pergunta de opinião; nenhuma operação solicitada.',
+            }),
+          })
+        : agent.chat(interpreted.text)
   ).finally(() => agent.clearAdditionalTools?.());
 
   if (result.ok) {
     // Strip internal tags so channel users never see prompt-control markup.
     const { extractMemoriesFromResponse } = await import('../utils/memory-extraction.js');
     const { content: stripped } = extractMemoriesFromResponse(result.value.content);
-    return safeChannelResponse(stripped, channelReceipts);
+    const response = safeChannelResponse(stripped, channelReceipts);
+    if (!opinionOnly || channelReceipts.length > 0 || response !== CHANNEL_UNVERIFIED_REPLY)
+      return response;
+    try {
+      const second = await agent.chat(
+        'Responda naturalmente à pergunta anterior em português. Dê sua opinião sem inventar fatos nem dizer que fez pagamentos ou registros.',
+        {
+          onBeforeToolCall: async () => ({
+            approved: false,
+            reason: 'Apenas conversa, sem ações.',
+          }),
+        }
+      );
+      if (second.ok) {
+        const checked = safeChannelResponse(second.value.content, []);
+        if (checked !== CHANNEL_UNVERIFIED_REPLY) return checked;
+      }
+    } catch {
+      // A failed rewording must not trigger financial actions or expose internals.
+    }
+    return response;
   }
   return 'Não consegui processar sua mensagem agora. Tente novamente em instantes.';
 }

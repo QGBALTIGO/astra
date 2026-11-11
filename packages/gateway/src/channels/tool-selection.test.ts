@@ -66,3 +66,26 @@ describe('channel finance tool selection', () => {
     );
   });
 });
+
+describe('Channel opinion questions do not authorize financial actions', () => {
+  it.each([
+    'A Gabrieli merece pix de 100 reais?',
+    'Você acha que a Gabrieli merece R$ 100?',
+    'Qual sua opinião sobre dar um Pix de 100 reais?',
+    'Vale a pena pagar 100 reais por esse presente?',
+  ])('keeps conversational questions with the model and no tools: %s', (question) => {
+    expect(channelToolsForMessage(question)).toEqual([]);
+  });
+
+  it.each([
+    'Pode registrar uma despesa de R$ 100?',
+    'Você consegue anotar que paguei 470 reais?',
+    'Quanto gastei no mês?',
+    'Minha meta é economizar R$ 20 mil.',
+    'Quero juntar 5 mil.',
+    'Quanto falta para a minha meta?',
+    'Preciso atualizar a meta de viagem.',
+  ])('does not break genuine financial or goal requests: %s', (question) => {
+    expect(channelToolsForMessage(question).length).toBeGreaterThan(0);
+  });
+});
