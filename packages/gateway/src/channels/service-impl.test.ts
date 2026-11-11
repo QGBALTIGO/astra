@@ -29,6 +29,10 @@ const mockCreateEvent = vi.hoisted(() =>
     data,
   }))
 );
+const mockRecordOutboundQuality = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('../services/outbound-quality.js', () => ({
+  recordOutboundQuality: mockRecordOutboundQuality,
+}));
 const mockHasServiceRegistry = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const mockGetServiceRegistry = vi.hoisted(() => vi.fn());
 
@@ -736,6 +740,11 @@ describe('ChannelServiceImpl', () => {
       const msgId = await service.send('test-plugin', outgoing);
       expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(outgoing);
       expect(msgId).toBe('msg-123');
+      expect(mockRecordOutboundQuality).toHaveBeenCalledWith(
+        'test-plugin',
+        'msg-123',
+        'Hello back!'
+      );
     });
 
     it('should emit MESSAGE_SENT event on success', async () => {

@@ -98,7 +98,12 @@ export function createAuditMiddleware(): MessageMiddleware {
         model,
         endpoint: 'chat/completions',
         method: 'POST',
-        requestBody: { message: message.content, source: message.metadata.source },
+        // Full message is already in the conversation/channel history.
+        // Request logs must not create a second personal-data copy.
+        requestBody: {
+          source: message.metadata.source,
+          messageChars: message.content.length,
+        },
         responseBody: { contentLength: result.response.content.length },
         statusCode: agentResult?.ok ? 200 : 500,
         inputTokens: usage?.promptTokens,
