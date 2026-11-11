@@ -390,36 +390,61 @@ export async function verifyCustomerPortalPersistence(adapter: DatabaseAdapter):
     const otherPlanning = new CustomerPlanningRepository(userB);
     const originalLedger = await finance.summary(from, to);
     const goal = await planning.create({
-      kind: 'goal', title: 'Reserva de emergência', amount: 2000, progress: 450.25,
+      kind: 'goal',
+      title: 'Reserva de emergência',
+      amount: 2000,
+      progress: 450.25,
     });
     assert.equal(goal.amount, 2000);
     assert.equal(goal.progress, 450.25);
     const budget = await planning.create({
-      kind: 'budget', title: 'Alimentação mensal', amount: 350, categoryId: expenseCategory.id,
+      kind: 'budget',
+      title: 'Alimentação mensal',
+      amount: 350,
+      categoryId: expenseCategory.id,
     });
     assert.equal(budget.categoryId, expenseCategory.id);
     const installment = await planning.create({
-      kind: 'installment', title: 'Parcelas do carro', amount: 470,
-      installmentsTotal: 12, installmentsPaid: 3, nextDueDate: '2090-02-01',
+      kind: 'installment',
+      title: 'Parcelas do carro',
+      amount: 470,
+      installmentsTotal: 12,
+      installmentsPaid: 3,
+      nextDueDate: '2090-02-01',
     });
     assert.equal(installment.installmentsPaid, 3);
     const subscription = await planning.create({
-      kind: 'subscription', title: 'Internet mensal', amount: 99.9,
+      kind: 'subscription',
+      title: 'Internet mensal',
+      amount: 99.9,
       nextDueDate: '2090-02-05',
     });
     assert.equal(subscription.nextDueDate, '2090-02-05');
     assert.equal((await planning.list()).length, 4);
     assert.deepEqual(await otherPlanning.list(), []);
     assert.equal(await otherPlanning.get(goal.id), null);
-    assert.equal(await otherPlanning.update(goal.id, {
-      kind: 'goal', title: 'Invasão', amount: 20, progress: 0,
-    }), null);
+    assert.equal(
+      await otherPlanning.update(goal.id, {
+        kind: 'goal',
+        title: 'Invasão',
+        amount: 20,
+        progress: 0,
+      }),
+      null
+    );
     assert.equal(await otherPlanning.delete(goal.id), false);
-    await assert.rejects(planning.create({
-      kind: 'goal', title: 'Meta inconsistente', amount: 50, progress: 60,
-    }));
+    await assert.rejects(
+      planning.create({
+        kind: 'goal',
+        title: 'Meta inconsistente',
+        amount: 50,
+        progress: 60,
+      })
+    );
     const updated = await planning.update(subscription.id, {
-      kind: 'subscription', title: 'Internet mensal', amount: 105,
+      kind: 'subscription',
+      title: 'Internet mensal',
+      amount: 105,
       nextDueDate: '2090-03-05',
     });
     assert.equal(updated?.amount, 105);
