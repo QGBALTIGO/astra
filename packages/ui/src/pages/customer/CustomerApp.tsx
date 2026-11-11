@@ -384,6 +384,12 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
                 onAgenda={() => navigate('/cliente/agenda')}
                 onHideAmounts={() => void toggleAmounts()}
                 hiding={hiding}
+                categories={categoryList}
+                onNewTransaction={() => {
+                  showTransactions({ ...period, type: undefined, status: undefined });
+                  setCreateTransaction(true);
+                }}
+                onChanged={changed}
               />
             ) : null}
           </div>
