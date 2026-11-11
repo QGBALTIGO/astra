@@ -19,12 +19,19 @@ import {
 } from './channel-ai-routing.js';
 
 describe('Astra respostas gratuitas e instantâneas', () => {
-  it.each(['oi', 'Oi', 'OLÁ!', 'ola...', 'Bom dia!', 'Boa tarde', 'Boa noite?'])(
-    'responde saudação %s sem usar o modelo',
-    (message) => {
-      expect(deterministicChannelReply(message)).toBe('Oi! Como posso ajudar você hoje?');
-    }
-  );
+  it.each([
+    ['oi', 'Olá'],
+    ['Oi', 'Olá'],
+    ['OLÁ!', 'Olá'],
+    ['ola...', 'Olá'],
+    ['Bom dia!', 'Bom dia'],
+    ['Boa tarde', 'Boa tarde'],
+    ['Boa noite?', 'Boa noite'],
+  ])('responde saudação %s sem usar o modelo', (message, greeting) => {
+    expect(deterministicChannelReply(message)).toBe(
+      `${greeting}! 😊\n\nComo posso ajudar você hoje?`
+    );
+  });
 
   it.each([
     'Oi, me lembre de pagar a conta',
@@ -82,9 +89,9 @@ describe('Consulta financeira direta e read-only pelo canal', () => {
       { period: 'this_month' },
       'default'
     );
-    expect(response).toContain('R$\u00a050,00');
+    expect(response).toContain('R$ 50,00');
     expect(response).toContain('neste mês');
-    expect(response).toContain('1 lançamento');
+    expect(response).toContain('*Lançamentos:* 1');
   });
 
   it('mantém moedas diferentes separadas', async () => {
@@ -95,8 +102,8 @@ describe('Consulta financeira direta e read-only pelo canal', () => {
 
     const response = await tryExpenseSummaryChannelReply(message, 'default');
 
-    expect(response).toContain('R$\u00a050,00');
-    expect(response).toContain('US$\u00a010,00');
+    expect(response).toContain('R$ 50,00');
+    expect(response).toContain('US$ 10,00');
     expect(response).toContain('sem conversão');
   });
 
@@ -132,7 +139,7 @@ describe('Consulta financeira direta e read-only pelo canal', () => {
         }
       );
 
-      expect(response).toContain('R$\u00a050,00');
+      expect(response).toContain('R$ 50,00');
       expect(bus.process).not.toHaveBeenCalled();
     }
   );
@@ -151,7 +158,7 @@ describe('Consulta financeira direta e read-only pelo canal', () => {
         async () => true
       );
 
-      expect(response).toContain('R$\u00a050,00');
+      expect(response).toContain('R$ 50,00');
     }
   );
 });

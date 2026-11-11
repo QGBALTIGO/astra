@@ -92,9 +92,11 @@ describe('Finance requests without Groq token usage', () => {
     const result = await tryFinancingChannelReply(message, 'whatsapp:5521997557364');
     expect(mockCreate).toHaveBeenCalledWith('carro', 7_200_000, 93_000);
     expect(mockRecordPayment).not.toHaveBeenCalled();
-    expect(result).toContain('R$\u00a072.000,00');
-    expect(result).toContain('R$\u00a071.070,00');
+    expect(result).toContain('✅ *Financiamento registrado*\n\n');
+    expect(result).toMatch(/• \*Total:\* R\$\s72\.000,00/);
+    expect(result).toMatch(/• \*Falta pagar:\* R\$\s71\.070,00/);
     expect(result).toContain('não darei baixa automaticamente');
+    expect(result).not.toContain(startingBalance.id);
   });
 
   it('queries persisted balance without a new expense', async () => {
@@ -104,7 +106,8 @@ describe('Finance requests without Groq token usage', () => {
     );
     expect(mockFind).toHaveBeenCalledWith('carro');
     expect(mockCreate).not.toHaveBeenCalled();
-    expect(result).toContain('R$\u00a071.070,00');
+    expect(result).toContain('📊 *Saldo do financiamento*\n\n');
+    expect(result).toMatch(/• \*Falta pagar:\* R\$\s71\.070,00/);
   });
 
   it('records only confirmed payments, once per incoming message id', async () => {
@@ -117,7 +120,9 @@ describe('Finance requests without Groq token usage', () => {
       47_000,
       expect.stringMatching(/^[a-f0-9]{64}$/)
     );
-    expect(result).toContain('R$\u00a070.600,00');
+    expect(result).toContain('✅ *Pagamento registrado*\n\n');
+    expect(result).toMatch(/• \*Valor:\* R\$\s470,00/);
+    expect(result).toMatch(/• \*Falta pagar:\* R\$\s70\.600,00/);
   });
 
   it('does not process hypothetical payments or ambiguous statements', async () => {
@@ -150,7 +155,9 @@ describe('Finance requests without Groq token usage', () => {
       { ...message, text: 'Paguei 470 do carro' },
       'whatsapp:5521997557364'
     );
+    expect(result).toContain('✅ *Pagamento já registrado*');
     expect(result).toContain('Não dupliquei a despesa');
+    expect(result).not.toContain('• *Valor:*');
   });
 
   it('refuses payments greater than the remaining balance', async () => {
@@ -175,6 +182,9 @@ describe('Completed channel expenses without a language model', () => {
     currency: 'BRL',
     category: 'food',
     description: 'meu almoço',
+    date: '2026-11-10',
+    transactionType: 'expense',
+    status: 'settled',
   };
 
   beforeEach(() => {
@@ -254,7 +264,12 @@ describe('Completed channel expenses without a language model', () => {
       },
       expect.stringMatching(/^[a-f0-9]{64}$/)
     );
-    expect(reply).toBe('Registrei R$\u00a036,39 em Alimentação: meu almoço.');
+    expect(reply).toContain('✅ *Despesa registrada*\n\n');
+    expect(reply).toMatch(/• \*Valor:\* R\$\s36,39/);
+    expect(reply).toContain('• *Descrição:* meu almoço');
+    expect(reply).toContain('• *Categoria:* Alimentação');
+    expect(reply).toContain('• *Data:* 10/11/2026');
+    expect(reply).not.toContain(stored.id);
     expect(mockBroadcast).toHaveBeenCalledWith('data:changed', {
       entity: 'expense',
       action: 'created',
@@ -286,7 +301,9 @@ describe('Completed channel expenses without a language model', () => {
     });
     const reply = await tryExpenseRecordChannelReply(expenseMessage, 'user-a');
     expect(reply).toContain('Restaurantes');
-    expect(reply).toContain('Situação atual: a pagar');
+    expect(reply).toContain('⏳ *Valor a pagar já registrado*');
+    expect(reply).toContain('• *Vencimento:* 10/11/2026');
+    expect(reply).not.toContain('Despesa registrada');
     expect(mockBroadcast).not.toHaveBeenCalled();
   });
 
@@ -311,9 +328,34 @@ describe('Completed channel expenses without a language model', () => {
   it('confirms the persisted record on replay without a second creation notification', async () => {
     mockRecordExpense.mockResolvedValueOnce({ expense: stored, created: false });
     const reply = await tryExpenseRecordChannelReply(expenseMessage, 'user-a');
-    expect(reply).toBe(
-      'Esse gasto já estava registrado: R$\u00a036,39 em Alimentação: meu almoço.'
-    );
+    expect(reply).toContain('✅ *Despesa já registrada*\n\n');
+    expect(reply).toMatch(/• \*Valor:\* R\$\s36,39/);
+    expect(reply).toContain('• *Categoria:* Alimentação');
+    expect(reply).toContain('• *Data:* 10/11/2026');
+    expect(mockBroadcast).not.toHaveBeenCalled();
+  });
+
+  it('presents the persisted value and date instead of inferring them from a replayed message', async () => {
+    mockRecordExpense.mockResolvedValueOnce({
+      expense: {
+        ...stored,
+        amount: 45.75,
+        description: 'Reembolso corrigido',
+        date: '2026-11-09',
+        categoryName: 'Reembolsos',
+        transactionType: 'income',
+      },
+      created: false,
+    });
+    const reply = await tryExpenseRecordChannelReply(expenseMessage, 'user-a');
+    expect(reply).toContain('✅ *Entrada já registrada*');
+    expect(reply).toMatch(/• \*Valor:\* R\$\s45,75/);
+    expect(reply).toContain('• *Descrição:* Reembolso corrigido');
+    expect(reply).toContain('• *Categoria:* Reembolsos');
+    expect(reply).toContain('• *Data:* 09/11/2026');
+    expect(reply).not.toContain('36,39');
+    expect(reply).not.toContain('10/11/2026');
+    expect(mockRecordExpense).toHaveBeenCalledTimes(1);
     expect(mockBroadcast).not.toHaveBeenCalled();
   });
 
@@ -334,7 +376,7 @@ describe('Completed channel expenses without a language model', () => {
     const reply = await tryExpenseRecordChannelReply(expenseMessage, 'user-a');
     expect(reply).toContain('Não consegui confirmar o registro');
     expect(reply).not.toContain('confidential');
-    expect(reply).not.toContain('Registrei');
+    expect(reply).not.toContain('Despesa registrada');
     expect(mockBroadcast).not.toHaveBeenCalled();
   });
 
@@ -342,6 +384,8 @@ describe('Completed channel expenses without a language model', () => {
     mockBroadcast.mockImplementationOnce(() => {
       throw new Error('socket failed');
     });
-    expect(await tryExpenseRecordChannelReply(expenseMessage, 'user-a')).toContain('Registrei');
+    expect(await tryExpenseRecordChannelReply(expenseMessage, 'user-a')).toContain(
+      '✅ *Despesa registrada*'
+    );
   });
 });

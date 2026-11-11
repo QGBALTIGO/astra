@@ -23,6 +23,8 @@ import { tryAstraAccessReply } from './astra-access.js';
 import { safeChannelResponse, type ChannelToolReceipt } from './response-safety.js';
 import { channelToolsForMessage, recentChannelText } from './tool-selection.js';
 import { restoreChannelHistory } from './restore-history.js';
+import { formatAstraMessage, formatReminderConfirmation } from './response-presentation.js';
+import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -36,7 +38,14 @@ function demoModeReply(text: string): string {
 export function deterministicChannelReply(text: string): string | null {
   const normalized = text.trim().toLocaleLowerCase('pt-BR');
   if (/^(?:oi|olá|ola|bom dia|boa tarde|boa noite)[\s!?.,]*$/u.test(normalized)) {
-    return 'Oi! Como posso ajudar você hoje?';
+    const greeting = normalized.startsWith('bom dia')
+      ? 'Bom dia'
+      : normalized.startsWith('boa tarde')
+        ? 'Boa tarde'
+        : normalized.startsWith('boa noite')
+          ? 'Boa noite'
+          : 'Olá';
+    return `${greeting}! 😊\n\nComo posso ajudar você hoje?`;
   }
   return null;
 }
@@ -67,7 +76,10 @@ export async function tryClockChannelReply(
       timeStyle: 'short',
     }).format(now);
     const place = timeZone.split('/').at(-1)?.replace(/_/g, ' ') ?? timeZone;
-    return `Agora: ${local} (${place}).`;
+    return formatAstraMessage('🕒 Horário atual', [
+      { label: 'Data e hora', value: local },
+      { label: 'Local', value: place },
+    ]);
   } catch {
     return 'Não consegui consultar seu horário agora.';
   }
@@ -166,20 +178,36 @@ export async function tryExpenseSummaryChannelReply(
       const count = summary.count ?? 0;
       const periodLabel = EXPENSE_PERIOD_LABELS[period];
       if (count === 0) {
-        return `Você não tem gastos registrados ${periodLabel}.`;
+        return formatAstraMessage(
+          '📊 Resumo de gastos',
+          [{ label: 'Período', value: periodLabel }],
+          'Você não tem gastos registrados nesse período.'
+        );
       }
 
       const currencyTotals = Object.entries(summary.byCurrency ?? {});
       if (currencyTotals.length > 1) {
-        const totals = currencyTotals
-          .map(([currency, amount]) => formatExpenseAmount(amount, currency))
-          .join(' e ');
-        return `Seus gastos ${periodLabel} somam ${totals}, em ${count} ${count === 1 ? 'lançamento' : 'lançamentos'}. Mantive as moedas separadas, sem conversão.`;
+        return formatAstraMessage(
+          '📊 Resumo de gastos',
+          [
+            { label: 'Período', value: periodLabel },
+            ...currencyTotals.map(([currency, amount]) => ({
+              label: `Total em ${currency}`,
+              value: formatExpenseAmount(amount, currency),
+            })),
+            { label: 'Lançamentos', value: String(count) },
+          ],
+          'Moedas apresentadas separadamente, sem conversão.'
+        );
       }
 
       const [currency = 'BRL', currencyAmount] = currencyTotals[0] ?? [];
       const amount = currencyAmount ?? summary.totalAmount ?? 0;
-      return `Você gastou ${formatExpenseAmount(amount, currency)} ${periodLabel}, em ${count} ${count === 1 ? 'lançamento' : 'lançamentos'}.`;
+      return formatAstraMessage('📊 Resumo de gastos', [
+        { label: 'Período', value: periodLabel },
+        { label: 'Total', value: formatExpenseAmount(amount, currency) },
+        { label: 'Lançamentos', value: String(count) },
+      ]);
     }
   );
 }
@@ -230,10 +258,26 @@ export async function tryScheduleRelativeChannelReminder(
       if (!saved)
         return 'Não consegui confirmar o horário desse lembrete. Confira sua agenda antes de repetir o pedido.';
       if (saved.status !== 'pending') {
-        return 'Esse lembrete já estava registrado nesta conversa.';
+        return formatAstraMessage(
+          'ℹ️ Lembrete já registrado',
+          [
+            { label: 'Assunto', value: saved.title ?? title },
+            { label: 'Data e hora', value: saved.horarioLocal ?? '' },
+          ],
+          'Esse lembrete já estava registrado nesta conversa.'
+        );
       }
-      if (!saved.horarioLocal) return 'Lembrete salvo. Consulte o horário na sua agenda.';
-      return `⏰ Vou lembrar você de "${saved.title ?? title}" em ${saved.horarioLocal}, aqui nesta conversa.`;
+      if (!saved.horarioLocal)
+        return formatAstraMessage(
+          '✅ Lembrete salvo',
+          [{ label: 'Assunto', value: saved.title ?? title }],
+          'Consulte o horário na sua agenda.'
+        );
+      return formatReminderConfirmation({
+        title: saved.title ?? title,
+        horarioLocal: saved.horarioLocal,
+        status: saved.status,
+      });
     }
   );
 }
@@ -290,6 +334,10 @@ export async function processViaBus(
   }
   const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
   if (accessReply) return accessReply;
+  const timezoneReply = message.attachments?.length
+    ? null
+    : await tryCustomerTimezoneChannelReply(message, channelUser.ownpilotUserId);
+  if (timezoneReply) return timezoneReply;
   const clockReply = message.attachments?.length
     ? null
     : await tryClockChannelReply(message.text, channelUser.ownpilotUserId);
@@ -547,6 +595,10 @@ export async function processDirectAgent(
   }
   const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
   if (accessReply) return accessReply;
+  const timezoneReply = message.attachments?.length
+    ? null
+    : await tryCustomerTimezoneChannelReply(message, userId);
+  if (timezoneReply) return timezoneReply;
   const clockReply = message.attachments?.length
     ? null
     : await tryClockChannelReply(message.text, userId);

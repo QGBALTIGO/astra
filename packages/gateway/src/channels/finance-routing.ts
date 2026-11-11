@@ -8,9 +8,9 @@ import { runInExecContext } from '@ownpilot/core/agent';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 import { FinanceObligationsRepository } from '../db/repositories/finance-obligations.js';
 import { ExpensesRepository, type ExpenseCategory } from '../db/repositories/expenses.js';
-import { expenseCategoryLabelPtBr } from '../tools/expense-presentation.js';
 import { getLog } from '../services/log.js';
 import { tryCustomerFinancialChannelReply } from './customer-finance-routing.js';
+import { formatAstraMessage, formatTransactionConfirmation } from './response-presentation.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDay } from '../services/customer-date.js';
 
@@ -187,20 +187,20 @@ export async function tryExpenseRecordChannelReply(
         log.warn('Expense saved but UI notification failed', { error });
       }
     }
-    const amount = currency(Math.round(expense.amount * 100));
-    const category = expense.categoryName ?? expenseCategoryLabelPtBr(expense.category);
-    if (expense.transactionType === 'income' || expense.status === 'pending') {
-      const state =
-        expense.status === 'pending'
-          ? expense.transactionType === 'income'
-            ? 'a receber'
-            : 'a pagar'
-          : 'recebido';
-      return `Esse lançamento já estava registrado: ${amount} em ${category}: ${expense.description}. Situação atual: ${state}.`;
-    }
-    return created
-      ? `Registrei ${amount} em ${category}: ${expense.description}.`
-      : `Esse gasto já estava registrado: ${amount} em ${category}: ${expense.description}.`;
+    // A replay may have been corrected in the portal. Present the persisted
+    // value, date, category and state instead of repeating the parsed request.
+    return formatTransactionConfirmation(
+      {
+        type: expense.transactionType ?? 'expense',
+        status: expense.status,
+        amount: expense.amount,
+        currency: expense.currency,
+        description: expense.description,
+        category: expense.categoryName ?? expense.category,
+        date: expense.date,
+      },
+      created ? 'created' : 'existing'
+    );
   } catch (error) {
     log.warn('Channel expense persistence failed', { error });
     return 'Não consegui confirmar o registro desse gasto agora. Consulte seus gastos antes de reenviar.';
@@ -282,18 +282,15 @@ export async function tryFinancingChannelReply(
             intent.openingCents
           );
           const balance = result.balance;
-          const lead = result.created
-            ? 'Financiamento de ' + balance.name + ' registrado.'
-            : 'O financiamento de ' + balance.name + ' já estava cadastrado.';
-          return (
-            lead +
-            '\nTotal: ' +
-            currency(balance.principalCents) +
-            '\nPago: ' +
-            currency(balance.paidCents) +
-            '\nFalta: ' +
-            currency(balance.remainingCents) +
-            '\nVou atualizar o saldo quando você confirmar novos pagamentos; não darei baixa automaticamente.'
+          return formatAstraMessage(
+            result.created ? '✅ Financiamento registrado' : '✅ Financiamento já registrado',
+            [
+              { label: 'Financiamento', value: balance.name },
+              { label: 'Total', value: currency(balance.principalCents) },
+              { label: 'Pago', value: currency(balance.paidCents) },
+              { label: 'Falta pagar', value: currency(balance.remainingCents) },
+            ],
+            'Vou atualizar o saldo quando você confirmar novos pagamentos; não darei baixa automaticamente.'
           );
         }
 
@@ -306,17 +303,12 @@ export async function tryFinancingChannelReply(
               '. Informe o valor total e o que já foi pago para cadastrá-lo.'
             );
           }
-          return (
-            'Financiamento de ' +
-            balance.name +
-            ':\nTotal: ' +
-            currency(balance.principalCents) +
-            '\nPago: ' +
-            currency(balance.paidCents) +
-            '\nFalta: ' +
-            currency(balance.remainingCents) +
-            '.'
-          );
+          return formatAstraMessage('📊 Saldo do financiamento', [
+            { label: 'Financiamento', value: balance.name },
+            { label: 'Total', value: currency(balance.principalCents) },
+            { label: 'Pago', value: currency(balance.paidCents) },
+            { label: 'Falta pagar', value: currency(balance.remainingCents) },
+          ]);
         }
 
         const sourceKey = createHash('sha256')
@@ -338,15 +330,19 @@ export async function tryFinancingChannelReply(
             '). Nenhum valor foi alterado.'
           );
         }
-        return (
-          (result.status === 'duplicate'
-            ? 'Esse pagamento já havia sido registrado. Não dupliquei a despesa.'
-            : 'Pagamento de ' + currency(intent.amountCents) + ' registrado com sucesso.') +
-          '\nPago: ' +
-          currency(balance.paidCents) +
-          '\nFalta: ' +
-          currency(balance.remainingCents) +
-          '.'
+        return formatAstraMessage(
+          result.status === 'duplicate' ? '✅ Pagamento já registrado' : '✅ Pagamento registrado',
+          [
+            { label: 'Financiamento', value: balance.name },
+            // The transaction commits this exact amount only for a new payment.
+            // A replay returns the current balance, not its original payment.
+            ...(result.status === 'recorded'
+              ? [{ label: 'Valor', value: currency(intent.amountCents) }]
+              : []),
+            { label: 'Pago', value: currency(balance.paidCents) },
+            { label: 'Falta pagar', value: currency(balance.remainingCents) },
+          ],
+          result.status === 'duplicate' ? 'Não dupliquei a despesa.' : undefined
         );
       } catch (error) {
         log.warn('Financing persistence failed', { error });
