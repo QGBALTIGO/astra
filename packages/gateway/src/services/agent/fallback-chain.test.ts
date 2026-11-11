@@ -49,6 +49,37 @@ describe('Astra free-only fallback policy', () => {
     ]);
   });
 
+  it('allows Groq free-tier models only when explicitly included in the chain', () => {
+    expect(
+      parseAstraFallbackChain(
+        'zai=glm-4.7-flash,groq=openai/gpt-oss-20b,google=gemini-3.5-flash-lite,openrouter=openrouter/free',
+        'ollama-local'
+      )
+    ).toEqual([
+      { provider: 'zai', model: 'glm-4.7-flash' },
+      { provider: 'groq', model: 'openai/gpt-oss-20b' },
+      { provider: 'google', model: 'gemini-3.5-flash-lite' },
+      { provider: 'openrouter', model: 'openrouter/free' },
+    ]);
+    expect(parseAstraFallbackChain(undefined, 'ollama-local')).toEqual([]);
+    expect(parseAstraFallbackChain('groq=openai/gpt-oss-120b', 'ollama-local')).toEqual([
+      { provider: 'groq', model: 'openai/gpt-oss-120b' },
+    ]);
+  });
+
+  it('filters non-allowed Groq models and never duplicates the primary', () => {
+    expect(
+      parseAstraFallbackChain(
+        'groq=qwen/qwen3.8-27b,groq=openai/gpt-oss-20b,google=gemini-2.5-flash-lite',
+        'ollama-local'
+      )
+    ).toEqual([
+      { provider: 'groq', model: 'openai/gpt-oss-20b' },
+      { provider: 'google', model: 'gemini-2.5-flash-lite' },
+    ]);
+    expect(parseAstraFallbackChain('groq=openai/gpt-oss-20b', 'groq')).toEqual([]);
+  });
+
   it('never allows a paid model as fallback when automatic free routing is on', () => {
     expect(
       parseAstraFallbackChain('zai=glm-4.7-flash', 'groq', {
