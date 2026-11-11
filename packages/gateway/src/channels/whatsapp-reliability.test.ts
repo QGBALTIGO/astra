@@ -45,7 +45,7 @@ describe('WhatsApp screenshot regressions: no external calls or writes', () => {
     'Corrigi o lançamento para entrada.',
     'Excluí o registro.',
   ])('does not confirm an action from prose alone: %s', (text) =>
-    expect(safeChannelResponse(text, [])).toContain('Não consegui confirmar')
+    expect(safeChannelResponse(text, [])).toContain('não tenho uma alteração confirmada')
   );
 
   it('a task is not evidence of a scheduled notification', () => {
@@ -53,7 +53,7 @@ describe('WhatsApp screenshot regressions: no external calls or writes', () => {
       receipt('core.add_task'),
     ]);
     expect(result).toContain('uma tarefa salva');
-    expect(result).toContain('Não consegui confirmar');
+    expect(result).toContain('ainda não tenho confirmação');
     expect(result).not.toContain('um lembrete salvo');
   });
   it('uses actual nested registry receipts rather than meta tool arguments', () => {
