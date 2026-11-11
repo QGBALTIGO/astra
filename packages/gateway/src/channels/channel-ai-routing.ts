@@ -706,17 +706,14 @@ async function processDirectAgentInSession(
       onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
     },
     () =>
-      agent.chat(
-        interpreted.text,
-        opinionOnly
-          ? {
-              onBeforeToolCall: async () => ({
-                approved: false,
-                reason: 'Pergunta de opinião; nenhuma operação solicitada.',
-              }),
-            }
-          : undefined
-      )
+      opinionOnly
+        ? agent.chat(interpreted.text, {
+            onBeforeToolCall: async () => ({
+              approved: false,
+              reason: 'Pergunta de opinião; nenhuma operação solicitada.',
+            }),
+          })
+        : agent.chat(interpreted.text)
   ).finally(() => agent.clearAdditionalTools?.());
 
   if (result.ok) {
