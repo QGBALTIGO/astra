@@ -18,7 +18,8 @@ import {
 } from '../../channels/response-safety.js';
 import {
   channelToolsForMessage,
-  isConversationalOnlyChannelQuestion,
+  isConversationalOnlyChannelRequest,
+  needsConversationalRewrite,
   recentChannelText,
 } from '../../channels/tool-selection.js';
 
@@ -106,10 +107,10 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
     const provider = ctx.get<string>('provider') ?? 'unknown';
     const model = ctx.get<string>('model') ?? 'unknown';
     const conversationId = ctx.get<string>('conversationId');
-    const opinionOnly =
+    const conversationOnly =
       message.metadata.source === 'channel' &&
       !message.attachments?.length &&
-      isConversationalOnlyChannelQuestion(message.content);
+      isConversationalOnlyChannelRequest(message.content);
     const directTools =
       message.metadata.source === 'channel'
         ? channelToolsForMessage(message.content, recentChannelText(agent.getConversation()))
@@ -196,7 +197,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         };
       }
 
-      if (opinionOnly) {
+      if (conversationOnly) {
         // An opinion containing "Pix" or "reais" is not authorization to
         // move money or change records. Reject even discovery/meta-tool calls.
         chatOptions.onBeforeToolCall = async () => ({
@@ -283,13 +284,13 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
 
       let safeOpinionReply: string | undefined;
       let measuredUsage = result.value?.usage;
-      if (opinionOnly && channelReceipts.length === 0) {
+      if (conversationOnly && channelReceipts.length === 0) {
         const initial = safeChannelResponse(result.value?.content ?? '', []);
-        if (initial === CHANNEL_UNVERIFIED_REPLY) {
+        if (initial === CHANNEL_UNVERIFIED_REPLY || needsConversationalRewrite(initial)) {
           // A single tool-free second chance, never another financial attempt.
           try {
             const second = await agent.chat(
-              'Responda naturalmente à pergunta anterior em português. É uma opinião, não um pedido de pagamento ou registro. Não diga que realizou ações, não use ferramentas e não invente fatos sobre a pessoa mencionada.',
+              'Releia o pedido original. Responda em português natural com sua opinião ou escreva uma mensagem pronta para a pessoa copiar, conforme a intenção. Não proponha registros, agendamentos, lembretes nem pagamentos. Não use ferramentas nem diga que executou ações. Não exponha erros internos.',
               {
                 onBeforeToolCall: async () => ({
                   approved: false,
@@ -299,7 +300,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
             );
             if (second.ok && second.value?.content) {
               const checked = safeChannelResponse(second.value.content, []);
-              if (checked !== CHANNEL_UNVERIFIED_REPLY) {
+              if (checked !== CHANNEL_UNVERIFIED_REPLY && !needsConversationalRewrite(checked)) {
                 safeOpinionReply = checked;
               }
               if (second.value.usage && measuredUsage) {

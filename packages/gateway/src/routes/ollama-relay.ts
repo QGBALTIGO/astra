@@ -23,7 +23,7 @@ type Job = {
 const jobs = new Map<string, Job>();
 const queue: string[] = [];
 const listeners = new Set<() => void>();
-const MAX_WAIT_MS = 45_000;
+const MAX_WAIT_MS = 48_000;
 const MAX_JOBS = 6;
 const MAX_BODY_CHARS = 1_500_000;
 let lastWorkerContact = 0;
