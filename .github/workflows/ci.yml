@@ -21,8 +21,7 @@ permissions:
 
 jobs:
   build-and-test:
-    # Chromium from Playwright 1.58.2 does not support the ubuntu-26.04 runner.
-    # Pin to the same supported image as the isolated Astra UI audit.
+    # Keep the build/test host stable; browsers run in the versioned E2E container below.
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -82,30 +81,83 @@ jobs:
       - name: Test
         run: TURBO_FORCE=true pnpm test
 
-      - name: Install Playwright Browsers
-        if: github.event_name == 'pull_request'
+      - name: Format Check
+        id: format
+        if: always()
+        run: pnpm format:check
+
+      - name: Show formatting diff on failure
+        if: failure() && steps.format.outcome == 'failure'
+        run: |
+          pnpm exec prettier --write .
+          git diff --no-ext-diff --exit-code
+
+  playwright-e2e:
+    name: Playwright E2E (official image)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    container:
+      # Match the frozen lockfile; browsers and their Noble dependencies are already installed.
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+    defaults:
+      run:
+        shell: bash
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ownpilot
+          POSTGRES_PASSWORD: ownpilot_ci_password
+          POSTGRES_DB: ownpilot
+        options: >-
+          --health-cmd "pg_isready -U ownpilot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+        with:
+          version: 10.29.3
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify preinstalled browser and bootstrap tools
         run: |
           set -euo pipefail
-          # The runner's preferred Azure mirror repeatedly failed DNS resolution.
-          # Use Ubuntu's signed archive while preserving suites, components and keys.
-          for astra_apt_source in \
-            /etc/apt/sources.list.d/ubuntu.sources \
-            /etc/apt/sources.list; do
-            if [ -f "$astra_apt_source" ]; then
-              sudo sed -i -E \
-                's#(mirror\+file:/etc/apt/apt-mirrors\.txt|https?://azure\.archive\.ubuntu\.com/ubuntu/?)([[:space:]]|$)#https://archive.ubuntu.com/ubuntu/\2#g' \
-                "$astra_apt_source"
-            fi
+          for astra_bootstrap_tool in git openssl curl nohup seq; do
+            command -v "$astra_bootstrap_tool" >/dev/null
           done
-          pnpm --filter @ownpilot/ui exec playwright install chromium --with-deps
+          pnpm --filter @ownpilot/ui exec node <<'NODE'
+          const assert = require('node:assert/strict');
+          const { existsSync } = require('node:fs');
+          const { chromium } = require('@playwright/test');
+          assert.equal(process.versions.node.split('.')[0], '22');
+          assert.equal(require('@playwright/test/package.json').version, '1.58.2');
+          assert.ok(existsSync(chromium.executablePath()), 'Chromium must be preinstalled in the image');
+          NODE
+
+      - name: Build
+        run: pnpm build
 
       - name: Boot isolated PostgreSQL gateway for Playwright
-        if: github.event_name == 'pull_request'
         env:
           PORT: '8080'
           HOST: '127.0.0.1'
           NODE_ENV: development
-          POSTGRES_HOST: '127.0.0.1'
+          POSTGRES_HOST: postgres
           POSTGRES_PORT: '5432'
           POSTGRES_USER: ownpilot
           POSTGRES_PASSWORD: ownpilot_ci_password
@@ -131,9 +183,7 @@ jobs:
           node -e 'if(!require("/tmp/astra-e2e-bootstrap.json").success) process.exit(1)'
 
       - name: Playwright E2E
-        if: github.event_name == 'pull_request'
-        # Fail fast while aligning legacy E2E selectors with the redesigned UI.
-        # A failing test still fails CI; remove this cap once the suite is green.
+        # Preserve the same test selection, worker count and failure gate.
         run: pnpm --filter @ownpilot/ui exec playwright test --max-failures=8 --workers=2
         env:
           CI: 'true'
@@ -146,17 +196,6 @@ jobs:
           path: packages/ui/test-results/**/whatsapp-access-*.png
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: Format Check
-        id: format
-        if: always()
-        run: pnpm format:check
-
-      - name: Show formatting diff on failure
-        if: failure() && steps.format.outcome == 'failure'
-        run: |
-          pnpm exec prettier --write .
-          git diff --no-ext-diff --exit-code
 
   windows-checks:
     name: Windows checks
