@@ -43,7 +43,9 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
   // Portuguese requests. Do not confuse generic "guardar" (remember/save a
   // note) with saving money: require an explicit goal/savings/debt term.
   if (
-    /\b(?:metas?|objetivos?|economiz(?:ar|ando)|poup(?:ar|ando)|junt(?:ar|ando)|financiamentos?|quitar|quitacao|contribuicao|contribuicoes)\b/.test(input) ||
+    /\b(?:metas?|objetivos?|economiz(?:ar|ando)|poup(?:ar|ando)|junt(?:ar|ando)|financiamentos?|quitar|quitacao|contribuicao|contribuicoes)\b/.test(
+      input
+    ) ||
     /\bguardar\s+(?:r\$|\d|dinheiro)\b/.test(input)
   ) {
     add('create_goal', 'list_goals', 'update_goal', 'get_goal_details', 'get_goal_stats');

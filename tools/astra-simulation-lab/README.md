@@ -42,14 +42,14 @@ Cotas fixas: finanças 20.000; agenda/lembretes 16.000; metas/dívidas 15.000; c
 
 ## Origem e distinção dos resultados
 
-| Modo | O que comprova | O que **não** comprova |
-| --- | --- | --- |
-| synthetic-generated | Existe um dataset reprodutível | Que Astra entendeu ou executou qualquer pedido |
-| fixture-integrity-validation | Quantidade, esquema, dependências e isolamento dos dados de teste | Que os bancos e ações de produção funcionam |
-| real-Astra-source-probes | Funções isoladas **do código real** para valores, parsing, lembretes e tool selection | Persistência, tool execution, multiusuário, latência ou qualidade do modelo |
-| isolated-gateway-integration | **Ainda não implementado**: deve verificar ferramentas, estado final e entrega fictícia | Nunca deve falar com clientes reais |
-| local-llm-eval | **Ainda não executado**: poderá medir respostas amostradas | Não substitui verificação de estado |
-| production-canary | Fora do escopo até gates de qualidade e autorização | Não usar para simulações destrutivas |
+| Modo                         | O que comprova                                                                          | O que **não** comprova                                                      |
+| ---------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| synthetic-generated          | Existe um dataset reprodutível                                                          | Que Astra entendeu ou executou qualquer pedido                              |
+| fixture-integrity-validation | Quantidade, esquema, dependências e isolamento dos dados de teste                       | Que os bancos e ações de produção funcionam                                 |
+| real-Astra-source-probes     | Funções isoladas **do código real** para valores, parsing, lembretes e tool selection   | Persistência, tool execution, multiusuário, latência ou qualidade do modelo |
+| isolated-gateway-integration | **Ainda não implementado**: deve verificar ferramentas, estado final e entrega fictícia | Nunca deve falar com clientes reais                                         |
+| local-llm-eval               | **Ainda não executado**: poderá medir respostas amostradas                              | Não substitui verificação de estado                                         |
+| production-canary            | Fora do escopo até gates de qualidade e autorização                                     | Não usar para simulações destrutivas                                        |
 
 Qualquer reprovação de regressão define código de saída 1. Não gerar métricas de precisão da IA, p95 do gateway ou custo de tokens sem medições reais.
 
@@ -67,20 +67,20 @@ Qualquer reprovação de regressão define código de saída 1. Não gerar métr
 
 ## Matriz open source — decisão inicial
 
-| Projeto | Licença identificada | Decisão e motivo |
-| --- | --- | --- |
-| MiroFish (666ghj/MiroFish) | AGPL-3.0 | Não copiar/incorporar ao Astra comercial. Motor de comportamento social; teste externo futuro, após revisão jurídica |
-| MiroFish-Offline (nikmcfly/MiroFish-Offline) | AGPL-3.0 | Não instalar por ora: Neo4j e modelo 14b/32b acima da VRAM confortável deste PC; uso separado opcional |
-| Promptfoo | MIT | Ferramenta escolhida para avaliação de respostas em etapa de integração. Não instalada nesta fase (evitar processar saída fictícia como resposta real) |
-| τ²-Bench | MIT | Referência para avaliador por estado final, ação, parâmetros e conversas completas. Sem dependência Python pesada nesta etapa |
-| fast-check | MIT | **Instalado no laboratório**, propriedades com seed e shrink em Vitest |
-| Vitest | MIT | Existente no monorepo e **executado** no laboratório isolado |
-| Opik | Apache-2.0 | Opção principal para observabilidade futura por trace, sem colocar servidor pesado no PC agora |
-| Langfuse | MIT core (exclui ee) | Alternativa não instalada, evitar dois observadores redundantes |
-| OASIS | Apache-2.0 | Não instalar junto com MiroFish sem prova de necessidade |
-| pg-boss / BullMQ / Mem0 | Licenças a revisar antes de possível implantação | Não instalar: verificar primeiro filas, memória e jobs do OwnPilot |
-| Playwright | Licença do pacote a confirmar para alterações futuras | E2E do Astra já existe em packages/ui/e2e, aproveitar |
-| Whisper / faster-whisper | Dependências/modelos a verificar | Não instalar nesta etapa, multimodal exige integração posterior |
+| Projeto                                      | Licença identificada                                  | Decisão e motivo                                                                                                                                       |
+| -------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| MiroFish (666ghj/MiroFish)                   | AGPL-3.0                                              | Não copiar/incorporar ao Astra comercial. Motor de comportamento social; teste externo futuro, após revisão jurídica                                   |
+| MiroFish-Offline (nikmcfly/MiroFish-Offline) | AGPL-3.0                                              | Não instalar por ora: Neo4j e modelo 14b/32b acima da VRAM confortável deste PC; uso separado opcional                                                 |
+| Promptfoo                                    | MIT                                                   | Ferramenta escolhida para avaliação de respostas em etapa de integração. Não instalada nesta fase (evitar processar saída fictícia como resposta real) |
+| τ²-Bench                                     | MIT                                                   | Referência para avaliador por estado final, ação, parâmetros e conversas completas. Sem dependência Python pesada nesta etapa                          |
+| fast-check                                   | MIT                                                   | **Instalado no laboratório**, propriedades com seed e shrink em Vitest                                                                                 |
+| Vitest                                       | MIT                                                   | Existente no monorepo e **executado** no laboratório isolado                                                                                           |
+| Opik                                         | Apache-2.0                                            | Opção principal para observabilidade futura por trace, sem colocar servidor pesado no PC agora                                                         |
+| Langfuse                                     | MIT core (exclui ee)                                  | Alternativa não instalada, evitar dois observadores redundantes                                                                                        |
+| OASIS                                        | Apache-2.0                                            | Não instalar junto com MiroFish sem prova de necessidade                                                                                               |
+| pg-boss / BullMQ / Mem0                      | Licenças a revisar antes de possível implantação      | Não instalar: verificar primeiro filas, memória e jobs do OwnPilot                                                                                     |
+| Playwright                                   | Licença do pacote a confirmar para alterações futuras | E2E do Astra já existe em packages/ui/e2e, aproveitar                                                                                                  |
+| Whisper / faster-whisper                     | Dependências/modelos a verificar                      | Não instalar nesta etapa, multimodal exige integração posterior                                                                                        |
 
 Verificar a licença exata da versão fixada e obrigações de distribuição antes de qualquer redistribuição comercial. Documentar dependências e versões no lockfile; não copiar AGPL para dentro do monorepo.
 
