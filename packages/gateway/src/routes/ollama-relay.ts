@@ -7,7 +7,11 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Hono } from 'hono';
 
 type ObjectValue = Record<string, unknown>;
-type Completion = { choices?: Array<{ message?: ObjectValue; finish_reason?: string | null }>; id?: string; model?: string };
+type Completion = {
+  choices?: Array<{ message?: ObjectValue; finish_reason?: string | null }>;
+  id?: string;
+  model?: string;
+};
 type Job = {
   id: string;
   payload: ObjectValue;
@@ -37,7 +41,9 @@ function authorized(auth: string | undefined): boolean {
 }
 
 function workerOnline(): boolean {
-  return Boolean(key().length >= 32 && lastWorkerContact && Date.now() - lastWorkerContact < 35_000);
+  return Boolean(
+    key().length >= 32 && lastWorkerContact && Date.now() - lastWorkerContact < 35_000
+  );
 }
 
 function takeJob(): Job | undefined {
@@ -61,8 +67,9 @@ function streamResponse(completion: Completion): string {
   if (typeof message.content === 'string') delta.content = message.content;
   if (toolCalls.length) {
     delta.tool_calls = toolCalls.map((item, index) => {
-      const call = item && typeof item === 'object' ? item as ObjectValue : {};
-      const fn = call.function && typeof call.function === 'object' ? call.function as ObjectValue : {};
+      const call = item && typeof item === 'object' ? (item as ObjectValue) : {};
+      const fn =
+        call.function && typeof call.function === 'object' ? (call.function as ObjectValue) : {};
       return {
         index,
         id: call.id,
@@ -71,11 +78,25 @@ function streamResponse(completion: Completion): string {
       };
     });
   }
-  const base = { id: completion.id ?? randomUUID(), model: completion.model, object: 'chat.completion.chunk' };
+  const base = {
+    id: completion.id ?? randomUUID(),
+    model: completion.model,
+    object: 'chat.completion.chunk',
+  };
   const first = { ...base, choices: [{ index: 0, delta, finish_reason: null }] };
-  const final = { ...base, choices: [{ index: 0, delta: {}, finish_reason: choice?.finish_reason ?? 'stop' }] };
-  return 'data: ' + JSON.stringify(first) + '\n\n' +
-    'data: ' + JSON.stringify(final) + '\n\n' + 'data: [DONE]\n\n';
+  const final = {
+    ...base,
+    choices: [{ index: 0, delta: {}, finish_reason: choice?.finish_reason ?? 'stop' }],
+  };
+  return (
+    'data: ' +
+    JSON.stringify(first) +
+    '\n\n' +
+    'data: ' +
+    JSON.stringify(final) +
+    '\n\n' +
+    'data: [DONE]\n\n'
+  );
 }
 
 /** Register outside /api/* auth: a separate, constant-time bearer guard applies. */

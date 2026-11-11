@@ -307,8 +307,10 @@ export async function getDefaultModel(provider?: string): Promise<string | null>
   }
   // Keep the legacy DB-first behavior unless Astra explicitly pins a Groq
   // primary via deployment configuration.
-  if (process.env.ASTRA_PRIMARY_PROVIDER === 'ollama-local' &&
-      process.env.ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN?.length >= 32) {
+  if (
+    process.env.ASTRA_PRIMARY_PROVIDER === 'ollama-local' &&
+    (process.env.ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN?.length ?? 0) >= 32
+  ) {
     return 'qwen3:4b-instruct';
   }
   const savedModel = await settingsRepo.get<string>(DEFAULT_MODEL_KEY);

@@ -17,8 +17,14 @@ let running = true;
 let gateway;
 try {
   gateway = new URL(base);
-  if (gateway.protocol !== 'https:' || gateway.username || gateway.password ||
-      gateway.pathname !== '/' || gateway.search || gateway.hash) {
+  if (
+    gateway.protocol !== 'https:' ||
+    gateway.username ||
+    gateway.password ||
+    gateway.pathname !== '/' ||
+    gateway.search ||
+    gateway.hash
+  ) {
     throw new Error('Gateway must be the exact HTTPS origin');
   }
 } catch {
@@ -72,7 +78,9 @@ async function infer(job) {
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => { running = false; });
+  process.on(signal, () => {
+    running = false;
+  });
 }
 
 process.stdout.write('Astra local model bridge active (outbound HTTPS, ' + model + ').\n');
@@ -81,7 +89,9 @@ let failures = 0;
 while (running) {
   try {
     const response = await fetch(root + '/worker/next', {
-      method: 'GET', headers, signal: AbortSignal.timeout(26_000),
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(26_000),
     });
     if (response.status === 401 || response.status === 403) {
       process.stderr.write('Bridge credentials rejected. Exiting safely.\n');
@@ -100,18 +110,23 @@ while (running) {
     } catch (error) {
       // Fail the request. The Astra gateway can use the configured cloud fallback.
       try {
-        await sendResult(job.id, { choices: [], error: error instanceof Error ? error.name : 'InferenceError' });
+        await sendResult(job.id, {
+          choices: [],
+          error: error instanceof Error ? error.name : 'InferenceError',
+        });
       } catch {
         // The gateway may already have timed out; no side effects are retried.
       }
-      process.stderr.write('Inference failed (' +
-        (error instanceof Error ? error.name : 'unknown') + ').\n');
+      process.stderr.write(
+        'Inference failed (' + (error instanceof Error ? error.name : 'unknown') + ').\n'
+      );
     }
   } catch (error) {
     failures += 1;
     const waitMs = Math.min(12_000, 1_000 * Math.min(failures, 12));
-    process.stderr.write('Bridge reconnect (' +
-      (error instanceof Error ? error.name : 'unknown') + ').\n');
+    process.stderr.write(
+      'Bridge reconnect (' + (error instanceof Error ? error.name : 'unknown') + ').\n'
+    );
     await delay(waitMs);
   }
 }

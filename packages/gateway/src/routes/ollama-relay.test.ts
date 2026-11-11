@@ -34,24 +34,34 @@ describe('Astra local Ollama outbound relay', () => {
     const app = createTestApp();
     const workerPromise = app.request(base + '/worker/next', { headers });
     const clientPromise = app.request(base + '/v1/chat/completions', {
-      method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: 'qwen3:4b-instruct', stream: false, messages: [{ role: 'user', content: 'Olá' }] }),
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'qwen3:4b-instruct',
+        stream: false,
+        messages: [{ role: 'user', content: 'Olá' }],
+      }),
     });
     const worker = await workerPromise;
     expect(worker.status).toBe(200);
-    const task = await worker.json() as { id: string; payload: { stream: boolean } };
+    const task = (await worker.json()) as { id: string; payload: { stream: boolean } };
     expect(task.payload.stream).toBe(false);
     const delivery = await app.request(base + '/worker/result', {
-      method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ id: task.id, result: {
-        id: 'chat-test', model: 'qwen3:4b-instruct',
-        choices: [{ message: { role: 'assistant', content: 'Olá!' }, finish_reason: 'stop' }],
-      } }),
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: task.id,
+        result: {
+          id: 'chat-test',
+          model: 'qwen3:4b-instruct',
+          choices: [{ message: { role: 'assistant', content: 'Olá!' }, finish_reason: 'stop' }],
+        },
+      }),
     });
     expect(delivery.status).toBe(200);
     const result = await clientPromise;
     expect(result.status).toBe(200);
-    const response = await result.json() as { choices: Array<{ message: { content: string } }> };
+    const response = (await result.json()) as { choices: Array<{ message: { content: string } }> };
     expect(response.choices[0]?.message.content).toBe('Olá!');
     expect((await app.request(base + '/worker/status', { headers })).status).toBe(200);
   });
@@ -60,21 +70,49 @@ describe('Astra local Ollama outbound relay', () => {
     const app = createTestApp();
     const workerPromise = app.request(base + '/worker/next', { headers });
     const clientPromise = app.request(base + '/v1/chat/completions', {
-      method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: 'qwen3:4b-instruct', stream: true, messages: [{ role: 'user', content: 'Ganhei R$ 1' }] }),
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'qwen3:4b-instruct',
+        stream: true,
+        messages: [{ role: 'user', content: 'Ganhei R$ 1' }],
+      }),
     });
-    const task = await (await workerPromise).json() as { id: string; payload: { stream: boolean } };
+    const task = (await (await workerPromise).json()) as {
+      id: string;
+      payload: { stream: boolean };
+    };
     expect(task.payload.stream).toBe(false);
     await app.request(base + '/worker/result', {
-      method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ id: task.id, result: {
-        id: 'tool-test', model: 'qwen3:4b-instruct',
-        choices: [{ finish_reason: 'tool_calls', message: {
-          role: 'assistant', content: '',
-          tool_calls: [{ index: 0, id: 'call-test', type: 'function',
-            function: { name: 'record_transaction', arguments: '{"type":"income","amount":1}' } }],
-        } }],
-      } }),
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: task.id,
+        result: {
+          id: 'tool-test',
+          model: 'qwen3:4b-instruct',
+          choices: [
+            {
+              finish_reason: 'tool_calls',
+              message: {
+                role: 'assistant',
+                content: '',
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call-test',
+                    type: 'function',
+                    function: {
+                      name: 'record_transaction',
+                      arguments: '{"type":"income","amount":1}',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
     });
     const result = await clientPromise;
     const body = await result.text();
@@ -89,13 +127,19 @@ describe('Astra local Ollama outbound relay', () => {
   it('denies oversized and malformed requests', async () => {
     const app = createTestApp();
     const tooLarge = await app.request(base + '/v1/chat/completions', {
-      method: 'POST', headers: { ...headers, 'content-length': '2000000' },
+      method: 'POST',
+      headers: { ...headers, 'content-length': '2000000' },
     });
     // No worker heartbeat: fail closed before accepting payload.
     expect([413, 503]).toContain(tooLarge.status);
-    expect((await app.request(base + '/worker/result', {
-      method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ id: 'not-existent', result: { choices: [] } }),
-    })).status).toBe(410);
+    expect(
+      (
+        await app.request(base + '/worker/result', {
+          method: 'POST',
+          headers: { ...headers, 'content-type': 'application/json' },
+          body: JSON.stringify({ id: 'not-existent', result: { choices: [] } }),
+        })
+      ).status
+    ).toBe(410);
   });
 });
