@@ -1,0 +1,28 @@
+name: Temporary Astra journal formatting
+on:
+  push:
+    branches:
+      - feat/astra-outbound-quality-journal-20261111
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply existing Prettier style to changed files
+        run: |
+          npx --yes prettier@3.9.5 --write docs/ASTRA_QUALITY_JOURNAL.md packages/gateway/src/services/outbound-quality.ts
+      - name: Commit formatting only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- docs/ASTRA_QUALITY_JOURNAL.md packages/gateway/src/services/outbound-quality.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "style(astra): format quality journal with repo rules"
+            git push origin HEAD:refs/heads/feat/astra-outbound-quality-journal-20261111
+          fi
