@@ -157,6 +157,28 @@ CREATE TABLE IF NOT EXISTS channel_reminders (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- User-scoped recurring WhatsApp greetings. The next occurrence is advanced
+-- before transport is attempted, preventing duplicate sends across replicas.
+CREATE TABLE IF NOT EXISTS channel_daily_greetings (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  channel_plugin_id TEXT NOT NULL,
+  platform_chat_id TEXT NOT NULL,
+  time_zone TEXT NOT NULL,
+  hour SMALLINT NOT NULL CHECK (hour BETWEEN 0 AND 23),
+  minute SMALLINT NOT NULL CHECK (minute BETWEEN 0 AND 59),
+  with_curiosity BOOLEAN NOT NULL DEFAULT FALSE,
+  next_run_at TIMESTAMPTZ NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  last_attempt_at TIMESTAMPTZ,
+  last_delivered_at TIMESTAMPTZ,
+  last_delivery_id TEXT,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, channel_plugin_id, platform_chat_id)
+);
+
 -- Quick captures (inbox for quick thoughts/ideas)
 CREATE TABLE IF NOT EXISTS captures (
   id TEXT PRIMARY KEY,
@@ -197,6 +219,9 @@ CREATE INDEX IF NOT EXISTS idx_channel_reminders_due
   WHERE status IN ('pending', 'sending');
 CREATE INDEX IF NOT EXISTS idx_channel_reminders_recipient
   ON channel_reminders (user_id, channel_plugin_id, platform_chat_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_channel_daily_greetings_due
+  ON channel_daily_greetings (next_run_at) WHERE active = TRUE;
 
 CREATE INDEX IF NOT EXISTS idx_reminders_time ON reminders(remind_at);
 CREATE INDEX IF NOT EXISTS idx_captures_user ON captures(user_id);
