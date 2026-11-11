@@ -33,8 +33,14 @@ export async function dispatchDueChannelReminders(): Promise<{
       try {
         const channels = getChannelService();
         const api = channels.getChannel(entry.channelPluginId);
+        // Startup may recover the queue before the channel plugin is loaded.
+        // No delivery was attempted, so do not exhaust this reminder's retries.
+        if (!api) {
+          await channelRemindersRepo.deferDisconnected(entry.id);
+          continue;
+        }
         let platformChatId = entry.platformChatId;
-        if (api?.getPlatform() === 'whatsapp' && entry.userId.startsWith('whatsapp:')) {
+        if (api.getPlatform() === 'whatsapp' && entry.userId.startsWith('whatsapp:')) {
           const account = await customerAccountsRepo.getByDataUserId(entry.userId);
           const phone = account?.phoneNumber ?? entry.userId.slice('whatsapp:'.length);
           const recipient = entry.platformChatId.includes('@')
@@ -64,7 +70,7 @@ export async function dispatchDueChannelReminders(): Promise<{
           // number change without changing the immutable data identity.
           platformChatId = phone;
         }
-        if (api && api.getStatus() !== 'connected') {
+        if (api.getStatus() !== 'connected') {
           await channelRemindersRepo.deferDisconnected(entry.id);
           continue;
         }
@@ -72,7 +78,17 @@ export async function dispatchDueChannelReminders(): Promise<{
           platformChatId,
           text: `⏰ Lembrete: ${entry.title}`,
         });
-        await channelRemindersRepo.markDelivered(entry.id, String(id ?? 'enviado'));
+        if (typeof id !== 'string' || !id.trim()) {
+          // An empty receipt is ambiguous: the transport may already have sent
+          // the message. Stop automatic retries instead of risking duplicates.
+          await channelRemindersRepo.markFailed(entry.id, 5, 'delivery_receipt_missing');
+          failed++;
+          log.warn('Lembrete sem confirmação de envio; revisão necessária', {
+            reminderId: entry.id,
+          });
+          continue;
+        }
+        await channelRemindersRepo.markDelivered(entry.id, id);
         delivered++;
       } catch (error) {
         failed++;

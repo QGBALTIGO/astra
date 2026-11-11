@@ -288,7 +288,9 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
         message.metadata.source === 'channel'
           ? withCustomerClock(
               finalPrompt,
-              customerAccount?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande'
+              customerAccount?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande',
+              new Date(),
+              message.timestamp
             )
           : finalPrompt;
       if (freshPrompt !== currentSystemPrompt) {

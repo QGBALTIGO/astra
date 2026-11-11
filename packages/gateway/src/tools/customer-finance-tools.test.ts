@@ -4,7 +4,9 @@ const f = vi.hoisted(() => ({
     channelPluginId: 'channel.whatsapp',
     platformChatId: 'synthetic-chat',
     channelMessageId: 'synthetic-message',
+    channelMessageTimestamp: Date.parse('2026-11-11T02:00:00Z'),
   },
+  account: vi.fn(),
   owner: vi.fn(),
   create: vi.fn(),
   list: vi.fn(),
@@ -15,8 +17,11 @@ const f = vi.hoisted(() => ({
   categories: vi.fn(),
 }));
 vi.mock('@ownpilot/core/agent', () => ({ getExecContext: () => f.ctx }));
-vi.mock('../db/repositories/customer-finance.js', () => ({
-  CustomerFinanceError: class extends Error {},
+vi.mock('../db/repositories/customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: f.account },
+}));
+vi.mock('../db/repositories/customer-finance.js', async (original) => ({
+  ...(await original<typeof import('../db/repositories/customer-finance.js')>()),
   CustomerFinanceRepository: class {
     constructor(userId: string) {
       f.owner(userId);
@@ -41,12 +46,20 @@ const data = {
 beforeEach(() => {
   vi.clearAllMocks();
   f.ctx.channelMessageId = 'synthetic-message';
+  f.ctx.channelMessageTimestamp = Date.parse('2026-11-11T02:00:00Z');
+  f.account.mockResolvedValue({ timeZone: 'America/Campo_Grande' });
   f.categories.mockResolvedValue([
     { id: 'in', name: 'Outras entradas', type: 'income', archived: false },
     { id: 'out', name: 'Outros', type: 'expense', archived: false },
   ]);
   f.create.mockImplementation(async (value) => ({ id: 'saved', ...value }));
-  f.get.mockResolvedValue({ id: 'saved', type: 'expense', status: 'settled', categoryId: 'out' });
+  f.get.mockResolvedValue({
+    id: 'saved',
+    type: 'expense',
+    status: 'settled',
+    categoryId: 'out',
+    date: '2026-11-10',
+  });
   f.update.mockImplementation(async (id, value) => ({ id, ...value }));
   f.remove.mockResolvedValue(true);
 });
@@ -86,6 +99,32 @@ describe('same-ledger finance tools', () => {
     );
     expect(f.create).not.toHaveBeenCalled();
   });
+  it('does not treat an expected future income as already received', async () => {
+    const result = await executeCustomerFinanceTool(
+      'record_transaction',
+      { ...data, status: 'settled' },
+      'whatsapp:synthetic-a'
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Valores previstos devem ficar pendentes');
+    expect(f.create).not.toHaveBeenCalled();
+  });
+  it('checks the customer local calendar day instead of UTC for settlement', async () => {
+    const result = await executeCustomerFinanceTool(
+      'record_transaction',
+      { ...data, status: 'settled', date: '2026-11-11' },
+      'whatsapp:synthetic-a'
+    );
+    expect(result.success).toBe(false);
+    expect(f.account).toHaveBeenCalledWith('whatsapp:synthetic-a');
+    expect(f.create).not.toHaveBeenCalled();
+    const local = await executeCustomerFinanceTool(
+      'record_transaction',
+      { ...data, status: 'settled', date: '2026-11-10' },
+      'whatsapp:synthetic-a'
+    );
+    expect(local.success).toBe(true);
+  });
   it.each(['type', 'status', 'date', 'description', 'amount'])(
     'requires %s rather than inventing it',
     async (key) => {
@@ -121,6 +160,71 @@ describe('same-ledger finance tools', () => {
     ).toBe(false);
     expect(f.update).not.toHaveBeenCalled();
   });
+  it('does not confirm an update if the record was removed after the lookup', async () => {
+    f.update.mockResolvedValueOnce(null);
+    const result = await executeCustomerFinanceTool(
+      'update_transaction',
+      { transaction_id: 'saved', type: 'income' },
+      'user-a'
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('A alteração não foi salva');
+    expect(result.result).toBeUndefined();
+    expect(f.create).not.toHaveBeenCalled();
+    expect(f.remove).not.toHaveBeenCalled();
+  });
+  it('preserves a pending amount when correcting an expense to income', async () => {
+    f.get.mockResolvedValueOnce({
+      id: 'saved',
+      type: 'expense',
+      status: 'pending',
+      categoryId: 'out',
+      date: '2026-11-20',
+    });
+    const result = await executeCustomerFinanceTool(
+      'update_transaction',
+      { transaction_id: 'saved', type: 'income' },
+      'user-a'
+    );
+    expect(result.success).toBe(true);
+    expect(f.update).toHaveBeenCalledWith('saved', { type: 'income', categoryId: 'in' });
+    expect(f.update.mock.calls[0]![1]).not.toHaveProperty('status');
+    expect(f.create).not.toHaveBeenCalled();
+    expect(f.remove).not.toHaveBeenCalled();
+  });
+  it('does not mark a future pending income as received without an actual receipt date', async () => {
+    f.get.mockResolvedValueOnce({
+      id: 'saved',
+      type: 'income',
+      status: 'pending',
+      categoryId: 'in',
+      date: '2026-11-20',
+    });
+    const result = await executeCustomerFinanceTool(
+      'update_transaction',
+      { transaction_id: 'saved', status: 'settled' },
+      'whatsapp:synthetic-a'
+    );
+    expect(result.success).toBe(false);
+    expect(f.update).not.toHaveBeenCalled();
+  });
+  it('can receive a previously pending income on the actual local day', async () => {
+    f.get.mockResolvedValueOnce({
+      id: 'saved',
+      type: 'income',
+      status: 'pending',
+      categoryId: 'in',
+      date: '2026-11-20',
+    });
+    const result = await executeCustomerFinanceTool(
+      'update_transaction',
+      { transaction_id: 'saved', status: 'settled', date: '2026-11-10' },
+      'whatsapp:synthetic-a'
+    );
+    expect(result.success).toBe(true);
+    expect(f.update).toHaveBeenCalledWith('saved', { status: 'settled', date: '2026-11-10' });
+    expect(f.create).not.toHaveBeenCalled();
+  });
   it('does not convert category to one belonging to the wrong transaction type', async () => {
     f.categories.mockResolvedValueOnce([{ id: 'out', type: 'expense', archived: false }]);
     expect(
@@ -145,6 +249,17 @@ describe('same-ledger finance tools', () => {
       ).success
     ).toBe(true);
     expect(f.remove).toHaveBeenCalledWith('saved');
+    expect(f.create).not.toHaveBeenCalled();
+  });
+  it('does not confirm deletion of a missing or foreign record', async () => {
+    f.remove.mockResolvedValueOnce(false);
+    const result = await executeCustomerFinanceTool(
+      'delete_transaction',
+      { transaction_id: 'foreign' },
+      'user-a'
+    );
+    expect(result.success).toBe(false);
+    expect(result.result).toBeUndefined();
     expect(f.create).not.toHaveBeenCalled();
   });
   it('lists scoped IDs and filters rather than making them up', async () => {

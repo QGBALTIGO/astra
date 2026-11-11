@@ -23,15 +23,26 @@ export function addCalendarDays(day: string, days: number): string {
 }
 
 /** Refresh the direct-agent fallback clock without accumulating old sections. */
-export function withCustomerClock(prompt: string, timeZone: string, now = new Date()): string {
+export function withCustomerClock(
+  prompt: string,
+  timeZone: string,
+  now = new Date(),
+  receivedAt?: Date
+): string {
   const marker = '\n\n---\n\n## Astra customer clock';
   const base = prompt.replace(/\n\n---\n\n## Astra customer clock[\s\S]*?(?=\n\n---\n\n|$)/g, '');
-  const local = new Intl.DateTimeFormat('pt-BR', {
+  const formatter = new Intl.DateTimeFormat('pt-BR', {
     timeZone,
     dateStyle: 'full',
     timeStyle: 'short',
-  }).format(now);
-  return `${base}${marker}\nHorário atual do cliente: ${local}. Fuso IANA: ${timeZone}. Instante UTC: ${now.toISOString()}.\nUse este horário para hoje, amanhã, compromissos e lembretes. Salve instantes como ISO 8601 com o offset correto. O painel e o WhatsApp usam os mesmos registros.`;
+  });
+  // A queued request can cross midnight. Keep the customer's meaning of
+  // "today/tomorrow/in 40 minutes" while still answering the actual current time.
+  const reference =
+    receivedAt && Number.isFinite(receivedAt.getTime()) && receivedAt.getTime() <= now.getTime()
+      ? receivedAt
+      : now;
+  return `${base}${marker}\nHorário atual do cliente: ${formatter.format(now)}. Fuso IANA: ${timeZone}. Instante UTC: ${now.toISOString()}.\nReferência do pedido (recebimento): ${formatter.format(reference)}. Instante UTC do pedido: ${reference.toISOString()}.\nPara consultas sobre a hora atual, use o horário atual do cliente. Resolva hoje, amanhã e prazos relativos pela referência do pedido, sem somar o tempo de espera na fila. Em lembretes com hora local, prefira local_datetime sem offset: o servidor aplica o fuso cadastrado. Se o pedido informar só o dia, pergunte a hora em vez de inventá-la. O painel e o WhatsApp usam os mesmos registros.`;
 }
 
 /** Convert a local midnight into an instant; offset is recalculated across DST boundaries. */

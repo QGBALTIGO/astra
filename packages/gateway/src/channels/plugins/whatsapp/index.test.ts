@@ -11,6 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 const {
   MockWhatsAppChannelAPI,
   mockConfigServicesRepo,
+  mockChannel,
   capturedMeta,
   capturedPlatform,
   capturedChannelApiFactory,
@@ -27,9 +28,11 @@ const {
     return { config, pluginId };
   });
   const mockConfigServicesRepo = { getFieldValue: vi.fn() };
+  const mockChannel = { getStatus: vi.fn(), sendMessage: vi.fn() };
   return {
     MockWhatsAppChannelAPI,
     mockConfigServicesRepo,
+    mockChannel,
     capturedMeta,
     capturedPlatform,
     capturedChannelApiFactory,
@@ -46,6 +49,7 @@ vi.mock('@ownpilot/core/channels', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,
+    getChannelService: () => ({ getChannel: () => mockChannel }),
     createChannelPlugin: vi.fn(() => {
       const b: any = {
         meta: vi.fn((m: any) => {
@@ -123,5 +127,32 @@ describe('buildWhatsAppChannelPlugin', () => {
   it('has requiredServices entry for whatsapp_baileys', () => {
     buildWhatsAppChannelPlugin();
     expect(capturedMeta[0]?.requiredServices?.[0]?.name).toBe('whatsapp_baileys');
+  });
+
+  it('keeps transport identifiers in metadata instead of the customer-facing confirmation', async () => {
+    buildWhatsAppChannelPlugin();
+    mockChannel.getStatus.mockReturnValue('connected');
+    mockChannel.sendMessage.mockResolvedValue('internal-protocol-id');
+    const tool = capturedTools.find(
+      ({ definition }) => definition.name === 'channel_whatsapp_send'
+    )!;
+    const result = await tool.executor({ jid: '5511999999999@s.whatsapp.net', text: 'Olá.' });
+    expect(result).toEqual({
+      content: 'Mensagem enviada.',
+      metadata: { messageId: 'internal-protocol-id' },
+    });
+  });
+
+  it('does not claim delivery or retry when the transport returns no receipt', async () => {
+    buildWhatsAppChannelPlugin();
+    mockChannel.getStatus.mockReturnValue('connected');
+    mockChannel.sendMessage.mockReset().mockResolvedValue('');
+    const tool = capturedTools.find(
+      ({ definition }) => definition.name === 'channel_whatsapp_send'
+    )!;
+    const result = await tool.executor({ jid: '5511999999999@s.whatsapp.net', text: 'Olá.' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Não foi possível confirmar');
+    expect(mockChannel.sendMessage).toHaveBeenCalledOnce();
   });
 });

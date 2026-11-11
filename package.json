@@ -170,7 +170,10 @@
     },
     "ignoredBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "patchedDependencies": {
+      "libsignal@6.0.0": "patches/libsignal@6.0.0.patch"
+    }
   },
   "packageManager": "pnpm@10.29.3",
   "engines": {

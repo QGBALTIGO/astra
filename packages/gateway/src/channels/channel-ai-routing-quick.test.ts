@@ -168,13 +168,13 @@ describe('Agendamento direto e gratuito pelo canal', () => {
     mockSchedule.mockReset();
     mockSchedule.mockResolvedValue({
       success: true,
-      result: { status: 'pending' },
+      result: { status: 'pending', title: 'jogar o lixo fora', horarioLocal: '11/11/2026, 10:01' },
     });
   });
 
   it('registra lembrete de 1 minuto sem chamar modelo', async () => {
     const response = await tryScheduleRelativeChannelReminder(message, 'default');
-    expect(response).toContain('daqui a 1 minuto');
+    expect(response).toContain('11/11/2026, 10:01');
     expect(response).toContain('jogar o lixo fora');
     expect(mockSchedule).toHaveBeenCalledWith(
       'schedule_channel_reminder',
@@ -184,16 +184,36 @@ describe('Agendamento direto e gratuito pelo canal', () => {
   });
 
   it('interpreta horas relativas e preserva o prazo', async () => {
+    mockSchedule.mockResolvedValueOnce({
+      success: true,
+      result: {
+        status: 'pending',
+        title: 'ligar para o dentista',
+        horarioLocal: '11/11/2026, 12:00',
+      },
+    });
     const response = await tryScheduleRelativeChannelReminder(
       { ...message, text: 'Me avise daqui a 2 horas de ligar para o dentista' },
       'default'
     );
-    expect(response).toContain('daqui a 2 horas');
+    expect(response).toContain('11/11/2026, 12:00');
     expect(mockSchedule).toHaveBeenCalledWith(
       'schedule_channel_reminder',
       { title: 'ligar para o dentista', delay_minutes: 120 },
       'default'
     );
+  });
+
+  it('confirma o horário salvo sem reiniciar o prazo após espera na fila', async () => {
+    const response = await tryScheduleRelativeChannelReminder(
+      {
+        ...message,
+        timestamp: new Date('2026-11-11T14:00:00Z'),
+      },
+      'default'
+    );
+    expect(response).toContain('10:01');
+    expect(response).not.toContain('daqui');
   });
 
   it('não agenda pedidos vagos nem compromissos sem horário', async () => {

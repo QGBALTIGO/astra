@@ -13,6 +13,7 @@ WORKDIR /app
 
 # Copy package files (layer cached when only source changes)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches/ ./patches/
 COPY packages/core/package.json ./packages/core/
 COPY packages/gateway/package.json ./packages/gateway/
 COPY packages/cli/package.json ./packages/cli/
@@ -46,6 +47,7 @@ WORKDIR /app
 
 # Copy package files
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches/ ./patches/
 COPY packages/core/package.json ./packages/core/
 COPY packages/gateway/package.json ./packages/gateway/
 COPY packages/cli/package.json ./packages/cli/

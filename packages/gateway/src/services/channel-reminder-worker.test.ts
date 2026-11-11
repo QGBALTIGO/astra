@@ -99,6 +99,41 @@ describe('ChannelReminderWorker', () => {
     expect(mock.markDelivered).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, null, '', '   '])(
+    'does not report delivery when the adapter returns no receipt (%s)',
+    async (receipt) => {
+      mock.claimDue.mockResolvedValue([makeReminder('unconfirmed-send')]);
+      mock.send.mockResolvedValue(receipt);
+
+      expect(await dispatchDueChannelReminders()).toEqual({
+        claimed: 1,
+        delivered: 0,
+        failed: 1,
+      });
+      expect(mock.markDelivered).not.toHaveBeenCalled();
+      expect(mock.markFailed).toHaveBeenCalledWith(
+        'unconfirmed-send',
+        5,
+        'delivery_receipt_missing'
+      );
+    }
+  );
+
+  it('preserves attempts while the channel plugin is still starting', async () => {
+    mock.claimDue.mockResolvedValue([makeReminder('starting-channel', 5)]);
+    mock.getChannel.mockReturnValue(undefined);
+
+    expect(await dispatchDueChannelReminders()).toEqual({
+      claimed: 1,
+      delivered: 0,
+      failed: 0,
+    });
+    expect(mock.deferDisconnected).toHaveBeenCalledWith('starting-channel');
+    expect(mock.send).not.toHaveBeenCalled();
+    expect(mock.markFailed).not.toHaveBeenCalled();
+    expect(mock.markDelivered).not.toHaveBeenCalled();
+  });
+
   it('dispatches queued alerts on startup and every five seconds', async () => {
     vi.useFakeTimers();
     startChannelReminderWorker();
