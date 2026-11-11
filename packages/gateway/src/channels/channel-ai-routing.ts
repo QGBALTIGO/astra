@@ -690,9 +690,12 @@ async function processDirectAgentInSession(
     )
   );
   const channelReceipts: ChannelToolReceipt[] = [];
-  const opinionOnly = !message.attachments?.length && isConversationalOnlyChannelQuestion(interpreted.text);
+  const opinionOnly =
+    !message.attachments?.length && isConversationalOnlyChannelQuestion(interpreted.text);
   agent.setAdditionalTools?.(
-    opinionOnly ? [] : channelToolsForMessage(interpreted.text, recentChannelText(agent.getConversation()))
+    opinionOnly
+      ? []
+      : channelToolsForMessage(interpreted.text, recentChannelText(agent.getConversation()))
   );
   const result = await runInExecContext(
     {

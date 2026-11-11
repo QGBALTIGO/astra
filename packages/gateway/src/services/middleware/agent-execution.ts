@@ -305,7 +305,8 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
               if (second.value.usage && measuredUsage) {
                 measuredUsage = {
                   promptTokens: measuredUsage.promptTokens + second.value.usage.promptTokens,
-                  completionTokens: measuredUsage.completionTokens + second.value.usage.completionTokens,
+                  completionTokens:
+                    measuredUsage.completionTokens + second.value.usage.completionTokens,
                   totalTokens: measuredUsage.totalTokens + second.value.usage.totalTokens,
                 };
               }
@@ -336,7 +337,8 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         role: 'assistant',
         content:
           message.metadata.source === 'channel'
-            ? (safeOpinionReply ?? safeChannelResponse(result.value?.content ?? '', channelReceipts))
+            ? (safeOpinionReply ??
+              safeChannelResponse(result.value?.content ?? '', channelReceipts))
             : (result.value?.content ?? ''),
         metadata: {
           source: message.metadata.source,

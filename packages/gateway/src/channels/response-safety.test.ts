@@ -27,14 +27,14 @@ const reminder = (status = 'pending'): ChannelToolReceipt => ({
 
 describe('Channel responses use persisted facts without internal details', () => {
   it('returns an ordinary conversational reply without pretending a Pix was made', () => {
-    const natural = 'Acho que sim — se for um carinho espontâneo e couber no seu orçamento, por que não? 😊';
+    const natural =
+      'Acho que sim — se for um carinho espontâneo e couber no seu orçamento, por que não? 😊';
     expect(safeChannelResponse(natural, [])).toBe(natural);
     expect(safeChannelResponse('Registrei uma entrada de R$ 100.', [])).toBe(
       CHANNEL_UNVERIFIED_REPLY
     );
     expect(CHANNEL_UNVERIFIED_REPLY).not.toMatch(/tool_call|thinking|stack|erro interno|⚠️/i);
   });
-
 
   it('rebuilds the screenshot UUID acknowledgement from the saved reminder', () => {
     const text = `Lembrete agendado!\nO lembrete foi criado com o ID ${id} e está pendente de envio nesta conversa.`;
@@ -105,7 +105,9 @@ describe('Channel responses use persisted facts without internal details', () =>
       },
     ]);
     expect(reply).toContain('uma tarefa salva');
-    expect(reply).toMatch(/(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i);
+    expect(reply).toMatch(
+      /(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i
+    );
     expect(reply).not.toContain('um lembrete salvo');
   });
 
@@ -138,7 +140,9 @@ describe('Channel responses use persisted facts without internal details', () =>
     '{"tool_name":"core.schedule_channel_reminder","arguments":{"title":"teste"}}',
   ])('never forwards tool protocol or technical names: %s', (text) => {
     const reply = safeChannelResponse(text, []);
-    expect(reply).toMatch(/(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i);
+    expect(reply).toMatch(
+      /(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i
+    );
     expect(reply).not.toMatch(/core\.|use_tool|schedule_channel_reminder|arguments/);
   });
 
@@ -148,7 +152,9 @@ describe('Channel responses use persisted facts without internal details', () =>
       { name: 'core.add_task', arguments: '', content: '{"success":false}', isError: true },
     ]);
     expect(reply).toContain('*Lembrete agendado*');
-    expect(reply).toMatch(/(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i);
+    expect(reply).toMatch(
+      /(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i
+    );
     expect(reply).not.toContain('uma tarefa salva');
   });
 
@@ -181,7 +187,9 @@ describe('Channel responses use persisted facts without internal details', () =>
     expect(reply).toContain('*Tarefa concluída*');
     expect(reply).toContain('*Lembrete agendado*');
     expect(reply).toContain('12/11/2026, 11:46');
-    expect(reply).not.toMatch(/(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i);
+    expect(reply).not.toMatch(
+      /(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i
+    );
   });
 
   it('keeps both reminders and their amounts after removing internal IDs', () => {
@@ -219,7 +227,9 @@ describe('Channel responses use persisted facts without internal details', () =>
 
   it('an ID copied from an old message does not prove a new reminder was saved', () => {
     const reply = safeChannelResponse(`O lembrete foi criado com o ID ${id}.`, []);
-    expect(reply).toMatch(/(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i);
+    expect(reply).toMatch(
+      /(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i
+    );
     expect(reply).not.toContain(id);
   });
 
@@ -337,7 +347,9 @@ describe('Channel responses use persisted facts without internal details', () =>
       content: '{"success":false,"error":"database unavailable"}',
     };
     const reply = safeChannelResponse('Registrei a entrada de R$20.', [receipt]);
-    expect(reply).toMatch(/(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i);
+    expect(reply).toMatch(
+      /(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i
+    );
     expect(reply).not.toContain('✅');
     expect(reply).not.toContain('database');
   });
@@ -422,7 +434,9 @@ describe('Channel responses use persisted facts without internal details', () =>
     expect(reply).toContain('*Entrada registrada*');
     expect(reply).toContain('R$ 20,00');
     expect(reply.match(/\*Entrada registrada\*/g)).toHaveLength(1);
-    expect(reply).not.toMatch(/(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i);
+    expect(reply).not.toMatch(
+      /(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i
+    );
   });
 
   it.each([
@@ -430,7 +444,9 @@ describe('Channel responses use persisted facts without internal details', () =>
     '✅ *Entrada recebida*\n\n• *Valor:* R$ 770,00',
   ])('does not allow decorative success without receipts: %s', (text) => {
     const reply = safeChannelResponse(text, []);
-    expect(reply).toMatch(/(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i);
+    expect(reply).toMatch(
+      /(?:não tenho confirmação|não tenho uma alteração confirmada|ainda não está confirmada)/i
+    );
     expect(reply).not.toContain('✅');
   });
 

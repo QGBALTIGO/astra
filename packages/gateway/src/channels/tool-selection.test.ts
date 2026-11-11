@@ -67,7 +67,6 @@ describe('channel finance tool selection', () => {
   });
 });
 
-
 describe('Channel opinion questions do not authorize financial actions', () => {
   it.each([
     'A Gabrieli merece pix de 100 reais?',
