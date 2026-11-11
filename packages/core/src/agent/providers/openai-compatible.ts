@@ -211,6 +211,13 @@ export class OpenAICompatibleProvider implements IProvider {
    * (Ollama / LM Studio / vLLM at 127.0.0.1) and sets OWNPILOT_ALLOW_LOCAL_LLM_URL=true.
    */
   private async assertBaseUrlSafe(): Promise<void> {
+    // The Astra relay is the only approved loopback exception; never disable
+    // SSRF checks for other user-defined providers or arbitrary private hosts.
+    if (this.providerId === 'ollama-local' &&
+        process.env.ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN?.length >= 32 &&
+        /^http:\/\/127\.0\.0\.1:\d{2,5}\/_internal\/astra-ollama\/v1$/.test(this.config.baseUrl)) {
+      return;
+    }
     if (process.env.OWNPILOT_ALLOW_LOCAL_LLM_URL === 'true') return;
     if (await isPrivateUrlAsync(this.config.baseUrl)) {
       throw new ValidationError(
