@@ -13,6 +13,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
@@ -24,13 +26,15 @@ jobs:
           HUSKY: '0'
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = e0b1c4e0f5019548c88c1c7b44541374ccb5e0ad
+          base=e0b1c4e0f5019548c88c1c7b44541374ccb5e0ad
+          git merge-base --is-ancestor "$base" HEAD
           files=(packages/gateway/src/services/agent/service.ts packages/gateway/src/tools/channel-reminder-tools.test.ts packages/gateway/src/tools/channel-reminder-tools.ts packages/gateway/src/tools/customer-finance-tools.test.ts packages/gateway/src/tools/customer-finance-tools.ts)
+          git diff --name-only "$base" HEAD -- . ':!.github/workflows/release-format-once.yml' > /tmp/release-input-diff
+          test ! -s /tmp/release-input-diff
           pnpm exec prettier --write "${files[@]}"
           pnpm format:check
           git diff --check
           git add -- "${files[@]}"
-          git rm .github/workflows/release-format-once.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'style: format WhatsApp reliability release without behavior changes'
