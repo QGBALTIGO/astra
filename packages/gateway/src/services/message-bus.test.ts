@@ -937,6 +937,45 @@ describe('MessageBus.process() — error handling', () => {
     bus = new MessageBus();
   });
 
+  it('never exposes backend errors, SQL or client identifiers in a WhatsApp reply', async () => {
+    const secrets = 'DB SQLSTATE 23505 password=private-123 recipient=5511988877665';
+    const onError = vi.fn();
+    bus.useNamed('db-write-private', async (_message, ctx) => {
+      ctx.addWarning('internal customer token=secret');
+      throw new Error(secrets);
+    });
+    const result = await bus.process(
+      makeMessage({
+        metadata: {
+          source: 'channel',
+          platformChatId: '5511988877665',
+        },
+      }),
+      { stream: { onError } }
+    );
+    expect(result.response.content).toContain('confira o histórico');
+    expect(result.response.metadata.errorCode).toBe('CHANNEL_PROCESSING_FAILED');
+    expect(result.response.metadata).not.toHaveProperty('error');
+    expect(result.response.metadata).not.toHaveProperty('errorStage');
+    const publicFields = JSON.stringify({
+      content: result.response.content,
+      metadata: result.response.metadata,
+      warnings: result.warnings,
+    });
+    for (const forbidden of [
+      'SQLSTATE',
+      'private-123',
+      '5511988877665',
+      'db-write-private',
+      'secret',
+    ]) {
+      expect(publicFields).not.toContain(forbidden);
+    }
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: result.response.content })
+    );
+  });
+
   it('middleware throwing Error returns error result', async () => {
     bus.use(async () => {
       throw new Error('Something broke');

@@ -6,12 +6,53 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { InboundFloodGuard } from './flood-guard.js';
 
+const mockWarn = vi.hoisted(() => vi.fn());
+vi.mock('../services/log.js', () => ({
+  getLog: () => ({ warn: mockWarn, debug: vi.fn(), info: vi.fn(), error: vi.fn() }),
+}));
+
 describe('InboundFloodGuard', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
   });
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('tracks 500 distinct synthetic senders without cross-user throttling', () => {
+    const guard = new InboundFloodGuard({ maxPerWindow: 2, windowMs: 60_000 });
+    for (let i = 0; i < 500; i++) {
+      expect(guard.shouldDrop('channel.whatsapp', 'sim-user-' + i)).toBe(false);
+    }
+    for (let i = 0; i < 500; i++) {
+      expect(guard.shouldDrop('channel.whatsapp', 'sim-user-' + i)).toBe(false);
+    }
+    expect(guard.shouldDrop('channel.whatsapp', 'sim-user-0')).toBe(true);
+    expect(guard.shouldDrop('channel.whatsapp', 'sim-user-499')).toBe(true);
+    expect(guard.shouldDrop('channel.whatsapp', 'sim-user-250')).toBe(true);
+  });
+
+  it('never logs a real sender phone or a secret in rate-limit warnings', () => {
+    const guard = new InboundFloodGuard({ maxPerWindow: 1, windowMs: 60_000 });
+    expect(guard.shouldDrop('channel.whatsapp', '5511999988877')).toBe(false);
+    expect(guard.shouldDrop('channel.whatsapp', '5511999988877')).toBe(true);
+    expect(mockWarn).toHaveBeenCalledOnce();
+    const dump = JSON.stringify(mockWarn.mock.calls);
+    expect(dump).not.toContain('5511999988877');
+    expect(dump).toContain('activeSenderWindows');
+  });
+
+  it('falls back to bounded protective defaults for invalid limits', () => {
+    const guard = new InboundFloodGuard({
+      maxPerWindow: Number.NaN,
+      windowMs: Number.POSITIVE_INFINITY,
+      maxTracked: 0,
+    });
+    for (let i = 0; i < 20; i++) {
+      expect(guard.shouldDrop('ch', 'sim-user')).toBe(false);
+    }
+    expect(guard.shouldDrop('ch', 'sim-user')).toBe(true);
   });
 
   it('allows messages under the limit', () => {

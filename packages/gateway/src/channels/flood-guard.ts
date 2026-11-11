@@ -25,6 +25,11 @@ export interface FloodGuardOptions {
 const DEFAULT_MAX = parseInt(process.env.CHANNEL_INBOUND_RATE_LIMIT_MAX ?? '20', 10);
 const DEFAULT_WINDOW_MS = parseInt(process.env.CHANNEL_INBOUND_RATE_LIMIT_WINDOW_MS ?? '60000', 10);
 const DEFAULT_MAX_TRACKED = 10_000;
+/** Invalid settings must not silently disable flood protection or drop everyone. */
+function safeBound(value: number, defaultValue: number, min: number, max: number): number {
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < min) return defaultValue;
+  return Math.min(max, value);
+}
 
 export class InboundFloodGuard {
   private readonly windows = new Map<string, number[]>();
@@ -34,9 +39,14 @@ export class InboundFloodGuard {
   private readonly maxTracked: number;
 
   constructor(options: FloodGuardOptions = {}) {
-    this.maxPerWindow = options.maxPerWindow ?? DEFAULT_MAX;
-    this.windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;
-    this.maxTracked = options.maxTracked ?? DEFAULT_MAX_TRACKED;
+    this.maxPerWindow = safeBound(options.maxPerWindow ?? DEFAULT_MAX, 20, 1, 200);
+    this.windowMs = safeBound(options.windowMs ?? DEFAULT_WINDOW_MS, 60_000, 100, 3_600_000);
+    this.maxTracked = safeBound(
+      options.maxTracked ?? DEFAULT_MAX_TRACKED,
+      DEFAULT_MAX_TRACKED,
+      1,
+      100_000
+    );
   }
 
   /**
@@ -69,7 +79,8 @@ export class InboundFloodGuard {
       if (!this.recentlyWarned.has(key)) {
         log.warn('Inbound message dropped: sender exceeded rate limit', {
           channelPluginId,
-          platformUserId,
+          // Platform IDs are frequently customer phone numbers; never log them.
+          activeSenderWindows: this.windows.size,
           limit: this.maxPerWindow,
           windowMs: this.windowMs,
         });

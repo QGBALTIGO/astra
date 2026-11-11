@@ -141,10 +141,26 @@ export class MessageBus implements IMessageBus {
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
 
+        // A channel response is visible to a WhatsApp recipient. Never send a
+        // stack trace, stage name, SQL error, credential, or internal warning.
+        // Preserve the detailed error for non-channel diagnostic consumers.
+        const channelError = message.metadata.source === 'channel';
+        // Preserve safe channel type for downstream formatters; never echo
+        // chat IDs, phone numbers or arbitrary metadata in an error response.
+        const platform = message.metadata.platform;
+        const safePlatform =
+          typeof platform === 'string' &&
+          /^(?:whatsapp|telegram|discord|slack|email|signal|line|matrix)$/.test(platform)
+            ? platform
+            : undefined;
+        const publicError = new Error(
+          'Não tenho confirmação desse pedido agora. Se envolveu uma operação, confira o histórico antes de repetir.'
+        );
+
         // Notify stream callbacks of error (guard against callback throwing)
         try {
           const stream = ctx.get<StreamCallbacks>('stream');
-          stream?.onError?.(err);
+          stream?.onError?.(channelError ? publicError : err);
         } catch {
           /* stream callback error should not override pipeline error */
         }
@@ -154,18 +170,28 @@ export class MessageBus implements IMessageBus {
             id: randomUUID(),
             sessionId: message.sessionId,
             role: 'assistant',
-            content: `Error in pipeline stage '${stageName}': ${err.message}`,
-            metadata: {
-              ...message.metadata,
-              error: err.message,
-              errorStage: stageName,
-            },
+            content: channelError
+              ? publicError.message
+              : `Error in pipeline stage '${stageName}': ${err.message}`,
+            metadata: channelError
+              ? {
+                  source: message.metadata.source,
+                  ...(safePlatform ? { platform: safePlatform } : {}),
+                  errorCode: 'CHANNEL_PROCESSING_FAILED',
+                }
+              : {
+                  ...message.metadata,
+                  error: err.message,
+                  errorStage: stageName,
+                },
             timestamp: new Date(),
           },
           streamed: false,
           durationMs: Date.now() - startTime,
           stages: ctx.getStages(),
-          warnings: [...ctx.getWarnings(), `Pipeline error in '${stageName}': ${err.message}`],
+          warnings: channelError
+            ? ['O atendimento não foi concluído; sem confirmação de operação.']
+            : [...ctx.getWarnings(), `Pipeline error in '${stageName}': ${err.message}`],
         };
       }
     };
