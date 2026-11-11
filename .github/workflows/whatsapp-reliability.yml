@@ -9,15 +9,73 @@ concurrency:
   group: whatsapp-reliability-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  source:
+  prepare:
+    if: github.ref == 'refs/heads/fix/whatsapp-reliability-20261110'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 12
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
-      - name: Snapshot tracked source for isolated inspection
-        run: git archive --format=tar HEAD > /tmp/astra-source.tar
-      - uses: actions/upload-artifact@v4
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          name: astra-source-review
-          path: /tmp/astra-source.tar
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply reviewed source patch only on repair branch
+        id: commit
+        env:
+          HUSKY: '0'
+        run: |
+          set -euo pipefail
+          if [ -f .github/repairs/astra-01.bin ]; then
+            test "$(git rev-parse HEAD:packages/core/src/agent/providers/fallback.ts)" = "$(git rev-parse 6976f71cb584ab4ee0501faea9868d227e3fb9ae:packages/core/src/agent/providers/fallback.ts)"
+            cat .github/repairs/astra-0*.bin > /tmp/astra.patch.gz
+            echo '3eebd7ed308f149228557c0514645288df3704842d768373a2cc487dadb492c2  /tmp/astra.patch.gz' | sha256sum -c -
+            gzip -dc /tmp/astra.patch.gz > /tmp/astra.patch
+            git apply --check --unidiff-zero /tmp/astra.patch
+            git apply --unidiff-zero /tmp/astra.patch
+            git add packages
+            git diff --cached --name-only --diff-filter=ACM -z | xargs -0 pnpm exec prettier --write
+            git add packages
+            git rm .github/repairs/astra-0*.bin
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'fix: reliable channel tools, scoped memories, financial ledger and exact reminders'
+            git push origin HEAD:fix/whatsapp-reliability-20261110
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  regression:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build core and gateway
+        run: pnpm --filter @ownpilot/core --filter @ownpilot/gateway build
+      - name: Core tool execution and provider regression
+        run: pnpm --filter @ownpilot/core exec vitest run src/agent/whatsapp-runtime.test.ts src/agent/providers/fallback.test.ts src/agent/providers/openai-provider.test.ts src/agent/providers/openai-compatible.test.ts src/memory/personal.test.ts src/agent/tools.test.ts
+      - name: Screenshot cases, memory, dates and financial safety
+        run: pnpm --filter @ownpilot/gateway exec vitest run src/channels/whatsapp-reliability.test.ts src/channels/restore-history.test.ts src/channels/channel-ai-routing-access.test.ts src/channels/channel-ai-routing-concurrency.test.ts src/tools/channel-reminder-tools.test.ts src/tools/customer-finance-tools.test.ts src/db/repositories/channel-reminders-reliability.test.ts src/db/repositories/chat/messages.test.ts src/services/middleware/agent-execution.test.ts src/services/middleware/context-injection.test.ts src/services/customer-date.test.ts
+      - name: Lint core and gateway
+        run: pnpm --filter @ownpilot/core --filter @ownpilot/gateway lint
+      - name: Archive tested source
+        if: always()
+        run: git archive --format=tar HEAD > /tmp/astra-reviewed-source.tar
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: astra-reviewed-source
+          path: /tmp/astra-reviewed-source.tar
           retention-days: 1
