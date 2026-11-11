@@ -1388,6 +1388,26 @@ describe('getOrCreateChatAgent', () => {
     expect(config.systemPrompt).toBe('Test system prompt');
   });
 
+  it('gives the local Ollama model a larger response and sufficient bridge time', async () => {
+    const { agent } = makeMockAgent();
+    mockCreateAgent.mockReturnValue(agent);
+    await mod.getOrCreateChatAgent(
+      'ollama-local',
+      'qwen3:4b-instruct',
+      undefined,
+      null,
+      'channel:whatsapp:local-timeout',
+      undefined,
+      true
+    );
+    const config = mockCreateAgent.mock.calls.at(-1)?.[0] as
+      | (ChatAgentTestConfig & { provider: { timeout: number } })
+      | undefined;
+    expect(config?.provider.timeout).toBe(52_000);
+    expect(config?.model.maxTokens).toBe(1536);
+    expect(config?.memory.maxTokens).toBe(3072);
+  });
+
   it('uses a compact Portuguese prompt and 768 output tokens for Groq channels', async () => {
     const { agent } = makeMockAgent();
     mockCreateAgent.mockReturnValue(agent);

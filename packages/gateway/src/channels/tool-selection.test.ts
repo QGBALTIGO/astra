@@ -89,3 +89,28 @@ describe('Channel opinion questions do not authorize financial actions', () => {
     expect(channelToolsForMessage(question).length).toBeGreaterThan(0);
   });
 });
+
+
+describe('Conversational drafting and AI-only responses', () => {
+  it.each([
+    'Pede pro meu namorado me fazer pix de 100$',
+    'Pede pro meu namorado me fazer pix de 100 reais',
+    'Peça para o meu namorado me fazer um Pix de R$ 100',
+    'Escreve uma mensagem pro meu namorado pedindo R$ 100',
+    'Me ajuda a pedir um Pix de R$ 100 pro namorado',
+    'Pode escrever uma mensagem para Gabrieli?',
+    'Quero mandar uma mensagem para o meu namorado',
+  ])('does not expose financial tools for a writing request: %s', (input) => {
+    expect(channelToolsForMessage(input)).toEqual([]);
+  });
+
+  it.each([
+    'Paguei 470 reais de gasolina',
+    'Registra 100 reais recebidos do meu namorado',
+    'Me lembra amanhã de pedir o Pix',
+    'Quanto tenho a receber?',
+    'Pede pro meu namorado me pagar e registra uma entrada de R$ 100',
+  ])('preserves tools for actual or compound operations: %s', (input) => {
+    expect(channelToolsForMessage(input).length).toBeGreaterThan(0);
+  });
+});
