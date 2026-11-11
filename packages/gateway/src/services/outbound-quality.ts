@@ -69,7 +69,7 @@ export class OutboundQualityRepository extends BaseRepository {
       return;
     const flags = classifyOutboundResponse(data.text);
     await this.query(
-      \`WITH inserted AS (
+      `WITH inserted AS (
         INSERT INTO astra_outbound_quality_events
           (channel_id, external_id, char_count, flags)
         VALUES ($1, $2, $3, $4::jsonb)
@@ -88,7 +88,7 @@ export class OutboundQualityRepository extends BaseRepository {
           DO UPDATE SET count = astra_outbound_quality_daily.count + EXCLUDED.count
         RETURNING flag
       )
-      SELECT count(*) AS counted FROM counted\`,
+      SELECT count(*) AS counted FROM counted`,
       [
         data.channelId,
         data.externalId,
@@ -103,10 +103,10 @@ export class OutboundQualityRepository extends BaseRepository {
     if (!channelId || channelId.length > 128) throw new Error('Invalid channel ID');
     const boundedDays = Number.isFinite(days) ? Math.min(180, Math.max(1, Math.trunc(days))) : 30;
     const rows = await this.query<{ flag: string; count: string }>(
-      \`SELECT flag, COALESCE(SUM(count), 0)::text AS count
+      `SELECT flag, COALESCE(SUM(count), 0)::text AS count
        FROM astra_outbound_quality_daily
        WHERE channel_id = $1 AND day >= (CURRENT_DATE - ($2::integer - 1))
-       GROUP BY flag\`,
+       GROUP BY flag`,
       [channelId, boundedDays]
     );
     const totals: Record<string, number> = {};
@@ -118,7 +118,7 @@ export class OutboundQualityRepository extends BaseRepository {
       channelId,
       days: boundedDays,
       totalSent: totals.sent ?? 0,
-      flags: Object.fromEntries(QUALITY_FLAG_NAMES.map((flag) => [flag, totals[flag] ?? 0])),
+      flags: Object.fromEntries(QUALITY_FLAG_NAMES.map((flag) => [flag, totals[flag] ?? 0])) as Record<QualityFlag, number>,
       recommendations: recommendQualityImprovements(totals),
     };
   }
@@ -126,8 +126,8 @@ export class OutboundQualityRepository extends BaseRepository {
   async cleanupDetail(maxAgeDays = QUALITY_DETAIL_RETENTION_DAYS): Promise<number> {
     const days = Math.min(90, Math.max(1, Math.trunc(maxAgeDays) || 14));
     const result = await this.execute(
-      \`DELETE FROM astra_outbound_quality_events
-       WHERE created_at < NOW() - ($1::integer * INTERVAL '1 day')\`,
+      `DELETE FROM astra_outbound_quality_events
+       WHERE created_at < NOW() - ($1::integer * INTERVAL '1 day')`,
       [days]
     );
     return result.changes;
@@ -136,8 +136,8 @@ export class OutboundQualityRepository extends BaseRepository {
   async cleanupDaily(maxAgeDays = QUALITY_DAILY_RETENTION_DAYS): Promise<number> {
     const days = Math.min(365, Math.max(1, Math.trunc(maxAgeDays) || 180));
     const result = await this.execute(
-      \`DELETE FROM astra_outbound_quality_daily
-       WHERE day < CURRENT_DATE - $1::integer\`,
+      `DELETE FROM astra_outbound_quality_daily
+       WHERE day < CURRENT_DATE - $1::integer`,
       [days]
     );
     return result.changes;

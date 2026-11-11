@@ -15,6 +15,7 @@ import { createTriggersRepository } from '../db/repositories/triggers.js';
 import { getHeartbeatLogRepository } from '../db/repositories/heartbeats/log.js';
 import { embeddingCacheRepo } from '../db/repositories/embedding-cache.js';
 import { createLogsRepository } from '../db/repositories/logs.js';
+import { outboundQualityRepo } from './outbound-quality.js';
 import { getProviderMetricsRepository } from '../db/repositories/costs/provider-metrics.js';
 import { JobQueueService } from './job-queue-service.js';
 
@@ -29,6 +30,8 @@ interface RetentionResult {
 /** Table name → cleanup method (using factory functions for user-scoped repos) */
 const CLEANUP_METHODS: Record<string, () => Promise<number>> = {
   request_logs: () => createLogsRepository('default').cleanupOld(30),
+  astra_outbound_quality_events: () => outboundQualityRepo.cleanupDetail(14),
+  astra_outbound_quality_daily: () => outboundQualityRepo.cleanupDaily(180),
   claw_history: () => getClawsRepository().cleanupOldHistory(90),
   claw_audit_log: () => getClawsRepository().cleanupOldAuditLog(30),
   workflow_logs: () => createWorkflowsRepository('default').cleanupOldWorkflowLogs(90),
@@ -109,6 +112,8 @@ export function registerRetentionCleanupWorker(): () => void {
 
 const RETENTION_DAYS: Record<string, number> = {
   request_logs: 30,
+  astra_outbound_quality_events: 14,
+  astra_outbound_quality_daily: 180,
   audit_log: 90,
   claw_history: 90,
   claw_audit_log: 30,
