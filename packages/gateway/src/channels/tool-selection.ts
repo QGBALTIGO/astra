@@ -42,7 +42,7 @@ export function isConversationalOnlyChannelRequest(text: string): boolean {
     /^(?:pede|peca|fala|diz|diga)\s+(?:pro|pra|para\s+(?:o|a)|ao|a)\s+(?:(?:meu|minha|o|a)\s+)?(?:namorad[oa]|marido|esposa|mae|pai|amig[oa]|client[ea]|chefe|irma[oa])\b/.test(
       input
     ) ||
-    /^(?:(?:pode|poderia|consegue)\s+)?(?:escrev[ae]|redig[ae]|mont[ae]|cri[ae]|faz|faca|ger[ae])\s+(?:(?:uma|um)\s+)?(?:mensagem|texto|recado|pedido|convite|resposta)\b/.test(
+    /^(?:(?:pode|poderia|consegue)\s+)?(?:escrev(?:a|e|er)|redig(?:a|e|ir)|mont(?:a|e|ar)|cri(?:a|e|ar)|faz|faca|fazer|ger(?:a|e|ar))\s+(?:(?:uma|um)\s+)?(?:mensagem|texto|recado|pedido|convite|resposta)\b/.test(
       input
     ) ||
     /^(?:me ajuda|pode me ajudar|quero ajuda)\s+(?:a\s+)?(?:pedir|escrever|responder|falar|dizer)\b/.test(
