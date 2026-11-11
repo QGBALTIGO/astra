@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f .github/repairs/astra-01.bin ]; then
-            test "$(git rev-parse HEAD:packages/core/src/agent/providers/fallback.ts)" = "$(git rev-parse 6976f71cb584ab4ee0501faea9868d227e3fb9ae:packages/core/src/agent/providers/fallback.ts)"
+            test "$(git rev-parse HEAD:packages/core/src/agent/providers/fallback.ts)" = '5a36203d325da8e2a05ab4ac13cc9c65fc2f88e6'
             cat .github/repairs/astra-0*.bin > /tmp/astra.patch.gz
             echo '3eebd7ed308f149228557c0514645288df3704842d768373a2cc487dadb492c2  /tmp/astra.patch.gz' | sha256sum -c -
             gzip -dc /tmp/astra.patch.gz > /tmp/astra.patch
