@@ -66,6 +66,41 @@ describe('Astra local Ollama outbound relay', () => {
     expect((await app.request(base + '/worker/status', { headers })).status).toBe(200);
   });
 
+  it('releases an Ollama queue slot when the caller disconnects mid-inference', async () => {
+    const app = createTestApp();
+    const workerPromise = app.request(base + '/worker/next', { headers });
+    const abort = new AbortController();
+    const clientPromise = app.request(base + '/v1/chat/completions', {
+      method: 'POST',
+      signal: abort.signal,
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'qwen3:4b-instruct',
+        messages: [{ role: 'user', content: 'simulated cancellation' }],
+      }),
+    });
+    const worker = await workerPromise;
+    expect(worker.status).toBe(200);
+    const task = (await worker.json()) as { id: string };
+    const before = await app.request(base + '/worker/status', { headers });
+    expect(((await before.json()) as { pending: number }).pending).toBe(1);
+    abort.abort();
+    await clientPromise.catch(() => undefined);
+    const after = await app.request(base + '/worker/status', { headers });
+    expect(((await after.json()) as { pending: number }).pending).toBe(0);
+    const late = await app.request(base + '/worker/result', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: task.id,
+        result: {
+          choices: [{ message: { role: 'assistant', content: 'late' } }],
+        },
+      }),
+    });
+    expect(late.status).toBe(410);
+  });
+
   it('emits compatible SSE tool-call frames when the agent requests streaming', async () => {
     const app = createTestApp();
     const workerPromise = app.request(base + '/worker/next', { headers });
