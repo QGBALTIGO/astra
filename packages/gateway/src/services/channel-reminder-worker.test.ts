@@ -84,7 +84,7 @@ describe('ChannelReminderWorker', () => {
     expect(result).toEqual({ claimed: 1, delivered: 1, failed: 0 });
     expect(mock.send).toHaveBeenCalledWith('channel.telegram', {
       platformChatId: 'test-chat-not-user-or-plugin',
-      text: '⏰ Lembrete: Jogar o lixo fora',
+      text: '⏰ *Lembrete*\n\n• *Assunto:* Jogar o lixo fora',
     });
     expect(mock.markDelivered).toHaveBeenCalledWith('rem-1', 'telegram-message-123');
     expect(mock.markFailed).not.toHaveBeenCalled();

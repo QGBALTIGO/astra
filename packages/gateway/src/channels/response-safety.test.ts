@@ -4,6 +4,7 @@ import {
   successfulChannelTools,
   type ChannelToolReceipt,
 } from './response-safety.js';
+import { formatTransactionConfirmation } from './response-presentation.js';
 
 const id = 'f01834d8-a411-4ed6-947c-d35d410184bb';
 const reminder = (status = 'pending'): ChannelToolReceipt => ({
@@ -27,7 +28,7 @@ describe('Channel responses use persisted facts without internal details', () =>
   it('rebuilds the screenshot UUID acknowledgement from the saved reminder', () => {
     const text = `Lembrete agendado!\nO lembrete foi criado com o ID ${id} e está pendente de envio nesta conversa.`;
     expect(safeChannelResponse(text, [reminder()])).toBe(
-      'Lembrete agendado: Meu limite do Codex renova.\nData e hora: 12/11/2026, 11:46.'
+      '✅ *Lembrete agendado*\n\n• *Assunto:* Meu limite do Codex renova\n• *Data e hora:* 12/11/2026, 11:46\n\nVou avisar você por aqui.'
     );
   });
 
@@ -135,7 +136,7 @@ describe('Channel responses use persisted facts without internal details', () =>
       reminder(),
       { name: 'core.add_task', arguments: '', content: '{"success":false}', isError: true },
     ]);
-    expect(reply).toContain('um lembrete salvo');
+    expect(reply).toContain('*Lembrete agendado*');
     expect(reply).toContain('Não consegui confirmar');
     expect(reply).not.toContain('uma tarefa salva');
   });
@@ -157,17 +158,19 @@ describe('Channel responses use persisted facts without internal details', () =>
 
   it('does not discard another successful operation when confirming a reminder', () => {
     const text = 'Tarefa concluída. Lembrete agendado para 12/11 às 11h46.';
-    expect(
-      safeChannelResponse(text, [
-        reminder(),
-        {
-          name: 'core.complete_task',
-          arguments: '',
-          content: '{"success":true}',
-          isError: false,
-        },
-      ])
-    ).toBe(text);
+    const reply = safeChannelResponse(text, [
+      reminder(),
+      {
+        name: 'core.complete_task',
+        arguments: '',
+        content: '{"success":true}',
+        isError: false,
+      },
+    ]);
+    expect(reply).toContain('*Tarefa concluída*');
+    expect(reply).toContain('*Lembrete agendado*');
+    expect(reply).toContain('12/11/2026, 11:46');
+    expect(reply).not.toContain('Não consegui confirmar');
   });
 
   it('keeps both reminders and their amounts after removing internal IDs', () => {
@@ -182,12 +185,17 @@ describe('Channel responses use persisted facts without internal details', () =>
         status: 'pending',
       },
     });
-    expect(
-      safeChannelResponse(
-        `Lembretes agendados:\nCodex em 12/11 às 11h46 (ID: ${id})\nReceber R$ 770,00 em 20/11 às 12h (ID: ${secondId})`,
-        [reminder(), second]
-      )
-    ).toBe('Lembretes agendados:\nCodex em 12/11 às 11h46\nReceber R$ 770,00 em 20/11 às 12h');
+    const reply = safeChannelResponse(
+      `Lembretes agendados:\nCodex em 12/11 às 11h46 (ID: ${id})\nReceber R$ 770,00 em 20/11 às 12h (ID: ${secondId})`,
+      [reminder(), second]
+    );
+    expect(reply).toContain('Meu limite do Codex renova');
+    expect(reply).toContain('12/11/2026, 11:46');
+    expect(reply).toContain('Receber R$ 770,00');
+    expect(reply).toContain('20/11/2026, 12:00');
+    expect(reply.match(/\*Lembrete agendado\*/g)).toHaveLength(2);
+    expect(reply).not.toContain(id);
+    expect(reply).not.toContain(secondId);
   });
 
   it('does not claim no new reminder was created when another reminder was saved', () => {
@@ -202,5 +210,250 @@ describe('Channel responses use persisted facts without internal details', () =>
     const reply = safeChannelResponse(`O lembrete foi criado com o ID ${id}.`, []);
     expect(reply).toContain('Não consegui confirmar');
     expect(reply).not.toContain(id);
+  });
+
+  it.each([
+    ['income', 20, 'Recebimento', 'Outras entradas'],
+    ['expense', 19, 'Café da manhã', 'Alimentação'],
+    ['expense', 81, 'Pizza', 'Alimentação'],
+  ] as const)(
+    'uses the shared visual standard for a %s of %s',
+    (type, amount, description, categoryName) => {
+      const transaction = {
+        id,
+        type,
+        amount,
+        description,
+        categoryName,
+        date: '2026-11-11',
+        status: 'settled' as const,
+      };
+      const receipt: ChannelToolReceipt = {
+        name: 'core.record_transaction',
+        arguments: '',
+        isError: false,
+        content: JSON.stringify({ success: true, result: { transaction } }),
+      };
+      const expected = formatTransactionConfirmation({ ...transaction, category: categoryName });
+      for (const prose of [
+        'Confirmei um lançamento financeiro salvo.',
+        'Pronto, registrei o valor!',
+        `Registro salvo com ID ${id} por core.record_transaction.`,
+        '<tool_call>use_tool</tool_call></thinking>',
+      ]) {
+        expect(safeChannelResponse(prose, [receipt])).toBe(expected);
+      }
+      expect(expected).not.toContain(id);
+      expect(expected).not.toContain('**');
+    }
+  );
+
+  it('shows the persisted amount and pending status, never invented model details', () => {
+    const receipt: ChannelToolReceipt = {
+      name: 'core.record_transaction',
+      arguments: '{"amount":999}',
+      isError: false,
+      content: JSON.stringify({
+        success: true,
+        result: {
+          transaction: {
+            id,
+            type: 'income',
+            amount: 770,
+            status: 'pending',
+            date: '2026-11-20',
+            description: 'Cliente',
+            categoryName: 'Serviços',
+          },
+        },
+      }),
+    };
+    const reply = safeChannelResponse('Entrada recebida de R$999 no dia10.', [receipt]);
+    expect(reply).toContain('⏳ *Valor a receber registrado*');
+    expect(reply).toContain('R$ 770,00');
+    expect(reply).toContain('*Vencimento:* 20/11/2026');
+    expect(reply).not.toMatch(/999|recebida|dia10/);
+  });
+
+  it('keeps both confirmed financial and reminder details in a compound request', () => {
+    const receipt: ChannelToolReceipt = {
+      name: 'core.record_transaction',
+      arguments: '',
+      isError: false,
+      content: JSON.stringify({
+        success: true,
+        result: {
+          transaction: { id, type: 'income', amount: 20, status: 'settled', date: '2026-11-11' },
+        },
+      }),
+    };
+    const reply = safeChannelResponse('Pronto!', [receipt, reminder()]);
+    expect(reply).toContain('*Entrada registrada*');
+    expect(reply).toContain('R$ 20,00');
+    expect(reply).toContain('*Lembrete agendado*');
+    expect(reply).toContain('12/11/2026, 11:46');
+  });
+
+  it('does not lose a requested read result when standardizing a write', () => {
+    const receipt: ChannelToolReceipt = {
+      name: 'core.record_transaction',
+      arguments: '',
+      isError: false,
+      content: JSON.stringify({
+        success: true,
+        result: { transaction: { id, type: 'income', amount: 20 } },
+      }),
+    };
+    const answer = 'Entrada registrada. Seu saldo é R$120,00.';
+    expect(
+      safeChannelResponse(answer, [
+        receipt,
+        {
+          name: 'core.financial_summary',
+          arguments: '',
+          content: '{"balance":120}',
+          isError: false,
+        },
+      ])
+    ).toBe(answer);
+  });
+
+  it('does not decorate an unconfirmed financial operation as a success', () => {
+    const receipt: ChannelToolReceipt = {
+      name: 'core.record_transaction',
+      arguments: '{"type":"income","amount":20}',
+      isError: true,
+      content: '{"success":false,"error":"database unavailable"}',
+    };
+    const reply = safeChannelResponse('Registrei a entrada de R$20.', [receipt]);
+    expect(reply).toContain('Não consegui confirmar');
+    expect(reply).not.toContain('✅');
+    expect(reply).not.toContain('database');
+  });
+
+  it.each(['', 'Pronto!'])(
+    'discloses a failed reminder beside a saved income even when model says %s',
+    (text) => {
+      const receipts: ChannelToolReceipt[] = [
+        {
+          name: 'core.record_transaction',
+          arguments: '{}',
+          isError: false,
+          content: JSON.stringify({
+            transaction: { id, type: 'income', amount: 20, status: 'settled', date: '2026-11-11' },
+          }),
+        },
+        {
+          name: 'core.schedule_channel_reminder',
+          arguments: '{"title":"teste"}',
+          isError: true,
+          content: '{"success":false}',
+        },
+      ];
+      const reply = safeChannelResponse(text, receipts);
+      expect(reply).toContain('*Entrada registrada*');
+      expect(reply).toContain('R$ 20,00');
+      expect(reply).toContain('Não consegui confirmar o agendamento do lembrete');
+      expect(reply).not.toContain('*Atualização concluída*');
+      expect(reply).not.toContain('*Lembrete agendado*');
+    }
+  );
+
+  it('formats only the latest state of an idempotent or corrected ledger row', () => {
+    const recorded: ChannelToolReceipt = {
+      name: 'core.record_transaction',
+      arguments: '{}',
+      isError: false,
+      content: JSON.stringify({ transaction: { id, type: 'expense', amount: 19 } }),
+    };
+    const updated: ChannelToolReceipt = {
+      name: 'core.update_transaction',
+      arguments: '{}',
+      isError: false,
+      content: JSON.stringify({ transaction: { id, type: 'income', amount: 20 } }),
+    };
+    const reply = safeChannelResponse('Pronto!', [recorded, recorded, updated]);
+    expect(reply).toContain('*Entrada atualizada*');
+    expect(reply).toContain('R$ 20,00');
+    expect(reply).not.toContain('R$ 19,00');
+    expect(reply.match(/\*Valor:\*/g)).toHaveLength(1);
+  });
+
+  it('does not merge distinct saved records just because their visible fields match', () => {
+    const receipts: ChannelToolReceipt[] = ['record-one', 'record-two'].map((recordId) => ({
+      name: 'core.record_transaction',
+      arguments: '{}',
+      isError: false,
+      content: JSON.stringify({ transaction: { id: recordId, type: 'income', amount: 20 } }),
+    }));
+    const reply = safeChannelResponse('Pronto!', receipts);
+    expect(reply.match(/\*Entrada registrada\*/g)).toHaveLength(2);
+  });
+
+  it('shows the final saved confirmation when a retry recovers the same operation', () => {
+    const args = '{"type":"income","amount":20,"description":"Recebimento"}';
+    const reply = safeChannelResponse('Pronto!', [
+      {
+        name: 'core.record_transaction',
+        arguments: args,
+        content: '{"success":false}',
+        isError: true,
+      },
+      {
+        name: 'core.record_transaction',
+        arguments: args,
+        content: JSON.stringify({
+          transaction: { id, type: 'income', amount: 20, description: 'Recebimento' },
+        }),
+        isError: false,
+      },
+    ]);
+    expect(reply).toContain('*Entrada registrada*');
+    expect(reply).toContain('R$ 20,00');
+    expect(reply.match(/\*Entrada registrada\*/g)).toHaveLength(1);
+    expect(reply).not.toContain('Não consegui confirmar');
+  });
+
+  it.each([
+    'Confirmei um lançamento financeiro salvo.',
+    '✅ *Entrada recebida*\n\n• *Valor:* R$ 770,00',
+  ])('does not allow decorative success without receipts: %s', (text) => {
+    const reply = safeChannelResponse(text, []);
+    expect(reply).toContain('Não consegui confirmar');
+    expect(reply).not.toContain('✅');
+  });
+
+  it('presents a successful task completion even without model prose', () => {
+    const reply = safeChannelResponse('', [
+      {
+        name: 'core.complete_task',
+        arguments: '{"taskId":"synthetic"}',
+        content: '{"success":true}',
+        isError: false,
+      },
+    ]);
+    expect(reply).toBe('✅ *Tarefa concluída*');
+  });
+
+  it('standardizes an update after its preparatory lookup without dropping a requested summary', () => {
+    const receipts: ChannelToolReceipt[] = [
+      {
+        name: 'core.list_transactions',
+        arguments: '{"search":"pizza"}',
+        content: '{"transactions":[]}',
+        isError: false,
+      },
+      {
+        name: 'core.update_transaction',
+        arguments: '{}',
+        content: JSON.stringify({ transaction: { id, type: 'income', amount: 20 } }),
+        isError: false,
+      },
+    ];
+    expect(safeChannelResponse('Entrada atualizada.', receipts)).toContain(
+      '*Entrada atualizada*\n\n• *Valor:* R$ 20,00'
+    );
+    const withSummary = 'Entrada atualizada. Você ainda tem R$ 200,00 a receber.';
+    expect(safeChannelResponse(withSummary, receipts)).toBe(withSummary);
   });
 });

@@ -1,5 +1,15 @@
 /** Final channel boundary: model text is not proof of a database write. */
 import { stripInternalTags } from './normalizers/base.js';
+import {
+  formatAstraMessage,
+  formatReminderConfirmation,
+  formatTransactionConfirmation,
+} from './response-presentation.js';
+import {
+  channelOperations,
+  failedChannelOperations,
+  isFailedChannelReceipt,
+} from './receipt-state.js';
 
 export interface ChannelToolReceipt {
   name: string;
@@ -110,7 +120,71 @@ function reminderConfirmation(receipts: ChannelToolReceipt[]): string | null {
     normalizeName(receipt.name) === 'reschedule_channel_reminder' ? 'reagendado' : 'agendado';
   const detail = cleanIdentifiers(stripInternalTags(saved.title), internalIds(receipts));
   if (!detail || INTERNAL_TOOL.test(detail) || protocol.test(detail)) return null;
-  return `Lembrete ${action}: ${detail}.\nData e hora: ${saved.horarioLocal}.`;
+  return formatReminderConfirmation(
+    { title: detail, horarioLocal: saved.horarioLocal, status: 'pending' },
+    action === 'reagendado' ? 'rescheduled' : 'scheduled'
+  );
+}
+
+/** The same persisted ledger row must look the same across model/provider paths. */
+function transactionConfirmation(receipt: ChannelToolReceipt, ids: Set<string>): string | null {
+  const name = normalizeName(receipt.name);
+  if (!/^(?:record_transaction|update_transaction|add_expense|update_expense)$/.test(name))
+    return null;
+  if (!successfulChannelTools([receipt]).has(name)) return null;
+  const envelope = object(json(receipt.content));
+  const result = object(envelope?.result) ?? envelope;
+  const saved = object(result?.transaction) ?? object(result?.expense) ?? result;
+  if (
+    !saved ||
+    typeof saved.amount !== 'number' ||
+    !Number.isFinite(saved.amount) ||
+    saved.amount <= 0
+  )
+    return null;
+  const savedType = saved.type ?? saved.transactionType ?? saved.transaction_type;
+  const type = savedType ?? (name === 'add_expense' ? 'expense' : undefined);
+  if (type !== 'income' && type !== 'expense') return null;
+  const field = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    const clean = cleanIdentifiers(stripInternalTags(value), ids);
+    return clean && !INTERNAL_TOOL.test(clean) && !protocol.test(clean) ? clean : undefined;
+  };
+  return formatTransactionConfirmation(
+    {
+      type,
+      status: saved.status === 'pending' || saved.status === 'settled' ? saved.status : undefined,
+      amount: saved.amount,
+      currency: field(saved.currency),
+      description: field(saved.description),
+      category: field(saved.categoryName ?? saved.category),
+      date: field(saved.date),
+    },
+    name.startsWith('update_') ? 'updated' : result?.created === false ? 'existing' : 'created'
+  );
+}
+
+function taskConfirmation(receipt: ChannelToolReceipt, ids: Set<string>): string | null {
+  const name = normalizeName(receipt.name);
+  if (
+    !/^(?:add|update|complete|delete)_task$/.test(name) ||
+    !successfulChannelTools([receipt]).has(name)
+  )
+    return null;
+  const envelope = object(json(receipt.content));
+  const result = object(envelope?.result) ?? envelope;
+  const task = object(result?.task) ?? result;
+  const title =
+    typeof task?.title === 'string' ? cleanIdentifiers(stripInternalTags(task.title), ids) : '';
+  if (title && (INTERNAL_TOOL.test(title) || protocol.test(title))) return null;
+  if (!title && name === 'add_task') return null;
+  const labels: Record<string, string> = {
+    add_task: '✅ Tarefa criada',
+    update_task: '✅ Tarefa atualizada',
+    complete_task: '✅ Tarefa concluída',
+    delete_task: '🗑️ Tarefa excluída',
+  };
+  return formatAstraMessage(labels[name]!, title ? [{ label: 'Tarefa', value: title }] : []);
 }
 
 /** Resolve native and meta-tool receipts, including partial batch failures. */
@@ -143,16 +217,22 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
   const lower = clean
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[*_~`]/g, '')
     .toLowerCase();
   // Negate the action itself, not the entire sentence: "Não se preocupe, criei"
   // is still a success claim, and a failed action cannot excuse another claim.
   const statements = lower
     .split(/[.!?\n]+/)
     .map((sentence) =>
-      sentence.replace(
-        /\b(?:nao|nunca)\s+(?:(?:re)?agendei|salvei|guardei|memorizei|criei|registrei|lancei|corrigi|alterei|atualizei|exclui|removi|vou\s+(?:te\s+)?(?:avisar|lembrar))\b/g,
-        ''
-      )
+      sentence
+        .replace(
+          /\b(?:nao|nunca)\s+(?:(?:re)?agendei|salvei|guardei|memorizei|criei|registrei|lancei|corrigi|alterei|atualizei|exclui|removi|vou\s+(?:te\s+)?(?:avisar|lembrar))\b/g,
+          ''
+        )
+        .replace(
+          /\bnao\s+(?:(?:foi|foram|esta|estao)\s+)?(?:salv[oa]s?|registrad[oa]s?|recebid[oa]s?|pag[oa]s?|confirmad[oa]s?)\b/g,
+          ''
+        )
     );
   let unsupported = false;
   for (const sentence of statements) {
@@ -181,9 +261,31 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     )
       unsupported = true;
     if (
-      /\b(?:registrei|lancei|registrad[oa]|lancad[oa])\b/.test(sentence) &&
+      /\b(?:registrei|lancei|confirmei|salvei|registrad[oa]|lancad[oa]|salv[oa])\b/.test(
+        sentence
+      ) &&
       /\b(?:entrada|saida|despesa|receita|recebimento|lancamento|valor)\b/.test(sentence) &&
-      !has('record_transaction', 'add_expense', 'batch_add_expenses', 'record_financing_payment')
+      !has('record_transaction', 'add_expense', 'batch_add_expenses', 'record_financing_payment') &&
+      !(
+        !/\b(?:registrei|lancei|confirmei|salvei)\b/.test(sentence) &&
+        has('list_transactions', 'financial_summary', 'list_expenses', 'expense_summary')
+      )
+    )
+      unsupported = true;
+    if (
+      /\b(?:entrada|saida|despesa|receita|recebimento|lancamento|valor)\b/.test(sentence) &&
+      /\b(?:recebid[oa]|pag[oa])\b/.test(sentence) &&
+      !has(
+        'record_transaction',
+        'update_transaction',
+        'add_expense',
+        'batch_add_expenses',
+        'record_financing_payment',
+        'list_transactions',
+        'financial_summary',
+        'list_expenses',
+        'expense_summary'
+      )
     )
       unsupported = true;
     if (
@@ -203,10 +305,48 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
   // A reminder-only acknowledgement must not replace the result of a compound
   // request. Count actual operations, including failed ones and repeated calls
   // to the same tool; discovery/wrapper receipts do not represent extra work.
-  const operations = receipts.filter(
-    (receipt) =>
-      !/^(?:use_tool|batch_use_tool|search_tools|get_tool_help)$/.test(normalizeName(receipt.name))
+  const failures = failedChannelOperations(receipts);
+  const unresolvedFailures = new Set(failures);
+  const operations = channelOperations(receipts).filter(
+    (receipt) => !isFailedChannelReceipt(receipt) || unresolvedFailures.has(receipt)
   );
+  const failureAcknowledged =
+    failures.length === 0 ||
+    /\b(?:nao consegui|nao foi possivel|nao pude|falhou|falharam|nao (?:foi|foram) (?:salv|criad|agendad|registrad)[oa]s?|erro ao)\b/.test(
+      lower
+    );
+  const ids = internalIds(receipts);
+  const confirmations = operations.map(
+    (receipt) =>
+      transactionConfirmation(receipt, ids) ??
+      reminderConfirmation([receipt]) ??
+      taskConfirmation(receipt, ids)
+  );
+  // Format known action results without another model call. Only replace the
+  // complete reply when every operation is represented, so an unrelated query
+  // or a partial failure is never lost behind one successful confirmation.
+  if (
+    confirmations.length &&
+    confirmations.every((confirmation) => confirmation !== null) &&
+    !unsupported &&
+    failures.length === 0
+  )
+    return confirmations.join('\n\n');
+  const bareAcknowledgement =
+    /^(?:pronto|feito|certo|ok|(?:a\s+|o\s+)?(?:entrada|despesa|lancamento|tarefa|lembrete)\s+(?:foi\s+)?(?:atualizad[oa]|registrad[oa]|salv[oa]|corrigid[oa]|agendad[oa]|criad[oa]))[.!\s]*$/.test(
+      lower.replace(/^[^\p{L}\p{N}]+/u, '')
+    );
+  if (
+    !unsupported &&
+    !failures.length &&
+    bareAcknowledgement &&
+    confirmations.some(Boolean) &&
+    operations.every(
+      (receipt, index) =>
+        confirmations[index] || /^(?:list_|search_|get_)/.test(normalizeName(receipt.name))
+    )
+  )
+    return confirmations.filter(Boolean).join('\n\n');
   const onlyReminder =
     operations.length === 1 &&
     /^(?:schedule|reschedule)_channel_reminder$/.test(normalizeName(operations[0]!.name));
@@ -216,7 +356,7 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
   const otherWrites = [...tools].some((name) =>
     /^(?:add_|batch_add_|create_|batch_create_|record_|update_|delete_|cancel_)/.test(name)
   );
-  if (reminder && !unsupported && !otherWrites) return reminder;
+  if (reminder && !unsupported && !otherWrites && failures.length === 0) return reminder;
   if (onlyReminder && !otherWrites) {
     for (const receipt of receipts) {
       if (
@@ -228,12 +368,27 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
       if (envelope?.success === false || envelope?.error || envelope?.isError) continue;
       const saved = object(envelope?.result) ?? envelope;
       if (saved?.status === 'delivered')
-        return 'Esse lembrete já foi enviado. Não criei outro aviso.';
+        return formatAstraMessage(
+          '✅ Lembrete já enviado',
+          [],
+          'Esse lembrete já foi enviado. Não criei outro aviso.'
+        );
       if (saved?.status === 'cancelled')
-        return 'Esse lembrete já estava cancelado. Não criei outro aviso.';
+        return formatAstraMessage(
+          'ℹ️ Lembrete cancelado',
+          [],
+          'Esse lembrete já estava cancelado. Não criei outro aviso.'
+        );
     }
   }
-  if (!protocol.test(text) && !internalTool && clean && !unsupported && !removedIdentifiers)
+  if (
+    !protocol.test(text) &&
+    !internalTool &&
+    clean &&
+    !unsupported &&
+    !removedIdentifiers &&
+    failureAcknowledged
+  )
     return clean;
   // Lists and compound reminder requests often contain an ID beside a useful
   // amount/title. Keep the complete answer, including any partial-failure notice,
@@ -242,6 +397,7 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     removedIdentifiers &&
     clean &&
     !unsupported &&
+    failureAcknowledged &&
     !internalTool &&
     !protocol.test(text) &&
     ((!onlyReminder && has('schedule_channel_reminder', 'reschedule_channel_reminder')) ||
@@ -253,20 +409,72 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
   ) {
     return clean;
   }
+  const detailedTools = new Set(
+    operations
+      .filter((_, index) => confirmations[index] !== null)
+      .map((receipt) => normalizeName(receipt.name))
+  );
   const confirmed: string[] = [];
-  if (has('schedule_channel_reminder', 'reschedule_channel_reminder'))
-    confirmed.push('um lembrete salvo');
-  if (has('record_transaction', 'add_expense', 'batch_add_expenses'))
-    confirmed.push('um lançamento financeiro salvo');
-  if (has('update_transaction', 'update_expense'))
-    confirmed.push('a atualização do lançamento financeiro');
-  if (has('delete_transaction', 'delete_expense'))
-    confirmed.push('a exclusão do lançamento financeiro');
-  if (has('add_task', 'batch_add_tasks')) confirmed.push('uma tarefa salva');
-  if (has('create_memory', 'batch_create_memories'))
-    confirmed.push('a informação salva na memória');
-  if (has('cancel_channel_reminder')) confirmed.push('o cancelamento do lembrete');
-  return confirmed.length
-    ? `Confirmei ${confirmed.join(' e ')}.${unsupported || protocol.test(text) ? ' Não consegui confirmar as demais partes da resposta. Confira os registros antes de repetir o pedido.' : ''}`
-    : 'Não consegui confirmar a execução desse pedido. Não vou informar que ficou pronto sem verificar. Confira seus registros antes de tentar novamente; para um lembrete, informe o assunto e o horário.';
+  const summarize = (detail: string, ...names: string[]): void => {
+    if (has(...names) && !names.some((name) => detailedTools.has(name))) confirmed.push(detail);
+  };
+  summarize('um lembrete salvo', 'schedule_channel_reminder', 'reschedule_channel_reminder');
+  summarize(
+    'um lançamento financeiro salvo',
+    'record_transaction',
+    'add_expense',
+    'batch_add_expenses'
+  );
+  summarize('a atualização do lançamento financeiro', 'update_transaction', 'update_expense');
+  summarize('a exclusão do lançamento financeiro', 'delete_transaction', 'delete_expense');
+  summarize('uma tarefa salva', 'add_task', 'batch_add_tasks');
+  summarize('a tarefa concluída', 'complete_task');
+  summarize('a tarefa atualizada', 'update_task');
+  summarize('a exclusão da tarefa', 'delete_task');
+  summarize('a informação salva na memória', 'create_memory', 'batch_create_memories');
+  summarize('o cancelamento do lembrete', 'cancel_channel_reminder');
+  const details = confirmations.filter(
+    (confirmation): confirmation is string => confirmation !== null
+  );
+  if (confirmed.length || details.length) {
+    const needsReview = unsupported || protocol.test(text) || failures.length > 0;
+    // If only a subset has enough saved details, retain a truthful summary of
+    // the other successful operations instead of dropping them for appearance.
+    const summary = confirmed.length
+      ? formatAstraMessage(needsReview ? '✅ Parte concluída' : '✅ Atualização concluída', [
+          { label: 'Confirmado', value: confirmed.join(' e ') },
+        ])
+      : '';
+    const failedLabels: Record<string, string> = {
+      schedule_channel_reminder: 'o agendamento do lembrete',
+      reschedule_channel_reminder: 'a alteração do lembrete',
+      cancel_channel_reminder: 'o cancelamento do lembrete',
+      add_task: 'a criação da tarefa',
+      complete_task: 'a conclusão da tarefa',
+      update_task: 'a alteração da tarefa',
+      delete_task: 'a exclusão da tarefa',
+      record_transaction: 'o registro financeiro',
+      update_transaction: 'a correção do lançamento',
+      delete_transaction: 'a exclusão do lançamento',
+      create_memory: 'o salvamento da informação',
+    };
+    const pending = [
+      ...new Set(
+        failures.map((receipt) => failedLabels[normalizeName(receipt.name)] ?? 'uma das etapas')
+      ),
+    ];
+    const notice = needsReview
+      ? formatAstraMessage(
+          '⚠️ Uma parte precisa de atenção',
+          [],
+          `Não consegui confirmar ${pending.length ? pending.join(' e ') : 'as demais partes do pedido'}. Confira o que foi salvo antes de tentar novamente.`
+        )
+      : '';
+    return [...details, summary, notice].filter(Boolean).join('\n\n');
+  }
+  return formatAstraMessage(
+    '⚠️ Não consegui confirmar o pedido',
+    [],
+    'Não consegui confirmar a execução. Confira seus registros antes de tentar novamente.'
+  );
 }

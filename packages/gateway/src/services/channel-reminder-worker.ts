@@ -10,6 +10,7 @@ import { getOwnerUserId } from './pairing-service.js';
 import { getLog } from './log.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { resolveCustomerPhone } from './customer-identity.js';
+import { formatAstraMessage } from '../channels/response-presentation.js';
 
 const log = getLog('ChannelReminderWorker');
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -76,7 +77,7 @@ export async function dispatchDueChannelReminders(): Promise<{
         }
         const id = await channels.send(entry.channelPluginId, {
           platformChatId,
-          text: `⏰ Lembrete: ${entry.title}`,
+          text: formatAstraMessage('⏰ Lembrete', [{ label: 'Assunto', value: entry.title }]),
         });
         if (typeof id !== 'string' || !id.trim()) {
           // An empty receipt is ambiguous: the transport may already have sent

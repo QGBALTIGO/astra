@@ -8,6 +8,7 @@ import {
   type CustomerTransactionType,
 } from '../db/repositories/customer-finance.js';
 import { getLog } from '../services/log.js';
+import { formatAstraMessage, formatTransactionConfirmation } from './response-presentation.js';
 
 const log = getLog('CustomerFinanceChannel');
 type Message = Pick<
@@ -152,6 +153,10 @@ function formatAmount(amount: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount);
 }
 
+function formatDay(date: string): string {
+  return validateCustomerFinanceDate(date).split('-').reverse().join('/');
+}
+
 export async function tryCustomerFinancialChannelReply(
   message: Message,
   dataUserId: string
@@ -197,7 +202,19 @@ export async function tryCustomerFinancialChannelReply(
         return 'Não encontrei essa pendência. Confira a descrição no painel; nenhum lançamento foi criado.';
       if (outcome.outcome === 'ambiguous')
         return 'Há mais de uma pendência com essa descrição. Escolha o lançamento no painel para confirmar, sem duplicar os registros.';
-      return `${outcome.outcome === 'duplicate' ? 'Essa confirmação já foi processada.' : 'Atualizei o mesmo lançamento.'} ${outcome.transaction.description}: ${formatAmount(outcome.transaction.amount)}. Situação: ${outcome.transaction.status === 'pending' ? (outcome.transaction.type === 'income' ? 'a receber' : 'a pagar') : outcome.transaction.type === 'income' ? 'recebido' : 'pago'}.`;
+      const saved = outcome.transaction;
+      return formatTransactionConfirmation(
+        {
+          type: saved.type,
+          status: saved.status,
+          amount: saved.amount,
+          currency: saved.currency,
+          description: saved.description,
+          category: saved.categoryName,
+          date: saved.date,
+        },
+        outcome.outcome === 'duplicate' ? 'existing' : 'updated'
+      );
     }
     if (query) {
       let from = `${today.slice(0, 7)}-01`;
@@ -210,16 +227,39 @@ export async function tryCustomerFinancialChannelReply(
         from = `${to.slice(0, 7)}-01`;
       }
       const summary = await repo.summary(from, to);
+      const period = `${formatDay(summary.period.from)} a ${formatDay(summary.period.to)}`;
       if (/pendencias|a pagar|a receber/.test(normalized)) {
-        return `Pendências de ${from} a ${to}:\nA receber: ${formatAmount(summary.pendingIncome)}.\nA pagar: ${formatAmount(summary.pendingExpenses)}.\nEsses valores ainda não entram no resultado realizado. Para confirmar um item, diga: "Marque como paga a pendência Internet" ou "Marque como recebida a pendência Salário".`;
+        return formatAstraMessage(
+          '⏳ Pendências',
+          [
+            { label: 'Período', value: period },
+            { label: 'A receber', value: formatAmount(summary.pendingIncome) },
+            { label: 'A pagar', value: formatAmount(summary.pendingExpenses) },
+          ],
+          'Esses valores ainda não entram no resultado realizado. Para confirmar um item, diga: "Marque como paga a pendência Internet" ou "Marque como recebida a pendência Salário".'
+        );
       }
       if (/quanto (?:recebi|entrou)/.test(normalized))
-        return `Entradas recebidas de ${from} a ${to}: ${formatAmount(summary.income)}. As entradas pendentes não foram somadas.`;
-      return `Resumo financeiro de ${from} a ${to}:\nEntradas recebidas: ${formatAmount(summary.income)}.\nDespesas pagas: ${formatAmount(summary.expenses)}.\nResultado realizado: ${formatAmount(summary.result)}.\nA receber: ${formatAmount(summary.pendingIncome)}.\nA pagar: ${formatAmount(summary.pendingExpenses)}.`;
+        return formatAstraMessage(
+          '📊 Entradas recebidas',
+          [
+            { label: 'Período', value: period },
+            { label: 'Total recebido', value: formatAmount(summary.income) },
+          ],
+          'As entradas pendentes não foram somadas.'
+        );
+      return formatAstraMessage('📊 Resumo financeiro', [
+        { label: 'Período', value: period },
+        { label: 'Entradas recebidas', value: formatAmount(summary.income) },
+        { label: 'Despesas pagas', value: formatAmount(summary.expenses) },
+        { label: 'Resultado realizado', value: formatAmount(summary.result) },
+        { label: 'A receber', value: formatAmount(summary.pendingIncome) },
+        { label: 'A pagar', value: formatAmount(summary.pendingExpenses) },
+      ]);
     }
     if (!record) return null;
     if (record.status === 'pending' && !record.dateText)
-      return 'Qual é a data dessa pendência? Por exemplo: "Tenho 120 reais a pagar de Internet em 2026-11-12". Ainda não registrei o valor.';
+      return 'Qual é a data dessa pendência? Por exemplo: "Tenho 120 reais a pagar de Internet amanhã". Ainda não registrei o valor.';
     const date = resolveDay(record.dateText, today);
     if (record.status === 'settled' && date > today)
       return 'Essa data ainda não chegou. Confirme se é uma pendência a pagar ou a receber; nenhum lançamento foi criado.';
@@ -234,15 +274,18 @@ export async function tryCustomerFinancialChannelReply(
       },
       sourceKey
     );
-    const status =
-      transaction.status === 'pending'
-        ? transaction.type === 'income'
-          ? 'a receber'
-          : 'a pagar'
-        : transaction.type === 'income'
-          ? 'recebido'
-          : 'pago';
-    return `${created ? 'Registrei' : 'Esse lançamento já estava registrado:'} ${formatAmount(transaction.amount)} ${status}: ${transaction.description}, em ${transaction.date}.${transaction.status === 'pending' ? ' O valor fica separado dos realizados.' : ''}`;
+    return formatTransactionConfirmation(
+      {
+        type: transaction.type,
+        status: transaction.status,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        description: transaction.description,
+        category: transaction.categoryName,
+        date: transaction.date,
+      },
+      created ? 'created' : 'existing'
+    );
   } catch (error) {
     log.warn('Operação financeira do canal não concluída', {
       category: error instanceof Error ? error.name : 'unknown',

@@ -39,6 +39,12 @@ jobs:
         run: >-
           pnpm --filter @ownpilot/gateway exec vitest run
           src/channels/response-safety.test.ts
+          src/channels/response-presentation.test.ts
+          src/channels/receipt-state.test.ts
+          src/channels/channel-style-integration.test.ts
+          src/channels/timezone-routing.test.ts
+          src/channels/finance-routing.test.ts
+          src/channels/customer-finance-routing.test.ts
           src/channels/channel-ai-routing-quick.test.ts
           src/channels/tool-selection.test.ts
           src/channels/plugins/whatsapp/index.test.ts

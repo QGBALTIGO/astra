@@ -34,13 +34,29 @@ const message = {
   timestamp: new Date('2026-11-11T02:00:00Z'),
 };
 const userId = 'whatsapp:5511999990101';
+const savedCategoryNames: Record<string, string> = {
+  salary: 'Salário',
+  services: 'Serviços',
+  sales: 'Vendas',
+  utilities: 'Contas da casa',
+  food: 'Alimentação',
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   account.mockResolvedValue({ dataUserId: userId, timeZone: 'America/Campo_Grande' });
   create.mockImplementation(async (input) => ({
     created: true,
-    transaction: { id: 'record-1', ...input },
+    transaction: {
+      id: 'record-1',
+      description: input.description,
+      amount: input.amount,
+      currency: 'BRL',
+      type: input.type,
+      status: input.status,
+      categoryName: savedCategoryNames[input.categoryKey],
+      date: input.date,
+    },
   }));
   settle.mockResolvedValue({
     outcome: 'settled',
@@ -48,17 +64,22 @@ beforeEach(() => {
       id: 'pending-1',
       description: 'Internet',
       amount: 120,
+      currency: 'BRL',
       type: 'expense',
       status: 'settled',
+      categoryName: 'Contas da casa',
+      date: '2026-11-10',
     },
   });
-  summary.mockResolvedValue({
+  summary.mockImplementation(async (from: string, to: string) => ({
+    period: { from, to },
+    currency: 'BRL',
     income: 2500.5,
     expenses: 500,
     result: 2000.5,
     pendingIncome: 120,
     pendingExpenses: 50,
-  });
+  }));
 });
 
 describe('explicit financial parsing', () => {
@@ -131,10 +152,17 @@ describe('same financial records on WhatsApp and portal', () => {
       },
       expect.stringMatching(/^[a-f0-9]{64}$/)
     );
-    expect(response).toContain('R$\u00a02.500,50 recebido');
+    expect(response).toBe(
+      '✅ *Entrada registrada*\n\n' +
+        '• *Valor:* R$ 2.500,50\n' +
+        '• *Descrição:* salário\n' +
+        '• *Categoria:* Salário\n' +
+        '• *Data:* 10/11/2026'
+    );
+    expect(response).not.toContain('record-1');
   });
   it('resolves tomorrow from the customer local day', async () => {
-    await tryCustomerFinancialChannelReply(
+    const response = await tryCustomerFinancialChannelReply(
       { ...message, text: 'Vou pagar 120 de Internet amanhã' },
       userId
     );
@@ -142,6 +170,10 @@ describe('same financial records on WhatsApp and portal', () => {
       expect.objectContaining({ date: '2026-11-11', status: 'pending', type: 'expense' }),
       expect.any(String)
     );
+    expect(response).toContain('⏳ *Valor a pagar registrado*');
+    expect(response).toContain('• *Vencimento:* 11/11/2026');
+    expect(response).toContain('• *Categoria:* Contas da casa');
+    expect(response).not.toContain('Despesa registrada');
   });
   it('asks for a pending due date instead of guessing', async () => {
     const response = await tryCustomerFinancialChannelReply(
@@ -181,16 +213,21 @@ describe('same financial records on WhatsApp and portal', () => {
       created: false,
       transaction: {
         amount: 2300,
+        currency: 'BRL',
         description: 'Salário corrigido',
         type: 'income',
         status: 'settled',
-        date: '2026-11-10',
+        categoryName: 'Salário líquido',
+        date: '2026-11-09',
       },
     });
     const response = await tryCustomerFinancialChannelReply(message, userId);
-    expect(response).toContain('já estava registrado');
+    expect(response).toContain('✅ *Entrada já registrada*');
     expect(response).toContain('2.300,00');
+    expect(response).toContain('• *Categoria:* Salário líquido');
+    expect(response).toContain('• *Data:* 09/11/2026');
     expect(response).not.toContain('2.500,50');
+    expect(response).not.toContain('10/11/2026');
   });
   it('settles the existing pending transaction instead of inserting an expense', async () => {
     const response = await tryCustomerFinancialChannelReply(
@@ -204,7 +241,36 @@ describe('same financial records on WhatsApp and portal', () => {
       sourceKey: expect.any(String),
     });
     expect(create).not.toHaveBeenCalled();
-    expect(response).toContain('Atualizei o mesmo lançamento');
+    expect(response).toContain('✅ *Despesa atualizada*');
+    expect(response).toContain('• *Categoria:* Contas da casa');
+    expect(response).toContain('• *Data:* 10/11/2026');
+    expect(response).not.toContain('pending-1');
+  });
+  it('acknowledges a duplicate settlement without claiming a new update', async () => {
+    settle.mockResolvedValueOnce({
+      outcome: 'duplicate',
+      transaction: {
+        id: 'pending-1',
+        description: 'Internet corrigida',
+        amount: 110,
+        currency: 'BRL',
+        type: 'expense',
+        status: 'pending',
+        categoryName: 'Trabalho',
+        date: '2026-11-12',
+      },
+    });
+    const response = await tryCustomerFinancialChannelReply(
+      { ...message, text: 'Marque como paga a pendência Internet' },
+      userId
+    );
+    expect(response).toContain('⏳ *Valor a pagar já registrado*');
+    expect(response).toContain('• *Valor:* R$ 110,00');
+    expect(response).toContain('• *Descrição:* Internet corrigida');
+    expect(response).toContain('• *Categoria:* Trabalho');
+    expect(response).toContain('• *Vencimento:* 12/11/2026');
+    expect(response).not.toContain('atualizada');
+    expect(create).not.toHaveBeenCalled();
   });
   it.each([
     ['missing', 'Não encontrei'],
@@ -228,17 +294,37 @@ describe('same financial records on WhatsApp and portal', () => {
       { ...message, text: 'Minhas pendências' },
       userId
     );
-    expect(pending).toContain('A receber: R$\u00a0120,00');
-    expect(pending).toContain('A pagar: R$\u00a050,00');
+    expect(pending).toContain('⏳ *Pendências*\n\n');
+    expect(pending).toContain('• *Período:* 01/11/2026 a 30/11/2026');
+    expect(pending).toContain('• *A receber:* R$ 120,00');
+    expect(pending).toContain('• *A pagar:* R$ 50,00');
     expect(pending).toContain('ainda não entram');
     expect(create).not.toHaveBeenCalled();
+  });
+  it('formats the actual summary period and separates paid totals from pending money', async () => {
+    const response = await tryCustomerFinancialChannelReply(
+      { ...message, text: 'Resumo financeiro' },
+      userId
+    );
+    expect(response).toBe(
+      '📊 *Resumo financeiro*\n\n' +
+        '• *Período:* 01/11/2026 a 30/11/2026\n' +
+        '• *Entradas recebidas:* R$ 2.500,50\n' +
+        '• *Despesas pagas:* R$ 500,00\n' +
+        '• *Resultado realizado:* R$ 2.000,50\n' +
+        '• *A receber:* R$ 120,00\n' +
+        '• *A pagar:* R$ 50,00'
+    );
+    expect(summary).toHaveBeenCalledTimes(1);
+    expect(create).not.toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
   });
   it('keeps private database errors out of the reply and never claims a successful write', async () => {
     create.mockRejectedValueOnce(new Error('secret-database-credentials'));
     const response = await tryCustomerFinancialChannelReply(message, userId);
     expect(response).toContain('Não consegui confirmar');
     expect(response).not.toContain('secret-database');
-    expect(response).not.toContain('Registrei');
+    expect(response).not.toContain('Entrada registrada');
   });
   it.each([
     { user: '', changes: {} },
