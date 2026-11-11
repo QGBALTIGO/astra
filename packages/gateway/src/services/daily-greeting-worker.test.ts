@@ -11,12 +11,16 @@ const mock = vi.hoisted(() => ({
   findByPlatform: vi.fn(),
   resolvePhone: vi.fn(),
   owner: vi.fn(),
-  info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
 }));
 vi.mock('../db/repositories/daily-greetings.js', () => ({
   dailyGreetingsRepo: {
-    claimDue: mock.claimDue, deferNotSent: mock.deferNotSent,
-    markDelivered: mock.markDelivered, markFailed: mock.markFailed,
+    claimDue: mock.claimDue,
+    deferNotSent: mock.deferNotSent,
+    markDelivered: mock.markDelivered,
+    markFailed: mock.markFailed,
   },
 }));
 vi.mock('@ownpilot/core/channels', () => ({
@@ -30,9 +34,13 @@ vi.mock('../db/repositories/channels/users.js', () => ({
 }));
 vi.mock('./customer-identity.js', () => ({ resolveCustomerPhone: mock.resolvePhone }));
 vi.mock('./pairing-service.js', () => ({ getOwnerUserId: mock.owner }));
-vi.mock('./log.js', () => ({ getLog: () => ({
-  info: mock.info, warn: mock.warn, error: mock.error,
-}) }));
+vi.mock('./log.js', () => ({
+  getLog: () => ({
+    info: mock.info,
+    warn: mock.warn,
+    error: mock.error,
+  }),
+}));
 
 import {
   DAILY_CURIOSITIES,
@@ -67,10 +75,14 @@ describe('daily greeting worker', () => {
     mock.owner.mockResolvedValue(phone);
     mock.findByPlatform.mockResolvedValue({
       ownpilotUserId: entry.userId,
-      platformUserId: phone, isVerified: true, isBlocked: false, status: 'active',
+      platformUserId: phone,
+      isVerified: true,
+      isBlocked: false,
+      status: 'active',
     });
     mock.getChannel.mockReturnValue({
-      getPlatform: () => 'whatsapp', getStatus: () => 'connected',
+      getPlatform: () => 'whatsapp',
+      getStatus: () => 'connected',
     });
     mock.resolvePhone.mockResolvedValue(null);
   });
@@ -80,12 +92,17 @@ describe('daily greeting worker', () => {
   it('sends a formatted greeting with one verified receipt and no exposed ID', async () => {
     mock.claimDue.mockResolvedValueOnce([entry]);
     expect(await dispatchDueDailyGreetings()).toEqual({
-      claimed: 1, delivered: 1, failed: 0,
+      claimed: 1,
+      delivered: 1,
+      failed: 0,
     });
-    expect(mock.send).toHaveBeenCalledWith('channel.whatsapp', expect.objectContaining({
-      platformChatId: phone,
-      text: expect.stringContaining('Curiosidade do dia'),
-    }));
+    expect(mock.send).toHaveBeenCalledWith(
+      'channel.whatsapp',
+      expect.objectContaining({
+        platformChatId: phone,
+        text: expect.stringContaining('Curiosidade do dia'),
+      })
+    );
     expect(mock.markDelivered).toHaveBeenCalledWith(entry.id, 'whatsapp-receipt');
     expect(mock.send.mock.calls[0]?.[1]?.text).not.toContain(entry.id);
   });
@@ -110,15 +127,15 @@ describe('daily greeting worker', () => {
     mock.claimDue.mockResolvedValueOnce([entry]);
     mock.owner.mockResolvedValue(null);
     mock.findByPlatform.mockResolvedValue({
-      ownpilotUserId: entry.userId, isVerified: false,
-      isBlocked: true, status: 'pending',
+      ownpilotUserId: entry.userId,
+      isVerified: false,
+      isBlocked: true,
+      status: 'pending',
     });
     const result = await dispatchDueDailyGreetings();
     expect(result).toEqual({ claimed: 1, delivered: 0, failed: 1 });
     expect(mock.send).not.toHaveBeenCalled();
-    expect(mock.markFailed).toHaveBeenCalledWith(
-      entry.id, 'channel_access_inactive', true
-    );
+    expect(mock.markFailed).toHaveBeenCalledWith(entry.id, 'channel_access_inactive', true);
   });
 
   it('never targets another phone or a different data account', async () => {
@@ -131,10 +148,13 @@ describe('daily greeting worker', () => {
   it('defers an offline channel without claiming a delivery', async () => {
     mock.claimDue.mockResolvedValueOnce([entry]);
     mock.getChannel.mockReturnValue({
-      getPlatform: () => 'whatsapp', getStatus: () => 'disconnected',
+      getPlatform: () => 'whatsapp',
+      getStatus: () => 'disconnected',
     });
     expect(await dispatchDueDailyGreetings()).toEqual({
-      claimed: 1, delivered: 0, failed: 0,
+      claimed: 1,
+      delivered: 0,
+      failed: 0,
     });
     expect(mock.deferNotSent).toHaveBeenCalledWith(entry.id);
     expect(mock.send).not.toHaveBeenCalled();
@@ -144,7 +164,9 @@ describe('daily greeting worker', () => {
     mock.claimDue.mockResolvedValueOnce([entry]);
     mock.send.mockResolvedValueOnce('');
     expect(await dispatchDueDailyGreetings()).toEqual({
-      claimed: 1, delivered: 0, failed: 1,
+      claimed: 1,
+      delivered: 0,
+      failed: 1,
     });
     expect(mock.markFailed).toHaveBeenCalledWith(entry.id, 'delivery_receipt_missing');
     expect(mock.markDelivered).not.toHaveBeenCalled();

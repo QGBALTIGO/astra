@@ -71,8 +71,15 @@ export class DailyGreetingsRepository extends BaseRepository {
          updated_at = NOW()
        RETURNING *`,
       [
-        randomUUID(), input.userId, input.channelPluginId, input.platformChatId,
-        input.timeZone, input.hour, input.minute, input.withCuriosity, input.nextRunAt,
+        randomUUID(),
+        input.userId,
+        input.channelPluginId,
+        input.platformChatId,
+        input.timeZone,
+        input.hour,
+        input.minute,
+        input.withCuriosity,
+        input.nextRunAt,
       ]
     );
     if (!row) throw new Error('Falha ao salvar rotina diária.');

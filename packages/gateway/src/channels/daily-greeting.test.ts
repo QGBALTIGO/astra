@@ -19,7 +19,9 @@ import {
 } from './daily-greeting.js';
 
 const message = (text: string) => ({
-  text, id: 'unique-message', channelPluginId: 'channel.whatsapp',
+  text,
+  id: 'unique-message',
+  channelPluginId: 'channel.whatsapp',
   platformChatId: '5567999991234',
 });
 const stored = {
@@ -44,15 +46,20 @@ describe('daily good-morning commands', () => {
   });
 
   it('recognizes the exact first screenshot request with a curiosity', () => {
-    expect(parseDailyGreetingCommand(
-      'Você consegue me dá bom dia todo dia às 6h com alguma curiosidade do dia?'
-    )).toEqual({ kind: 'enable', hour: 6, minute: 0, withCuriosity: true });
+    expect(
+      parseDailyGreetingCommand(
+        'Você consegue me dá bom dia todo dia às 6h com alguma curiosidade do dia?'
+      )
+    ).toEqual({ kind: 'enable', hour: 6, minute: 0, withCuriosity: true });
   });
 
   it('recognizes the exact repeated screenshot request', () => {
-    expect(parseDailyGreetingCommand(
-      'Você consegue me dá bom dia todo dia às 6h?'
-    )).toEqual({ kind: 'enable', hour: 6, minute: 0, withCuriosity: false });
+    expect(parseDailyGreetingCommand('Você consegue me dá bom dia todo dia às 6h?')).toEqual({
+      kind: 'enable',
+      hour: 6,
+      minute: 0,
+      withCuriosity: false,
+    });
   });
 
   it.each([
@@ -61,7 +68,10 @@ describe('daily good-morning commands', () => {
     ['Quero bom dia toda manhã às 08h.', 8, 0],
   ])('parses %s at the exact local time', (input, hour, minute) => {
     expect(parseDailyGreetingCommand(input)).toEqual({
-      kind: 'enable', hour, minute, withCuriosity: false,
+      kind: 'enable',
+      hour,
+      minute,
+      withCuriosity: false,
     });
   });
 
@@ -73,35 +83,47 @@ describe('daily good-morning commands', () => {
 
   it('supports cancelling and rejects invalid or missing hours', () => {
     expect(parseDailyGreetingCommand('Cancele meu bom dia diário')).toEqual({ kind: 'disable' });
-    expect(parseDailyGreetingCommand('Quero bom dia todos os dias às 25h'))
-      .toEqual({ kind: 'invalid_time' });
-    expect(parseDailyGreetingCommand('Quero bom dia todos os dias'))
-      .toEqual({ kind: 'missing_time' });
+    expect(parseDailyGreetingCommand('Quero bom dia todos os dias às 25h')).toEqual({
+      kind: 'invalid_time',
+    });
+    expect(parseDailyGreetingCommand('Quero bom dia todos os dias')).toEqual({
+      kind: 'missing_time',
+    });
   });
 
   it('uses the customer wall-clock day, not the container time zone', () => {
     const noon = new Date('2026-11-11T16:18:00Z');
-    expect(nextDailyGreetingAt('America/Campo_Grande', 6, 0, noon).toISOString())
-      .toBe('2026-11-12T10:00:00.000Z');
-    expect(nextDailyGreetingAt('America/Campo_Grande', 6, 0,
-      new Date('2026-11-11T09:00:00Z')).toISOString())
-      .toBe('2026-11-11T10:00:00.000Z');
-    expect(nextDailyGreetingAt('UTC', 6, 0, noon).toISOString())
-      .toBe('2026-11-12T06:00:00.000Z');
+    expect(nextDailyGreetingAt('America/Campo_Grande', 6, 0, noon).toISOString()).toBe(
+      '2026-11-12T10:00:00.000Z'
+    );
+    expect(
+      nextDailyGreetingAt(
+        'America/Campo_Grande',
+        6,
+        0,
+        new Date('2026-11-11T09:00:00Z')
+      ).toISOString()
+    ).toBe('2026-11-11T10:00:00.000Z');
+    expect(nextDailyGreetingAt('UTC', 6, 0, noon).toISOString()).toBe('2026-11-12T06:00:00.000Z');
   });
 
   it('persists the screenshot request and confirms only the stored schedule', async () => {
     const reply = await tryDailyGreetingChannelReply(
       message('Você consegue me dá bom dia todo dia às 6h com alguma curiosidade do dia?'),
-      stored.userId, new Date('2026-11-11T16:18:00Z')
+      stored.userId,
+      new Date('2026-11-11T16:18:00Z')
     );
-    expect(mock.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      userId: stored.userId,
-      platformChatId: stored.platformChatId,
-      timeZone: 'America/Campo_Grande',
-      hour: 6, minute: 0, withCuriosity: true,
-      nextRunAt: new Date('2026-11-12T10:00:00.000Z'),
-    }));
+    expect(mock.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: stored.userId,
+        platformChatId: stored.platformChatId,
+        timeZone: 'America/Campo_Grande',
+        hour: 6,
+        minute: 0,
+        withCuriosity: true,
+        nextRunAt: new Date('2026-11-12T10:00:00.000Z'),
+      })
+    );
     expect(reply).toContain('Bom-dia diário ativado');
     expect(reply).toContain('Próximo envio');
     expect(reply).toContain('Curiosidade do dia');
@@ -111,7 +133,8 @@ describe('daily good-morning commands', () => {
   it('fails closed and never claims to have scheduled when persistence fails', async () => {
     mock.upsert.mockRejectedValueOnce(new Error('postgres'));
     const reply = await tryDailyGreetingChannelReply(
-      message('Bom dia todo dia às 6h'), stored.userId
+      message('Bom dia todo dia às 6h'),
+      stored.userId
     );
     expect(reply).toContain('Não consegui salvar');
     expect(reply).not.toContain('ativado');
@@ -125,10 +148,13 @@ describe('daily good-morning commands', () => {
 
   it('cancels only the current verified conversation', async () => {
     const reply = await tryDailyGreetingChannelReply(
-      message('Cancele meu bom dia diário'), stored.userId
+      message('Cancele meu bom dia diário'),
+      stored.userId
     );
     expect(mock.disable).toHaveBeenCalledWith(
-      stored.userId, 'channel.whatsapp', stored.platformChatId
+      stored.userId,
+      'channel.whatsapp',
+      stored.platformChatId
     );
     expect(reply).toContain('desativado');
   });

@@ -54,8 +54,8 @@ export const DAILY_CURIOSITIES = [
 
 export function dailyGreetingText(localDay: string, withCuriosity: boolean): string {
   const ordinal = Math.floor(Date.parse(localDay + 'T12:00:00Z') / 86_400_000);
-  const index = ((ordinal % DAILY_CURIOSITIES.length) + DAILY_CURIOSITIES.length) %
-    DAILY_CURIOSITIES.length;
+  const index =
+    ((ordinal % DAILY_CURIOSITIES.length) + DAILY_CURIOSITIES.length) % DAILY_CURIOSITIES.length;
   return formatAstraMessage(
     '☀️ Bom dia!',
     withCuriosity ? [{ label: 'Curiosidade do dia', value: DAILY_CURIOSITIES[index]! }] : [],
@@ -64,11 +64,15 @@ export function dailyGreetingText(localDay: string, withCuriosity: boolean): str
 }
 
 export async function dispatchDueDailyGreetings(): Promise<{
-  claimed: number; delivered: number; failed: number;
+  claimed: number;
+  delivered: number;
+  failed: number;
 }> {
   if (running) return { claimed: 0, delivered: 0, failed: 0 };
   running = true;
-  let claimed = 0, delivered = 0, failed = 0;
+  let claimed = 0,
+    delivered = 0,
+    failed = 0;
   try {
     const entries = await dailyGreetingsRepo.claimDue(20);
     claimed = entries.length;
@@ -126,9 +130,12 @@ export async function dispatchDueDailyGreetings(): Promise<{
       } catch (error) {
         failed++;
         await dailyGreetingsRepo.markFailed(
-          entry.id, error instanceof Error ? error.name : 'delivery_error'
+          entry.id,
+          error instanceof Error ? error.name : 'delivery_error'
         );
-        log.warn('Falha no envio da rotina diária', { category: error instanceof Error ? error.name : 'unknown' });
+        log.warn('Falha no envio da rotina diária', {
+          category: error instanceof Error ? error.name : 'unknown',
+        });
       }
     }
   } catch (error) {

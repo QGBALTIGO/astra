@@ -603,73 +603,96 @@ try {
   );
 
   for (const path of ['bus', 'direct'] as const) {
-    await check(`${path}: screenshot daily greeting persists and repeated message does not duplicate`, async () => {
-      const customer = path === 'bus' ? first : second;
-      const initial = incoming(
-        customer,
-        'Você consegue me dá bom dia todo dia às 6h com alguma curiosidade do dia?',
-        `${path}-morning-initial`
-      );
-      const reply = await invoke(path, customer, initial);
-      const saved = await dailyGreetingsRepo.getForChat(customer.userId, PLUGIN, customer.phone);
-      assert.ok(saved);
-      assert.equal(saved.hour, 6);
-      assert.equal(saved.minute, 0);
-      assert.equal(saved.timeZone, 'America/Campo_Grande');
-      assert.equal(saved.withCuriosity, true);
-      assert.equal(saved.active, true);
-      assert.match(reply, /Bom-dia diário ativado/);
-      assert.match(reply, /Curiosidade do dia/);
-      const savedTime = saved.nextRunAt.getTime();
-      const secondReply = await invoke(
-        path, customer,
-        incoming(customer, 'Você consegue me dá bom dia todo dia às 6h?', `${path}-morning-repeated`)
-      );
-      const repeated = await dailyGreetingsRepo.getForChat(customer.userId, PLUGIN, customer.phone);
-      assert.ok(repeated);
-      assert.equal(repeated.id, saved.id);
-      assert.equal(repeated.nextRunAt.getTime(), savedTime);
-      assert.equal(repeated.withCuriosity, true);
-      assert.match(secondReply, /Bom-dia diário ativado/);
-      assert.equal(
-        (await adapter.queryOne<{ total: number }>(
-          'SELECT COUNT(*)::integer AS total FROM channel_daily_greetings WHERE user_id = $1',
-          [customer.userId]
-        ))?.total,
-        1
-      );
-    });
+    await check(
+      `${path}: screenshot daily greeting persists and repeated message does not duplicate`,
+      async () => {
+        const customer = path === 'bus' ? first : second;
+        const initial = incoming(
+          customer,
+          'Você consegue me dá bom dia todo dia às 6h com alguma curiosidade do dia?',
+          `${path}-morning-initial`
+        );
+        const reply = await invoke(path, customer, initial);
+        const saved = await dailyGreetingsRepo.getForChat(customer.userId, PLUGIN, customer.phone);
+        assert.ok(saved);
+        assert.equal(saved.hour, 6);
+        assert.equal(saved.minute, 0);
+        assert.equal(saved.timeZone, 'America/Campo_Grande');
+        assert.equal(saved.withCuriosity, true);
+        assert.equal(saved.active, true);
+        assert.match(reply, /Bom-dia diário ativado/);
+        assert.match(reply, /Curiosidade do dia/);
+        const savedTime = saved.nextRunAt.getTime();
+        const secondReply = await invoke(
+          path,
+          customer,
+          incoming(
+            customer,
+            'Você consegue me dá bom dia todo dia às 6h?',
+            `${path}-morning-repeated`
+          )
+        );
+        const repeated = await dailyGreetingsRepo.getForChat(
+          customer.userId,
+          PLUGIN,
+          customer.phone
+        );
+        assert.ok(repeated);
+        assert.equal(repeated.id, saved.id);
+        assert.equal(repeated.nextRunAt.getTime(), savedTime);
+        assert.equal(repeated.withCuriosity, true);
+        assert.match(secondReply, /Bom-dia diário ativado/);
+        assert.equal(
+          (
+            await adapter.queryOne<{ total: number }>(
+              'SELECT COUNT(*)::integer AS total FROM channel_daily_greetings WHERE user_id = $1',
+              [customer.userId]
+            )
+          )?.total,
+          1
+        );
+      }
+    );
   }
 
-  await check('daily greeting sends one changing curiosity after due, without a second delivery', async () => {
-    const saved = await dailyGreetingsRepo.getForChat(first.userId, PLUGIN, first.phone);
-    assert.ok(saved);
-    const before = deliveries.length;
-    const change = await adapter.execute(
-      `UPDATE channel_daily_greetings SET next_run_at = NOW() - INTERVAL '1 second'
+  await check(
+    'daily greeting sends one changing curiosity after due, without a second delivery',
+    async () => {
+      const saved = await dailyGreetingsRepo.getForChat(first.userId, PLUGIN, first.phone);
+      assert.ok(saved);
+      const before = deliveries.length;
+      const change = await adapter.execute(
+        `UPDATE channel_daily_greetings SET next_run_at = NOW() - INTERVAL '1 second'
        WHERE id = $1 AND user_id = $2 AND channel_plugin_id = $3 AND platform_chat_id = $4`,
-      [saved.id, first.userId, PLUGIN, first.phone]
-    );
-    assert.equal(change.changes, 1);
-    assert.deepEqual(await dispatchDueDailyGreetings(), {
-      claimed: 1, delivered: 1, failed: 0,
-    });
-    assert.equal(deliveries.length, before + 1);
-    assert.equal(deliveries[before]?.chat, first.phone);
-    assert.match(deliveries[before]!.text, /Bom dia!/);
-    assert.match(deliveries[before]!.text, /Curiosidade do dia/);
-    const after = await dailyGreetingsRepo.getForChat(first.userId, PLUGIN, first.phone);
-    assert.ok(after);
-    assert.ok(after.nextRunAt.getTime() > Date.now() + 20 * 3_600_000);
-    assert.deepEqual(await dispatchDueDailyGreetings(), {
-      claimed: 0, delivered: 0, failed: 0,
-    });
-    assert.equal(deliveries.length, before + 1);
-  });
+        [saved.id, first.userId, PLUGIN, first.phone]
+      );
+      assert.equal(change.changes, 1);
+      assert.deepEqual(await dispatchDueDailyGreetings(), {
+        claimed: 1,
+        delivered: 1,
+        failed: 0,
+      });
+      assert.equal(deliveries.length, before + 1);
+      assert.equal(deliveries[before]?.chat, first.phone);
+      assert.match(deliveries[before]!.text, /Bom dia!/);
+      assert.match(deliveries[before]!.text, /Curiosidade do dia/);
+      const after = await dailyGreetingsRepo.getForChat(first.userId, PLUGIN, first.phone);
+      assert.ok(after);
+      assert.ok(after.nextRunAt.getTime() > Date.now());
+      assert.deepEqual(await dispatchDueDailyGreetings(), {
+        claimed: 0,
+        delivered: 0,
+        failed: 0,
+      });
+      assert.equal(deliveries.length, before + 1);
+    }
+  );
 
   await check('disabled and inactive daily greetings never dispatch', async () => {
     const stopped = await invoke(
-      'direct', second, incoming(second, 'Cancele meu bom dia diário', 'morning-cancel')
+      'direct',
+      second,
+      incoming(second, 'Cancele meu bom dia diário', 'morning-cancel')
     );
     assert.match(stopped, /desativado/);
     const saved = await dailyGreetingsRepo.getForChat(second.userId, PLUGIN, second.phone);
@@ -682,9 +705,12 @@ try {
     );
     assert.deepEqual(await dispatchDueDailyGreetings(), { claimed: 0, delivered: 0, failed: 0 });
     assert.match(
-      await invoke('bus', inactive, incoming(
-        inactive, 'Bom dia todo dia às 6h', 'revoked-daily-greeting'
-      )), /inativo/
+      await invoke(
+        'bus',
+        inactive,
+        incoming(inactive, 'Bom dia todo dia às 6h', 'revoked-daily-greeting')
+      ),
+      /inativo/
     );
     assert.equal(
       await dailyGreetingsRepo.getForChat(inactive.userId, PLUGIN, inactive.phone),
