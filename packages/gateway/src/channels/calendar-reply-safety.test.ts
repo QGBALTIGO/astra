@@ -189,6 +189,19 @@ describe('calendar confirmations at the channel boundary', () => {
   it('preserves a list heading and negative statements', () => {
     const list = 'Compromissos agendados:\nDentista amanhã.';
     expect(safeChannelResponse(list, [receipt('list_calendar_events', { events: [] })])).toBe(list);
+    const read = receipt('list_calendar_events', { events: [event] });
+    const status = 'Você tem uma consulta marcada para amanhã. Sua reunião está agendada às 15h.';
+    expect(safeChannelResponse(status, [read], { requestText: 'O que tenho na agenda?' })).toBe(
+      status
+    );
+    expect(safeChannelResponse(status + ' Compromisso criado para sexta.', [read])).toBe(
+      CHANNEL_UNVERIFIED_REPLY
+    );
+    expect(safeChannelResponse('O seu compromisso está agendado.', [read], context)).toBe(
+      CHANNEL_UNVERIFIED_REPLY
+    );
+    const suggestion = 'Ter um compromisso agendado ajuda a organizar a semana.';
+    expect(safeChannelResponse(suggestion, [])).toBe(suggestion);
     for (const text of [
       'Não marquei a reunião.',
       'A reunião não foi marcada.',

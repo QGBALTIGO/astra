@@ -356,12 +356,13 @@ export function safeChannelResponse(
       ?.normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase() ?? '';
-  const bareCalendarWrite =
+  const requestedCalendarWrite =
     calendarNoun.test(normalizedRequest) &&
     /\b(?:marca|marque|agenda|agende|cria|crie|adiciona|adicione|remarca|remarque|reagende|cancela|cancele|exclua|remova)\s+(?:(?:na|no|um|uma|meu|minha|o|a|esse|essa|este|esta|para)\s+)+/.test(
       normalizedRequest
-    ) &&
-    /^(?:pronto|feito|tudo certo|ok)[.!\s]*$/.test(lower.trim());
+    );
+  const bareCalendarWrite =
+    requestedCalendarWrite && /^(?:pronto|feito|tudo certo|ok)[.!\s]*$/.test(lower.trim());
   let unsupported =
     (bareCalendarWrite && !confirmedCalendar.size) ||
     [...calendar].some(([receipt, detail]) => !isFailedChannelReceipt(receipt) && !detail);
@@ -377,6 +378,23 @@ export function safeChannelResponse(
       has('list_calendar_events') &&
       /^\s*(?:eventos|compromissos|consultas|reunioes)\s+agendad[oa]s\s*:?\s*$/.test(sentence);
     if (listHeading) continue;
+    // A scheduled appointment can be an existing item or an example. Remove only
+    // that phrase, so another asserted write in the same sentence still counts.
+    let actionStatement = sentence.replace(
+      /\b(?:ter|prefere|quer|com|sem)\s+(?:um|uma)\s+(?:evento|compromisso|consulta|reuniao)\s+(?:agendad|marcad)[oa]\b/g,
+      ''
+    );
+    if (has('list_calendar_events') && !requestedCalendarWrite) {
+      actionStatement = actionStatement
+        .replace(
+          /\b(?:tem|ha|encontrei)\s+(?:um|uma)\s+(?:evento|compromisso|consulta|reuniao)\s+(?:agendad|marcad)[oa]\b/g,
+          ''
+        )
+        .replace(
+          /\b(?:evento|compromisso|consulta|reuniao)s?\s+(?:esta|estao)\s+(?:agendad|marcad|confirmad)[oa]s?\b/g,
+          ''
+        );
+    }
     const reminderObject = /\b(?:re)?agendei\s+(?:(?:o|um|seu|meu|esse|este)\s+)*lembrete\b/.test(
       sentence
     );
@@ -396,7 +414,7 @@ export function safeChannelResponse(
           : has('reschedule_channel_reminder');
       if (
         (calendarNoun.test(sentence) && rule.first.test(sentence) && !reminderObject) ||
-        rule.passive.test(sentence) ||
+        rule.passive.test(actionStatement) ||
         (ambiguous && !/\blembrete/.test(sentence) && !matchingReminder)
       ) {
         claimsCalendarWrite = true;
