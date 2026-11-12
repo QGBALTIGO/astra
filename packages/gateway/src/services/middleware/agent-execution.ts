@@ -17,6 +17,7 @@ import {
   type ChannelToolReceipt,
 } from '../../channels/response-safety.js';
 import {
+  CHANNEL_CONVERSATIONAL_RETRY_PROMPT,
   channelToolsForMessage,
   isConversationalOnlyChannelRequest,
   needsConversationalRewrite,
@@ -202,7 +203,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         // move money or change records. Reject even discovery/meta-tool calls.
         chatOptions.onBeforeToolCall = async () => ({
           approved: false,
-          reason: 'O usuário pediu apenas uma opinião, sem ações.',
+          reason: 'Conversa sem operação solicitada.',
         });
       }
 
@@ -289,15 +290,12 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         if (initial === CHANNEL_UNVERIFIED_REPLY || needsConversationalRewrite(initial)) {
           // A single tool-free second chance, never another financial attempt.
           try {
-            const second = await agent.chat(
-              'Releia o pedido original. Responda em português natural com sua opinião ou escreva uma mensagem pronta para a pessoa copiar, conforme a intenção. Não proponha registros, agendamentos, lembretes nem pagamentos. Não use ferramentas nem diga que executou ações. Não exponha erros internos.',
-              {
-                onBeforeToolCall: async () => ({
-                  approved: false,
-                  reason: 'Apenas resposta conversacional, sem ações.',
-                }),
-              }
-            );
+            const second = await agent.chat(CHANNEL_CONVERSATIONAL_RETRY_PROMPT, {
+              onBeforeToolCall: async () => ({
+                approved: false,
+                reason: 'Apenas resposta conversacional, sem ações.',
+              }),
+            });
             if (second.ok && second.value?.content) {
               const checked = safeChannelResponse(second.value.content, []);
               if (checked !== CHANNEL_UNVERIFIED_REPLY && !needsConversationalRewrite(checked)) {
@@ -339,7 +337,10 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         content:
           message.metadata.source === 'channel'
             ? (safeOpinionReply ??
-              safeChannelResponse(result.value?.content ?? '', channelReceipts))
+              safeChannelResponse(result.value?.content ?? '', channelReceipts, {
+                timeZone: ctx.get<string>('channelTimeZone'),
+                requestText: message.content,
+              }))
             : (result.value?.content ?? ''),
         metadata: {
           source: message.metadata.source,

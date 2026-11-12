@@ -98,6 +98,18 @@ describe('Channel responses use persisted facts without internal details', () =>
   });
 
   it('a reassuring negative phrase is not evidence of success', () => {
+    expect(
+      safeChannelResponse(
+        'Nenhum lembrete foi agendado de verdade. Reagendei o seu para quinta.',
+        []
+      )
+    ).toBe(CHANNEL_UNVERIFIED_REPLY);
+    expect(
+      safeChannelResponse(
+        'No exemplo a reunião continua terça. Remarquei sua consulta para quinta na agenda real.',
+        []
+      )
+    ).toBe(CHANNEL_UNVERIFIED_REPLY);
     expect(safeChannelResponse('Não se preocupe, o lembrete foi criado.', [])).toContain(
       'não tenho uma alteração confirmada'
     );

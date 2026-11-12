@@ -16,8 +16,18 @@ const OTHER =
 const SAME =
   /^(?:mesmo|o\s+mesmo|[eé]\s+o\s+mesmo(?:\s+gasto)?|[eé]\s+a\s+mesma\s+despesa|n[aã]o,?\s+[eé]?\s*o\s+mesmo)\s*[.!]?$/iu;
 
+export function expenseConfirmationKey(
+  userId: string,
+  message: { channelPluginId: string; platformChatId: string }
+): string {
+  return JSON.stringify([userId, message.channelPluginId, message.platformChatId]);
+}
+
 export class ExpenseDuplicateGuard {
-  private readonly pending = new Map<string, { draft: PendingExpenseDraft; expiresAt: number }>();
+  private readonly pending = new Map<
+    string,
+    { draft: PendingExpenseDraft | null; expiresAt: number }
+  >();
   constructor(private readonly ttlMs = 3 * 60_000) {}
 
   remember(key: string, draft: PendingExpenseDraft, now = Date.now()): void {
@@ -29,19 +39,28 @@ export class ExpenseDuplicateGuard {
     }
   }
 
+  /** Discard the draft even when a different shortcut or attachment handles the new turn. */
+  observe(key: string, reply: string): void {
+    const previous = this.pending.get(key);
+    if (previous && !(OTHER.test(reply.trim()) || SAME.test(reply.trim()))) previous.draft = null;
+  }
+
   consume(
     key: string,
     reply: string,
     now = Date.now()
-  ): { kind: 'other'; draft: PendingExpenseDraft } | { kind: 'same' } | null {
+  ): { kind: 'other'; draft: PendingExpenseDraft } | { kind: 'same' | 'stale' } | null {
     const previous = this.pending.get(key);
     if (!previous) return null;
-    // A fresh unrelated request never applies to a stale financial operation.
+    const other = OTHER.test(reply.trim());
+    if (!other && !SAME.test(reply.trim())) {
+      if (now > previous.expiresAt) this.pending.delete(key);
+      else previous.draft = null;
+      return null;
+    }
     this.pending.delete(key);
-    if (now > previous.expiresAt) return null;
-    if (OTHER.test(reply.trim())) return { kind: 'other', draft: previous.draft };
-    if (SAME.test(reply.trim())) return { kind: 'same' };
-    return null;
+    if (!previous.draft || now > previous.expiresAt) return { kind: 'stale' };
+    return other ? { kind: 'other', draft: previous.draft } : { kind: 'same' };
   }
 }
 

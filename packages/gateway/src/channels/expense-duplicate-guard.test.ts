@@ -19,7 +19,7 @@ describe('Astra pending expense confirmation', () => {
     const guard = new ExpenseDuplicateGuard();
     guard.remember('person', draft, 0);
     expect(guard.consume('person', 'Sim', 1000)).toBeNull();
-    expect(guard.consume('person', 'Outro', 1100)).toBeNull();
+    expect(guard.consume('person', 'Outro', 1100)).toEqual({ kind: 'stale' });
   });
   it('supports the same-expense reply and enforces account isolation and TTL', () => {
     const guard = new ExpenseDuplicateGuard();
@@ -27,6 +27,16 @@ describe('Astra pending expense confirmation', () => {
     expect(guard.consume('b', 'Outro', 100)).toBeNull();
     expect(guard.consume('a', 'O mesmo', 200)).toEqual({ kind: 'same' });
     guard.remember('a', draft, 0);
-    expect(guard.consume('a', 'Outro', 190_000)).toBeNull();
+    expect(guard.consume('a', 'Outro', 190_000)).toEqual({ kind: 'stale' });
+  });
+  it('an intervening shortcut or attachment closes only its own outstanding prompt', () => {
+    const guard = new ExpenseDuplicateGuard();
+    guard.remember('chat-a', draft, 100);
+    guard.remember('chat-b', draft, 100);
+    guard.observe('chat-a', '');
+    guard.observe('chat-b', 'Outro');
+    expect(guard.consume('chat-a', 'Outro', 110)).toEqual({ kind: 'stale' });
+    expect(guard.consume('chat-a', 'Outro', 120)).toBeNull();
+    expect(guard.consume('chat-b', 'Outro', 110)).toEqual({ kind: 'other', draft });
   });
 });

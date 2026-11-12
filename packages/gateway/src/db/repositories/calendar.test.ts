@@ -64,6 +64,23 @@ describe('CalendarRepository', () => {
     repo = new CalendarRepository('user-1');
   });
 
+  it('finds exact titles inside the local-day range and tenant before limiting to two', async () => {
+    mockAdapter.query.mockResolvedValueOnce([makeEventRow()]);
+    const start = new Date('2026-11-13T04:00:00Z');
+    const end = new Date('2026-11-14T04:00:00Z');
+    expect(await repo.findSlotsByTitle(['A Reunião', 'Reunião'], start, end)).toHaveLength(1);
+    const [sql, params] = mockAdapter.query.mock.calls[0]!;
+    expect(sql).toMatch(
+      /WHERE user_id = \$1\s+AND lower\(title\) IN .*\s+AND start_time >= \$3 AND start_time < \$4\s+ORDER BY start_time, id LIMIT 2/
+    );
+    expect(params).toEqual([
+      'user-1',
+      ['A Reunião', 'Reunião'],
+      start.toISOString(),
+      end.toISOString(),
+    ]);
+  });
+
   // =========================================================================
   // create
   // =========================================================================

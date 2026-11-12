@@ -19,6 +19,7 @@ import { tryExpenseRecordChannelReply, tryFinancingChannelReply } from './financ
 import { runInSessionLane } from '../services/agent/session-lane.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { withCustomerClock } from '../services/customer-date.js';
+import { tryPersonalSubscriptionReply } from './personal-subscriptions.js';
 import { tryAstraAccessReply } from './astra-access.js';
 import {
   CHANNEL_UNVERIFIED_REPLY,
@@ -26,6 +27,7 @@ import {
   type ChannelToolReceipt,
 } from './response-safety.js';
 import {
+  CHANNEL_CONVERSATIONAL_RETRY_PROMPT,
   channelToolsForMessage,
   isConversationalOnlyChannelRequest,
   needsConversationalRewrite,
@@ -35,7 +37,10 @@ import { restoreChannelHistory } from './restore-history.js';
 import { formatAstraMessage, formatReminderConfirmation } from './response-presentation.js';
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
+import { tryCancelNamedReminder } from './cancel-named-reminder.js';
+import { tryVerifyCalendarSlot } from './calendar-lookup.js';
 import { tryListTodaysReminders } from './today-reminders.js';
+import { expenseConfirmationKey, expenseDuplicateGuard } from './expense-duplicate-guard.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 import { withContactStyleContext } from './channel-personalization.js';
 
@@ -308,6 +313,38 @@ async function canProcessChannelMessage(
   return message.platform !== 'whatsapp';
 }
 
+/** Queue before the first await so both entry points observe consecutive turns in arrival order. */
+function tryAuthorizedChannelShortcut(
+  message: ChannelIncomingMessage,
+  userId: string,
+  isAccessAllowed?: ChannelAccessCheck
+): Promise<string | null> {
+  const key = expenseConfirmationKey(userId, message);
+  return runInSessionLane('channel-finance:' + key, async () => {
+    if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
+      expenseDuplicateGuard.observe(key, '');
+      return INACTIVE_CHANNEL_ACCESS_REPLY;
+    }
+    // Media captions cannot confirm a previous financial operation.
+    const hasMedia = Boolean(message.attachments?.length);
+    expenseDuplicateGuard.observe(key, hasMedia ? '' : message.text);
+    if (hasMedia) return null;
+    return (
+      tryAstraAccessReply(message.text) ??
+      (await tryPersonalSubscriptionReply(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
+      (await tryListTodaysReminders(message, userId)) ??
+      (await tryCancelNamedReminder(message, userId)) ??
+      (await tryVerifyCalendarSlot(message, userId)) ??
+      (await tryCustomerTimezoneChannelReply(message, userId)) ??
+      (await tryClockChannelReply(message.text, userId)) ??
+      (await tryFinancingChannelReply(message, userId)) ??
+      (await tryExpenseRecordChannelReply(message, userId))
+    );
+  });
+}
+
 /**
  * Process a channel message through the MessageBus pipeline.
  * Returns the assistant's response text.
@@ -328,39 +365,12 @@ export async function processViaBus(
   },
   progress?: { update(text: string): void }
 ): Promise<string> {
-  if (!(await canProcessChannelMessage(message, deps.isAccessAllowed))) {
-    return INACTIVE_CHANNEL_ACCESS_REPLY;
-  }
-  const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
-  if (accessReply) return accessReply;
-  const todaysReminders = await tryListTodaysReminders(message, channelUser.ownpilotUserId);
-  if (todaysReminders) return todaysReminders;
-  const timezoneReply = message.attachments?.length
-    ? null
-    : await tryCustomerTimezoneChannelReply(message, channelUser.ownpilotUserId);
-  if (timezoneReply) return timezoneReply;
-  const clockReply = message.attachments?.length
-    ? null
-    : await tryClockChannelReply(message.text, channelUser.ownpilotUserId);
-  if (clockReply) return clockReply;
-
-  const financingReply = message.attachments?.length
-    ? null
-    : await tryFinancingChannelReply(message, channelUser.ownpilotUserId);
-  if (financingReply) return financingReply;
-
-  const expenseRecordReply = message.attachments?.length
-    ? null
-    : await runInSessionLane(
-        JSON.stringify([
-          'channel-finance',
-          message.channelPluginId,
-          message.platformChatId,
-          channelUser.ownpilotUserId,
-        ]),
-        () => tryExpenseRecordChannelReply(message, channelUser.ownpilotUserId)
-      );
-  if (expenseRecordReply) return expenseRecordReply;
+  const earlyReply = await tryAuthorizedChannelShortcut(
+    message,
+    channelUser.ownpilotUserId,
+    deps.isAccessAllowed
+  );
+  if (earlyReply) return earlyReply;
 
   const greetingReply = message.attachments?.length
     ? null
@@ -625,39 +635,8 @@ export async function processDirectAgent(
   userId = 'default',
   isAccessAllowed?: ChannelAccessCheck
 ): Promise<string> {
-  if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
-    return INACTIVE_CHANNEL_ACCESS_REPLY;
-  }
-  const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
-  if (accessReply) return accessReply;
-  const todaysReminders = await tryListTodaysReminders(message, userId);
-  if (todaysReminders) return todaysReminders;
-  const timezoneReply = message.attachments?.length
-    ? null
-    : await tryCustomerTimezoneChannelReply(message, userId);
-  if (timezoneReply) return timezoneReply;
-  const clockReply = message.attachments?.length
-    ? null
-    : await tryClockChannelReply(message.text, userId);
-  if (clockReply) return clockReply;
-
-  const financingReply = message.attachments?.length
-    ? null
-    : await tryFinancingChannelReply(message, userId);
-  if (financingReply) return financingReply;
-
-  const expenseRecordReply = message.attachments?.length
-    ? null
-    : await runInSessionLane(
-        JSON.stringify([
-          'channel-finance',
-          message.channelPluginId,
-          message.platformChatId,
-          userId,
-        ]),
-        () => tryExpenseRecordChannelReply(message, userId)
-      );
-  if (expenseRecordReply) return expenseRecordReply;
+  const earlyReply = await tryAuthorizedChannelShortcut(message, userId, isAccessAllowed);
+  if (earlyReply) return earlyReply;
 
   const greetingReply = message.attachments?.length
     ? null
@@ -733,9 +712,10 @@ async function processDirectAgentInSession(
   const account = userId.startsWith('whatsapp:')
     ? await customerAccountsRepo.getByDataUserId(userId)
     : null;
+  const timeZone = account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
   const clockPrompt = withCustomerClock(
     agent.getConversation().systemPrompt ?? '',
-    account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande',
+    timeZone,
     new Date(),
     message.timestamp
   );
@@ -771,7 +751,7 @@ async function processDirectAgentInSession(
         ? agent.chat(interpreted.text, {
             onBeforeToolCall: async () => ({
               approved: false,
-              reason: 'Pergunta de opinião; nenhuma operação solicitada.',
+              reason: 'Conversa sem operação solicitada.',
             }),
           })
         : agent.chat(interpreted.text)
@@ -781,7 +761,10 @@ async function processDirectAgentInSession(
     // Strip internal tags so channel users never see prompt-control markup.
     const { extractMemoriesFromResponse } = await import('../utils/memory-extraction.js');
     const { content: stripped } = extractMemoriesFromResponse(result.value.content);
-    const response = safeChannelResponse(stripped, channelReceipts);
+    const response = safeChannelResponse(stripped, channelReceipts, {
+      timeZone,
+      requestText: interpreted.text,
+    });
     if (
       !conversationOnly ||
       channelReceipts.length > 0 ||
@@ -789,15 +772,12 @@ async function processDirectAgentInSession(
     )
       return response;
     try {
-      const second = await agent.chat(
-        'Releia o pedido original. Dê sua opinião ou escreva a mensagem pronta para copiar, conforme a intenção, em português natural. Não use ferramentas, não afirme ter feito pagamentos ou registros nem mostre mensagens técnicas.',
-        {
-          onBeforeToolCall: async () => ({
-            approved: false,
-            reason: 'Apenas conversa, sem ações.',
-          }),
-        }
-      );
+      const second = await agent.chat(CHANNEL_CONVERSATIONAL_RETRY_PROMPT, {
+        onBeforeToolCall: async () => ({
+          approved: false,
+          reason: 'Apenas conversa, sem ações.',
+        }),
+      });
       if (second.ok) {
         const checked = safeChannelResponse(second.value.content, []);
         if (checked !== CHANNEL_UNVERIFIED_REPLY && !needsConversationalRewrite(checked))

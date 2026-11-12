@@ -135,6 +135,36 @@ export class ChannelRemindersRepository extends BaseRepository {
     return result.changes > 0;
   }
 
+  /** A replay cannot target a replacement scheduled after the original request. */
+  async cancelByExactTitle(
+    userId: string,
+    channelPluginId: string,
+    platformChatId: string,
+    title: string,
+    receivedAt: Date
+  ): Promise<'cancelled' | 'ambiguous' | 'not-pending'> {
+    const row = await this.queryOne<{ matches: number; cancelled: boolean }>(
+      `WITH candidates AS (
+         SELECT id FROM channel_reminders
+         WHERE user_id = $1 AND channel_plugin_id = $2 AND platform_chat_id = $3
+           AND (title = $4 OR lower(translate(title, 'ÁÀÂÃÉÊÍÓÔÕÚÜÇ', 'áàâãéêíóôõúüç') COLLATE "C") = $6)
+           AND created_at <= $5
+           AND (status IN ('pending', 'sending') OR updated_at >= $5)
+         LIMIT 2
+       ), cancelled AS (
+         UPDATE channel_reminders SET status = 'cancelled', updated_at = NOW()
+         WHERE id IN (SELECT id FROM candidates) AND (SELECT count(*) FROM candidates) = 1
+           AND status = 'pending'
+         RETURNING id
+       )
+       SELECT (SELECT count(*)::int FROM candidates) AS matches,
+              EXISTS (SELECT 1 FROM cancelled) AS cancelled`,
+      [userId, channelPluginId, platformChatId, title, receivedAt, title.toLocaleLowerCase('pt-BR')]
+    );
+    if (row?.cancelled) return 'cancelled';
+    return row?.matches === 2 ? 'ambiguous' : 'not-pending';
+  }
+
   /** Atomic, tenant/conversation-scoped change. Never move an in-flight delivery. */
   async reschedule(
     id: string,
