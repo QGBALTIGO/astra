@@ -19,6 +19,7 @@ import {
   normalizeWhatsAppPhone,
 } from './AccessForms';
 import { useCountdown, useCustomerQuery, useCustomerTheme } from './hooks';
+import { ASTRA_SITE_URL } from './helpers';
 import type { Customer, CustomerChallenge } from './types';
 
 export function CustomerLogin() {
@@ -97,14 +98,15 @@ export function CustomerLogin() {
         <section className="ac-login-story">
           <CustomerBrand />
           <span className="ac-eyebrow">SEU ASSISTENTE PESSOAL</span>
-          <h1>
-            Mais clareza.
+          <h2 className="ac-login-tagline">
+            Sua rotina,
             <br />
-            Mais tempo
-            <br />
-            para você.
-          </h1>
-          <p>O que você organiza pelo WhatsApp ganha uma visão completa no seu painel.</p>
+            mais <em>leve.</em>
+          </h2>
+          <p>
+            Seu dinheiro, seus planos e seus compromissos. Tudo o que você organiza com o Astra, em
+            um espaço só seu.
+          </p>
           <ul>
             <li>
               <Receipt aria-hidden="true" />
@@ -121,7 +123,7 @@ export function CustomerLogin() {
           </ul>
           <a
             className="ac-text-link"
-            href="https://astraacessor.pro"
+            href={ASTRA_SITE_URL}
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -132,10 +134,10 @@ export function CustomerLogin() {
           <div className="ac-login-mobile-brand">
             <CustomerBrand />
           </div>
-          <div className="ac-login-icon">
-            <MessageSquare aria-hidden="true" />
-          </div>
-          <h2>{challenge ? 'Digite seu código de acesso' : 'Entre no seu Astra'}</h2>
+          <p className="ac-eyebrow ac-login-form-eyebrow">
+            <Lock aria-hidden="true" /> SEU ESPAÇO PESSOAL
+          </p>
+          <h1>{challenge ? 'Digite seu código de acesso' : 'Entre no seu Astra'}</h1>
           <p className="ac-login-subtitle">
             {challenge
               ? `Confira o ${maskedPhone(confirmedPhone).toLowerCase()}.`
@@ -222,8 +224,11 @@ export function CustomerLogin() {
             <summary>Preciso de ajuda</summary>
             <p>
               Use o número autorizado no seu acesso ao Astra e confira se ele está conectado ao
-              WhatsApp. Se precisar liberar ou recuperar seu acesso, fale com o administrador que
-              autorizou seu número.
+              WhatsApp. Para dúvidas sobre seu acesso,{' '}
+              <a href={ASTRA_SITE_URL + '#contato'} target="_blank" rel="noopener noreferrer">
+                fale com a equipe Astra
+              </a>
+              .
             </p>
           </details>
           <p className="ac-login-security">

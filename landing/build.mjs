@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { pages } from './src/legal.mjs';
 import { minify } from 'terser';
 import CleanCSS from 'clean-css';
+import { minify as minifyHtml } from 'html-minifier-terser';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, 'dist');
@@ -58,7 +59,14 @@ const render = (html) =>
         `<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#${name}"></use></svg>`
     )
   );
-let index = render(await readFile(join(root, 'src/index.html'), 'utf8'));
+const compactHtml = (html) =>
+  minifyHtml(html, {
+    collapseWhitespace: true,
+    conservativeCollapse: true,
+    removeComments: true,
+    quoteCharacter: '"',
+  });
+let index = await compactHtml(render(await readFile(join(root, 'src/index.html'), 'utf8')));
 const schema = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
@@ -101,8 +109,10 @@ for (const [path, page] of Object.entries(pages)) {
       `<meta property="og:description" content="${page.description}">`
     );
   if (page.noindex) head += '<meta name="robots" content="noindex, nofollow">';
-  const html = render(
-    `<!doctype html><html lang="pt-BR"><head>${head}</head><body><a class="skip-link" href="#principal">Pular para o conteúdo</a><header class="site-header legal-header"><div class="container header-inner"><a class="brand" href="/" aria-label="Astra, início"><img src="/assets/brand-0cf450d05c3b.svg" width="176" height="45" alt="Astra"></a><a class="text-link" href="/">Voltar ao início {{icon:arrow-right}}</a></div></header><main class="container info-page" id="principal"><h1>${page.heading}</h1>${page.body}</main></body></html>`
+  const html = await compactHtml(
+    render(
+      `<!doctype html><html lang="pt-BR"><head>${head}</head><body><a class="skip-link" href="#principal">Pular para o conteúdo</a><header class="site-header legal-header"><div class="container header-inner"><a class="brand" href="/" aria-label="Astra, início"><picture><source media="(prefers-color-scheme: dark)" srcset="/assets/brand-2a6daf003c28.svg"><img  src="/assets/brand-0cf450d05c3b.svg" width="176" height="45" alt="Astra"></picture></a><a class="text-link" href="/">Voltar ao início {{icon:arrow-right}}</a></div></header><main class="container info-page" id="principal"><h1>${page.heading}</h1>${page.body}</main></body></html>`
+    )
   );
   files[path] = html;
   await writeFile(join(dist, path.slice(1)), html);
