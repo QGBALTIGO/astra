@@ -695,30 +695,39 @@ describe('WhatsApp connection lifecycle', () => {
     expect(sockets[1]!.socket.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('sends a URL CTA as one supported text payload without native-flow fields', async () => {
+  it('relays a native URL CTA without exposing the link in the text body', async () => {
     const api = newApi();
     await api.connect();
     sockets[0]!.emit('connection.update', { connection: 'open' });
-    await api.sendMessage({
+    const socket = sockets[0]!.socket;
+    const body = 'Olá! Conheça o Astra. 💙';
+    await expect(api.sendMessage({
       platformChatId: nextPhone,
-      text: 'Olá! Conheça o Astra. 💙',
+      text: body,
       urlButton: { label: 'Conhecer o Astra', url: 'https://astra.example/' },
+    })).resolves.toBe('native-copy-id');
+    expect(socket.sendMessage).not.toHaveBeenCalled();
+    expect(socket.relayMessage).toHaveBeenCalledOnce();
+    const [jid, content, options] = socket.relayMessage.mock.calls[0]!;
+    expect(jid).toBe(`${nextPhone}@s.whatsapp.net`);
+    expect(options).toMatchObject({ messageId: 'native-copy-id' });
+    const interactive = (content as proto.IMessage).interactiveMessage;
+    expect(interactive?.body?.text).toBe(body);
+    expect(interactive?.body?.text).not.toContain('https://');
+    const button = interactive?.nativeFlowMessage?.buttons?.[0];
+    expect(button?.name).toBe('cta_url');
+    expect(JSON.parse(button?.buttonParamsJson ?? '{}')).toEqual({
+      display_text: 'Conhecer o Astra',
+      url: 'https://astra.example/',
+      merchant_url: 'https://astra.example/',
     });
-    expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledExactlyOnceWith(
-      `${nextPhone}@s.whatsapp.net`,
-      {
-        text: 'Olá! Conheça o Astra. 💙\n\n*Conhecer o Astra*\nhttps://astra.example/',
-        linkPreview: null,
-      },
-      {}
-    );
   });
 
-  it('never retries a CTA after an ambiguous network failure from sendMessage', async () => {
+  it('never retries a native URL CTA as text after an ambiguous relay failure', async () => {
     const api = newApi();
     await api.connect();
     sockets[0]!.emit('connection.update', { connection: 'open' });
-    sockets[0]!.socket.sendMessage.mockRejectedValueOnce(new Error('delivery outcome unknown'));
+    sockets[0]!.socket.relayMessage.mockRejectedValueOnce(new Error('delivery outcome unknown'));
     await expect(
       api.sendMessage({
         platformChatId: nextPhone,
@@ -727,7 +736,8 @@ describe('WhatsApp connection lifecycle', () => {
       })
     ).rejects.toThrow('delivery outcome unknown');
     await vi.advanceTimersByTimeAsync(15_001);
-    expect(sockets[0]!.socket.sendMessage).toHaveBeenCalledOnce();
+    expect(sockets[0]!.socket.relayMessage).toHaveBeenCalledOnce();
+    expect(sockets[0]!.socket.sendMessage).not.toHaveBeenCalled();
   });
 
   it('relays one native copy-code action with six digits and leading zeros, without simulated typing', async () => {

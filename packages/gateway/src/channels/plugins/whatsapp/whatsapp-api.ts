@@ -672,7 +672,11 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
     const jid = this.toJid(message.platformChatId);
     if (interactivePayload && !/^\d{7,15}@s\.whatsapp\.net$/.test(jid)) {
-      throw new Error('WhatsApp native CTA requires an individual phone number');
+      throw new Error(
+        copyPayload
+          ? 'WhatsApp copy-code messages require an individual phone number'
+          : 'WhatsApp URL CTA messages require an individual phone number'
+      );
     }
     const isSelf = this.isSelfChat(jid);
     // URL and copy actions use one native-flow message. Never append an exposed
