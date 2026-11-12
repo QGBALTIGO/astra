@@ -215,6 +215,18 @@ describe('ChannelAccessNotificationWorker', () => {
     }
   );
 
+  it('cancels the outgoing Cakto welcome after a customer already received an inbound welcome', async () => {
+    user.accessSource = 'cakto';
+    user.metadata = {
+      hasInteracted: true,
+      caktoManaged: true,
+      astraAccessNotices: { firstAuthorized: true },
+    };
+    entry.kind = 'approved';
+    expect((await worker.dispatch()).cancelled).toBe(1);
+    expect(channels.send).not.toHaveBeenCalled();
+    expect(notifications.beginSend).not.toHaveBeenCalled();
+  });
   it('keeps the paid notice single-send when post-send metadata persistence fails', async () => {
     user.accessSource = 'cakto';
     user.metadata = { hasInteracted: false, caktoManaged: true };
