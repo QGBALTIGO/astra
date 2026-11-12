@@ -1,5 +1,5 @@
 /** Private personal planning records. No automatic financial transactions are created. */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
 import { customerMoneyCents, validateCustomerFinanceDate } from './customer-finance.js';
 
@@ -29,6 +29,25 @@ export interface CustomerPlan extends CustomerPlanInput {
   updatedAt: string;
 }
 
+export type SubscriptionChange =
+  | { action: 'create'; title: string; amount: number; nextDueDate: string }
+  | { action: 'update'; title: string; amount?: number; nextDueDate?: string }
+  | { action: 'remove'; title: string };
+
+export type SubscriptionResult =
+  | { status: 'created' | 'updated' | 'exists' | 'removed'; plan: CustomerPlan }
+  | { status: 'ambiguous'; plans: CustomerPlan[] }
+  | { status: 'missing' | 'replay' | 'conflict' | 'limit' | 'inactive' };
+
+export function subscriptionTitleKey(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLocaleLowerCase('pt-BR')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
 interface PlanRow {
   id: string;
   kind: PlanKind;
@@ -38,11 +57,17 @@ interface PlanRow {
   category_id: string | null;
   installments_total: number | null;
   installments_paid: number | null;
-  next_due_date: string | Date | null;
+  next_due_date: string | null;
   notes: string | null;
   created_at: string | Date;
   updated_at: string | Date;
 }
+
+// PostgreSQL DATE is a civil day. Returning it as text avoids pg translating local
+// midnight to a JavaScript instant (which can fall on the previous UTC day).
+const PLAN_FIELDS =
+  'id, kind, title, amount_cents, progress_cents, category_id, installments_total, installments_paid, ' +
+  "to_char(next_due_date, 'YYYY-MM-DD') AS next_due_date, notes, created_at, updated_at";
 
 function iso(value: string | Date): string {
   return new Date(value).toISOString();
@@ -58,12 +83,7 @@ function map(row: PlanRow): CustomerPlan {
     categoryId: row.category_id,
     installmentsTotal: row.installments_total,
     installmentsPaid: row.installments_paid,
-    nextDueDate:
-      row.next_due_date instanceof Date
-        ? row.next_due_date.toISOString().slice(0, 10)
-        : row.next_due_date == null
-          ? null
-          : String(row.next_due_date).slice(0, 10),
+    nextDueDate: row.next_due_date,
     notes: row.notes,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -141,7 +161,7 @@ export class CustomerPlanningRepository extends BaseRepository {
 
   async list(): Promise<CustomerPlan[]> {
     const rows = await this.query<PlanRow>(
-      `SELECT * FROM customer_plans WHERE user_id = $1 ORDER BY updated_at DESC, id LIMIT 81`,
+      `SELECT ${PLAN_FIELDS} FROM customer_plans WHERE user_id = $1 ORDER BY updated_at DESC, id LIMIT 81`,
       [this.userId]
     );
     return rows.slice(0, 80).map(map);
@@ -149,24 +169,106 @@ export class CustomerPlanningRepository extends BaseRepository {
 
   async get(id: string): Promise<CustomerPlan | null> {
     const row = await this.queryOne<PlanRow>(
-      'SELECT * FROM customer_plans WHERE id = $1 AND user_id = $2',
+      `SELECT ${PLAN_FIELDS} FROM customer_plans WHERE id = $1 AND user_id = $2`,
       [id, this.userId]
     );
     return row ? map(row) : null;
   }
 
-  async create(input: CustomerPlanInput): Promise<CustomerPlan> {
-    const value = validate(input);
+  async subscriptions(): Promise<CustomerPlan[]> {
+    const rows = await this.query<PlanRow>(
+      `SELECT ${PLAN_FIELDS} FROM customer_plans WHERE user_id = $1 AND kind = 'subscription' ORDER BY customer_plans.next_due_date NULLS LAST, title, id`,
+      [this.userId]
+    );
+    return rows.map(map);
+  }
+
+  async changeSubscription(
+    requestKey: string,
+    change: SubscriptionChange,
+    canWrite: () => Promise<boolean>
+  ): Promise<SubscriptionResult> {
+    const fingerprint = createHash('sha256').update(JSON.stringify(change)).digest('hex');
+    return this.transaction(async () => {
+      await this.lockPlans();
+      const previous = await this.queryOne<{ fingerprint: string }>(
+        'SELECT fingerprint FROM customer_subscription_requests WHERE user_id = $1 AND request_key = $2',
+        [this.userId, requestKey]
+      );
+      if (previous) return { status: previous.fingerprint === fingerprint ? 'replay' : 'conflict' };
+      // Lock the selected kind before inspecting or modifying the row. The panel can edit
+      // title, notes, date, amount and even kind concurrently.
+      const rows = await this.query<PlanRow>(
+        `SELECT ${PLAN_FIELDS} FROM customer_plans WHERE user_id = $1 AND kind = 'subscription' ORDER BY id FOR UPDATE`,
+        [this.userId]
+      );
+      // The channel's access can expire or be revoked while waiting for the locks.
+      if (!(await canWrite())) return { status: 'inactive' };
+      await this.execute(
+        'INSERT INTO customer_subscription_requests (user_id, request_key, fingerprint) VALUES ($1,$2,$3)',
+        [this.userId, requestKey, fingerprint]
+      );
+      const matches = rows
+        .filter((row) =>
+          change.title.startsWith('#')
+            ? '#' + row.id === change.title
+            : subscriptionTitleKey(row.title) === subscriptionTitleKey(change.title)
+        )
+        .map(map);
+      if (matches.length > 1) return { status: 'ambiguous', plans: matches };
+      const match = matches[0];
+      if (change.action === 'create') {
+        if (match) return { status: 'exists', plan: match };
+        if (await this.atLimit()) return { status: 'limit' };
+        return {
+          status: 'created',
+          plan: await this.insert(validate({ ...change, kind: 'subscription' })),
+        };
+      }
+      if (!match) return { status: 'missing' };
+      if (change.action === 'remove') {
+        return (await this.delete(match.id))
+          ? { status: 'removed', plan: match }
+          : { status: 'missing' };
+      }
+      const plan = await this.update(match.id, {
+        ...match,
+        amount: change.amount ?? match.amount,
+        nextDueDate: change.nextDueDate ?? match.nextDueDate,
+      });
+      return plan ? { status: 'updated', plan } : { status: 'missing' };
+    });
+  }
+
+  private async lockPlans(): Promise<void> {
+    await this.queryOne('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
+      'customer-plans:' + this.userId,
+    ]);
+  }
+
+  private async atLimit(): Promise<boolean> {
     const total = await this.queryOne<{ count: string }>(
       'SELECT COUNT(*)::text AS count FROM customer_plans WHERE user_id = $1',
       [this.userId]
     );
-    if (Number(total?.count ?? 0) >= 80) throw new Error('Limite de 80 planejamentos por conta.');
+    return Number(total?.count ?? 0) >= 80;
+  }
+
+  async create(input: CustomerPlanInput): Promise<CustomerPlan> {
+    const value = validate(input);
+    return this.transaction(async () => {
+      await this.lockPlans();
+      if (await this.atLimit()) throw new Error('Limite de 80 planejamentos por conta.');
+      return this.insert(value);
+    });
+  }
+
+  private async insert(value: Required<CustomerPlanInput>): Promise<CustomerPlan> {
     const row = await this.queryOne<PlanRow>(
       `INSERT INTO customer_plans
          (id, user_id, kind, title, amount_cents, progress_cents, category_id,
           installments_total, installments_paid, next_due_date, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING ${PLAN_FIELDS}`,
       [
         randomUUID(),
         this.userId,
@@ -192,7 +294,7 @@ export class CustomerPlanningRepository extends BaseRepository {
           kind = $3, title = $4, amount_cents = $5, progress_cents = $6,
           category_id = $7, installments_total = $8, installments_paid = $9,
           next_due_date = $10, notes = $11, updated_at = NOW()
-        WHERE id = $1 AND user_id = $2 RETURNING *`,
+        WHERE id = $1 AND user_id = $2 RETURNING ${PLAN_FIELDS}`,
       [
         id,
         this.userId,
