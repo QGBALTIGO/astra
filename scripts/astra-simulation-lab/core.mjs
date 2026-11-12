@@ -197,7 +197,10 @@ export function categoryFor(index) {
 }
 function cleanStyle(raw, style) {
   if (style === 'caixa_alta') return raw.toLocaleUpperCase('pt-BR');
-  if (style === 'sem_pontuacao') return raw.replace(/[!?.,]/gu, '');
+  if (style === 'sem_pontuacao')
+    // Never strip the thousands/cent separators from currency amounts:
+    // R$ 930,50 -> R$ 93050 would change a user's financial intent.
+    return raw.replace(/[!?]/gu, '').replace(/(?<!\d)[.,]|[.,](?!\d)/gu, '');
   if (style === 'informal') return 'mano, ' + raw.replace(/Você/gu, 'vc');
   if (style === 'abreviado')
     return raw

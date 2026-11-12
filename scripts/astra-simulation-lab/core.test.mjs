@@ -120,3 +120,22 @@ test('financial amounts in scenarios are the oracle values, never random ledger 
   assert.equal(finance, 2000);
   assert.equal(goals, 1500);
 });
+
+test('style without punctuation never mutates BRL cent separators', () => {
+  let checked = 0;
+  for (let scriptIndex = 0; scriptIndex < PERSONA_COUNT; scriptIndex++) {
+    const persona = personaAt(scriptIndex);
+    if (persona.style !== 'sem_pontuacao') continue;
+    const story = scriptAt(scriptIndex);
+    for (const step of [0, 1, 2, 3, 5]) {
+      const scenario = story.turns[step];
+      const cents = scenario.context.expectedActionAmountCents;
+      if (cents == null) continue;
+      const expected = toBrl(cents);
+      assert.ok(scenario.message.includes(expected),
+        'Raw monetary value was corrupted by punctuation removal: ' + scenario.id);
+      checked++;
+    }
+  }
+  assert.ok(checked > 100);
+});

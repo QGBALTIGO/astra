@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { personaAt, scenarioAt } from './core.mjs';
+import { PERSONA_COUNT, personaAt, scenarioAt } from './core.mjs';
 import { SyntheticWorldOracle } from './world-oracle.mjs';
 test('follows a synthetic life without sharing state across identities', () => {
   const a = personaAt(0),
