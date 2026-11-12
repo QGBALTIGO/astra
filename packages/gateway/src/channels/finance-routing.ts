@@ -10,6 +10,7 @@ import { FinanceObligationsRepository } from '../db/repositories/finance-obligat
 import { ExpensesRepository, type ExpenseCategory } from '../db/repositories/expenses.js';
 import { getLog } from '../services/log.js';
 import { tryCustomerFinancialChannelReply } from './customer-finance-routing.js';
+import { expenseDuplicateGuard, type PendingExpenseDraft } from './expense-duplicate-guard.js';
 import { formatAstraMessage, formatTransactionConfirmation } from './response-presentation.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDay } from '../services/customer-date.js';
@@ -141,9 +142,22 @@ export async function tryExpenseRecordChannelReply(
   >,
   userId: string
 ): Promise<string | null> {
-  const customerFinanceReply = await tryCustomerFinancialChannelReply(message, userId);
+  const pendingKey = JSON.stringify([userId, message.channelPluginId, message.platformChatId]);
+  const answer = expenseDuplicateGuard.consume(pendingKey, message.text);
+  if (answer?.kind === 'same') {
+    return 'Entendi, era o mesmo gasto. Mantive apenas o lançamento original, sem criar outro.';
+  }
+  const customerFinanceReply = answer
+    ? null
+    : await tryCustomerFinancialChannelReply(message, userId);
   if (customerFinanceReply !== null) return customerFinanceReply;
-  const intent = parseChannelExpense(message.text);
+  const intent = answer?.kind === 'other'
+    ? {
+        amountCents: Math.round(answer.draft.amount * 100),
+        category: answer.draft.category,
+        description: answer.draft.description,
+      }
+    : parseChannelExpense(message.text);
   if (!intent) return null;
   if (
     !userId?.trim() ||
@@ -170,17 +184,54 @@ export async function tryExpenseRecordChannelReply(
       ? customerLocalDay(at, account?.timeZone ?? 'America/Campo_Grande')
       : `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
     const repo = new ExpensesRepository(userId);
-    const { expense, created } = await repo.createFromChannel(
-      {
-        date,
-        amount: intent.amountCents / 100,
-        currency: 'BRL',
-        category: intent.category,
-        description: intent.description,
-        source: 'channel',
-      },
-      sourceKey
-    );
+    const draft: PendingExpenseDraft =
+      answer?.kind === 'other'
+        ? answer.draft
+        : {
+            date,
+            amount: intent.amountCents / 100,
+            currency: 'BRL',
+            category: intent.category,
+            description: intent.description,
+            source: 'channel',
+          };
+
+    if (!answer) {
+      // Same amount alone is not a duplicate: match purpose, local day,
+      // category, saved channel source and recent creation time as well.
+      const candidates = await repo.list({
+        dateFrom: date,
+        dateTo: date,
+        minAmount: draft.amount,
+        maxAmount: draft.amount,
+        limit: 30,
+      });
+      const normalizedDescription = draft.description.normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
+      const nowMs = Date.now();
+      const possiblySame = candidates.some((candidate) => {
+        const createdAt = new Date(candidate.createdAt).getTime();
+        const description = candidate.description.normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
+        return candidate.source === 'channel' &&
+          candidate.amount === draft.amount &&
+          candidate.category === draft.category &&
+          description === normalizedDescription &&
+          Number.isFinite(createdAt) &&
+          nowMs >= createdAt &&
+          nowMs - createdAt < 10 * 60_000;
+      });
+      if (possiblySame) {
+        expenseDuplicateGuard.remember(pendingKey, draft);
+        const displayValue = new Intl.NumberFormat('pt-BR', {
+          style: 'currency', currency: 'BRL',
+        }).format(draft.amount);
+        return 'Encontrei um gasto parecido de ' + displayValue +
+          ' (' + draft.description + ') que você registrou recentemente. ' +
+          'É o mesmo gasto ou outro? Responda "Mesmo" ou "Outro". Não criei outro lançamento.';
+      }
+    }
+    const { expense, created } = await repo.createFromChannel(draft, sourceKey);
     if (created) {
       // A failed UI notification must not turn a committed expense into a
       // misleading failure that prompts the user to register it again.

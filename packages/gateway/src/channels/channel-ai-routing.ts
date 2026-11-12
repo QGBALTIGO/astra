@@ -349,7 +349,10 @@ export async function processViaBus(
 
   const expenseRecordReply = message.attachments?.length
     ? null
-    : await tryExpenseRecordChannelReply(message, channelUser.ownpilotUserId);
+    : await runInSessionLane(
+        JSON.stringify(['channel-finance', message.channelPluginId, message.platformChatId, channelUser.ownpilotUserId]),
+        () => tryExpenseRecordChannelReply(message, channelUser.ownpilotUserId)
+      );
   if (expenseRecordReply) return expenseRecordReply;
 
   const greetingReply = message.attachments?.length
@@ -634,7 +637,10 @@ export async function processDirectAgent(
 
   const expenseRecordReply = message.attachments?.length
     ? null
-    : await tryExpenseRecordChannelReply(message, userId);
+    : await runInSessionLane(
+        JSON.stringify(['channel-finance', message.channelPluginId, message.platformChatId, userId]),
+        () => tryExpenseRecordChannelReply(message, userId)
+      );
   if (expenseRecordReply) return expenseRecordReply;
 
   const greetingReply = message.attachments?.length
