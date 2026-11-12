@@ -7,7 +7,7 @@
 import { SQL } from 'bun';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
-const RELEASE = 'astra-cakto-20261112-pix-pending-v2';
+const RELEASE = 'astra-cakto-20261112-paid-notices-v3';
 const SECRET = String(Bun.env.CAKTO_WEBHOOK_SECRET || '');
 const PRODUCT_ID = String(Bun.env.CAKTO_PRODUCT_ID || '').trim();
 const PRODUCT_NAME = String(Bun.env.CAKTO_PRODUCT_NAME || 'Astra Acessor').trim().toLowerCase();
@@ -293,7 +293,8 @@ async function applyEvent(event, data, digest) {
       } else {
         await tx`UPDATE channel_users SET is_verified=true,verified_at=now(),verification_method='admin',
           status='active', access_expires_at=${expires.toISOString()}, access_granted_at=now(),
-          access_source='cakto', display_name=COALESCE(NULLIF(display_name,''),${name || null})
+          access_source='cakto', display_name=COALESCE(NULLIF(display_name,''),${name || null}),
+          metadata=COALESCE(metadata,'{}'::jsonb) || '{"caktoManaged":true}'::jsonb
           WHERE id=${user.id} AND NOT is_blocked`;
       }
       outcome = 'granted';
@@ -302,6 +303,39 @@ async function applyEvent(event, data, digest) {
         access_expires_at=now() WHERE id=${user.id} AND access_source='cakto'`;
       await tx`UPDATE channel_sessions SET is_active=false WHERE channel_user_id=${user.id}`;
       outcome = 'revoked';
+    }
+    // Queue a durable notice for a verified paid event. A webhook must not
+    // send messages itself; Astra's connected WhatsApp worker sends later.
+    if (outcome === 'granted' && GRANT_EVENTS.has(event)) {
+      const kind = event === 'purchase_approved' ? 'approved' : 'renewed';
+      const rows = await tx`SELECT id, access_granted_at, access_expires_at
+        FROM channel_users WHERE platform='whatsapp' AND platform_user_id=${phone}
+        AND ownpilot_user_id=${'whatsapp:' + phone}
+        AND is_verified=true AND is_blocked=false AND status='active'
+        AND access_source='cakto' AND metadata->>'caktoManaged'='true' FOR UPDATE`;
+      const paidUser = rows[0];
+      if (paidUser) {
+        const granted = new Date(paidUser.access_granted_at);
+        const expires = paidUser.access_expires_at ? new Date(paidUser.access_expires_at) : null;
+        if (!Number.isFinite(granted.getTime()) || !expires ||
+            !Number.isFinite(expires.getTime())) throw new Error('Invalid paid access snapshot');
+        const cycleKey = `granted:${granted.toISOString()}|expires:${expires.toISOString()}`;
+        const id = randomUUID();
+        await tx`INSERT INTO channel_access_notifications (
+            id, channel_user_id, ownpilot_user_id, platform_user_id,
+            kind, cycle_key, access_granted_at, access_expires_at,
+            duration_days, available_at)
+          SELECT ${id}, u.id, u.ownpilot_user_id, u.platform_user_id,
+            ${kind}, ${cycleKey}, u.access_granted_at, u.access_expires_at,
+            ${DAYS}, now()
+          FROM channel_users AS u WHERE u.id=${paidUser.id}
+            AND u.is_verified=true AND u.is_blocked=false AND u.status='active'
+            AND u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'
+            AND u.access_expires_at>now()
+            AND NOT EXISTS (SELECT 1 FROM system_settings
+              WHERE key='owner_whatsapp' AND value=u.platform_user_id)
+          ON CONFLICT (channel_user_id, kind, cycle_key) DO NOTHING`;
+      }
     }
     await tx`UPDATE astra_cakto_events SET outcome=${outcome} WHERE event_key=${key}`;
     return { outcome };
