@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   amountInput,
+  customerSiteUrl,
   dateInZone,
   dayOffset,
   localDateTime,
@@ -92,4 +93,14 @@ describe('customer external links', () => {
     expect(safeLink('https://example.com/renovar?plano=mensal')).toBe(
       'https://example.com/renovar?plano=mensal'
     ));
+});
+
+describe('current Astra site links', () => {
+  it('replaces the retired default site and handles absent or unsafe settings', () => {
+    for (const url of ['https://astraacessor.vercel.app/', null, 'javascript:alert(1)'])
+      expect(customerSiteUrl(url)).toBe('https://astra-landing-production.up.railway.app/');
+  });
+  it('preserves a configured secure custom domain', () => {
+    expect(customerSiteUrl('https://astra.example/')).toBe('https://astra.example/');
+  });
 });

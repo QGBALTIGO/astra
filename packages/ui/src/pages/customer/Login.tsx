@@ -19,6 +19,7 @@ import {
   normalizeWhatsAppPhone,
 } from './AccessForms';
 import { useCountdown, useCustomerQuery, useCustomerTheme } from './hooks';
+import { ASTRA_SITE_URL } from './helpers';
 import type { Customer, CustomerChallenge } from './types';
 
 export function CustomerLogin() {
@@ -122,7 +123,7 @@ export function CustomerLogin() {
           </ul>
           <a
             className="ac-text-link"
-            href="https://astra-landing-production.up.railway.app/"
+            href={ASTRA_SITE_URL}
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -224,11 +225,7 @@ export function CustomerLogin() {
             <p>
               Use o número autorizado no seu acesso ao Astra e confira se ele está conectado ao
               WhatsApp. Para dúvidas sobre seu acesso,{' '}
-              <a
-                href="https://astra-landing-production.up.railway.app/#contato"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              <a href={ASTRA_SITE_URL + '#contato'} target="_blank" rel="noopener noreferrer">
                 fale com a equipe Astra
               </a>
               .

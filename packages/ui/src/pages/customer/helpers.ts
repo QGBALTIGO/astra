@@ -114,6 +114,13 @@ export function safeLink(value?: string | null): string | undefined {
     return undefined;
   }
 }
+export const ASTRA_SITE_URL = 'https://astra-landing-production.up.railway.app/';
+export function customerSiteUrl(value?: string | null): string {
+  const configured = safeLink(value);
+  return configured && new URL(configured).hostname !== 'astraacessor.vercel.app'
+    ? configured
+    : ASTRA_SITE_URL;
+}
 export function categoryColor(value?: string) {
   return value && /^#[\da-f]{6}$/i.test(value) ? value : '#0061fd';
 }

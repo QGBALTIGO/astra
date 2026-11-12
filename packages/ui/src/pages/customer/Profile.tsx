@@ -22,7 +22,14 @@ import {
   CustomerError,
   CustomerSkeleton,
 } from './components';
-import { dateTimeLabel, safeLink, TIME_ZONES, timeZoneLabel, validTimeZone } from './helpers';
+import {
+  customerSiteUrl,
+  dateTimeLabel,
+  safeLink,
+  TIME_ZONES,
+  timeZoneLabel,
+  validTimeZone,
+} from './helpers';
 import { useCustomerQuery } from './hooks';
 import { CustomerPhoneChange } from './PhoneChange';
 import { CustomerPlanAccess } from './PlanAccess';
@@ -75,7 +82,7 @@ export function CustomerProfile({
   useEffect(() => {
     if (profile.data) onUpdated(profile.data.profile);
   }, [profile.data, onUpdated]);
-  const siteUrl = safeLink(integrations.data?.siteUrl);
+  const siteUrl = customerSiteUrl(integrations.data?.siteUrl);
   const renewalUrl = safeLink(integrations.data?.renewalUrl) ?? 'https://pay.cakto.com.br/CubL455';
   const supportUrl = safeLink(integrations.data?.supportUrl);
   const exportData = async (format: 'json' | 'csv') => {
