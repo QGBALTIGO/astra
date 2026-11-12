@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockEmit = vi.hoisted(() => vi.fn());
+const mockGenerateNative = vi.hoisted(() => vi.fn());
+const mockNativeMessageId = vi.hoisted(() => vi.fn(() => 'native-cta-id'));
 const mockRecordOutboundQuality = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock('../../../services/outbound-quality.js', () => ({
   recordOutboundQuality: mockRecordOutboundQuality,
@@ -13,6 +15,8 @@ vi.mock('@whiskeysockets/baileys', () => ({
   DisconnectReason: {},
   fetchLatestBaileysVersion: vi.fn(),
   downloadMediaMessage: vi.fn(),
+  generateWAMessageFromContent: mockGenerateNative,
+  generateMessageIDV2: mockNativeMessageId,
   Browsers: { appropriate: vi.fn() },
   proto: { HistorySync: { HistorySyncType: {} } },
 }));
@@ -159,5 +163,86 @@ describe('WhatsAppChannelAPI', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+
+describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
+  const body = '✅ *Entrada registrada*\n\n• *Valor:* R$ 1,00';
+  const url = 'https://astra-gateway-production.up.railway.app/cliente/transacoes';
+  function prepare() {
+    const api = new WhatsAppChannelAPI({ my_phone: '5511888888888' }, 'channel.whatsapp');
+    const socket = {
+      user: { id: '5511888888888:1@s.whatsapp.net' },
+      relayMessage: vi.fn().mockResolvedValue(undefined),
+      sendMessage: vi.fn().mockResolvedValue({ key: { id: 'plaintext-send' } }),
+      sendPresenceUpdate: vi.fn().mockResolvedValue(undefined),
+    };
+    Object.assign(api as object, {
+      sock: socket,
+      status: 'connected',
+      connectedAccountPhone: '5511888888888',
+      waitForConnectedAccount: vi.fn().mockResolvedValue(undefined),
+      acquireSendSlot: vi.fn().mockResolvedValue(socket),
+    });
+    mockGenerateNative.mockReturnValue({
+      key: { id: 'native-cta-id', remoteJid: '5511999999999@s.whatsapp.net' },
+      message: { interactiveMessage: { body: { text: body } } },
+    });
+    return { api, socket };
+  }
+
+  it('relays one native-flow CTA and never sends the dashboard URL as plain text', async () => {
+    const { api, socket } = prepare();
+    const messageId = await api.sendMessage({
+      platformChatId: '5511999999999',
+      text: body,
+      urlButton: { label: 'Acompanhar no painel', url },
+    });
+    expect(messageId).toBe('native-cta-id');
+    expect(socket.sendMessage).not.toHaveBeenCalled();
+    expect(socket.relayMessage).toHaveBeenCalledTimes(1);
+    expect(socket.relayMessage).toHaveBeenCalledWith(
+      '5511999999999@s.whatsapp.net',
+      expect.any(Object),
+      expect.objectContaining({ messageId: 'native-cta-id', additionalNodes: expect.any(Array) })
+    );
+    expect(mockGenerateNative).toHaveBeenCalledOnce();
+    const [jid, content, opts] = mockGenerateNative.mock.calls[0]!;
+    expect(jid).toBe('5511999999999@s.whatsapp.net');
+    expect(content.interactiveMessage?.body?.text).toBe(body);
+    const button = content.interactiveMessage?.nativeFlowMessage?.buttons?.[0];
+    expect(button.name).toBe('cta_url');
+    expect(JSON.parse(button.buttonParamsJson)).toMatchObject({
+      display_text: 'Acompanhar no painel', url, merchant_url: url,
+    });
+    expect(opts.userJid).toBe(socket.user.id);
+    expect(mockRecordOutboundQuality).toHaveBeenCalledWith(
+      'channel.whatsapp', 'native-cta-id', body
+    );
+    expect(mockRecordOutboundQuality.mock.calls[0]?.[2]).not.toContain(url);
+  });
+
+  it('never retries an ambiguous native CTA failure as an exposed link', async () => {
+    const { api, socket } = prepare();
+    socket.relayMessage.mockRejectedValueOnce(new Error('ambiguous socket failure'));
+    await expect(api.sendMessage({
+      platformChatId: '5511999999999',
+      text: body,
+      urlButton: { label: 'Acompanhar no painel', url },
+    })).rejects.toThrow('ambiguous socket failure');
+    expect(socket.relayMessage).toHaveBeenCalledTimes(1);
+    expect(socket.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not downgrade unsafe CTA parameters into ordinary text', async () => {
+    const { api, socket } = prepare();
+    await expect(api.sendMessage({
+      platformChatId: '5511999999999',
+      text: body,
+      urlButton: { label: 'Acompanhar no painel', url: 'javascript:alert(1)' },
+    })).rejects.toThrow('Invalid WhatsApp URL CTA');
+    expect(socket.relayMessage).not.toHaveBeenCalled();
+    expect(socket.sendMessage).not.toHaveBeenCalled();
   });
 });
