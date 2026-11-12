@@ -4,6 +4,9 @@ import { CustomerPlanningRepository } from './customer-planning.js';
 type Call = { sql: string; params?: unknown[] };
 
 class MemoryPlanning extends CustomerPlanningRepository {
+  override async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    return fn();
+  }
   calls: Call[] = [];
   count = 0;
   rows: Record<string, unknown>[] = [];

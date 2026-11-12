@@ -53,6 +53,8 @@ const { isChannelUserAccessActive } = await import('../src/channels/channel-acce
 const { processViaBus, processDirectAgent } = await import('../src/channels/channel-ai-routing.js');
 const { whatsappNormalizer } = await import('../src/channels/normalizers/whatsapp.js');
 const { executeChannelReminderTool } = await import('../src/tools/channel-reminder-tools.js');
+const { executePersonalDataTool } = await import('../src/tools/personal-data-tools.js');
+const { safeChannelResponse } = await import('../src/channels/response-safety.js');
 const { runInExecContext } = await import('@ownpilot/core/agent');
 const { setChannelService } = await import('@ownpilot/core/channels');
 const { dispatchDueChannelReminders, startChannelReminderWorker, stopChannelReminderWorker } =
@@ -915,6 +917,123 @@ try {
     );
   });
 
+  for (const [index, path] of (['bus', 'direct'] as const).entries()) {
+    await check(
+      `${path}: a topic change invalidates the duplicate-expense prompt in arrival order`,
+      async () => {
+        const original = (await first.finance.listTransactions()).total;
+        const text = `Gastei ${81 + index} reais na farmácia`;
+        const turn = (body: string, id: string) =>
+          invoke(path, first, incoming(first, body, `topic-${path}-${id}`));
+        assert.match(await turn(text, 'first'), /Despesa registrada/);
+        const [prompt, topic, stale] = await Promise.all([
+          turn(text, 'second'),
+          turn('Quanto falta pagar do carro?', 'financing'),
+          turn('Outro', 'interrupted'),
+        ]);
+        assert.match(prompt, /mesmo gasto ou outro/);
+        assert.match(topic, /Saldo do financiamento/);
+        assert.match(stale, /confirmação anterior já foi encerrada/);
+        assert.equal((await first.finance.listTransactions()).total, original + 1);
+
+        // A new prompt followed immediately by an explicit confirmation must still work.
+        const [nextPrompt, confirmed] = await Promise.all([
+          turn(text, 'third'),
+          turn('Outro', 'confirmed'),
+        ]);
+        assert.match(nextPrompt, /mesmo gasto ou outro/);
+        assert.match(confirmed, /Despesa registrada/);
+        assert.equal((await first.finance.listTransactions()).total, original + 2);
+      }
+    );
+    await check(
+      `${path}: advisor shortcuts expire a previous duplicate-expense confirmation`,
+      async () => {
+        const topics = [
+          ['Minhas assinaturas', /assinaturas cadastradas/],
+          ['Consulte a tarefa Evento sintético.', /não consta na sua lista/],
+          ['Posso mandar minha senha do banco aqui?', /gerenciador de senhas/],
+          [
+            'Confere na minha agenda se o Evento sintético ficou marcado para sexta.',
+            /Não encontrei um compromisso/,
+          ],
+          ['Cancela o lembrete "Evento sintético"', /Não encontrei um lembrete/],
+          [
+            'Exclua da minha agenda o compromisso de 13/11/2026 no fuso de Cuiabá: Evento sintético.',
+            /Não encontrei/,
+          ],
+        ] as const;
+        const initial = (await first.finance.listTransactions()).total;
+        for (const [position, [topic, expected]] of topics.entries()) {
+          const text = `Gastei ${101 + index * 10 + position} reais na farmácia`;
+          const turn = (body: string, id: string) =>
+            invoke(path, first, incoming(first, body, `advisor-${path}-${position}-${id}`));
+          assert.match(await turn(text, 'first'), /Despesa registrada/);
+          const [duplicate, intervening, stale] = await Promise.all([
+            turn(text, 'duplicate'),
+            turn(topic, 'topic'),
+            turn('Outro', 'stale'),
+          ]);
+          assert.match(duplicate, /mesmo gasto ou outro/);
+          assert.match(intervening, expected);
+          assert.match(stale, /confirmação anterior já foi encerrada/);
+          assert.equal((await first.finance.listTransactions()).total, initial + position + 1);
+        }
+      }
+    );
+  }
+  await check(
+    'a persisted calendar write matches private readbacks on both platforms and both entry points',
+    async () => {
+      const account = await customerAccountsRepo.getByDataUserId(first.userId);
+      assert.ok(account);
+      const timeZone = 'America/Cuiaba';
+      await customerAccountsRepo.updateProfile(account.id, { timeZone });
+      const params = {
+        title: 'Revisão do orçamento Limoeiro',
+        startTime: '2020-11-13T19:00:00Z',
+        endTime: '2020-11-13T19:30:00Z',
+      };
+      const created = await executePersonalDataTool('add_calendar_event', params, first.userId);
+      assert.equal(created.success, true);
+      const receipt = {
+        name: 'core.add_calendar_event',
+        arguments: JSON.stringify(params),
+        content: JSON.stringify(created),
+        isError: false,
+      };
+      const confirmed = safeChannelResponse('Agendei para as 22h.', [receipt], { timeZone });
+      const query =
+        'Confere na minha agenda se a Revisão do orçamento Limoeiro ficou marcada para sexta. Qual a data e que horas ela começa e termina?';
+      const expectLocalTime = (reply: string) => {
+        for (const field of [params.title, '13/11/2020', '15:00', '15:30', timeZone])
+          assert.ok(reply.includes(field), `Expected ${field} in ${reply}`);
+        assert.doesNotMatch(reply, /22h|19:00|19:30/);
+      };
+      expectLocalTime(confirmed);
+      for (const platform of ['whatsapp', 'telegram'] as const) {
+        for (const path of ['bus', 'direct'] as const) {
+          const read = (owner: Customer) => {
+            const message = incoming(
+              owner,
+              query,
+              `calendar-${platform}-${path}`,
+              new Date('2020-11-12T20:00:00Z')
+            );
+            return invoke(path, owner, {
+              ...message,
+              platform,
+              channelPluginId: 'channel.' + platform + '.screenshot-smoke',
+              sender: { ...message.sender, platform },
+              metadata: platform === 'telegram' ? { chatType: 'private' } : { isGroup: false },
+            });
+          };
+          expectLocalTime(await read(first));
+          assert.match(await read(second), /Não encontrei um compromisso/);
+        }
+      }
+    }
+  );
   assert.equal(llmFallbacks, 0, 'Screenshot requests escaped to an LLM fallback');
   assert.equal(networkCalls, 0, 'Screenshot requests attempted external HTTP');
   console.log(`PASS ${checks} PostgreSQL screenshot scenarios; zero LLM or external HTTP calls`);

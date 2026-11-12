@@ -286,6 +286,23 @@ export class CalendarRepository extends BaseRepository {
     return rows.map(rowToEvent);
   }
 
+  /** A named appointment lookup needs to distinguish a unique slot from homonyms. */
+  async findSlotsByTitle(
+    titles: string[],
+    start: Date,
+    end: Date,
+    forUpdate = false
+  ): Promise<CalendarEvent[]> {
+    const rows = await this.query<EventRow>(
+      `SELECT * FROM calendar_events WHERE user_id = $1
+         AND lower(title) IN (SELECT lower(candidate) FROM unnest($2::text[]) AS candidate)
+         AND start_time >= $3 AND start_time < $4
+       ORDER BY start_time, id LIMIT 2${forUpdate ? ' FOR UPDATE' : ''}`,
+      [this.userId, titles, start.toISOString(), end.toISOString()]
+    );
+    return rows.map(rowToEvent);
+  }
+
   async getToday(): Promise<CalendarEvent[]> {
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());

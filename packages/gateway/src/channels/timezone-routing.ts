@@ -65,21 +65,30 @@ function timezoneRequest(text: string): { timeZone: string | null } | null {
   )
     return null;
 
-  const known = NAMED_ZONES[value];
-  if (known) return { timeZone: known };
-  if (Object.keys(NAMED_ZONES).some((place) => value.startsWith(`${place} `))) return null;
+  if (
+    !Object.hasOwn(NAMED_ZONES, value) &&
+    Object.keys(NAMED_ZONES).some((place) => value.startsWith(`${place} `))
+  )
+    return null;
   if (value.includes('/') && /\s/.test(value)) return null;
+  return { timeZone: resolveCustomerTimeZone(value) };
+}
+
+export function resolveCustomerTimeZone(text: string): string | null {
+  const value = normalize(text);
+  const known = Object.hasOwn(NAMED_ZONES, value) ? NAMED_ZONES[value] : null;
+  if (known) return known;
   // Numeric offsets alone cannot identify a location or its seasonal rules.
   // An explicitly named IANA zone can be validated against the runtime tzdata.
   if (!/^(?:utc|gmt|(?:[a-z_+-]+\/)+[a-z0-9_+-]+)$/.test(value)) {
-    return { timeZone: null };
+    return null;
   }
   try {
     const timeZone = new Intl.DateTimeFormat('pt-BR', { timeZone: value }).resolvedOptions()
       .timeZone;
-    return { timeZone };
+    return timeZone;
   } catch {
-    return { timeZone: null };
+    return null;
   }
 }
 

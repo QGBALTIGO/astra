@@ -23,6 +23,15 @@ CREATE TABLE IF NOT EXISTS customer_plans (
   )
 );
 
+-- Keep a receipt after a subscription is removed so a redelivered message
+-- cannot recreate it. No title, price, date or chat text is retained here.
+CREATE TABLE IF NOT EXISTS customer_subscription_requests (
+  user_id TEXT NOT NULL,
+  request_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  PRIMARY KEY (user_id, request_key)
+);
+
 CREATE TABLE IF NOT EXISTS customer_agenda_links (
   user_id TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('event', 'task')),

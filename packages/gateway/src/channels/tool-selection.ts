@@ -38,6 +38,19 @@ export function isConversationalOnlyChannelRequest(text: string): boolean {
   ) {
     return false;
   }
+  // A calendar exercise and its explicitly hypothetical follow-up use the
+  // conversation as their source. Do not give the model a real calendar.
+  if (
+    /\b(?:(?:exercicio|simulacao) de agenda|agenda (?:do|desse|deste) (?:exemplo|cenario|exercicio))\b/.test(
+      input
+    ) &&
+    /\b(?:como (?:ficaria|seria)|(?:precisa|deveria) perguntar)\b/.test(input) &&
+    input.endsWith('?') &&
+    !/\b(?:agende|reagende|remarque|cancele|altere|registre|salve|crie|envie|pague|transfira)\b/.test(
+      input
+    )
+  )
+    return true;
   return (
     /^(?:pede|peca|fala|diz|diga)\s+(?:pro|pra|para(?:\s+(?:o|a))?|ao|a)\s+(?:(?:meu|minha|o|a)\s+)?(?:namorad[oa]|marido|esposa|mae|pai|amig[oa]|client[ea]|chefe|irma[oa])\b/.test(
       input
@@ -51,6 +64,9 @@ export function isConversationalOnlyChannelRequest(text: string): boolean {
     /^(?:quero|preciso)\s+(?:mandar|enviar|escrever)\s+(?:uma\s+)?mensagem\b/.test(input)
   );
 }
+
+export const CHANNEL_CONVERSATIONAL_RETRY_PROMPT =
+  'Releia o pedido original e o contexto. Responda em português à pergunta, ao exercício hipotético ou ao pedido de texto para copiar. Em exercícios, mantenha os dados do exemplo e descreva o resultado no condicional. Não use ferramentas, não alegue execução real nem mostre mensagens técnicas.';
 
 /** Detect a generic assistant error or a misunderstanding of a chat request. */
 export function needsConversationalRewrite(text: string): boolean {

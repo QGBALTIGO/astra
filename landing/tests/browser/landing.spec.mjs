@@ -7,15 +7,29 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => document.fonts.ready);
 });
 test('viewport, full page and product visual regression', async ({ page }) => {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
+    true
+  );
   await expect(page).toHaveScreenshot('hero.png');
   await expect(page.locator('.demo-workspace')).toHaveScreenshot('demo.png');
   await expect(page.locator('.price-card')).toHaveScreenshot('price.png');
   await page.screenshot({ path: test.info().outputPath('full-page.png'), fullPage: true });
-  const overflow = await page.locator('h1,h2,h3,p,button,a,img,.feature-card,.price-card').evaluateAll((elements) => elements.filter((element) => {
-    const rect = element.getBoundingClientRect();
-    return rect.width > 0 && getComputedStyle(element).visibility !== 'hidden' && !element.closest('dialog:not([open])') && !element.classList.contains('skip-link') && (rect.right > innerWidth + 1 || rect.left < -1);
-  }).map((element) => ({ tag: element.tagName, text: element.textContent.slice(0, 60) })));
+  const overflow = await page
+    .locator('h1,h2,h3,p,button,a,img,.feature-card,.price-card')
+    .evaluateAll((elements) =>
+      elements
+        .filter((element) => {
+          const rect = element.getBoundingClientRect();
+          return (
+            rect.width > 0 &&
+            getComputedStyle(element).visibility !== 'hidden' &&
+            !element.closest('dialog:not([open])') &&
+            !element.classList.contains('skip-link') &&
+            (rect.right > innerWidth + 1 || rect.left < -1)
+          );
+        })
+        .map((element) => ({ tag: element.tagName, text: element.textContent.slice(0, 60) }))
+    );
   expect(overflow).toEqual([]);
 });
 test('all nine conversations create coherent dashboard previews', async ({ page }) => {
@@ -29,16 +43,23 @@ test('all nine conversations create coherent dashboard previews', async ({ page 
   await page.locator('[data-scenario="agenda"]').click();
   await page.locator('[data-scenario="metas"]').click();
   await page.locator('[data-scenario="trabalho"]').click();
-  await expect(page.locator('#demo-reply')).toHaveText(scenarios.find((scenario) => scenario.id === 'trabalho').reply);
+  await expect(page.locator('#demo-reply')).toHaveText(
+    scenarios.find((scenario) => scenario.id === 'trabalho').reply
+  );
   await expect(page.locator('#dashboard-panel')).toContainText('5.650,00');
   await page.getByRole('button', { name: 'Rever conversa' }).click();
-  await expect(page.locator('#demo-reply')).toHaveText(scenarios.find((scenario) => scenario.id === 'trabalho').reply);
+  await expect(page.locator('#demo-reply')).toHaveText(
+    scenarios.find((scenario) => scenario.id === 'trabalho').reply
+  );
 });
 test('dashboard tabs work with keyboard and maintain ARIA state', async ({ page }) => {
   await page.locator('#tab-transacoes').focus();
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('#tab-categorias')).toBeFocused();
-  await expect(page.locator('#dashboard-panel')).toHaveAttribute('aria-labelledby', 'tab-categorias');
+  await expect(page.locator('#dashboard-panel')).toHaveAttribute(
+    'aria-labelledby',
+    'tab-categorias'
+  );
   await expect(page.locator('#dashboard-panel')).toContainText('1.624,00');
   await page.keyboard.press('End');
   await expect(page.locator('#tab-perfil')).toBeFocused();
@@ -65,21 +86,37 @@ test('navigation, FAQ, menu and history stay usable', async ({ page, viewport })
   await page.locator('.brand').first().click();
   await expect(page).toHaveURL(/#inicio$/);
 });
-test('form validation, loading, errors, retry and success use isolated mock responses', async ({ page }) => {
+test('form validation, loading, errors, retry and success use isolated mock responses', async ({
+  page,
+}) => {
   let posts = 0;
-  await page.route('**/api/form-token', (route) => route.fulfill({ json: { token: 'test-only-token' } }));
+  await page.route('**/api/form-token', (route) =>
+    route.fulfill({ json: { token: 'test-only-token' } })
+  );
   await page.route('**/api/interesse', async (route) => {
     posts++;
     await new Promise((resolve) => setTimeout(resolve, 160));
-    if (posts === 1) return route.fulfill({ status: 503, json: { error: 'Falha simulada para testar a recuperação.' } });
-    return route.fulfill({ status: 201, json: { receipt: 'ASTRA-00000000-0000-4000-8000-000000000001', cancellationToken: 'a'.repeat(64) } });
+    if (posts === 1)
+      return route.fulfill({
+        status: 503,
+        json: { error: 'Falha simulada para testar a recuperação.' },
+      });
+    return route.fulfill({
+      status: 201,
+      json: {
+        receipt: 'ASTRA-00000000-0000-4000-8000-000000000001',
+        cancellationToken: 'a'.repeat(64),
+      },
+    });
   });
   await page.getByRole('button', { name: 'Quero tirar uma dúvida' }).click();
   await expect(page.getByRole('dialog', { name: 'Vamos conversar?' })).toBeVisible();
   await page.getByRole('button', { name: 'Enviar solicitação' }).click();
   expect(posts).toBe(0);
   await page.getByLabel('Seu e-mail', { exact: true }).fill('synthetic@example.com');
-  await page.getByLabel('Sua mensagem', { exact: true }).fill('Mensagem fictícia: teste local do formulário.');
+  await page
+    .getByLabel('Sua mensagem', { exact: true })
+    .fill('Mensagem fictícia: teste local do formulário.');
   await page.locator('[name="consent"]').check();
   await page.getByRole('button', { name: 'Enviar solicitação' }).click();
   await expect(page.locator('#contact-submit')).toBeDisabled();
@@ -118,11 +155,15 @@ test('accessibility AA, reduced motion and dialogs', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(page.locator('#contact-dialog')).not.toBeVisible();
 });
-test('assets and scripts load without browser errors or checkout side effects', async ({ page }) => {
+test('assets and scripts load without browser errors or checkout side effects', async ({
+  page,
+}) => {
   const errors = [];
   const failed = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
   page.on('requestfailed', (request) => failed.push(request.url()));
   await page.reload();
   await page.evaluate(() => document.fonts.ready);
