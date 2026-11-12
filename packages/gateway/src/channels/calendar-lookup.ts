@@ -4,6 +4,7 @@ import { createCalendarRepository } from '../db/repositories/calendar.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { addCalendarDays, customerDayStart, customerLocalDay } from '../services/customer-date.js';
 import { formatAstraMessage } from './response-presentation.js';
+import { resolveCustomerTimeZone } from './timezone-routing.js';
 
 const weekdays = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 const namedSlotQuestion =
@@ -62,24 +63,37 @@ export async function tryVerifyCalendarSlot(
     if (slots.length > 1)
       return `Encontrei mais de um compromisso com esse título em ${date}. Qual é o horário de início que você procura?`;
     const event = slots[0]!;
-    const format = new Intl.DateTimeFormat('pt-BR', {
-      timeZone,
-      dateStyle: 'short',
-      timeStyle: 'short',
-    });
+    // The requested weekday belongs to the customer's agenda. Present the matching
+    // event in its saved zone, and keep the customer's clock visible if it differs.
+    const eventZone = (event.timezone && resolveCustomerTimeZone(event.timezone)) || timeZone;
+    const times = (zone: string) => {
+      const format = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: zone,
+        dateStyle: 'short',
+        ...(event.allDay ? {} : { timeStyle: 'short' as const }),
+      });
+      return {
+        start: format.format(new Date(event.startTime)),
+        end: !event.allDay && event.endTime ? format.format(new Date(event.endTime)) : null,
+      };
+    };
+    const saved = times(eventZone);
     const fields = [{ label: 'Compromisso', value: event.title }];
-    if (event.allDay) fields.push({ label: 'Dia inteiro', value: date });
+    if (event.allDay) fields.push({ label: 'Dia inteiro', value: saved.start });
     else
       fields.push(
-        { label: 'Início', value: format.format(new Date(event.startTime)) },
-        {
-          label: 'Término',
-          value: event.endTime
-            ? format.format(new Date(event.endTime))
-            : 'Sem horário de término registrado',
-        }
+        { label: 'Início', value: saved.start },
+        { label: 'Término', value: saved.end ?? 'Sem horário de término registrado' }
       );
-    return formatAstraMessage('📅 Na sua agenda', fields, `Fuso: ${timeZone}.`);
+    if (eventZone !== timeZone) {
+      const local = times(timeZone);
+      if (saved.start !== local.start || saved.end !== local.end)
+        fields.push({
+          label: `Na sua agenda (${timeZone})`,
+          value: local.end ? local.start + ' – ' + local.end : local.start,
+        });
+    }
+    return formatAstraMessage('📅 Na sua agenda', fields, `Fuso: ${eventZone}.`);
   } catch (error) {
     return channelDataFailure('calendar', 'read', error);
   }

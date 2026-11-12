@@ -33,6 +33,29 @@ describe('Portuguese personal calendar command', () => {
       endTime: '2026-11-13T19:30:00.000Z',
     });
   });
+  it.each([
+    'Preciso mudar a Revisão do orçamento Acácia de sexta para 16h, mantendo meia hora. Se encontrar esse evento, remarca o mesmo; se não encontrar, me avisa.',
+    'Remarque a Revisão do orçamento Acácia de sexta-feira para as 16:00, mantendo 30 minutos.',
+    'Reagende o evento “Revisão do orçamento Acácia” de 13/11/2026 pra 16h.',
+    'Preciso mudar o horário da Revisão do orçamento Acácia na sexta para 16h.',
+    'Mude a reunião da sexta para 16h de Cuiabá, mantendo a mesma duração.',
+  ])('recognizes a move of an existing event: %s', (text) => {
+    expect(parseChannelCalendarEvent(text, when)).toMatchObject({
+      action: 'move',
+      localClock: '16:00',
+    });
+  });
+  it.each([
+    'Não remarque a reunião de sexta para 16h.',
+    'Se eu disser “remarque a reunião de sexta para 16h”, o que acontece?',
+    'Remarque a reunião de sexta para 16h e me avise em uma hora.',
+    'Remarque a reunião de sexta para 16h. Se não encontrar, crie outra.',
+    'Remarque a reunião de sexta para 16h?',
+    'Remarque a reunião de sexta para 25h.',
+    'Remarque a reunião para 16h.',
+  ])('never executes a hypothetical, forbidden, compound or invalid move: %s', (text) => {
+    expect(parseChannelCalendarEvent(text, when)).toHaveProperty('reply');
+  });
   it('requires a full title, absolute day and named time zone before deletion', () => {
     const del =
       'Exclua da minha agenda o compromisso de 13/11/2026 no fuso de Cuiabá: Revisão do orçamento Limoeiro.';

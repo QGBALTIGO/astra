@@ -9,6 +9,7 @@ import {
   customerLocalDay,
   validCalendarDay,
 } from '../services/customer-date.js';
+import { channelDataFailure } from './channel-failure.js';
 import { formatAstraMessage } from './response-presentation.js';
 import { resolveCustomerTimeZone } from './timezone-routing.js';
 
@@ -59,11 +60,108 @@ export function parseChannelClock(value: string): string | null {
 }
 
 type ParseResult = { reply: string } | ChannelCalendarMutation;
+const movePrefix =
+  /^(?:astra,\s*)?(?:(?:preciso|quero)\s+(?:mudar|alterar|remarcar|reagendar)|mude|muda|altere|altera|remarque|remarca|reagende|reagenda)\s+/iu;
+const moveHint =
+  'Qual compromisso você quer remarcar? Diga o título completo, o dia e o novo horário, como “Remarque a reunião do orçamento de sexta para 16h”.';
+// This suffix asks for a reply to the current turn when the event is missing. It
+// never authorizes creating a calendar item, a future notification, or a second action.
+const reportMissing =
+  /(?:[.!]\s*|,\s*)(?:se (?:encontrar|achar) (?:esse|este|o) (?:evento|compromisso),?\s*(?:remarque|remarca|reagende|reagenda) o mesmo[;,.]\s*)?se não (?:encontrar|achar),?\s*(?:me avis[ae]|me diga|me informe)[.!]?$/iu;
+function parseMove(input: string, receivedAt: Date | undefined): ParseResult | null {
+  const at = movePrefix.exec(input);
+  const dayAndClock =
+    /\b(?:de|da|do dia|na|no dia)\s+(?:hoje|amanhã|domingo|segunda|terça|quarta|quinta|sexta|sábado|\d{1,2}\/\d{1,2}\/\d{4})(?:-feira)?\s+(?:para|pra)\s+(?:[àa]s\s+)?\d/iu;
+  const eventWords =
+    /\b(?:remarc\w*|remarque|reagend\w*|agenda|evento|compromisso|reunião|revisão|apresentação|encontro|aula|entrevista|consulta|videochamada)\b/iu;
+  if (!eventWords.test(input)) return null;
+  if (!dayAndClock.test(input)) {
+    return at && /\b(?:pra|para)\s+(?:[àa]s\s+)?\d{1,2}(?:h|:)/iu.test(input)
+      ? { reply: moveHint }
+      : null;
+  }
+  if (!at) {
+    // Quoted, hypothetical or negated moves must not reach a mutating agent.
+    if (
+      /\b(?:mudar|remarc\w*|remarque|reagend\w*|mude|altere)\b/iu.test(input) &&
+      /^(?:não|nunca|e se|se|imagin[ae]|como seria|hipoteticamente|é (?:só )?um exemplo)\b/iu.test(
+        input
+      )
+    )
+      return { reply: 'Entendi. Sua agenda permanece como está.' };
+    return null;
+  }
+  const body = input
+    .slice(at[0].length)
+    .replace(/^o horário (?:da|do|de)\s+/iu, '')
+    .replace(reportMissing, '')
+    .trim()
+    .replace(/[.!]$/u, '');
+  if (
+    input.length > 480 ||
+    /[?;\r\n<>.!]/u.test(body) ||
+    /\b(?:não|nunca|talvez|caso|se|exemplo|simul\w*|hipoteticamente|apenas se)\b/iu.test(body)
+  )
+    return { reply: moveHint };
+  const parts =
+    /^(?<title>[^:,]{1,170}?)\s+(?:de|da|do dia|na|no dia)\s+(?<day>hoje|amanhã|domingo|segunda(?:-feira)?|terça(?:-feira)?|quarta(?:-feira)?|quinta(?:-feira)?|sexta(?:-feira)?|sábado|\d{1,2}\/\d{1,2}\/\d{4})\s+(?:para|pra)\s+(?:[àa]s\s+)?(?<clock>\d{1,2}(?:h(?:\d{2})?|:\d{2}))(?:\s+(?:de|no (?:fuso|horário) de)\s+(?<zone>[^,]{1,60}))?(?:,\s*mantendo\s+(?<length>(?:a (?:mesma )?duração|meia hora|uma hora|\d{1,3}\s*min(?:utos)?)))?$/iu.exec(
+      body
+    )?.groups;
+  if (!parts) return { reply: moveHint };
+  const title = parts
+    .title!.replace(/^(?:(?:[oa]|um|uma)\s+)?(?:compromisso|evento)\s+(?=[“"])/iu, '')
+    .replace(/^[“"]([^“”"]+)[”"]$/u, '$1')
+    .trim();
+  if (
+    !/^[\p{L}\d][\p{L}\p{M}\d '’()&+/-]{0,159}$/u.test(title) ||
+    /\b(?:remarque|remarca|reagende|reagenda|cancele|envie|mande|avise|crie|apague|adicione|registre|anote|pague|transfira|salve)\b/iu.test(
+      title
+    )
+  )
+    return { reply: moveHint };
+  const localClock = parseChannelClock(parts.clock!);
+  if (!localClock) return { reply: 'Que horário devo usar? Informe uma hora entre 0h e 23h59.' };
+  const timezone = parts.zone && resolveCustomerTimeZone(parts.zone);
+  if (parts.zone && !timezone)
+    return { reply: 'Qual é o fuso desse horário? Use uma cidade como Cuiabá.' };
+  const length = parts.length?.toLocaleLowerCase('pt-BR');
+  const durationMinutes =
+    length === 'meia hora'
+      ? 30
+      : length === 'uma hora'
+        ? 60
+        : length && /^\d/u.test(length)
+          ? parseInt(length, 10)
+          : undefined;
+  if (durationMinutes === 0) return { reply: moveHint };
+  const dayReference = parts.day!.toLocaleLowerCase('pt-BR');
+  const weekday = weekdays.indexOf(dayReference.replace(/-feira$/u, ''));
+  const referenceTime =
+    receivedAt && Number.isFinite(receivedAt.getTime()) ? receivedAt.toISOString() : undefined;
+  const day = /^\d/u.test(dayReference)
+    ? parseChannelCalendarDay(dayReference, referenceTime?.slice(0, 10) ?? '')
+    : undefined;
+  if (day === null) return { reply: moveHint };
+  return {
+    action: 'move',
+    title,
+    referenceTime,
+    day,
+    weekday: weekday >= 0 ? weekday : undefined,
+    offset: dayReference === 'hoje' ? 0 : dayReference === 'amanhã' ? 1 : undefined,
+    localClock,
+    durationMinutes,
+    timezone: timezone || undefined,
+  };
+}
+
 export function parseChannelCalendarEvent(
   text: string,
   receivedAt: Date | undefined
 ): ParseResult | null {
   const input = text.trim();
+  const move = parseMove(input, receivedAt);
+  if (move) return move;
   const removing = removeCommand.exec(input);
   const prefix = removing ?? command.exec(input);
   if (!prefix) {
@@ -168,8 +266,13 @@ export async function tryChannelCalendarMutation(
   if ('reply' in intent) return intent.reply;
   if (!message.id?.trim() || !message.channelPluginId)
     return 'Envie o pedido em uma nova mensagem para identificar este agendamento.';
+  if (intent.action === 'move' && message.metadata?.estimatedTimestamp === true)
+    intent.referenceTime = undefined;
   try {
-    const result = await new CustomerAgendaRepository(userId, intent.timezone).changeChannelEvent(
+    const result = await new CustomerAgendaRepository(
+      userId,
+      intent.timezone ?? 'UTC'
+    ).changeChannelEvent(
       intent,
       [message.platform, message.channelPluginId, message.platformChatId, message.id],
       canWrite
@@ -188,7 +291,17 @@ export async function tryChannelCalendarMutation(
       case 'missing':
         return 'Não encontrei um compromisso com esse título nesse dia.';
       case 'ambiguous':
-        return 'Encontrei mais de um compromisso com esse título nesse dia. Abra sua agenda e selecione o horário que deseja excluir.';
+        return 'Encontrei mais de um compromisso com esse título nesse dia. Abra Agenda no painel para escolher o compromisso pelo horário.';
+      case 'durationMismatch':
+        return 'A duração cadastrada é diferente da que você pediu para manter. Confira o início e o término em Agenda antes de escolher o novo intervalo.';
+      case 'needsDate':
+        return 'Qual é a data do compromisso? Para identificar o dia certo, use dia/mês/ano no pedido de remarcação.';
+      case 'invalidClock':
+        return 'Esse horário é inexistente ou ambíguo no fuso do compromisso. Qual outro horário funciona para você?';
+      case 'unsupportedMove':
+        return 'Para remarcar esse compromisso, abra Agenda no painel e confira a duração e a recorrência antes de editar.';
+      case 'linkedReminder':
+        return 'O aviso vinculado ficaria depois do novo início. Abra o compromisso em Agenda para ajustar também o horário do aviso.';
       case 'gone':
         return 'Esta mensagem já foi processada e o compromisso foi excluído da agenda.';
       case 'expired':
@@ -208,11 +321,14 @@ export async function tryChannelCalendarMutation(
     if (event.endTime)
       fields.push({ label: 'Término', value: formatter.format(new Date(event.endTime)) });
     fields.push({ label: 'Fuso horário', value: timezone });
-    return formatAstraMessage(
-      result.status === 'created' ? '✅ Compromisso agendado' : '📅 Compromisso já registrado',
-      fields
-    );
-  } catch {
-    return 'Não consegui confirmar a alteração da agenda. Confira sua agenda antes de repetir o pedido.';
+    const heading = {
+      created: '✅ Compromisso agendado',
+      existing: '📅 Compromisso já registrado',
+      moved: '📅 Compromisso remarcado',
+      current: '📅 Horário atual do compromisso',
+    }[result.status];
+    return formatAstraMessage(heading, fields);
+  } catch (error) {
+    return channelDataFailure('calendar', 'write', error);
   }
 }
