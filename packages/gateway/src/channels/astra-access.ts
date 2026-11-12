@@ -1,7 +1,6 @@
 /** Public Astra access facts. Keep this module pure: no settings, DB or provider calls. */
-export const ASTRA_SITE_URL = 'https://astraacessor.pro';
-export const ASTRA_CUSTOMER_ORIGIN = 'https://app.astraacessor.pro';
-export const ASTRA_CUSTOMER_LOGIN_URL = ASTRA_CUSTOMER_ORIGIN + '/cliente/entrar';
+import { ASTRA_SITE_URL, ASTRA_CUSTOMER_LOGIN_URL } from '../config/astra-public-urls.js';
+export { ASTRA_SITE_URL, ASTRA_CUSTOMER_LOGIN_URL };
 
 export const ASTRA_ACCESS_REPLY = `Acesse seu painel do Astra:
 ${ASTRA_CUSTOMER_LOGIN_URL}

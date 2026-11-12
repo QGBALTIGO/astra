@@ -1,6 +1,6 @@
 /** Public navigation only; customer portal still requires an authenticated session. */
 import type { ChannelOutgoingMessage } from '@ownpilot/core/channels';
-import { ASTRA_CUSTOMER_ORIGIN } from './astra-access.js';
+import { ASTRA_CUSTOMER_ORIGIN, currentAstraPublicUrl } from '../config/astra-public-urls.js';
 type DashboardAction = NonNullable<ChannelOutgoingMessage['urlButton']>;
 function getOrigin(candidate: string | undefined): string {
   if (!candidate) return ASTRA_CUSTOMER_ORIGIN;
@@ -15,9 +15,7 @@ function getOrigin(candidate: string | undefined): string {
       url.hash
     )
       return ASTRA_CUSTOMER_ORIGIN;
-    return url.origin === 'https://astra-gateway-production.up.railway.app'
-      ? ASTRA_CUSTOMER_ORIGIN
-      : url.origin;
+    return new URL(currentAstraPublicUrl(url.origin + '/cliente')).origin;
   } catch {
     return ASTRA_CUSTOMER_ORIGIN;
   }

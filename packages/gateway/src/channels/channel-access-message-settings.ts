@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { LOCAL_OWNER_ID } from '../config/defaults.js';
 import { getSystemSettingsRepository } from '../db/repositories/settings/system.js';
-import { ASTRA_SITE_URL } from './astra-access.js';
+import { ASTRA_SITE_URL, currentAstraPublicUrl } from '../config/astra-public-urls.js';
 
 export interface WhatsAppAccessMessageSettings {
   siteUrl: string;
@@ -54,15 +54,11 @@ const messageUrlSchema = z
     isSafeHttpsUrl,
     'Use um endereço HTTPS válido, sem credenciais ou caracteres de controle.'
   )
-  .transform((value) => value.trim());
+  .transform((value) => currentAstraPublicUrl(value.trim()));
 
 export const whatsAppAccessMessageSettingsSchema = z
   .object({
-    // Existing installations may have saved the previous official home page.
-    // Retain custom URLs, renewal destinations and all other owner settings.
-    siteUrl: messageUrlSchema.transform((url) =>
-      /^https:\/\/astraacessor\.vercel\.app\/?$/i.test(url) ? ASTRA_SITE_URL : url
-    ),
+    siteUrl: messageUrlSchema,
     renewalUrl: messageUrlSchema.nullable(),
     timeZone: z
       .string()
