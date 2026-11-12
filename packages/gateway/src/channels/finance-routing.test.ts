@@ -4,6 +4,7 @@ const mockCreate = vi.hoisted(() => vi.fn());
 const mockFind = vi.hoisted(() => vi.fn());
 const mockRecordPayment = vi.hoisted(() => vi.fn());
 const mockRecordExpense = vi.hoisted(() => vi.fn());
+const mockRecentExpenses = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockExpenseIdentity = vi.hoisted(() => vi.fn());
 const mockBroadcast = vi.hoisted(() => vi.fn());
 const mockAccount = vi.hoisted(() => vi.fn().mockResolvedValue(null));
@@ -25,6 +26,7 @@ vi.mock('../db/repositories/expenses.js', () => ({
       mockExpenseIdentity(userId);
     }
     createFromChannel = mockRecordExpense;
+    list = mockRecentExpenses;
   },
 }));
 
@@ -200,6 +202,7 @@ describe('Completed channel expenses without a language model', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRecordExpense.mockResolvedValue({ expense: stored, created: true });
+    mockRecentExpenses.mockResolvedValue([]);
   });
 
   it('recognizes the clear petrol payment but does not guess a financing down-payment', () => {
@@ -446,5 +449,83 @@ describe('Completed channel expenses without a language model', () => {
     expect(await tryExpenseRecordChannelReply(expenseMessage, 'user-a')).toContain(
       '✅ *Despesa registrada*'
     );
+  });
+});
+
+describe('Repeated expense confirmation before adding a separate row', () => {
+  const message = {
+    id: 'repeat-expense-one',
+    channelPluginId: 'channel.whatsapp',
+    platformChatId: 'chat-duplicate-test',
+    text: 'Gastei 1 real no dinheiro',
+    timestamp: new Date('2026-11-11T16:00:00Z'),
+  };
+  const customer = 'whatsapp:dedup-test';
+  const stored = {
+    id: 'expense-existing',
+    amount: 1,
+    currency: 'BRL',
+    category: 'other',
+    description: 'dinheiro',
+    date: '2026-11-11',
+    source: 'channel',
+    createdAt: new Date(),
+    transactionType: 'expense',
+    status: 'settled',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecentExpenses.mockResolvedValue([]);
+    mockRecordExpense.mockResolvedValue({ expense: stored, created: true });
+  });
+
+  it('recognizes an identical recent record but does not create a duplicate', async () => {
+    mockRecentExpenses.mockResolvedValueOnce([stored]);
+    const result = await tryExpenseRecordChannelReply(message, customer);
+    expect(result).toContain('mesmo gasto ou outro');
+    expect(result).toMatch(/R\$\s1,00/);
+    expect(mockRecordExpense).not.toHaveBeenCalled();
+  });
+
+  it('accepts explicitly another expense one time, using the confirmation message ID', async () => {
+    mockRecentExpenses.mockResolvedValueOnce([stored]);
+    await tryExpenseRecordChannelReply(message, customer);
+    const result = await tryExpenseRecordChannelReply(
+      { ...message, id: 'reply-outro', text: 'Outro' },
+      customer
+    );
+    expect(result).toContain('✅ *Despesa registrada*');
+    expect(mockRecordExpense).toHaveBeenCalledTimes(1);
+    expect(mockRecordExpense).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 1, description: 'dinheiro' }),
+      expect.stringMatching(/^[a-f0-9]{64}$/)
+    );
+    const again = await tryExpenseRecordChannelReply(
+      { ...message, id: 'reply-outro-2', text: 'Outro' },
+      customer
+    );
+    expect(again).toBeNull();
+  });
+
+  it('does not create another row when the user confirms it is the same expense', async () => {
+    mockRecentExpenses.mockResolvedValueOnce([stored]);
+    await tryExpenseRecordChannelReply(message, customer);
+    const result = await tryExpenseRecordChannelReply(
+      { ...message, id: 'reply-same', text: 'O mesmo' },
+      customer
+    );
+    expect(result).toContain('sem criar outro');
+    expect(mockRecordExpense).not.toHaveBeenCalled();
+  });
+
+  it('allows separate real expenses with the same amount and a different purpose', async () => {
+    mockRecentExpenses.mockResolvedValueOnce([{ ...stored, description: 'café' }]);
+    const result = await tryExpenseRecordChannelReply(
+      { ...message, id: 'distinct-purpose' },
+      customer
+    );
+    expect(result).toContain('✅ *Despesa registrada*');
+    expect(mockRecordExpense).toHaveBeenCalledTimes(1);
   });
 });

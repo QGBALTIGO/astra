@@ -36,6 +36,7 @@ import { formatAstraMessage, formatReminderConfirmation } from './response-prese
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
+import { withContactStyleContext } from './channel-personalization.js';
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -348,7 +349,15 @@ export async function processViaBus(
 
   const expenseRecordReply = message.attachments?.length
     ? null
-    : await tryExpenseRecordChannelReply(message, channelUser.ownpilotUserId);
+    : await runInSessionLane(
+        JSON.stringify([
+          'channel-finance',
+          message.channelPluginId,
+          message.platformChatId,
+          channelUser.ownpilotUserId,
+        ]),
+        () => tryExpenseRecordChannelReply(message, channelUser.ownpilotUserId)
+      );
   if (expenseRecordReply) return expenseRecordReply;
 
   const greetingReply = message.attachments?.length
@@ -367,7 +376,16 @@ export async function processViaBus(
   if (expenseReply) return expenseReply;
 
   const freeReply = deterministicChannelReply(message.text);
-  if (freeReply && !message.attachments?.length) return freeReply;
+  if (
+    freeReply &&
+    !message.attachments?.length &&
+    !(
+      message.platform === 'whatsapp' &&
+      typeof message.metadata?.astraRepeatGreetingCount === 'number' &&
+      message.metadata.astraRepeatGreetingCount >= 5
+    )
+  )
+    return freeReply;
 
   // Serialize the complete mutable-agent lifecycle, not only agent.chat().
   // A reconnect can deliver another message while a provider fallback is still
@@ -475,6 +493,18 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
       await deps.sessionsRepo.linkConversation(session.sessionId, activeConversationId);
     }
     agent.loadConversation(activeConversationId);
+  }
+
+  if (message.platform === 'whatsapp') {
+    agent.updateSystemPrompt(
+      withContactStyleContext(
+        agent.getConversation().systemPrompt ?? '',
+        message.sender.displayName,
+        typeof message.metadata?.astraRepeatGreetingCount === 'number'
+          ? message.metadata.astraRepeatGreetingCount
+          : 0
+      )
+    );
   }
 
   // Wire tool approval via Telegram inline keyboard (if channel supports it)
@@ -614,7 +644,15 @@ export async function processDirectAgent(
 
   const expenseRecordReply = message.attachments?.length
     ? null
-    : await tryExpenseRecordChannelReply(message, userId);
+    : await runInSessionLane(
+        JSON.stringify([
+          'channel-finance',
+          message.channelPluginId,
+          message.platformChatId,
+          userId,
+        ]),
+        () => tryExpenseRecordChannelReply(message, userId)
+      );
   if (expenseRecordReply) return expenseRecordReply;
 
   const greetingReply = message.attachments?.length
@@ -633,7 +671,16 @@ export async function processDirectAgent(
   if (expenseReply) return expenseReply;
 
   const freeReply = deterministicChannelReply(message.text);
-  if (freeReply && !message.attachments?.length) return freeReply;
+  if (
+    freeReply &&
+    !message.attachments?.length &&
+    !(
+      message.platform === 'whatsapp' &&
+      typeof message.metadata?.astraRepeatGreetingCount === 'number' &&
+      message.metadata.astraRepeatGreetingCount >= 5
+    )
+  )
+    return freeReply;
 
   return runInSessionLane(
     JSON.stringify(['channel-direct', message.channelPluginId, message.platformChatId, userId]),
@@ -682,13 +729,22 @@ async function processDirectAgentInSession(
   const account = userId.startsWith('whatsapp:')
     ? await customerAccountsRepo.getByDataUserId(userId)
     : null;
+  const clockPrompt = withCustomerClock(
+    agent.getConversation().systemPrompt ?? '',
+    account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande',
+    new Date(),
+    message.timestamp
+  );
   agent.updateSystemPrompt(
-    withCustomerClock(
-      agent.getConversation().systemPrompt ?? '',
-      account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande',
-      new Date(),
-      message.timestamp
-    )
+    message.platform === 'whatsapp'
+      ? withContactStyleContext(
+          clockPrompt,
+          message.sender.displayName,
+          typeof message.metadata?.astraRepeatGreetingCount === 'number'
+            ? message.metadata.astraRepeatGreetingCount
+            : 0
+        )
+      : clockPrompt
   );
   const channelReceipts: ChannelToolReceipt[] = [];
   const conversationOnly =

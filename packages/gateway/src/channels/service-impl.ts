@@ -10,6 +10,9 @@
 
 import { timingSafeEqual } from 'node:crypto';
 import { InboundFloodGuard } from './flood-guard.js';
+import { GreetingBurstGuard } from './greeting-burst-guard.js';
+import { dashboardActionForConfirmedReply } from './channel-dashboard-action.js';
+import { maybePersonalizeConfirmedReply } from './confirmed-reply-personality.js';
 import {
   type IChannelService,
   type ChannelOutgoingMessage,
@@ -153,6 +156,8 @@ export class ChannelServiceImpl implements IChannelService {
    * routing. Policy + sliding-window state live in channels/flood-guard.ts.
    */
   private readonly floodGuard = new InboundFloodGuard();
+  /** Suppress repeated greeting replies while keeping accepted messages in history. */
+  private readonly greetingBurstGuard = new GreetingBurstGuard();
 
   constructor(
     pluginRegistry: PluginRegistry,
@@ -951,6 +956,16 @@ export class ChannelServiceImpl implements IChannelService {
         log.warn('Failed to save incoming message', { error });
       }
 
+      // This runs AFTER the idempotent inbound save. Even suppressed greetings
+      // remain in history; only their repetitive reply/notification is skipped.
+      const greetingBurst = this.greetingBurstGuard.decide(message);
+      if (greetingBurst.count >= 5 && !greetingBurst.suppressReply) {
+        message = {
+          ...message,
+          metadata: { ...message.metadata, astraRepeatGreetingCount: greetingBurst.count },
+        };
+      }
+
       // 5b. Broadcast incoming message to WebSocket clients
       // Flat shape — matches what RealtimeBridge expects ({ sender, content })
       wsGateway.broadcast('channel:message', {
@@ -963,18 +978,22 @@ export class ChannelServiceImpl implements IChannelService {
         direction: 'incoming',
       });
 
-      // 5c. System notification for new message
-      wsGateway.broadcast('system:notification', {
-        type: 'info',
-        message: `New message from ${message.sender.displayName} on ${message.platform}`,
-        action: 'channel:message',
-      });
+      // 5c. Do not flood the dashboard with notifications for repeated greetings.
+      if (!greetingBurst.suppressReply) {
+        wsGateway.broadcast('system:notification', {
+          type: 'info',
+          message: `New message from ${message.sender.displayName} on ${message.platform}`,
+          action: 'channel:message',
+        });
+      }
 
       // 5d. Forward to any configured cross-channel bridges (best-effort,
       //     fire-and-forget — never blocks or fails the AI reply path).
       void bridgeIncomingMessage(message).catch((err) => {
         log.debug('Bridge forwarding error', { error: err });
       });
+
+      if (greetingBurst.suppressReply) return;
 
       // 6. Find or create session -> conversation (serialized per chat to prevent duplicates)
       const sessionLockKey = `${channelUser.id}:${message.channelPluginId}:${message.platformChatId}`;
@@ -1145,6 +1164,22 @@ export class ChannelServiceImpl implements IChannelService {
         responseText = '(No response generated)';
       }
 
+      // Public navigation only; the customer portal still requires its own login.
+      const dashboardAction = dashboardActionForConfirmedReply(
+        responseText,
+        dataUserId,
+        message.platform
+      );
+      if (dashboardAction && message.platform === 'whatsapp') {
+        // The verified, structured receipt is immutable. The AI may only add a
+        // short, safe sentence and never delays delivery beyond 1.8 seconds.
+        responseText = await maybePersonalizeConfirmedReply({
+          responseText,
+          channelPluginId: message.channelPluginId,
+          dataUserId,
+          displayName: message.sender.displayName,
+        });
+      }
       let sentMessageId: string;
       if (progress && !replyWithVoice) {
         // Replace progress message with final response
@@ -1162,6 +1197,7 @@ export class ChannelServiceImpl implements IChannelService {
         sentMessageId = await api.sendMessage({
           platformChatId: message.platformChatId,
           text: responseText,
+          ...(dashboardAction ? { urlButton: dashboardAction } : {}),
           replyToId: message.id,
           options: replyWithVoice ? { telegram: { asVoice: true } } : undefined,
         });
