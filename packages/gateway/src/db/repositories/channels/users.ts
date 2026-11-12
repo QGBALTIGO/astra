@@ -107,6 +107,8 @@ function hasCurrentAccess(user: ChannelUserEntity, now: Date): boolean {
 // Repository
 // ============================================================================
 
+export class ChannelVerificationConflict extends Error {}
+
 export class ChannelUsersRepository extends BaseRepository {
   /**
    * Find a channel user by platform + platform user ID.
@@ -147,10 +149,20 @@ export class ChannelUsersRepository extends BaseRepository {
    * Create a new channel user (first seen on a platform).
    */
   async create(input: CreateChannelUserInput): Promise<ChannelUserEntity> {
+    const created = await this.insertUser(input, false);
+    if (!created) throw new Error('Failed to create channel user');
+    return created;
+  }
+
+  private async insertUser(
+    input: CreateChannelUserInput,
+    allowExisting: boolean
+  ): Promise<ChannelUserEntity | null> {
     const id = randomUUID();
-    await this.execute(
+    const inserted = await this.execute(
       `INSERT INTO channel_users (id, ownpilot_user_id, platform, platform_user_id, platform_username, display_name, avatar_url, status, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8)
+       ${allowExisting ? 'ON CONFLICT (platform, platform_user_id) DO NOTHING' : ''}`,
       [
         id,
         input.ownpilotUserId ?? 'default',
@@ -162,6 +174,7 @@ export class ChannelUsersRepository extends BaseRepository {
         JSON.stringify(input.metadata ?? {}),
       ]
     );
+    if (!inserted.changes) return null;
     const result = await this.getById(id);
     if (!result) throw new Error('Failed to create channel user');
     return result;
@@ -176,19 +189,11 @@ export class ChannelUsersRepository extends BaseRepository {
   ): Promise<ChannelUserEntity & { created: boolean; firstInteraction: boolean }> {
     let existing = await this.findByPlatform(input.platform, input.platformUserId);
     if (!existing) {
-      try {
-        const entity = await this.create(input);
-        return { ...entity, created: true, firstInteraction: true };
-      } catch (error) {
-        // A manual grant or another incoming message may create the identity
-        // after our read. Only recover that unique-key race, never replay a
-        // grant or hide a different database failure.
-        if (!(error && typeof error === 'object' && 'code' in error && error.code === '23505')) {
-          throw error;
-        }
-        existing = await this.findByPlatform(input.platform, input.platformUserId);
-        if (!existing) throw error;
-      }
+      // A concurrent grant can create the identity after our read. Resolving
+      // that conflict in SQL keeps any surrounding verification transaction usable.
+      const entity = await this.insertUser(input, true);
+      if (entity) return { ...entity, created: true, firstInteraction: true };
+      existing = await this.findByPlatform(input.platform, input.platformUserId);
     }
     if (existing) {
       // Only one incoming request can claim the first interaction of a
@@ -264,14 +269,17 @@ export class ChannelUsersRepository extends BaseRepository {
     ownpilotUserId: string,
     method: ChannelUserEntity['verificationMethod']
   ): Promise<void> {
-    await this.execute(
+    const updated = await this.execute(
       `UPDATE channel_users SET is_verified = TRUE, verified_at = NOW(),
         verification_method = $1, ownpilot_user_id = $2, status = 'active'
-       WHERE id = $3
+       WHERE id = $3 AND NOT is_blocked
          AND (platform <> 'whatsapp' OR
            (access_source IS NULL AND ownpilot_user_id = $2))`,
       [method, ownpilotUserId, id]
     );
+    if (updated.changes !== 1) {
+      throw new ChannelVerificationConflict('Não foi possível confirmar o acesso deste usuário.');
+    }
   }
 
   /**

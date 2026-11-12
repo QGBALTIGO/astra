@@ -12,7 +12,11 @@ import { ChannelEvents } from '@ownpilot/core/channels';
 import type { ChannelVerificationRepository } from '../../db/repositories/channels/verification.js';
 import { channelVerificationRepo } from '../../db/repositories/channels/verification.js';
 import type { ChannelUsersRepository } from '../../db/repositories/channels/users.js';
-import { channelUsersRepo, type ChannelUserEntity } from '../../db/repositories/channels/users.js';
+import {
+  channelUsersRepo,
+  ChannelVerificationConflict,
+  type ChannelUserEntity,
+} from '../../db/repositories/channels/users.js';
 import { getOwnerUserId } from '../../services/pairing-service.js';
 import { isChannelUserAccessActive } from '../channel-access-service.js';
 
@@ -69,35 +73,35 @@ export class ChannelVerificationService {
         return { success: false, error: WHATSAPP_MANUAL_ACCESS_MESSAGE };
       }
     }
-    // Claim first so losing concurrent requests cannot create an OwnPilot-linked
-    // channel user before discovering that the single-use token is gone.
-    const tokenEntity = await this.verificationRepo.claimValidToken(token, platform);
-    if (!tokenEntity) {
-      return { success: false, error: 'Invalid or expired token.' };
+    let ownpilotUserId: string | null;
+    try {
+      ownpilotUserId = await this.verificationRepo.transaction(async () => {
+        const claimed = await this.verificationRepo.claimValidToken(token, platform);
+        if (!claimed) return null;
+
+        const user = await this.usersRepo.findOrCreate({
+          platform,
+          platformUserId,
+          displayName,
+          platformUsername,
+          ownpilotUserId: claimed.ownpilotUserId,
+        });
+        if (
+          platform === 'whatsapp' &&
+          (user.accessSource || user.isBlocked || user.ownpilotUserId !== claimed.ownpilotUserId)
+        ) {
+          throw new ChannelVerificationConflict(WHATSAPP_MANUAL_ACCESS_MESSAGE);
+        }
+        await this.usersRepo.markVerified(user.id, claimed.ownpilotUserId, 'pin');
+        await this.verificationRepo.assignClaimedTokenToUser(claimed.id, user.id);
+        return claimed.ownpilotUserId;
+      });
+    } catch (error) {
+      if (error instanceof ChannelVerificationConflict)
+        return { success: false, error: error.message };
+      throw error;
     }
-
-    // Find or create the channel user
-    const channelUser = await this.usersRepo.findOrCreate({
-      platform,
-      platformUserId,
-      displayName,
-      platformUsername,
-      ownpilotUserId: tokenEntity.ownpilotUserId,
-    });
-
-    if (
-      platform === 'whatsapp' &&
-      (channelUser.accessSource ||
-        channelUser.isBlocked ||
-        channelUser.ownpilotUserId !== tokenEntity.ownpilotUserId)
-    ) {
-      return { success: false, error: WHATSAPP_MANUAL_ACCESS_MESSAGE };
-    }
-
-    await this.verificationRepo.assignClaimedTokenToUser(tokenEntity.id, channelUser.id);
-
-    // Mark as verified (only the claim winner reaches here)
-    await this.usersRepo.markVerified(channelUser.id, tokenEntity.ownpilotUserId, 'pin');
+    if (ownpilotUserId === null) return { success: false, error: 'Invalid or expired token.' };
 
     // Emit verification event
     try {
@@ -110,7 +114,7 @@ export class ChannelVerificationService {
           {
             platform,
             platformUserId,
-            ownpilotUserId: tokenEntity.ownpilotUserId,
+            ownpilotUserId,
             verificationMethod: 'pin',
           }
         )
@@ -121,7 +125,7 @@ export class ChannelVerificationService {
 
     return {
       success: true,
-      ownpilotUserId: tokenEntity.ownpilotUserId,
+      ownpilotUserId,
     };
   }
 

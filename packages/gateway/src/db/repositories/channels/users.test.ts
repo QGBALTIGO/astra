@@ -322,7 +322,14 @@ describe('ChannelUsersRepository', () => {
       expect(sql).toContain('verified_at = NOW()');
       expect(sql).toContain('verification_method = $1');
       expect(sql).toContain('ownpilot_user_id = $2');
+      expect(sql).toContain('NOT is_blocked');
       expect(sql).toContain('access_source IS NULL AND ownpilot_user_id = $2');
+    });
+    it('rejects a grant if the target was blocked, revoked or removed', async () => {
+      mockAdapter.execute.mockResolvedValueOnce({ changes: 0 });
+      await expect(repo.markVerified('cu-1', 'user-1', 'pin')).rejects.toThrow(
+        'Não foi possível confirmar'
+      );
     });
   });
 
@@ -987,7 +994,7 @@ describe('ChannelUsersRepository', () => {
         })
       );
       mockAdapter.execute
-        .mockRejectedValueOnce(Object.assign(new Error('duplicate identity'), { code: '23505' }))
+        .mockResolvedValueOnce({ changes: 0 })
         .mockResolvedValueOnce({ changes: 1 });
       const result = await repo.findOrCreate({
         platform: 'whatsapp',

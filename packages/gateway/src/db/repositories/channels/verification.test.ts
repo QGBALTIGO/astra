@@ -243,6 +243,12 @@ describe('ChannelVerificationRepository', () => {
   });
 
   describe('assignClaimedTokenToUser', () => {
+    it('rejects a link that no longer matches the claimed token', async () => {
+      mockAdapter.execute.mockResolvedValueOnce({ changes: 0 });
+      await expect(repo.assignClaimedTokenToUser('tok-1', 'cu-1')).rejects.toThrow(
+        'verification token was not linked'
+      );
+    });
     it('records the user only on an already-claimed unassigned token', async () => {
       mockAdapter.execute.mockResolvedValueOnce({ changes: 1 });
 

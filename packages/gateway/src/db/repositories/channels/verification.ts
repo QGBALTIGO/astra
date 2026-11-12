@@ -147,7 +147,7 @@ export class ChannelVerificationRepository extends BaseRepository {
    * Record which channel user used an already-claimed token.
    */
   async assignClaimedTokenToUser(tokenId: string, channelUserId: string): Promise<void> {
-    await this.execute(
+    const linked = await this.execute(
       `UPDATE channel_verification_tokens
        SET used_by_channel_user_id = $1
        WHERE id = $2
@@ -155,6 +155,7 @@ export class ChannelVerificationRepository extends BaseRepository {
          AND used_by_channel_user_id IS NULL`,
       [channelUserId, tokenId]
     );
+    if (linked.changes !== 1) throw new Error('Claimed verification token was not linked.');
   }
 
   /**
