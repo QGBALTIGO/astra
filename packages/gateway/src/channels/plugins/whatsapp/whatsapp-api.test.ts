@@ -87,6 +87,27 @@ describe('WhatsAppChannelAPI', () => {
     expect(payload.message.sender.platformUserId).toBe('37253049737');
   });
 
+  it.each([1700000000, BigInt(1700000000), { toNumber: () => 1700000000 }, undefined])(
+    'preserves the provider timestamp or marks the locally estimated time on live ingress',
+    async (messageTimestamp) => {
+      const api = new WhatsAppChannelAPI({ my_phone: '37253049737' }, 'channel.whatsapp');
+      (api as any).sock = { user: { id: '37253049737:0@s.whatsapp.net' } };
+      await (api as any).handleIncomingMessage({
+        key: { remoteJid: '37253049737@s.whatsapp.net', id: 'edge-time', fromMe: true },
+        message: { conversation: 'teste' },
+        messageTimestamp,
+      });
+      const { message } = mockEmit.mock.calls[0]![0];
+      if (messageTimestamp) {
+        expect(+message.timestamp).toBe(1700000000000);
+        expect(message.metadata.estimatedTimestamp).toBeUndefined();
+      } else {
+        expect(message.timestamp).toBeInstanceOf(Date);
+        expect(message.metadata.estimatedTimestamp).toBe(true);
+      }
+    }
+  );
+
   it('skips non-self direct messages', async () => {
     const api = new WhatsAppChannelAPI({ my_phone: '37253049737' }, 'channel.whatsapp');
     (api as any).sock = { user: { id: '37253049737:0@s.whatsapp.net' } };

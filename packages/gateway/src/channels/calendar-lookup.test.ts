@@ -24,6 +24,7 @@ const event = {
   title: 'Revisão do orçamento Limoeiro',
   startTime: '2026-11-13T19:00:00Z',
   endTime: '2026-11-13T19:30:00Z',
+  timezone: 'America/Cuiaba',
   allDay: false,
 };
 
@@ -32,7 +33,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-11-12T20:01:00Z'));
   db.scope.mockReturnValue({ findSlotsByTitle: db.find });
-  db.account.mockResolvedValue({ timeZone: 'America/Cuiaba' });
+  db.account.mockResolvedValue({ timeZone: 'America/Campo_Grande' });
   db.find.mockResolvedValue([event]);
 });
 afterEach(() => vi.useRealTimers());
@@ -71,9 +72,63 @@ describe('verifying a named calendar appointment', () => {
       expect(fromBus).toContain('15:00');
       expect(fromBus).toContain('15:30');
       expect(fromBus).toContain('America/Cuiaba');
+      expect(fromBus).not.toContain('America/Campo_Grande');
       expect(process).not.toHaveBeenCalled();
     }
   );
+  it.each([undefined, '', 'Legacy/Unknown'])(
+    'uses the agenda zone when a legacy event has no usable zone: %s',
+    async (timezone) => {
+      db.find.mockResolvedValue([{ ...event, timezone }]);
+      const answer = await tryVerifyCalendarSlot(incoming, 'test');
+      expect(answer).toContain('15:00');
+      expect(answer).toContain('America/Campo_Grande');
+      expect(answer).not.toContain('Legacy/Unknown');
+    }
+  );
+  it('displays the saved Cuiabá slot and its São Paulo equivalent exactly once', async () => {
+    db.account.mockResolvedValue({ timeZone: 'America/Sao_Paulo' });
+    const answer = await tryVerifyCalendarSlot(incoming, 'test');
+    expect(answer).toContain('13/11/2026, 15:00');
+    expect(answer).toContain('13/11/2026, 15:30');
+    expect(answer).toContain('Fuso: America/Cuiaba.');
+    expect(answer).toContain('Na sua agenda (America/Sao_Paulo)');
+    expect(answer).toContain('13/11/2026, 16:00 – 13/11/2026, 16:30');
+    expect(answer).not.toContain('17:00');
+  });
+  it('finds Friday in the account agenda and preserves both civil dates for a cross-zone event, including legacy UTC', async () => {
+    db.find.mockResolvedValue([
+      {
+        ...event,
+        timezone: 'UTC',
+        startTime: '2026-11-14T03:30:00Z',
+        endTime: '2026-11-14T04:30:00Z',
+      },
+    ]);
+    const answer = await tryVerifyCalendarSlot(incoming, 'test');
+    expect(db.find).toHaveBeenCalledWith(
+      ['a ' + event.title, event.title],
+      new Date('2026-11-13T04:00:00Z'),
+      new Date('2026-11-14T04:00:00Z')
+    );
+    expect(answer).toContain('14/11/2026, 03:30');
+    expect(answer).toContain('14/11/2026, 04:30');
+    expect(answer).toContain('Fuso: UTC');
+    expect(answer).toContain('Na sua agenda (America/Campo_Grande)');
+    expect(answer).toContain('13/11/2026, 23:30');
+    expect(answer).toContain('14/11/2026, 00:30');
+  });
+  it('keeps all-day dates free of invented start or end hours when zones cross midnight', async () => {
+    db.find.mockResolvedValue([
+      { ...event, timezone: 'Asia/Tokyo', allDay: true, startTime: '2026-11-13T16:00:00Z' },
+    ]);
+    const answer = await tryVerifyCalendarSlot(incoming, 'test');
+    expect(answer).toContain('Dia inteiro');
+    expect(answer).toContain('14/11/2026');
+    expect(answer).toContain('13/11/2026');
+    expect(answer).toContain('Fuso: Asia/Tokyo');
+    expect(answer).not.toMatch(/Início|Término|\d\d:\d\d/);
+  });
   it('separates missing, duplicate, unavailable and missing end-time outcomes', async () => {
     db.find
       .mockResolvedValueOnce([])

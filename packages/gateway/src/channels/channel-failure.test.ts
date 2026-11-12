@@ -23,6 +23,26 @@ const calendar = receipt('core.add_calendar_event', {
 });
 describe('channel failure replies', () => {
   it.each([
+    'Preciso mudar a Revisão do orçamento Acácia de sexta para 16h, mantendo meia hora. Se encontrar esse evento, remarca o mesmo; se não encontrar, me avisa.',
+    'Remarque a reunião para sexta e me avise se não achar.',
+    'Consulta o evento de amanhã; se não localizar, só me avisa.',
+  ])('treats an immediate conditional notification as feedback about the event: %s', (q) => {
+    const answer = channelFailureReply(q, 'provider_unavailable');
+    expect(answer).toMatch(/compromisso|agenda/i);
+    expect(answer).not.toMatch(/confirmação do aviso|lembretes|criar outro/i);
+    if (q.startsWith('Consulta')) expect(answer).toContain('agenda não abriu');
+    else expect(answer).toContain('sem a confirmação desse compromisso');
+  });
+  it.each([
+    'Me avise amanhã se não encontrar o evento.',
+    'Se não encontrar esse evento, me avisa amanhã às 9h.',
+    'Mude meu lembrete da reunião; se não encontrar, me avisa.',
+  ])('preserves actual requests to schedule or modify a reminder: %s', (q) => {
+    const answer = channelFailureReply(q, 'timeout');
+    expect(answer).toMatch(/confirmação do aviso/);
+    expect(answer).not.toContain('confirmação desse compromisso');
+  });
+  it.each([
     ['OpenAI API error: 429 - org_secret', 'rate_limited'],
     ['Anthropic request timed out after 40000 ms', 'timeout'],
     ['Circuit breaker is open', 'provider_unavailable'],

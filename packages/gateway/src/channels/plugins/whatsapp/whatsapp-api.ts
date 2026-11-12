@@ -56,6 +56,21 @@ const log = getLog('WhatsApp');
 const WHATSAPP_MAX_LENGTH = 4096;
 const RANDOM_UNIT_SCALE = 1_000_000_000;
 
+function providerTimestamp(raw: unknown): Date | undefined {
+  let seconds: number;
+  if (typeof raw === 'number' || typeof raw === 'bigint') seconds = Number(raw);
+  else if (
+    raw &&
+    typeof raw === 'object' &&
+    'toNumber' in raw &&
+    typeof raw.toNumber === 'function'
+  )
+    seconds = raw.toNumber();
+  else return undefined;
+  const instant = new Date(seconds * 1000);
+  return seconds > 0 && Number.isFinite(instant.getTime()) ? instant : undefined;
+}
+
 function randomUnit(): number {
   return randomInt(RANDOM_UNIT_SCALE) / RANDOM_UNIT_SCALE;
 }
@@ -479,16 +494,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
                 const participantJid = isGroup ? (msg.key.participant ?? '') : remoteJid;
                 const phone = this.phoneFromJid(participantJid || remoteJid);
 
-                // Parse timestamp (handles number, protobuf Long, and BigInt)
-                const rawTs = msg.messageTimestamp;
-                let timestamp: Date;
-                if (typeof rawTs === 'number') {
-                  timestamp = new Date(rawTs * 1000);
-                } else if (typeof rawTs === 'bigint') {
-                  timestamp = new Date(Number(rawTs) * 1000);
-                } else if (typeof rawTs === 'object' && rawTs !== null && 'toNumber' in rawTs) {
-                  timestamp = new Date((rawTs as { toNumber(): number }).toNumber() * 1000);
-                } else {
+                const timestamp = providerTimestamp(msg.messageTimestamp);
+                if (!timestamp) {
                   // No valid timestamp — skip message (bad data is worse than missing data)
                   log.warn('[WhatsApp] History sync: skipping message without a valid timestamp');
                   continue;
@@ -1575,13 +1582,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
     if (!isCurrentSocket()) return;
 
-    const rawTs = msg.messageTimestamp;
-    const timestamp =
-      typeof rawTs === 'number'
-        ? new Date(rawTs * 1000)
-        : typeof rawTs === 'object' && rawTs !== null && 'toNumber' in rawTs
-          ? new Date((rawTs as { toNumber(): number }).toNumber() * 1000)
-          : new Date();
+    const originalTime = providerTimestamp(msg.messageTimestamp);
 
     const channelMessage: ChannelIncomingMessage = {
       id: `${this.pluginId}:${messageId}`,
@@ -1592,8 +1593,9 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       sender,
       text: text || (attachments.length > 0 ? '[Attachment]' : ''),
       attachments: attachments.length > 0 ? attachments : undefined,
-      timestamp,
+      timestamp: originalTime ?? new Date(),
       metadata: {
+        ...(!originalTime && { estimatedTimestamp: true }),
         platformMessageId: messageId,
         jid: remoteJid,
         isGroup,

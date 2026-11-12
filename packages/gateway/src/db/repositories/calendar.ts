@@ -303,6 +303,41 @@ export class CalendarRepository extends BaseRepository {
     return rows.map(rowToEvent);
   }
 
+  /** Resolve a spoken day in each candidate's existing zone before selecting/locking a unique event. */
+  async findMoveCandidates(
+    titles: string[],
+    target: {
+      day?: string;
+      weekday?: number;
+      offset?: number;
+      timezone?: string;
+      referenceTime?: string;
+    }
+  ): Promise<CalendarEvent[]> {
+    const rows = await this.query<EventRow>(
+      `SELECT e.* FROM calendar_events e
+       CROSS JOIN LATERAL (SELECT COALESCE($3::text, NULLIF(e.timezone,''),'UTC') AS zone) z
+       CROSS JOIN LATERAL (SELECT ($4::timestamptz AT TIME ZONE z.zone)::date AS received_day) d
+       WHERE e.user_id=$1 AND lower(e.title) IN (SELECT lower(t) FROM unnest($2::text[]) t)
+         AND e.start_time >= (COALESCE($5::date, ($4::timestamptz AT TIME ZONE 'UTC')::date) - 2)
+         AND e.start_time < (COALESCE($5::date, ($4::timestamptz AT TIME ZONE 'UTC')::date) + 9)
+         AND ((e.start_time AT TIME ZONE 'UTC') AT TIME ZONE z.zone)::date =
+           COALESCE($5::date, d.received_day + $6::int,
+             d.received_day + (($7::int - extract(dow FROM d.received_day)::int + 7) % 7))
+       ORDER BY e.start_time,e.id LIMIT 2 FOR UPDATE OF e`,
+      [
+        this.userId,
+        titles,
+        target.timezone ?? null,
+        target.referenceTime ?? null,
+        target.day ?? null,
+        target.offset ?? null,
+        target.weekday ?? null,
+      ]
+    );
+    return rows.map(rowToEvent);
+  }
+
   async getToday(): Promise<CalendarEvent[]> {
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());

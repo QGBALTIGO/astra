@@ -5,6 +5,7 @@ import { PostgresAdapter } from '../db/adapters/postgres-adapter.js';
 import { CustomerAgendaRepository } from '../db/repositories/customer-agenda.js';
 import { createCalendarRepository } from '../db/repositories/calendar.js';
 import { CUSTOMER_PORTAL_TABLES_SQL } from '../db/schema/customer-portal.js';
+import { CUSTOMER_ACCOUNTS_TABLES_SQL } from '../db/schema/customer-accounts.js';
 import { PERSONAL_DATA_TABLES_SQL } from '../db/schema/personal-data.js';
 import { processDirectAgent, processViaBus } from './channel-ai-routing.js';
 import { tryChannelCalendarMutation } from './calendar-mutation.js';
@@ -78,6 +79,8 @@ describe.skipIf(!port)(
       await db.exec('CREATE SCHEMA ' + schema);
       await db.exec(PERSONAL_DATA_TABLES_SQL);
       await db.exec(CUSTOMER_PORTAL_TABLES_SQL);
+      await db.exec('CREATE TABLE channel_users (id TEXT PRIMARY KEY)');
+      await db.exec(CUSTOMER_ACCOUNTS_TABLES_SQL);
       vi.useFakeTimers({ toFake: ['Date'] });
       vi.setSystemTime(new Date('2026-11-12T12:00:00Z'));
     });
@@ -180,6 +183,250 @@ describe.skipIf(!port)(
         attachments: [{ type: 'image', url: 'urn:synthetic', mimeType: 'image/png' }],
       } as ChannelIncomingMessage;
       expect(await tryChannelCalendarMutation(photo, user, allowed)).toBeNull();
+    });
+    const acacia = 'Revisão do orçamento Acácia';
+    const moveText =
+      'Preciso mudar a Revisão do orçamento Acácia de sexta para 16h, mantendo meia hora. Se encontrar esse evento, remarca o mesmo; se não encontrar, me avisa.';
+    const lookupText =
+      'Confere na minha agenda se a Revisão do orçamento Acácia ficou marcada para sexta. Qual a data e que horas ela começa e termina?';
+    it.each(['whatsapp', 'telegram'] as const)(
+      'runs the complete R19 lifecycle on %s without a model or reminder',
+      async (platform) => {
+        const user = 'r19-' + platform,
+          msg = incoming(user, platform),
+          repo = createCalendarRepository(user);
+        await db.execute('INSERT INTO channel_users(id) VALUES($1)', [user]);
+        await db.execute(
+          'INSERT INTO customer_accounts(id,channel_user_id,data_user_id,current_phone,time_zone) VALUES($1,$1,$1,$2,$3)',
+          [user, platform === 'whatsapp' ? '5511000000001' : '5511000000002', 'America/Cuiaba']
+        );
+        const create = { ...msg, text: literal.replace('Limoeiro', 'Acácia') };
+        const move = { ...msg, id: randomUUID(), text: moveText };
+        const ask = { ...msg, id: randomUUID(), text: lookupText };
+        expect(await turn(create, user, true)).toContain('Compromisso agendado');
+        const [created] = await repo.list();
+        expect(await turn(ask, user, false)).toContain('15:00');
+        const replies = await Promise.all(
+          Array.from({ length: 8 }, (_, i) => turn(move, user, i % 2 === 0))
+        );
+        expect(replies.filter((t) => t.includes('Compromisso remarcado'))).toHaveLength(1);
+        for (const t of replies) {
+          expect(t).toContain('16:00');
+          expect(t).toContain('16:30');
+          expect(t).toContain('America/Cuiaba');
+        }
+        const [updated] = await repo.list();
+        expect(updated!.id).toBe(created!.id);
+        expect(updated!.title).toBe(acacia);
+        expect(new Date(updated!.startTime).toISOString()).toBe('2026-11-13T20:00:00.000Z');
+        expect(new Date(updated!.endTime!).toISOString()).toBe('2026-11-13T20:30:00.000Z');
+        const afterMove = await turn(ask, user, true);
+        expect(afterMove).toContain('16:00');
+        expect(afterMove).toContain('16:30');
+        expect(await turn(move, user, false)).toContain('Horário atual');
+        expect(await count(user)).toBe(1);
+        expect(
+          await turn(
+            {
+              ...msg,
+              id: randomUUID(),
+              text:
+                'Exclua da minha agenda o compromisso de 13/11/2026 no fuso de Cuiabá: ' +
+                acacia +
+                '.',
+            },
+            user,
+            true
+          )
+        ).toContain('excluído');
+        expect(await turn(ask, user, false)).toContain('Não encontrei');
+        expect(await turn(move, user, true)).toContain('excluído');
+        const missing = { ...move, id: randomUUID() };
+        expect(await turn(missing, user, false)).toContain('Não encontrei');
+        expect(await count(user)).toBe(0);
+        await turn({ ...create, id: randomUUID() }, user, true);
+        expect(await turn(missing, user, true)).toContain('Não encontrei');
+        expect(await turn(move, user, false)).toContain('excluído');
+        expect(await turn(ask, user, true)).toContain('15:00');
+        const reminders = await db.queryOne<{ n: number }>(
+          'SELECT count(*)::int AS n FROM channel_reminders WHERE user_id=$1',
+          [user]
+        );
+        expect(reminders!.n).toBe(0);
+      }
+    );
+    it('refuses homonyms, group requests, revoked writes, incorrect durations and cross-owner lookups', async () => {
+      const user = 'r19-escopo',
+        other = 'r19-estrangeiro',
+        msg = incoming(user, 'telegram'),
+        repo = createCalendarRepository(user);
+      const fixture = {
+        title: acacia,
+        startTime: '2026-11-13T19:00:00Z',
+        endTime: '2026-11-13T19:30:00Z',
+        timezone: 'America/Cuiaba',
+      };
+      await createCalendarRepository(other).create(fixture);
+      const send = (text: string, overrides: Partial<ChannelIncomingMessage> = {}) =>
+        turn({ ...msg, id: randomUUID(), text, ...overrides }, user, true);
+      expect(await send(moveText)).toContain('Não encontrei');
+      const a = await repo.create(fixture);
+      const b = await repo.create({ ...fixture, title: 'a ' + acacia });
+      const ambiguous = { ...msg, id: randomUUID(), text: moveText };
+      expect(await turn(ambiguous, user, false)).toContain('mais de um');
+      await repo.delete(b.id);
+      expect(await turn(ambiguous, user, true)).toContain('mais de um');
+      expect(await send(moveText, { metadata: { isGroup: true, chatType: 'group' } })).toContain(
+        'privada'
+      );
+      expect(await send(moveText, { platformChatId: 'foreign' })).toContain('privada');
+      expect(await send(moveText.replace('meia hora', '45 minutos'))).toContain(
+        'duração cadastrada é diferente'
+      );
+      expect(
+        await tryChannelCalendarMutation(
+          { ...msg, text: moveText },
+          user,
+          vi.fn().mockResolvedValueOnce(true).mockResolvedValue(false)
+        )
+      ).toContain('inativo');
+      expect(new Date((await repo.get(a.id))!.startTime).toISOString()).toBe(
+        '2026-11-13T19:00:00.000Z'
+      );
+      expect(await send(moveText.replace('16h', '16h de Brasília'))).toContain('15:00');
+      const moved = { ...msg, id: randomUUID(), text: moveText };
+      expect(await turn(moved, user, false)).toContain('16:00');
+      expect(await turn({ ...moved, text: moveText.replace('16h', '17h') }, user, true)).toContain(
+        'outro agendamento'
+      );
+      expect(
+        new Date((await createCalendarRepository(other).list())[0]!.startTime).toISOString()
+      ).toBe('2026-11-13T19:00:00.000Z');
+    });
+    it('preserves a linked reminder and rejects a move that would place it after the appointment', async () => {
+      const user = 'r19-aviso',
+        msg = incoming(user);
+      const item = await new CustomerAgendaRepository(user, 'America/Cuiaba').create(
+        {
+          kind: 'event',
+          title: acacia,
+          startAt: '2026-11-13T19:00:00Z',
+          endAt: '2026-11-13T19:30:00Z',
+          reminderAt: '2026-11-13T18:45:00Z',
+        },
+        { pluginId: 'channel.whatsapp', phoneNumber: user },
+        'portal'
+      );
+      const reminders = () =>
+        db.query('SELECT id,status,remind_at FROM channel_reminders WHERE user_id=$1', [user]);
+      const before = await reminders();
+      expect(before).toHaveLength(1);
+      expect(await turn({ ...msg, text: moveText }, user, false)).toContain('16:00');
+      expect(await reminders()).toEqual(before);
+      expect(
+        await turn({ ...msg, id: randomUUID(), text: moveText.replace('16h', '14h') }, user, true)
+      ).toContain('aviso vinculado');
+      expect(
+        new Date((await createCalendarRepository(user).get(item.id))!.startTime).toISOString()
+      ).toBe('2026-11-13T20:00:00.000Z');
+      expect(await reminders()).toEqual(before);
+    });
+    it('replays the original receipt across a reconstructed timestamp and never resolves a fresh relative day without one', async () => {
+      const user = 'r19-tempo',
+        msg = { ...incoming(user), text: moveText },
+        repo = createCalendarRepository(user);
+      const fixture = {
+        title: acacia,
+        startTime: '2026-11-13T19:00:00Z',
+        endTime: '2026-11-13T19:30:00Z',
+        timezone: 'America/Cuiaba',
+      };
+      const original = await repo.create(fixture);
+      const fallback = { ...msg, metadata: { ...msg.metadata, estimatedTimestamp: true } };
+      expect(await turn(fallback, user, true)).toContain('Qual é a data');
+      expect(await turn(msg, user, false)).toContain('Compromisso remarcado');
+      const otherWeek = await repo.create({
+        ...fixture,
+        startTime: '2026-11-20T19:00:00Z',
+        endTime: '2026-11-20T19:30:00Z',
+      });
+      vi.setSystemTime(new Date('2026-11-19T12:00:00Z'));
+      try {
+        const later = { ...msg, timestamp: new Date() };
+        for (const m of [later, { ...fallback, timestamp: new Date() }])
+          expect(await turn(m, user, true)).toContain('13/11/2026, 16:00');
+        expect(
+          await turn({ ...later, text: moveText.replace('16h', '17h') }, user, true)
+        ).toContain('outro agendamento');
+        expect(new Date((await repo.get(otherWeek.id))!.startTime).toISOString()).toBe(
+          '2026-11-20T19:00:00.000Z'
+        );
+        const fullDate = {
+          ...fallback,
+          id: randomUUID(),
+          timestamp: new Date(),
+          text: moveText.replace('sexta', '20/11/2026'),
+        };
+        expect(await turn(fullDate, user, false)).toContain('20/11/2026, 16:00');
+      } finally {
+        vi.setSystemTime(new Date('2026-11-12T12:00:00Z'));
+      }
+      expect(new Date((await repo.get(original.id))!.startTime).toISOString()).toBe(
+        '2026-11-13T20:00:00.000Z'
+      );
+    });
+    it('rolls back the move itself when the receipt cannot be persisted', async () => {
+      const user = 'r19-rollback',
+        msg = { ...incoming(user), text: moveText },
+        repo = createCalendarRepository(user);
+      const row = await repo.create({
+        title: acacia,
+        startTime: '2026-11-13T19:00:00Z',
+        endTime: '2026-11-13T19:30:00Z',
+        timezone: 'America/Cuiaba',
+      });
+      await db.exec(
+        "CREATE FUNCTION r19_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic'; END $$; CREATE TRIGGER r19_fail BEFORE INSERT ON customer_agenda_requests FOR EACH ROW WHEN (NEW.user_id='r19-rollback') EXECUTE FUNCTION r19_fail()"
+      );
+      try {
+        expect(await turn(msg, user, true)).toContain('confirmação desse compromisso');
+        expect(new Date((await repo.get(row.id))!.startTime).toISOString()).toBe(
+          '2026-11-13T19:00:00.000Z'
+        );
+      } finally {
+        await db.exec('DROP TRIGGER r19_fail ON customer_agenda_requests');
+      }
+      expect(await turn(msg, user, false)).toContain('Compromisso remarcado');
+      expect(await count(user)).toBe(1);
+    });
+    it('resolves civil dates in the saved time zone across midnight and honors DST ambiguity', async () => {
+      const user = 'r19-fuso',
+        msg = incoming(user),
+        repo = createCalendarRepository(user);
+      const early = await repo.create({
+        title: acacia,
+        startTime: '2026-11-13T04:10:00Z',
+        endTime: '2026-11-13T04:40:00Z',
+        timezone: 'America/Cuiaba',
+      });
+      expect(await turn({ ...msg, text: moveText }, user, true)).toContain('16:30');
+      await repo.delete(early.id);
+      const dst = await repo.create({
+        title: acacia,
+        startTime: '2026-11-01T18:00:00Z',
+        endTime: '2026-11-01T18:30:00Z',
+        timezone: 'America/New_York',
+      });
+      expect(
+        await turn(
+          { ...msg, id: randomUUID(), text: 'Remarque a ' + acacia + ' de 01/11/2026 para 01h30.' },
+          user,
+          false
+        )
+      ).toContain('ambíguo');
+      expect(new Date((await repo.get(dst.id))!.startTime).toISOString()).toBe(
+        '2026-11-01T18:00:00.000Z'
+      );
     });
     it('deletes exactly one saved title/day and never deletes a replacement on redelivery', async () => {
       const a = 'remoção',
@@ -332,7 +579,7 @@ describe.skipIf(!port)(
       );
       const another = { ...msg, id: randomUUID() };
       try {
-        expect(await turn(another, user, false)).toContain('Não consegui confirmar');
+        expect(await turn(another, user, false)).toContain('confirmação desse compromisso');
         expect(await count(user)).toBe(1);
       } finally {
         await db.exec('DROP TRIGGER fail_calendar_receipt ON customer_agenda_requests');

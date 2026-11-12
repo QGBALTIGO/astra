@@ -1013,12 +1013,9 @@ try {
       const confirmed = safeChannelResponse('Agendei para as 22h.', [receipt], { timeZone });
       const query =
         'Confere na minha agenda se a Revisão do orçamento Limoeiro ficou marcada para sexta. Qual a data e que horas ela começa e termina?';
-      const expectLocalTime = (reply: string) => {
-        for (const field of [params.title, '13/11/2020', '15:00', '15:30', timeZone])
-          assert.ok(reply.includes(field), `Expected ${field} in ${reply}`);
-        assert.doesNotMatch(reply, /22h|19:00|19:30/);
-      };
-      expectLocalTime(confirmed);
+      for (const field of [params.title, '13/11/2020', '15:00', '15:30', timeZone])
+        assert.ok(confirmed.includes(field), `Expected ${field} in ${confirmed}`);
+      assert.doesNotMatch(confirmed, /22h|19:00|19:30/);
       for (const platform of ['whatsapp', 'telegram'] as const) {
         for (const path of ['bus', 'direct'] as const) {
           const read = (owner: Customer) => {
@@ -1036,7 +1033,16 @@ try {
               metadata: platform === 'telegram' ? { chatType: 'private' } : { isGroup: false },
             });
           };
-          expectLocalTime(await read(first));
+          const reply = await read(first);
+          assert.ok(reply.includes(params.title));
+          assert.match(reply, /Início:\* 13\/11\/2020, 19:00/);
+          assert.match(reply, /Término:\* 13\/11\/2020, 19:30/);
+          assert.match(reply, /Fuso: UTC/);
+          assert.match(
+            reply,
+            /Na sua agenda \(America\/Cuiaba\):\* 13\/11\/2020, 15:00 – 13\/11\/2020, 15:30/
+          );
+          assert.doesNotMatch(reply, /22h/);
           assert.match(await read(second), /Não encontrei um compromisso/);
         }
       }

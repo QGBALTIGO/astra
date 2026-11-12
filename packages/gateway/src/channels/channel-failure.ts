@@ -89,7 +89,7 @@ const domains = [
   {
     name: 'calendar',
     words:
-      /\b(?:agenda|compromissos?|reuniao|reunioes|videochamada|calendario|dentista|(?:minha|uma|essa|a) consulta)\b/,
+      /\b(?:agenda|eventos?|compromissos?|reuniao|reunioes|videochamada|calendario|dentista|(?:minha|uma|essa|a) consulta)\b/,
   },
   {
     name: 'finance',
@@ -98,11 +98,17 @@ const domains = [
   },
 ] as const;
 function classifyRequest(text: string) {
-  const s = text
+  const normalized = text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+  // “Se não encontrar, me avisa” requests a reply about the preceding operation.
+  // A scheduled notice (e.g. “me avisa amanhã”) retains its own reminder intent.
+  const s = normalized.replace(
+    /(?:[.,;!?]\s*|\s+e\s+)(?:se nao (?:encontrar|achar|localizar)\s*,?\s*(?:so )?me avis[ae]|me avis[ae] se nao (?:encontrar|achar|localizar))(?:,? por favor)?[.!?]*$/u,
+    ''
+  );
   // A question mark alone does not identify a read: "Pode corrigir o lançamento?" is a request.
   const capabilityWords =
     /\b(?:como (?:isso )?funciona|quero (?:entender|aprender)|(?:so|apenas) (?:uma? )?duvida|(?:so |apenas )?quero saber se voce (?:faz|pode|consegue)|se eu pedir|estou perguntando|basta eu|preciso (?:pedir|criar)|explic[ae] (?:a diferenca|como))\b/;

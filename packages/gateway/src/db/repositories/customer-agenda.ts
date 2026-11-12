@@ -9,6 +9,7 @@ import {
   addCalendarDays,
   customerDayStart,
   customerLocalDay,
+  customerLocalDateTime,
 } from '../../services/customer-date.js';
 
 export type CustomerAgendaKind = 'event' | 'task' | 'reminder' | 'bill';
@@ -45,22 +46,32 @@ export interface CustomerAgendaInput {
 }
 export type ChannelCalendarMutation =
   | { action: 'create'; title: string; startTime: string; endTime: string; timezone: string }
-  | { action: 'delete'; title: string; day: string; timezone: string };
-type CalendarOutcome =
-  | { status: 'created' | 'existing'; event: CalendarEvent }
+  | { action: 'delete'; title: string; day: string; timezone: string }
   | {
-      status:
-        | 'denied'
-        | 'changed'
-        | 'gone'
-        | 'expired'
-        | 'removed'
-        | 'alreadyRemoved'
-        | 'missing'
-        | 'ambiguous';
+      action: 'move';
+      title: string;
+      referenceTime?: string;
+      day?: string;
+      offset?: number;
+      weekday?: number;
+      timezone?: string;
+      localClock: string;
+      durationMinutes?: number;
     };
+type CalendarTerminal =
+  | 'missing'
+  | 'ambiguous'
+  | 'removed'
+  | 'durationMismatch'
+  | 'unsupportedMove'
+  | 'linkedReminder'
+  | 'invalidClock'
+  | 'expired';
+type CalendarOutcome =
+  | { status: 'created' | 'existing' | 'moved' | 'current'; event: CalendarEvent }
+  | { status: CalendarTerminal | 'denied' | 'changed' | 'gone' | 'alreadyRemoved' | 'needsDate' };
 type StoredCalendarReceipt =
-  { status: 'created'; id: string } | { status: 'removed' | 'missing' | 'ambiguous' };
+  { status: 'created' | 'moved'; id: string } | { status: CalendarTerminal };
 
 export class CustomerAgendaError extends Error {
   constructor(
@@ -620,6 +631,40 @@ export class CustomerAgendaRepository extends BaseRepository {
     });
   }
 
+  private async moveExistingEvent(
+    input: Extract<ChannelCalendarMutation, { action: 'move' }>,
+    event: CalendarEvent
+  ): Promise<{ status: 'moved'; event: CalendarEvent } | { status: CalendarTerminal }> {
+    const duration = event.endTime ? Date.parse(event.endTime) - Date.parse(event.startTime) : 0;
+    if (event.allDay || event.recurrence || !event.timezone || !(duration > 0))
+      return { status: 'unsupportedMove' };
+    if (input.durationMinutes !== undefined && duration !== input.durationMinutes * 60_000)
+      return { status: 'durationMismatch' };
+    const timezone = input.timezone ?? event.timezone;
+    const day = customerLocalDay(event.startTime, timezone);
+    let start: Date;
+    try {
+      start = customerLocalDateTime(day + 'T' + input.localClock, timezone);
+    } catch {
+      return { status: 'invalidClock' };
+    }
+    if (start.getTime() <= Date.now()) return { status: 'expired' };
+    // Keep an existing scheduled alert intact. Moving earlier must never put the alert after the event.
+    const conflict = await this.queryOne(
+      `SELECT r.id FROM customer_agenda_links l JOIN channel_reminders r
+         ON r.id=l.reminder_id AND r.user_id=l.user_id
+       WHERE l.user_id=$1 AND l.kind='event' AND l.item_id=$2 AND r.status IN ('pending','sending')
+         AND r.remind_at > $3::timestamptz FOR UPDATE OF r`,
+      [this.userId, event.id, start.toISOString()]
+    );
+    if (conflict) return { status: 'linkedReminder' };
+    const updated = await this.calendar.update(event.id, {
+      startTime: start,
+      endTime: new Date(start.getTime() + duration),
+    });
+    return updated ? { status: 'moved', event: updated } : { status: 'missing' };
+  }
+
   /** Keep terminal outcomes so redelivery cannot recreate a deleted event or delete a new namesake. */
   async changeChannelEvent(
     input: ChannelCalendarMutation,
@@ -629,7 +674,11 @@ export class CustomerAgendaRepository extends BaseRepository {
     const digest = (value: unknown) =>
       createHash('sha256').update(JSON.stringify(value)).digest('hex');
     const key = 'channel-event:' + digest(delivery);
-    const fingerprint = digest(input);
+    // The delivery ID identifies the original request. Clock metadata can be reconstructed
+    // by a channel after reconnect, while the user's title, day expression and time stay fixed.
+    const fingerprint = digest(
+      input.action === 'move' ? { ...input, referenceTime: undefined } : input
+    );
     return this.transaction(async () => {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [
         this.userId + ':' + key,
@@ -645,12 +694,19 @@ export class CustomerAgendaRepository extends BaseRepository {
       if (previous) {
         if (previous.fingerprint !== fingerprint) return { status: 'changed' };
         const receipt = previous.response;
-        if (receipt.status !== 'created')
+        if (!('id' in receipt))
           return { status: receipt.status === 'removed' ? 'alreadyRemoved' : receipt.status };
         const event = await this.calendar.get(receipt.id);
-        return event ? { status: 'existing', event } : { status: 'gone' };
+        return event
+          ? { status: receipt.status === 'moved' ? 'current' : 'existing', event }
+          : { status: 'gone' };
       }
-      let result: CalendarOutcome;
+      // A replay above uses its original receipt without reinterpreting a weekday.
+      // For a fresh relative instruction we need the authenticated provider timestamp.
+      if (input.action === 'move' && !input.day && !input.referenceTime)
+        return { status: 'needsDate' };
+      let result:
+        { status: 'created' | 'moved'; event: CalendarEvent } | { status: CalendarTerminal };
       let receipt: StoredCalendarReceipt;
       if (input.action === 'create') {
         if (Date.parse(input.startTime) <= Date.now()) return { status: 'expired' };
@@ -658,19 +714,30 @@ export class CustomerAgendaRepository extends BaseRepository {
         result = { status: 'created', event };
         receipt = { status: 'created', id: event.id };
       } else {
-        const matches = await this.calendar.findSlotsByTitle(
-          [input.title],
-          customerDayStart(input.day, input.timezone),
-          customerDayStart(addCalendarDays(input.day, 1), input.timezone),
-          true
-        );
+        const matches =
+          input.action === 'move'
+            ? await this.calendar.findMoveCandidates(
+                [...new Set([input.title, input.title.replace(/^[ao] /iu, '')])],
+                input
+              )
+            : await this.calendar.findSlotsByTitle(
+                [input.title],
+                customerDayStart(input.day, input.timezone),
+                customerDayStart(addCalendarDays(input.day, 1), input.timezone),
+                true
+              );
         if (!(await canWrite())) return { status: 'denied' };
-        let status: 'missing' | 'ambiguous' | 'removed' = 'missing';
-        if (matches.length > 1) status = 'ambiguous';
-        else if (matches[0] && (await this.deleteInTransaction('event', matches[0].id)))
-          status = 'removed';
-        result = { status };
-        receipt = { status };
+        if (matches.length > 1) result = { status: 'ambiguous' };
+        else if (!matches[0]) result = { status: 'missing' };
+        else if (input.action === 'move') result = await this.moveExistingEvent(input, matches[0]);
+        else
+          result = {
+            status: (await this.deleteInTransaction('event', matches[0].id))
+              ? 'removed'
+              : 'missing',
+          };
+        receipt =
+          'event' in result ? { status: 'moved', id: result.event.id } : { status: result.status };
       }
       await this.execute(
         'INSERT INTO customer_agenda_requests(user_id,request_key,fingerprint,response) VALUES($1,$2,$3,$4::jsonb)',
