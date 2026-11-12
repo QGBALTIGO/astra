@@ -114,9 +114,14 @@ describe('access notification eligibility and snapshots', () => {
       });
       expect(isProactivePaidCaktoNotice(paid, kind)).toBe(true);
       expect(isProactivePaidCaktoNotice(paid, 'expiring')).toBe(false);
-      expect(isProactivePaidCaktoNotice(user({ ...paid, accessSource: 'manual' }), kind)).toBe(false);
+      expect(isProactivePaidCaktoNotice(user({ ...paid, accessSource: 'manual' }), kind)).toBe(
+        false
+      );
       expect(
-        isProactivePaidCaktoNotice(user({ accessSource: 'cakto', metadata: { hasInteracted: false } }), kind)
+        isProactivePaidCaktoNotice(
+          user({ accessSource: 'cakto', metadata: { hasInteracted: false } }),
+          kind
+        )
       ).toBe(false);
     }
   );
@@ -401,16 +406,16 @@ describe('beginSend', () => {
   });
 });
 
-  it('marks Cakto notice delivery only for an acknowledged paid cycle', async () => {
-    expect(await repository.markCaktoWelcomeDelivered('notice-1', 'customer-1')).toBe(true);
-    const { sql, params } = statement(adapter.execute);
-    expect(params).toEqual(['notice-1', 'customer-1']);
-    expect(sql).toContain("notice.status = 'delivered'");
-    expect(sql).toContain("notice.kind IN ('approved','renewed')");
-    expect(sql).toContain("u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'");
-    expect(sql).toContain('access_granted_at IS NOT DISTINCT FROM notice.access_granted_at');
-    expect(sql).toContain('caktoWelcomeDelivered');
-  });
+it('marks Cakto notice delivery only for an acknowledged paid cycle', async () => {
+  expect(await repository.markCaktoWelcomeDelivered('notice-1', 'customer-1')).toBe(true);
+  const { sql, params } = statement(adapter.execute);
+  expect(params).toEqual(['notice-1', 'customer-1']);
+  expect(sql).toContain("notice.status = 'delivered'");
+  expect(sql).toContain("notice.kind IN ('approved','renewed')");
+  expect(sql).toContain("u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'");
+  expect(sql).toContain('access_granted_at IS NOT DISTINCT FROM notice.access_granted_at');
+  expect(sql).toContain('caktoWelcomeDelivered');
+});
 describe('deferBeforeSend and finish', () => {
   it('releases only this caller lease before transport, including a reserved sending boundary', async () => {
     const until = new Date(now.getTime() + 60_000);
