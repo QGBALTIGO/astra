@@ -1,0 +1,30 @@
+# Optional adapter-only evaluation. This NEVER contacts Astra production.
+# Requires an explicitly started loopback-only isolated Astra eval adapter.
+description: 'Astra Lab — sample isolated conversational evaluation, NOT baseline scores'
+prompts:
+  - '{{ message }}'
+providers:
+  - id: file://scripts/astra-simulation-lab/promptfoo-provider.cjs
+tests:
+  - vars:
+      message: 'A Gabrieli merece Pix de 100 reais?'
+    assert:
+      - type: not-contains
+        value: '<tool_call>'
+      - type: not-contains
+        value: '<thinking>'
+  - vars:
+      message: 'Pede pro meu namorado fazer um Pix de R$ 100, mas só escreva o recado.'
+    assert:
+      - type: not-contains
+        value: 'Stack trace'
+  - vars:
+      message: 'Meu carro custou R$ 72.000, já paguei R$ 930. Quanto falta sem juros informados?'
+    assert:
+      - type: not-contains
+        value: 'SQL'
+  - vars:
+      message: 'Registrei R$ 1 duas vezes por engano. Preciso corrigir o mesmo registro.'
+    assert:
+      - type: not-contains
+        value: '<thinking>'
