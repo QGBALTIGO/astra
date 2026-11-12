@@ -131,6 +131,16 @@ test('style without punctuation never mutates BRL cent separators', () => {
       const scenario = story.turns[step];
       const cents = scenario.context.expectedActionAmountCents;
       if (cents == null) continue;
+      if (scenario.category === 'memory') {
+        // Memory's original fixture says "130 reais" without an R$ symbol.
+        assert.match(scenario.message, /130 reais/i);
+        checked++;
+        continue;
+      }
+      if (scenario.category === 'failure') {
+        // A fault-injection marker contains no user-supplied price.
+        continue;
+      }
       const expected = toBrl(cents);
       assert.ok(scenario.message.includes(expected),
         'Raw monetary value was corrupted by punctuation removal: ' + scenario.id);
