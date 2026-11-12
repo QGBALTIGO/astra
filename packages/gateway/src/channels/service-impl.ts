@@ -613,7 +613,10 @@ export class ChannelServiceImpl implements IChannelService {
         // A message previously answered by the access gate must not become a
         // new AI request when WhatsApp replays it after approval or reconnect.
         if (wasInboundAccessNoticeHandled(channelUser, message.id)) return;
-        if (channelUser.firstInteraction || needsFirstAuthorizedWelcome(channelUser)) {
+        if (
+          channelUser.metadata.caktoWelcomeDelivered !== true &&
+          (channelUser.firstInteraction || needsFirstAuthorizedWelcome(channelUser))
+        ) {
           await this.sendInboundAccessNotice(message, channelUser, 'first_authorized');
           // Real requests on the first interaction still run normally. A plain
           // greeting needs only the personalized welcome, without a second reply.

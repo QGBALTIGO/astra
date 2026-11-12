@@ -14,6 +14,7 @@ vi.mock('../adapters/index.js', () => ({
 import {
   ChannelAccessNotificationsRepository,
   hasChannelUserInteracted,
+  isProactivePaidCaktoNotice,
   isSameAccessNotificationCycle,
   type ChannelAccessNotification,
 } from './channel-access-notifications.js';
@@ -104,6 +105,26 @@ describe('access notification eligibility and snapshots', () => {
     expect(hasChannelUserInteracted(user({ metadata }))).toBe(expected);
   });
 
+  it.each(['approved', 'renewed'] as const)(
+    'permits a paid Cakto %s notice before first inbound contact',
+    (kind) => {
+      const paid = user({
+        accessSource: 'cakto',
+        metadata: { hasInteracted: false, caktoManaged: true },
+      });
+      expect(isProactivePaidCaktoNotice(paid, kind)).toBe(true);
+      expect(isProactivePaidCaktoNotice(paid, 'expiring')).toBe(false);
+      expect(isProactivePaidCaktoNotice(user({ ...paid, accessSource: 'manual' }), kind)).toBe(
+        false
+      );
+      expect(
+        isProactivePaidCaktoNotice(
+          user({ accessSource: 'cakto', metadata: { hasInteracted: false } }),
+          kind
+        )
+      ).toBe(false);
+    }
+  );
   it('compares both tenant identity and the exact grant/expiry snapshot', () => {
     expect(isSameAccessNotificationCycle(entry(), user())).toBe(true);
     for (const change of [
@@ -143,6 +164,23 @@ describe('queueLifecycle', () => {
     }
   );
 
+  it('queues Cakto-paid notices without prior interaction, but no manual bypass', async () => {
+    await repository.queueLifecycle(
+      user({ accessSource: 'cakto', metadata: { hasInteracted: false, caktoManaged: true } }),
+      'renewed',
+      { now }
+    );
+    expect(adapter.queryOne).toHaveBeenCalledOnce();
+    expect(statement(adapter.queryOne).sql).toContain(
+      "u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'"
+    );
+    await repository.queueLifecycle(
+      user({ accessSource: 'manual', metadata: { hasInteracted: false, caktoManaged: true } }),
+      'approved',
+      { now }
+    );
+    expect(adapter.queryOne).toHaveBeenCalledOnce();
+  });
   it('enqueues once per exact cycle and maps persisted dates without inventing a second result', async () => {
     adapter.queryOne.mockResolvedValueOnce(row()).mockResolvedValueOnce(null);
     const queued = await repository.queueLifecycle(user(), 'approved', { durationDays: 30, now });
@@ -346,6 +384,7 @@ describe('beginSend', () => {
       "u.ownpilot_user_id = 'whatsapp:' || u.platform_user_id",
       "u.is_verified = TRUE AND u.is_blocked = FALSE AND u.status = 'active'",
       "u.metadata->'hasInteracted' IS NULL OR u.metadata->'hasInteracted' = 'true'::jsonb",
+      "u.metadata->'astraAccessNotices'->>'firstAuthorized' IS DISTINCT FROM 'true'",
       'u.access_granted_at IS NOT DISTINCT FROM notice.access_granted_at',
       'u.access_expires_at IS NOT DISTINCT FROM notice.access_expires_at',
       'u.access_expires_at IS NULL OR u.access_expires_at > $4::timestamptz',
@@ -367,6 +406,16 @@ describe('beginSend', () => {
   });
 });
 
+it('marks Cakto notice delivery only for an acknowledged paid cycle', async () => {
+  expect(await repository.markCaktoWelcomeDelivered('notice-1', 'customer-1')).toBe(true);
+  const { sql, params } = statement(adapter.execute);
+  expect(params).toEqual(['notice-1', 'customer-1']);
+  expect(sql).toContain("notice.status = 'delivered'");
+  expect(sql).toContain("notice.kind IN ('approved','renewed')");
+  expect(sql).toContain("u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'");
+  expect(sql).toContain('access_granted_at IS NOT DISTINCT FROM notice.access_granted_at');
+  expect(sql).toContain('caktoWelcomeDelivered');
+});
 describe('deferBeforeSend and finish', () => {
   it('releases only this caller lease before transport, including a reserved sending boundary', async () => {
     const until = new Date(now.getTime() + 60_000);
