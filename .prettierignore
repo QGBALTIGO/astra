@@ -16,3 +16,6 @@ packages/**/_*
 packages/ui/playwright/.auth/
 **/test-results/
 **/playwright-report/
+# Captured before the landing redesign for exact rollback and visual comparison
+landing/rollback/production-before-redesign.ts
+landing/tests/baseline/bundle.json

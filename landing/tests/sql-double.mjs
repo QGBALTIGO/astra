@@ -1,5 +1,6 @@
 /** Test-only SQL double. No network, real PostgreSQL or customer records. */
 export const requests = new Map();
+export const unavailableEvents = new Set();
 const counters = new Map();
 export class SQL {
   constructor() {
@@ -11,9 +12,28 @@ export class SQL {
         return row ? [{ id: row.id, fingerprint: row.fingerprint }] : [];
       }
       if (text.startsWith('INSERT INTO requests')) {
-        const [id, requestKey, fingerprint, email, name, intent, message, consentVersion, cancellationHash] = values;
+        const [
+          id,
+          requestKey,
+          fingerprint,
+          email,
+          name,
+          intent,
+          message,
+          consentVersion,
+          cancellationHash,
+        ] = values;
         if (requests.has(requestKey)) return [];
-        requests.set(requestKey, { id, fingerprint, email, name, intent, message, consentVersion, cancellationHash });
+        requests.set(requestKey, {
+          id,
+          fingerprint,
+          email,
+          name,
+          intent,
+          message,
+          consentVersion,
+          cancellationHash,
+        });
         return [{ id }];
       }
       if (text.startsWith('INSERT INTO rate_limits')) {
@@ -22,9 +42,12 @@ export class SQL {
         return [{ hits }];
       }
       if (text.startsWith('DELETE FROM requests WHERE cancellation_hash=')) {
-        for (const [key, row] of requests) if (row.cancellationHash === values[0]) requests.delete(key);
+        for (const [key, row] of requests)
+          if (row.cancellationHash === values[0]) requests.delete(key);
         return [];
       }
+      if (text.startsWith('INSERT INTO events') && unavailableEvents.has(values[0]))
+        throw new Error('synthetic failure detail');
       if (text.startsWith('INSERT INTO events') || text.startsWith('DELETE ')) return [];
       throw Error(`Unimplemented test SQL: ${text}`);
     };

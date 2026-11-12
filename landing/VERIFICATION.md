@@ -29,10 +29,10 @@ A versão `premium-20261112` está publicada em https://astra-landing-production
 
 Mesma origem local, 1,6 Mbps, 150 ms de latência, CPU com desaceleração 4× e três amostras por versão e perfil. Medianas observadas:
 
-| Perfil | LCP anterior | LCP novo | CLS anterior | CLS novo |
-|---|---:|---:|---:|---:|
-| Celular · 390 px | 760 ms | 708 ms | 0.1235 | 0.0000 |
-| Desktop · 1440 px | 804 ms | 708 ms | 0.1095 | 0.0000 |
+| Perfil            | LCP anterior | LCP novo | CLS anterior | CLS novo |
+| ----------------- | -----------: | -------: | -----------: | -------: |
+| Celular · 390 px  |       760 ms |   708 ms |       0.1235 |   0.0000 |
+| Desktop · 1440 px |       804 ms |   708 ms |       0.1095 |   0.0000 |
 
 A versão anterior era o conteúdo público capturado antes da alteração. Os valores acima não são dados de usuários reais nem medições de campo da Railway. A nova página serve seu conteúdo inicial em HTML, evitando as inserções de layout que existiam no carregamento anterior. As fontes agora são hospedadas no próprio site.
 

@@ -2,7 +2,8 @@ import { scenarios, scenarioState, base, money } from './scenarios.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#${name}"></use></svg>`;
+const icon = (name) =>
+  `<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#${name}"></use></svg>`;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
 // Native dialogs provide an inert background, Escape support and a focus boundary.
@@ -29,23 +30,36 @@ menu?.addEventListener('close', () => {
   menuReturn?.focus({ preventScroll: true });
 });
 $('[data-close-menu]')?.addEventListener('click', () => closeMenu());
-$$('a', menu || document.createElement('nav')).forEach((link) => link.addEventListener('click', () => closeMenu(false)));
-matchMedia('(min-width: 960px)').addEventListener('change', (event) => { if (event.matches) closeMenu(false); });
+$$('a', menu || document.createElement('nav')).forEach((link) =>
+  link.addEventListener('click', () => closeMenu(false))
+);
+matchMedia('(min-width: 960px)').addEventListener('change', (event) => {
+  if (event.matches) closeMenu(false);
+});
 
 const panel = $('#dashboard-panel');
 const tabs = $$('[data-view]');
 let activeScenario = scenarios[0];
 let activeView = activeScenario.tab;
 let replayTimer;
-const transaction = (title, detail, amount, { highlight = false, symbol = 'wallet', positive = false } = {}) =>
+const transaction = (
+  title,
+  detail,
+  amount,
+  { highlight = false, symbol = 'wallet', positive = false } = {}
+) =>
   `<div class="transaction-row${highlight ? ' highlighted' : ''}"><span class="transaction-icon${highlight ? '' : ' muted'}">${icon(symbol)}</span><div><strong>${title}</strong><span>${detail}</span></div><b${positive ? ' class="positive"' : ''}>${positive ? '+' : '−'} ${money(amount)}</b></div>`;
-const heading = (title) => `<div class="dashboard-view-heading"><div><p class="mini-label">NOVEMBRO · 2026</p><h3>${title}</h3></div><span class="panel-success">${icon('check')} ${activeScenario.cta}</span></div>`;
-const agendaItem = (time, title, detail, symbol = 'calendar') => `<div class="agenda-list-item"><time>${time}</time><div><strong>${title}</strong><span>${detail}</span></div>${icon(symbol)}</div>`;
-const goal = () => `<div class="dashboard-goal"><div><strong>Meta: Viagem</strong><small>${money(base.goal)} de ${money(base.target)}</small></div><div class="progress-track" role="progressbar" aria-label="Progresso da meta Viagem" aria-valuemin="0" aria-valuemax="100" aria-valuenow="65"><span></span></div><small>65% do objetivo registrado · Progresso informado por você</small></div>`;
+const heading = (title) =>
+  `<div class="dashboard-view-heading"><div><p class="mini-label">NOVEMBRO · 2026</p><h3>${title}</h3></div><span class="panel-success">${icon('check')} ${activeScenario.cta}</span></div>`;
+const agendaItem = (time, title, detail, symbol = 'calendar') =>
+  `<div class="agenda-list-item"><time>${time}</time><div><strong>${title}</strong><span>${detail}</span></div>${icon(symbol)}</div>`;
+const goal = () =>
+  `<div class="dashboard-goal"><div><strong>Meta: Viagem</strong><small>${money(base.goal)} de ${money(base.target)}</small></div><div class="progress-track" role="progressbar" aria-label="Progresso da meta Viagem" aria-valuemin="0" aria-valuemax="100" aria-valuenow="65"><span></span></div><small>65% do objetivo registrado · Progresso informado por você</small></div>`;
 
 function dashboardMarkup(view) {
   const state = scenarioState(activeScenario);
-  if (view === 'inicio') return `${heading('Seu dia, em uma visão.')}
+  if (view === 'inicio')
+    return `${heading('Seu dia, em uma visão.')}
     <div class="overview-balance"><span>Saldo dos registros</span><strong>${money(state.balance)}</strong></div>
     <div class="overview-items"><div><small>PRÓXIMO COMPROMISSO</small><strong>Dentista</strong><span>13 de novembro · 15h</span></div><div><small>PARA NÃO ESQUECER</small><strong>Revisar a proposta</strong><span>12 de novembro · 17h</span></div></div>${goal()}`;
   if (view === 'transacoes') {
@@ -58,8 +72,14 @@ function dashboardMarkup(view) {
       <div class="balance-line"><span>Saldo dos registros</span><strong>${money(state.balance)}</strong></div>`;
   }
   if (view === 'categorias') {
-    const colors = { navy: '#263f65', blue: '#0061fd', sky: '#5685be', gray: '#8c9eb7', violet: '#7370ad' };
-    return `${heading('Cada gasto tem seu lugar.')}<div class="balance-line"><span>Total das despesas registradas</span><strong>${money(state.expenses)}</strong></div>${state.categories.map((category) => `<div class="category-row" style="--bar-color:${colors[category.color]};--bar-width:${(category.amount / state.expenses * 100).toFixed(2)}%"><div class="category-label"><span><i></i>${category.name}</span><strong>${money(category.amount)}</strong></div><div class="category-bar" aria-hidden="true"><i></i></div></div>`).join('')}`;
+    const colors = {
+      navy: '#263f65',
+      blue: '#0061fd',
+      sky: '#5685be',
+      gray: '#8c9eb7',
+      violet: '#7370ad',
+    };
+    return `${heading('Cada gasto tem seu lugar.')}<div class="balance-line"><span>Total das despesas registradas</span><strong>${money(state.expenses)}</strong></div>${state.categories.map((category) => `<div class="category-row" style="--bar-color:${colors[category.color]};--bar-width:${((category.amount / state.expenses) * 100).toFixed(2)}%"><div class="category-label"><span><i></i>${category.name}</span><strong>${money(category.amount)}</strong></div><div class="category-bar" aria-hidden="true"><i></i></div></div>`).join('')}`;
   }
   if (view === 'agenda') {
     const hasEvent = ['event', 'reminder', 'task'].includes(activeScenario.kind);
@@ -98,7 +118,9 @@ tabs.forEach((tab, index) => {
 function playScenario(scenario, animate = true) {
   clearTimeout(replayTimer);
   activeScenario = scenario;
-  $$('[data-scenario]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.scenario === scenario.id)));
+  $$('[data-scenario]').forEach((button) =>
+    button.setAttribute('aria-pressed', String(button.dataset.scenario === scenario.id))
+  );
   $('#demo-user').textContent = scenario.user;
   $('#demo-tag').textContent = scenario.tag;
   $('#demo-status').textContent = '';
@@ -114,17 +136,29 @@ function playScenario(scenario, animate = true) {
       bubble.classList.remove('message-enter');
       panel.classList.remove('panel-enter');
       // A fresh frame restarts only these finite, small entrance animations.
-      requestAnimationFrame(() => { bubble.classList.add('message-enter'); panel.classList.add('panel-enter'); });
+      requestAnimationFrame(() => {
+        bubble.classList.add('message-enter');
+        panel.classList.add('panel-enter');
+      });
     }
-    $('#demo-status').textContent = `${scenario.label}: ${scenario.cta}. A prévia do painel foi atualizada. Dados fictícios.`;
+    $('#demo-status').textContent =
+      `${scenario.label}: ${scenario.cta}. A prévia do painel foi atualizada. Dados fictícios.`;
   };
-  if (!animate || reducedMotion.matches) { finish(); return; }
+  if (!animate || reducedMotion.matches) {
+    finish();
+    return;
+  }
   workspace.classList.add('demo-pending');
   panel.setAttribute('aria-busy', 'true');
-  reply.innerHTML = '<span class="typing" aria-label="Preparando exemplo"><i></i><i></i><i></i></span>';
+  reply.innerHTML =
+    '<span class="typing" aria-label="Preparando exemplo"><i></i><i></i><i></i></span>';
   replayTimer = setTimeout(finish, 320);
 }
-$$('[data-scenario]').forEach((button) => button.addEventListener('click', () => playScenario(scenarios.find((scenario) => scenario.id === button.dataset.scenario))));
+$$('[data-scenario]').forEach((button) =>
+  button.addEventListener('click', () =>
+    playScenario(scenarios.find((scenario) => scenario.id === button.dataset.scenario))
+  )
+);
 $('#replay')?.addEventListener('click', () => playScenario(activeScenario));
 
 // All requests keep the existing landing API contract and its CSRF protection.
@@ -140,12 +174,18 @@ async function getToken(signal) {
   const response = await fetch('/api/form-token', { cache: 'no-store', signal });
   if (!response.ok) throw Error('Não foi possível preparar o formulário. Tente novamente.');
   const data = await response.json();
-  if (typeof data.token !== 'string') throw Error('O formulário não está disponível agora. Tente novamente.');
+  if (typeof data.token !== 'string')
+    throw Error('O formulário não está disponível agora. Tente novamente.');
   return data.token;
 }
 function track(event) {
   if (navigator.doNotTrack === '1' || navigator.globalPrivacyControl) return;
-  fetch('/api/evento', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event }), keepalive: true }).catch(() => {});
+  fetch('/api/evento', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event }),
+    keepalive: true,
+  }).catch(() => {});
 }
 function openContact() {
   if (!contact || contact.open) return;
@@ -162,13 +202,18 @@ function openContact() {
   $('#contact-submit').disabled = false;
   $('#contact-submit').innerHTML = `Enviar solicitação ${icon('arrow-right')}`;
   $('#contact-title').textContent = 'Vamos conversar?';
-  $('#contact-intro').textContent = 'Conte como podemos ajudar. Sua solicitação será registrada para a equipe responder.';
+  $('#contact-intro').textContent =
+    'Conte como podemos ajudar. Sua solicitação será registrada para a equipe responder.';
   contact.showModal();
   syncScrollLock();
   track('contact_open');
 }
-$$('[data-contact]').forEach((button) => button.addEventListener('click', () => openContact(button.dataset.contact)));
-$$('[data-close-contact]').forEach((button) => button.addEventListener('click', () => contact.close()));
+$$('[data-contact]').forEach((button) =>
+  button.addEventListener('click', () => openContact(button.dataset.contact))
+);
+$$('[data-close-contact]').forEach((button) =>
+  button.addEventListener('click', () => contact.close())
+);
 contact?.addEventListener('close', () => {
   formRun++;
   requestController?.abort();
@@ -176,17 +221,32 @@ contact?.addEventListener('close', () => {
   syncScrollLock();
   contactReturn?.focus({ preventScroll: true });
 });
-$$('dialog').forEach((dialog) => dialog.addEventListener('click', (event) => {
-  if (event.target !== dialog) return;
-  const rect = dialog.getBoundingClientRect();
-  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
-}));
+$$('dialog').forEach((dialog) =>
+  dialog.addEventListener('click', (event) => {
+    if (event.target !== dialog) return;
+    const rect = dialog.getBoundingClientRect();
+    if (
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom
+    )
+      dialog.close();
+  })
+);
 form?.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (requestController || !form.reportValidity()) return;
   const run = formRun;
   const data = new FormData(form);
-  const fields = { name: data.get('name'), email: data.get('email'), message: data.get('message'), website: data.get('website'), consent: form.elements.consent.checked, intent: 'contato' };
+  const fields = {
+    name: data.get('name'),
+    email: data.get('email'),
+    message: data.get('message'),
+    website: data.get('website'),
+    consent: form.elements.consent.checked,
+    intent: 'contato',
+  };
   const fingerprint = JSON.stringify(fields);
   if (previousPayload && previousPayload !== fingerprint) requestId = crypto.randomUUID();
   previousPayload = fingerprint;
@@ -202,11 +262,23 @@ form?.addEventListener('submit', async (event) => {
   status.textContent = 'Registrando sua solicitação…';
   try {
     if (!csrf) csrf = await getToken(controller.signal);
-    const response = await fetch('/api/interesse', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Astra-Form-Token': csrf }, body: JSON.stringify(payload), signal: controller.signal });
+    const response = await fetch('/api/interesse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Astra-Form-Token': csrf },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
     const result = await response.json().catch(() => ({}));
     if (formRun !== run || !contact.open) return;
-    if (!response.ok) { if (response.status === 403) csrf = ''; throw Error(result.error || 'Não foi possível registrar agora. Tente novamente.'); }
-    if (!/^ASTRA-[a-f0-9-]{36}$/i.test(result.receipt || '') || !/^[a-f0-9]{64}$/.test(result.cancellationToken || '')) throw Error('Não conseguimos confirmar o registro. Tente novamente com os mesmos dados.');
+    if (!response.ok) {
+      if (response.status === 403) csrf = '';
+      throw Error(result.error || 'Não foi possível registrar agora. Tente novamente.');
+    }
+    if (
+      !/^ASTRA-[a-f0-9-]{36}$/i.test(result.receipt || '') ||
+      !/^[a-f0-9]{64}$/.test(result.cancellationToken || '')
+    )
+      throw Error('Não conseguimos confirmar o registro. Tente novamente com os mesmos dados.');
     form.hidden = true;
     $('#contact-success').hidden = false;
     $('#receipt').value = result.receipt;
@@ -214,7 +286,10 @@ form?.addEventListener('submit', async (event) => {
     $('#success-title').focus({ preventScroll: true });
   } catch (error) {
     if (formRun !== run || !contact.open) return;
-    status.textContent = error.name === 'AbortError' ? 'A conexão demorou. Tente novamente com os mesmos dados; o protocolo evita duplicidade.' : error.message;
+    status.textContent =
+      error.name === 'AbortError'
+        ? 'A conexão demorou. Tente novamente com os mesmos dados; o protocolo evita duplicidade.'
+        : error.message;
     status.focus({ preventScroll: true });
   } finally {
     clearTimeout(timer);
@@ -233,14 +308,25 @@ if (remove) {
   history.replaceState(null, '', location.pathname);
   const valid = /^[a-f0-9]{64}$/.test(value);
   remove.disabled = !valid;
-  $('#remove-status').textContent = valid ? 'Para excluir esta solicitação de contato, confirme no botão abaixo. Sua assinatura e sua conta do Astra não serão alteradas.' : 'Abra o link pessoal exibido ao concluir o formulário para remover aquela solicitação. Este endereço sem o código não permite localizar um cadastro.';
+  $('#remove-status').textContent = valid
+    ? 'Para excluir esta solicitação de contato, confirme no botão abaixo. Sua assinatura e sua conta do Astra não serão alteradas.'
+    : 'Abra o link pessoal exibido ao concluir o formulário para remover aquela solicitação. Este endereço sem o código não permite localizar um cadastro.';
   remove.addEventListener('click', async () => {
     remove.disabled = true;
     $('#remove-status').textContent = 'Removendo a solicitação…';
     try {
-      const response = await fetch('/api/remover', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Astra-Form-Token': await getToken(AbortSignal.timeout(12000)) }, body: JSON.stringify({ token: value }), signal: AbortSignal.timeout(12000) });
+      const response = await fetch('/api/remover', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Astra-Form-Token': await getToken(AbortSignal.timeout(12000)),
+        },
+        body: JSON.stringify({ token: value }),
+        signal: AbortSignal.timeout(12000),
+      });
       if (!response.ok) throw Error();
-      $('#remove-status').textContent = 'Solicitação removida ou já inexistente. Nenhum novo contato será feito por esse cadastro.';
+      $('#remove-status').textContent =
+        'Solicitação removida ou já inexistente. Nenhum novo contato será feito por esse cadastro.';
       remove.textContent = 'Solicitação removida';
     } catch {
       $('#remove-status').textContent = 'Não foi possível remover agora. Tente novamente.';
@@ -249,12 +335,25 @@ if (remove) {
   });
 }
 if ($('#plano') && 'IntersectionObserver' in window) {
-  const observer = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) { track('plan_view'); observer.disconnect(); } }, { threshold: .15 });
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        track('plan_view');
+        observer.disconnect();
+      }
+    },
+    { threshold: 0.15 }
+  );
   observer.observe($('#plano'));
 }
 if (['#contato', '#interesse'].includes(location.hash)) openContact();
 if (['#painel', '#experimente', '#funcionalidades', '#como'].includes(location.hash)) {
-  const aliases = { '#painel': '#na-pratica', '#experimente': '#na-pratica', '#funcionalidades': '#recursos', '#como': '#como-comecar' };
+  const aliases = {
+    '#painel': '#na-pratica',
+    '#experimente': '#na-pratica',
+    '#funcionalidades': '#recursos',
+    '#como': '#como-comecar',
+  };
   const target = aliases[location.hash];
   history.replaceState(null, '', target);
   $(target)?.scrollIntoView();
