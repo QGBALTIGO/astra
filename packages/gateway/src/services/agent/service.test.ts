@@ -1405,6 +1405,37 @@ describe('getOrCreateChatAgent', () => {
     expect(config?.memory.maxTokens).toBe(3072);
   });
 
+  it('bounds Ollama latency on channels with a configured and usable backup', async () => {
+    mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+    mockGetProviderApiKey.mockResolvedValue('test-key');
+    mockLoadProviderConfig.mockReturnValue({ baseUrl: 'https://test.invalid/v1' });
+    await mod.getOrCreateChatAgent(
+      'ollama-local',
+      'qwen3:4b-instruct',
+      {
+        provider: 'groq',
+        model: 'openai/gpt-oss-20b',
+      },
+      null,
+      'channel:whatsapp:local-backup',
+      undefined,
+      true
+    );
+    const core = await import('@ownpilot/core');
+    expect(core.createFallbackProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        primary: expect.objectContaining({ id: 'ollama-local', timeout: 6000, maxRetries: 0 }),
+        fallbacks: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'groq',
+            timeout: 20000,
+            defaultModel: { model: 'openai/gpt-oss-20b', maxTokens: 768 },
+          }),
+        ]),
+      })
+    );
+  });
+
   it('uses a compact Portuguese prompt and 768 output tokens for Groq channels', async () => {
     const { agent } = makeMockAgent();
     mockCreateAgent.mockReturnValue(agent);

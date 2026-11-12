@@ -783,6 +783,7 @@ async function processDirectAgentInSession(
       () =>
         conversationOnly
           ? agent.chat(interpreted.text, {
+              toolChoice: 'none',
               onBeforeToolCall: async () => ({
                 approved: false,
                 reason: 'Conversa sem operação solicitada.',
@@ -812,6 +813,7 @@ async function processDirectAgentInSession(
       return presentChannelReply(response, interpreted.text, channelReceipts, timeZone);
     try {
       const second = await agent.chat(CHANNEL_CONVERSATIONAL_RETRY_PROMPT, {
+        toolChoice: 'none',
         onBeforeToolCall: async () => ({
           approved: false,
           reason: 'Apenas conversa, sem ações.',

@@ -637,6 +637,36 @@ describe('Agent processConversation (via chat)', () => {
     mockProviderOverride = null;
   });
 
+  it('omits tool schemas for a text-only turn and restores them on the next turn', async () => {
+    const { agent, provider } = createAgentWithMockProvider();
+    expect((await agent.chat('Draft a short message', { toolChoice: 'none' })).ok).toBe(true);
+    const first = vi.mocked(provider.complete).mock.calls[0]![0];
+    expect(first.tools).toBeUndefined();
+    expect(first.toolChoice).toBeUndefined();
+    expect((await agent.chat('Use the tool')).ok).toBe(true);
+    expect(vi.mocked(provider.complete).mock.calls[1]![0].tools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'test_tool' })])
+    );
+  });
+
+  it('does not execute an unsolicited tool call in a text-only turn', async () => {
+    const { agent, provider, tools } = createAgentWithMockProvider();
+    vi.mocked(provider.complete).mockResolvedValueOnce(
+      ok({
+        id: 'r',
+        model: 'test',
+        content: '',
+        finishReason: 'tool_calls',
+        createdAt: new Date(),
+        toolCalls: [{ id: 't', name: 'test_tool', arguments: '{}' }],
+      })
+    );
+    const execute = vi.spyOn(tools, 'execute');
+    expect((await agent.chat('Just explain', { toolChoice: 'none' })).ok).toBe(false);
+    expect(execute).not.toHaveBeenCalled();
+    expect(provider.complete).toHaveBeenCalledTimes(1);
+  });
+
   it('returns final response when provider returns no tool calls', async () => {
     const { agent, provider } = createAgentWithMockProvider();
     (provider.complete as ReturnType<typeof vi.fn>).mockResolvedValueOnce(

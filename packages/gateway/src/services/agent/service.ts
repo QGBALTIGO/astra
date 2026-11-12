@@ -678,7 +678,7 @@ async function createChatAgentInstance(
     ? Math.min(computedMemoryMaxTokens, provider === 'ollama-local' ? 3072 : 1_536)
     : computedMemoryMaxTokens;
 
-  // A local 4B model may need longer than the Groq-oriented 20s channel cap.
+  // A local-only installation needs enough time for the bridge to finish.
   const channelPrimaryTimeout = provider === 'ollama-local' ? 52_000 : 20_000;
 
   const config: AgentConfig = {
@@ -795,7 +795,13 @@ async function createChatAgentInstance(
           resolvedAuth: fbResolvedAuth,
           baseUrl: fbConfig?.baseUrl,
           headers: fbConfig?.headers,
-          defaultModel: { model: candidate.model, maxTokens: outputBuffer },
+          defaultModel: {
+            model: candidate.model,
+            maxTokens:
+              channelMode && candidate.provider === 'groq'
+                ? Math.min(outputBuffer, 768)
+                : outputBuffer,
+          },
           ...(channelMode ? { timeout: 20_000 } : {}),
           // A second retry against the same exhausted key delays WhatsApp
           // responses and wastes quota. Use the next configured provider.
@@ -812,7 +818,11 @@ async function createChatAgentInstance(
             resolvedAuth,
             baseUrl,
             headers: providerConfig?.headers,
-            ...(channelMode ? { timeout: channelPrimaryTimeout } : {}),
+            // A healthy backup can answer while the local worker is slow. Bound only
+            // this provider attempt; the same agent retains history and tool receipts.
+            ...(channelMode
+              ? { timeout: provider === 'ollama-local' ? 6_000 : channelPrimaryTimeout }
+              : {}),
             maxRetries: 0,
           },
           fallbacks: usableFallbacks,
