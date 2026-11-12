@@ -5,7 +5,7 @@ import { formatAstraMessage } from './response-presentation.js';
 
 type TimezoneMessage = Pick<ChannelIncomingMessage, 'text' | 'platform'>;
 
-const NAMED_ZONES: Readonly<Record<string, string>> = {
+export const NAMED_ZONES: Readonly<Record<string, string>> = {
   'mato grosso do sul': 'America/Campo_Grande',
   ms: 'America/Campo_Grande',
   'campo grande': 'America/Campo_Grande',

@@ -21,8 +21,16 @@ import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { withCustomerClock } from '../services/customer-date.js';
 import { tryPersonalSubscriptionReply } from './personal-subscriptions.js';
 import { tryPersonalTaskReply } from './personal-tasks.js';
+import {
+  channelFailureKind,
+  channelFailureReply,
+  channelReadFailure,
+  presentChannelReply,
+} from './channel-failure.js';
+import { getLog } from '../services/log.js';
 import { tryAstraAccessReply } from './astra-access.js';
 import { channelPasswordAdvice } from './password-advice.js';
+import { financialCapabilityReply } from './financial-capabilities.js';
 import {
   CHANNEL_UNVERIFIED_REPLY,
   safeChannelResponse,
@@ -38,6 +46,7 @@ import {
 import { restoreChannelHistory } from './restore-history.js';
 import { formatAstraMessage, formatReminderConfirmation } from './response-presentation.js';
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
+import { tryChannelTimeConversion } from './time-conversion.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
 import { tryCancelNamedReminder } from './cancel-named-reminder.js';
 import { tryVerifyCalendarSlot } from './calendar-lookup.js';
@@ -187,7 +196,7 @@ export async function tryExpenseSummaryChannelReply(
     async () => {
       const result = await executeExpenseTool('expense_summary', { period }, userId);
       if (!result.success || !result.result) {
-        return 'Não consegui consultar seus gastos agora. Nenhum registro foi alterado.';
+        return channelReadFailure('finance', result.error ?? 'missing_result');
       }
 
       const summary = result.result as {
@@ -195,7 +204,9 @@ export async function tryExpenseSummaryChannelReply(
         totalAmount?: number;
         byCurrency?: Record<string, number>;
       };
-      const count = summary.count ?? 0;
+      const count = summary.count;
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0)
+        return channelReadFailure('finance', 'invalid_summary');
       const periodLabel = EXPENSE_PERIOD_LABELS[period];
       if (count === 0) {
         return formatAstraMessage(
@@ -206,6 +217,8 @@ export async function tryExpenseSummaryChannelReply(
       }
 
       const currencyTotals = Object.entries(summary.byCurrency ?? {});
+      if (currencyTotals.some(([, value]) => !Number.isFinite(value)))
+        return channelReadFailure('finance', 'invalid_summary');
       if (currencyTotals.length > 1) {
         return formatAstraMessage(
           '📊 Resumo de gastos',
@@ -222,14 +235,16 @@ export async function tryExpenseSummaryChannelReply(
       }
 
       const [currency = 'BRL', currencyAmount] = currencyTotals[0] ?? [];
-      const amount = currencyAmount ?? summary.totalAmount ?? 0;
+      const amount = currencyAmount ?? summary.totalAmount;
+      if (typeof amount !== 'number' || !Number.isFinite(amount))
+        return channelReadFailure('finance', 'invalid_summary');
       return formatAstraMessage('📊 Resumo de gastos', [
         { label: 'Período', value: periodLabel },
         { label: 'Total', value: formatExpenseAmount(amount, currency) },
         { label: 'Lançamentos', value: String(count) },
       ]);
     }
-  );
+  ).catch((error: unknown) => channelReadFailure('finance', error));
 }
 
 /**
@@ -335,6 +350,7 @@ function tryAuthorizedChannelShortcut(
     const passwordAdvice = channelPasswordAdvice(message.platform, message.text);
     if (passwordAdvice) return passwordAdvice;
     return (
+      financialCapabilityReply(message.platform, message.text) ??
       tryAstraAccessReply(message.text) ??
       (await tryPersonalTaskReply(message, userId, () =>
         canProcessChannelMessage(message, isAccessAllowed)
@@ -344,6 +360,9 @@ function tryAuthorizedChannelShortcut(
       )) ??
       (await tryListTodaysReminders(message, userId)) ??
       (await tryCancelNamedReminder(message, userId)) ??
+      (message.platform === 'whatsapp' || message.platform === 'telegram'
+        ? tryChannelTimeConversion(message.text, message.timestamp)
+        : null) ??
       (await tryVerifyCalendarSlot(message, userId)) ??
       (await tryChannelCalendarMutation(message, userId, () =>
         canProcessChannelMessage(message, isAccessAllowed)
@@ -611,7 +630,9 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
     // (strips internal tags, decodes entities, splits if needed — markdown→HTML is done by sender)
     const { extractMemoriesFromResponse } = await import('../utils/memory-extraction.js');
     const { content: stripped } = extractMemoriesFromResponse(result.response.content);
-    const parts = channelNormalizer.normalizeOutgoing(stripped);
+    const parts = channelNormalizer.normalizeOutgoing(
+      presentChannelReply(stripped, normalized.content)
+    );
     let responseText = parts.join('\n\n');
 
     // Context saturation warning — append if input tokens exceed 80% of the
@@ -749,24 +770,31 @@ async function processDirectAgentInSession(
       ? []
       : channelToolsForMessage(interpreted.text, recentChannelText(agent.getConversation()))
   );
-  const result = await runInExecContext(
-    {
-      channelPluginId: message.channelPluginId,
-      platformChatId: message.platformChatId,
-      channelMessageId: message.id,
-      channelMessageTimestamp: message.timestamp?.getTime(),
-      onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
-    },
-    () =>
-      conversationOnly
-        ? agent.chat(interpreted.text, {
-            onBeforeToolCall: async () => ({
-              approved: false,
-              reason: 'Conversa sem operação solicitada.',
-            }),
-          })
-        : agent.chat(interpreted.text)
-  ).finally(() => agent.clearAdditionalTools?.());
+  let result;
+  try {
+    result = await runInExecContext(
+      {
+        channelPluginId: message.channelPluginId,
+        platformChatId: message.platformChatId,
+        channelMessageId: message.id,
+        channelMessageTimestamp: message.timestamp?.getTime(),
+        onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
+      },
+      () =>
+        conversationOnly
+          ? agent.chat(interpreted.text, {
+              onBeforeToolCall: async () => ({
+                approved: false,
+                reason: 'Conversa sem operação solicitada.',
+              }),
+            })
+          : agent.chat(interpreted.text)
+    ).finally(() => agent.clearAdditionalTools?.());
+  } catch (error) {
+    const reason = channelFailureKind(error instanceof Error ? error.message : '');
+    getLog('ChannelDirectAgent').warn('Agent execution failed', { reason });
+    return channelFailureReply(interpreted.text, reason, channelReceipts, timeZone);
+  }
 
   if (result.ok) {
     // Strip internal tags so channel users never see prompt-control markup.
@@ -781,7 +809,7 @@ async function processDirectAgentInSession(
       channelReceipts.length > 0 ||
       (response !== CHANNEL_UNVERIFIED_REPLY && !needsConversationalRewrite(response))
     )
-      return response;
+      return presentChannelReply(response, interpreted.text, channelReceipts, timeZone);
     try {
       const second = await agent.chat(CHANNEL_CONVERSATIONAL_RETRY_PROMPT, {
         onBeforeToolCall: async () => ({
@@ -797,7 +825,9 @@ async function processDirectAgentInSession(
     } catch {
       // A failed rewording must not trigger financial actions or expose internals.
     }
-    return response;
+    return presentChannelReply(response, interpreted.text, channelReceipts, timeZone);
   }
-  return 'Não consegui processar sua mensagem agora. Tente novamente em instantes.';
+  const reason = channelFailureKind(result.error?.message ?? '');
+  getLog('ChannelDirectAgent').warn('Agent returned a processing error', { reason });
+  return channelFailureReply(interpreted.text, reason, channelReceipts, timeZone);
 }

@@ -2721,7 +2721,7 @@ describe('ChannelServiceImpl', () => {
         // Placeholder was started, then replaced in place with the error...
         expect(progressManager.start).toHaveBeenCalled();
         expect(finish).toHaveBeenCalledWith(
-          expect.stringContaining('Sorry, I encountered an internal error')
+          expect.stringContaining('Não consegui te responder agora')
         );
         // ...not orphaned with a separate sendMessage error reply.
         expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
@@ -2857,26 +2857,26 @@ describe('ChannelServiceImpl', () => {
         );
       });
 
-      it('should send "(No response generated)" for empty response', async () => {
+      it('should explain an unavailable answer for empty response', async () => {
         mockBus.process.mockResolvedValue({ response: { content: '' } });
 
         await service.processIncomingMessage(message);
 
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
           expect.objectContaining({
-            text: '(No response generated)',
+            text: expect.stringContaining('Não consegui te responder agora'),
           })
         );
       });
 
-      it('should send "(No response generated)" for whitespace-only response', async () => {
+      it('should explain an unavailable answer for whitespace-only response', async () => {
         mockBus.process.mockResolvedValue({ response: { content: '   ' } });
 
         await service.processIncomingMessage(message);
 
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
           expect.objectContaining({
-            text: '(No response generated)',
+            text: expect.stringContaining('Não consegui te responder agora'),
           })
         );
       });
@@ -3105,7 +3105,7 @@ describe('ChannelServiceImpl', () => {
 
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
           expect.objectContaining({
-            text: expect.stringContaining('Não consegui processar sua mensagem'),
+            text: expect.stringContaining('Não consegui te responder agora'),
           })
         );
       });
@@ -3125,16 +3125,29 @@ describe('ChannelServiceImpl', () => {
     });
 
     describe('error handling', () => {
+      it('sends one safe Portuguese message on a thrown admission error for a financial question', async () => {
+        mockHasServiceRegistry.mockReturnValue(false);
+        mockGetOrCreateChatAgent.mockRejectedValue(new Error('API error: 429 - org_secret'));
+        await service.processIncomingMessage({
+          ...message,
+          text: 'Em quais categorias estão os meus gastos de viagem?',
+        });
+        const sent = channelPlugin.api.sendMessage.mock.calls.at(-1)?.[0]?.text;
+        expect(sent).toContain('Transações');
+        expect(sent).toContain('limite de respostas');
+        expect(sent).not.toMatch(/org_secret|API|429|em dobro|tente novamente/);
+      });
+
       it('should send provider-error message for provider-related failures', async () => {
         mockHasServiceRegistry.mockReturnValue(false);
         mockGetOrCreateChatAgent.mockRejectedValue(new Error('No provider configured'));
 
         await service.processIncomingMessage(message);
 
-        // Error reply should mention API key / settings
+        // Account settings and provider errors are private diagnostics.
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
           expect.objectContaining({
-            text: expect.stringContaining('API key'),
+            text: expect.stringContaining('Não consegui te responder agora'),
           })
         );
       });
@@ -3147,7 +3160,7 @@ describe('ChannelServiceImpl', () => {
 
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
           expect.objectContaining({
-            text: expect.stringContaining('Sorry, I encountered an internal error'),
+            text: expect.stringContaining('Não consegui te responder agora'),
           })
         );
       });

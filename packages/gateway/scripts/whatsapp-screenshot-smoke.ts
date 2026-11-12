@@ -951,6 +951,14 @@ try {
       async () => {
         const topics = [
           ['Minhas assinaturas', /assinaturas cadastradas/],
+          [
+            'Você consegue fazer um Pix por mim ou só registrar o que eu já paguei? É só uma dúvida.',
+            /app do seu banco/,
+          ],
+          [
+            'Se eu tirar uma assinatura do meu planejamento aqui no Astra, isso também cancela a cobrança no fornecedor? Quero entender antes de mexer.',
+            /serviço em que/,
+          ],
           ['Consulte a tarefa Evento sintético.', /não consta na sua lista/],
           ['Posso mandar minha senha do banco aqui?', /gerenciador de senhas/],
           [
@@ -1032,6 +1040,42 @@ try {
           assert.match(await read(second), /Não encontrei um compromisso/);
         }
       }
+    }
+  );
+  await check(
+    'a private video-call time conversion survives model unavailability without changing personal data',
+    async () => {
+      const question =
+        'Minha videochamada de terça, dia 17 de novembro de 2026, é às 14h de Brasília. Que horas são aqui em Cuiabá? Só me diga o horário, que eu mesmo marco.';
+      const readState = async () => ({
+        timeZone: (await customerAccountsRepo.getByDataUserId(second.userId))?.timeZone,
+        counts: await adapter.queryOne(
+          'SELECT (SELECT count(*) FROM calendar_events WHERE user_id = $1) AS events, (SELECT count(*) FROM channel_reminders WHERE user_id = $1) AS reminders',
+          [second.userId]
+        ),
+      });
+      const previous = await readState();
+      assert.ok(previous.timeZone && previous.timeZone !== 'America/Cuiaba');
+      for (const platform of ['whatsapp', 'telegram'] as const) {
+        for (const path of ['bus', 'direct'] as const) {
+          const message = incoming(
+            second,
+            question,
+            `video-${platform}-${path}`,
+            new Date('2026-11-12T20:00:00Z')
+          );
+          const reply = await invoke(path, second, {
+            ...message,
+            platform,
+            channelPluginId: 'channel.' + platform + '.screenshot-smoke',
+            sender: { ...message.sender, platform },
+            metadata: platform === 'telegram' ? { chatType: 'private' } : { isGroup: false },
+          });
+          assert.match(reply, /\b13(?::00|h(?:00)?)(?:\b|$)/iu);
+          assert.doesNotMatch(reply, /agendei|marquei|criei|atualizei|erro|tente novamente/iu);
+        }
+      }
+      assert.deepEqual(await readState(), previous);
     }
   );
   assert.equal(llmFallbacks, 0, 'Screenshot requests escaped to an LLM fallback');

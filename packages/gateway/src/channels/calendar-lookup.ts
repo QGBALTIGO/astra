@@ -1,3 +1,4 @@
+import { channelReadFailure } from './channel-failure.js';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 import { createCalendarRepository } from '../db/repositories/calendar.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
@@ -79,7 +80,7 @@ export async function tryVerifyCalendarSlot(
         }
       );
     return formatAstraMessage('📅 Na sua agenda', fields, `Fuso: ${timeZone}.`);
-  } catch {
-    return 'Não consegui consultar sua agenda agora. Tente novamente.';
+  } catch (error) {
+    return channelReadFailure('calendar', error);
   }
 }
