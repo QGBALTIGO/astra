@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - 'scripts/astra-simulation-lab/**'
+      - 'packages/gateway/src/channels/**'
+      - 'packages/gateway/src/db/repositories/channel-reminders*'
+      - 'packages/gateway/src/db/repositories/channels/**'
+      - 'packages/gateway/src/services/pairing-service*'
+      - 'packages/gateway/src/tools/channel-reminder-tools*'
+      - 'packages/gateway/scripts/channel-expense-burst.ts'
       - 'docs/ASTRA_SIMULATION_RELIABILITY_LAB.md'
       - '.github/workflows/astra-simulation-lab.yml'
   workflow_dispatch:
@@ -118,6 +124,30 @@ jobs:
           node scripts/astra-simulation-lab/summarize-smoke.mjs "${RUNNER_TEMP}/astra-pipeline.log" "${RUNNER_TEMP}/astra-lab-integration"
       - name: Validate 500+ real Astra financial parsing and intent cases
         run: pnpm --filter @ownpilot/gateway exec vitest run src/channels/astra-lab-regression.test.ts
+      - name: Qualify account binding, local-day reminders and 500 scoped totals
+        env:
+          NODE_ENV: test
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: '5432'
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: astra_screenshot_ci_only
+          POSTGRES_DB: astratest_expense_burst
+          PGPASSWORD: astra_screenshot_ci_only
+          ASTRA_AUTH_TEST_PORT: '5432'
+          ASTRA_REMINDERS_QA_PORT: '5432'
+          ASTRA_REMINDERS_QA_PASSWORD: astra_screenshot_ci_only
+          ASTRA_ISOLATED_EXPENSE_BURST: '1'
+          OWNPILOT_DATA_DIR: ${{ runner.temp }}/astra-expense-burst
+          LOG_LEVEL: error
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U astratest -d postgres <<'SQL'
+          CREATE ROLE astra_auth_lab LOGIN PASSWORD 'astra_screenshot_ci_only';
+          CREATE DATABASE astra_auth_verification_lab OWNER astra_auth_lab;
+          CREATE DATABASE astratest_reminder_audit OWNER astratest;
+          CREATE DATABASE astratest_expense_burst OWNER astratest;
+          SQL
+          pnpm --filter @ownpilot/gateway exec vitest run src/channels/auth/verification-postgres.test.ts src/db/repositories/channel-reminders-range.pg.test.ts
+          pnpm --filter @ownpilot/gateway exec node --import tsx scripts/channel-expense-burst.ts "${RUNNER_TEMP}/astra-lab-integration/postgres-burst.json"
       - uses: actions/upload-artifact@v4
         with:
           name: astra-lab-real-pipeline-synthetic-data

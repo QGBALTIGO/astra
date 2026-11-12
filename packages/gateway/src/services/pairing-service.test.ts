@@ -16,6 +16,7 @@ vi.mock('./log.js', () => ({
 }));
 
 const mockRepo = vi.hoisted(() => ({
+  withLockedSettings: vi.fn((_keys: string[], fn: () => Promise<unknown>) => fn()),
   get: vi.fn<(key: string) => Promise<string | null>>(),
   set: vi.fn<(key: string, value: string) => Promise<void>>().mockResolvedValue(undefined),
   delete: vi.fn<(key: string) => Promise<void>>().mockResolvedValue(undefined),

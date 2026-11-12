@@ -730,6 +730,7 @@ export class ChannelServiceImpl implements IChannelService {
               message.sender.platformUserId,
               message.platformChatId
             );
+            if ((await getOwnerUserId(message.platform)) !== message.sender.platformUserId) return;
             log.info('Auto-claimed WhatsApp owner from self-chat', {
               userId: message.sender.platformUserId,
             });
