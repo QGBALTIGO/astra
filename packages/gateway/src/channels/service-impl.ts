@@ -1166,7 +1166,9 @@ export class ChannelServiceImpl implements IChannelService {
 
       // Public navigation only; the customer portal still requires its own login.
       const dashboardAction = dashboardActionForConfirmedReply(
-        responseText, dataUserId, message.platform
+        responseText,
+        dataUserId,
+        message.platform
       );
       if (dashboardAction && message.platform === 'whatsapp') {
         // The verified, structured receipt is immutable. The AI may only add a

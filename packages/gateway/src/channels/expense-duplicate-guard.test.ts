@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ExpenseDuplicateGuard } from './expense-duplicate-guard.js';
-const draft = { date: '2026-11-11', amount: 1, currency: 'BRL' as const,
-  category: 'other', description: 'dinheiro', source: 'channel' as const };
+const draft = {
+  date: '2026-11-11',
+  amount: 1,
+  currency: 'BRL' as const,
+  category: 'other',
+  description: 'dinheiro',
+  source: 'channel' as const,
+};
 describe('Astra pending expense confirmation', () => {
   it('only accepts explicit separate expense confirmation once', () => {
     const guard = new ExpenseDuplicateGuard();

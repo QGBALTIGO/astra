@@ -350,7 +350,12 @@ export async function processViaBus(
   const expenseRecordReply = message.attachments?.length
     ? null
     : await runInSessionLane(
-        JSON.stringify(['channel-finance', message.channelPluginId, message.platformChatId, channelUser.ownpilotUserId]),
+        JSON.stringify([
+          'channel-finance',
+          message.channelPluginId,
+          message.platformChatId,
+          channelUser.ownpilotUserId,
+        ]),
         () => tryExpenseRecordChannelReply(message, channelUser.ownpilotUserId)
       );
   if (expenseRecordReply) return expenseRecordReply;
@@ -379,7 +384,8 @@ export async function processViaBus(
       typeof message.metadata?.astraRepeatGreetingCount === 'number' &&
       message.metadata.astraRepeatGreetingCount >= 5
     )
-  ) return freeReply;
+  )
+    return freeReply;
 
   // Serialize the complete mutable-agent lifecycle, not only agent.chat().
   // A reconnect can deliver another message while a provider fallback is still
@@ -495,7 +501,8 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
         agent.getConversation().systemPrompt ?? '',
         message.sender.displayName,
         typeof message.metadata?.astraRepeatGreetingCount === 'number'
-          ? message.metadata.astraRepeatGreetingCount : 0
+          ? message.metadata.astraRepeatGreetingCount
+          : 0
       )
     );
   }
@@ -638,7 +645,12 @@ export async function processDirectAgent(
   const expenseRecordReply = message.attachments?.length
     ? null
     : await runInSessionLane(
-        JSON.stringify(['channel-finance', message.channelPluginId, message.platformChatId, userId]),
+        JSON.stringify([
+          'channel-finance',
+          message.channelPluginId,
+          message.platformChatId,
+          userId,
+        ]),
         () => tryExpenseRecordChannelReply(message, userId)
       );
   if (expenseRecordReply) return expenseRecordReply;
@@ -667,7 +679,8 @@ export async function processDirectAgent(
       typeof message.metadata?.astraRepeatGreetingCount === 'number' &&
       message.metadata.astraRepeatGreetingCount >= 5
     )
-  ) return freeReply;
+  )
+    return freeReply;
 
   return runInSessionLane(
     JSON.stringify(['channel-direct', message.channelPluginId, message.platformChatId, userId]),
@@ -728,7 +741,8 @@ async function processDirectAgentInSession(
           clockPrompt,
           message.sender.displayName,
           typeof message.metadata?.astraRepeatGreetingCount === 'number'
-            ? message.metadata.astraRepeatGreetingCount : 0
+            ? message.metadata.astraRepeatGreetingCount
+            : 0
         )
       : clockPrompt
   );

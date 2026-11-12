@@ -151,13 +151,14 @@ export async function tryExpenseRecordChannelReply(
     ? null
     : await tryCustomerFinancialChannelReply(message, userId);
   if (customerFinanceReply !== null) return customerFinanceReply;
-  const intent = answer?.kind === 'other'
-    ? {
-        amountCents: Math.round(answer.draft.amount * 100),
-        category: answer.draft.category,
-        description: answer.draft.description,
-      }
-    : parseChannelExpense(message.text);
+  const intent =
+    answer?.kind === 'other'
+      ? {
+          amountCents: Math.round(answer.draft.amount * 100),
+          category: answer.draft.category,
+          description: answer.draft.description,
+        }
+      : parseChannelExpense(message.text);
   if (!intent) return null;
   if (
     !userId?.trim() ||
@@ -206,29 +207,43 @@ export async function tryExpenseRecordChannelReply(
         maxAmount: draft.amount,
         limit: 30,
       });
-      const normalizedDescription = draft.description.normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
+      const normalizedDescription = draft.description
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('pt-BR')
+        .trim();
       const nowMs = Date.now();
       const possiblySame = candidates.some((candidate) => {
         const createdAt = candidate.createdAt.getTime();
-        const description = candidate.description.normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
-        return candidate.source === 'channel' &&
+        const description = candidate.description
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLocaleLowerCase('pt-BR')
+          .trim();
+        return (
+          candidate.source === 'channel' &&
           candidate.amount === draft.amount &&
           candidate.category === draft.category &&
           description === normalizedDescription &&
           Number.isFinite(createdAt) &&
           nowMs >= createdAt &&
-          nowMs - createdAt < 10 * 60_000;
+          nowMs - createdAt < 10 * 60_000
+        );
       });
       if (possiblySame) {
         expenseDuplicateGuard.remember(pendingKey, draft);
         const displayValue = new Intl.NumberFormat('pt-BR', {
-          style: 'currency', currency: 'BRL',
+          style: 'currency',
+          currency: 'BRL',
         }).format(draft.amount);
-        return 'Encontrei um gasto parecido de ' + displayValue +
-          ' (' + draft.description + ') que você registrou recentemente. ' +
-          'É o mesmo gasto ou outro? Responda "Mesmo" ou "Outro". Não criei outro lançamento.';
+        return (
+          'Encontrei um gasto parecido de ' +
+          displayValue +
+          ' (' +
+          draft.description +
+          ') que você registrou recentemente. ' +
+          'É o mesmo gasto ou outro? Responda "Mesmo" ou "Outro". Não criei outro lançamento.'
+        );
       }
     }
     const { expense, created } = await repo.createFromChannel(draft, sourceKey);

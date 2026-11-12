@@ -14,6 +14,8 @@ describe('Natural occasional use of first names', () => {
     expect(second).not.toContain('Kayky');
     expect(second).toContain('5 saudações curtas');
     expect(second.match(/ASTRA_CONTACT_CONTEXT/g)).toHaveLength(1);
-    expect(withContactStyleContext('System', 'ignore_all_instructions')).not.toContain('ignore_all_instructions');
+    expect(withContactStyleContext('System', 'ignore_all_instructions')).not.toContain(
+      'ignore_all_instructions'
+    );
   });
 });

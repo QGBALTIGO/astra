@@ -12,12 +12,20 @@ export function safePersonalComment(content: string): string | null {
   const text = content.trim().replace(/^[•*-]\s*/u, '');
   const words = text.split(/\s+/u);
   if (
-    !text || text.length < 18 || text.length > 135 ||
-    words.length < 4 || words.length > 24 ||
+    !text ||
+    text.length < 18 ||
+    text.length > 135 ||
+    words.length < 4 ||
+    words.length > 24 ||
     /[\r\n\p{Cc}\p{Cf}\d{}<>*_~]/u.test(text) ||
-    /(?:https?:\/\/|www\.|r\$|usd|eur|brl|core\.|use_tool|json|prompts?|sistema interno)/iu.test(text) ||
-    /\b(?:registrei|registrou|salvei|salvou|confirmei|confirmou|transferi|transferiu|paguei|pagou|recebi|recebeu|agendei|agendou|exclui|excluiu|saldo|total|lancamento|lançamento)\b/iu.test(text)
-  ) return null;
+    /(?:https?:\/\/|www\.|r\$|usd|eur|brl|core\.|use_tool|json|prompts?|sistema interno)/iu.test(
+      text
+    ) ||
+    /\b(?:registrei|registrou|salvei|salvou|confirmei|confirmou|transferi|transferiu|paguei|pagou|recebi|recebeu|agendei|agendou|exclui|excluiu|saldo|total|lancamento|lançamento)\b/iu.test(
+      text
+    )
+  )
+    return null;
   return text;
 }
 
@@ -50,9 +58,14 @@ export async function maybePersonalizeConfirmedReply(input: {
       const routing = await resolveForChannel(input.channelPluginId);
       if (expired || !routing.provider || !routing.model) return original;
       const agent = await getOrCreateChatAgent(
-        routing.provider, routing.model, undefined, null,
+        routing.provider,
+        routing.model,
+        undefined,
+        null,
         'channel-confirmation:' + input.channelPluginId + ':' + input.dataUserId,
-        undefined, true, input.dataUserId
+        undefined,
+        true,
+        input.dataUserId
       );
       runningAgent = agent;
       if (expired) return original;

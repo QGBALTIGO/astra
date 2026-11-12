@@ -452,7 +452,6 @@ describe('Completed channel expenses without a language model', () => {
   });
 });
 
-
 describe('Repeated expense confirmation before adding a separate row', () => {
   const message = {
     id: 'repeat-expense-one',
@@ -493,7 +492,8 @@ describe('Repeated expense confirmation before adding a separate row', () => {
     mockRecentExpenses.mockResolvedValueOnce([stored]);
     await tryExpenseRecordChannelReply(message, customer);
     const result = await tryExpenseRecordChannelReply(
-      { ...message, id: 'reply-outro', text: 'Outro' }, customer
+      { ...message, id: 'reply-outro', text: 'Outro' },
+      customer
     );
     expect(result).toContain('✅ *Despesa registrada*');
     expect(mockRecordExpense).toHaveBeenCalledTimes(1);
@@ -502,7 +502,8 @@ describe('Repeated expense confirmation before adding a separate row', () => {
       expect.stringMatching(/^[a-f0-9]{64}$/)
     );
     const again = await tryExpenseRecordChannelReply(
-      { ...message, id: 'reply-outro-2', text: 'Outro' }, customer
+      { ...message, id: 'reply-outro-2', text: 'Outro' },
+      customer
     );
     expect(again).toBeNull();
   });
@@ -511,7 +512,8 @@ describe('Repeated expense confirmation before adding a separate row', () => {
     mockRecentExpenses.mockResolvedValueOnce([stored]);
     await tryExpenseRecordChannelReply(message, customer);
     const result = await tryExpenseRecordChannelReply(
-      { ...message, id: 'reply-same', text: 'O mesmo' }, customer
+      { ...message, id: 'reply-same', text: 'O mesmo' },
+      customer
     );
     expect(result).toContain('sem criar outro');
     expect(mockRecordExpense).not.toHaveBeenCalled();
@@ -520,7 +522,8 @@ describe('Repeated expense confirmation before adding a separate row', () => {
   it('allows separate real expenses with the same amount and a different purpose', async () => {
     mockRecentExpenses.mockResolvedValueOnce([{ ...stored, description: 'café' }]);
     const result = await tryExpenseRecordChannelReply(
-      { ...message, id: 'distinct-purpose' }, customer
+      { ...message, id: 'distinct-purpose' },
+      customer
     );
     expect(result).toContain('✅ *Despesa registrada*');
     expect(mockRecordExpense).toHaveBeenCalledTimes(1);
