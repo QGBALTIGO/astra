@@ -3,7 +3,7 @@
  * This is NOT Astra's tool executor. It never opens sockets, files or databases.
  * Actions are derived from labeled scenario fixtures, not from NLP inference.
  */
-import { scenarioReferenceCents } from './core.mjs';
+// No API, model, database, filesystem or WhatsApp dependency.
 
 const DAY = 86_400_000;
 function assertSyntheticId(id) {
@@ -108,10 +108,8 @@ export class SyntheticWorldOracle {
     if (scenario.semanticFamily !== scenario.category + ':' + op)
       throw new Error('P1 synthetic narrative/action mismatch');
     const referenceCents = scenario.context.expectedActionAmountCents;
-    if (referenceCents !== scenarioReferenceCents(scenario.category, op,
-      // The generated fixture value is authoritative at this point; the
-      // independent check below compares it against the visible sentence.
-      0) && !Number.isSafeInteger(referenceCents) && referenceCents !== null)
+    if (referenceCents !== null &&
+      (!Number.isSafeInteger(referenceCents) || referenceCents <= 0))
       throw new Error('P1 synthetic invalid reference amount');
     const before = this.transactions.size;
     let decision = 'read';
