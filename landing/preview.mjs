@@ -30,7 +30,7 @@ const server = createServer(async (req, res) => {
   const status = content === undefined ? 404 : 200;
   const body = content ?? files['/404.html'];
   let buffer = String(body).startsWith('BASE64:') ? Buffer.from(body.slice(7), 'base64') : Buffer.from(body);
-  const responseHeaders = { ...headers, 'Content-Type': types[resolved.split('.').at(-1)] || 'application/octet-stream' };
+  const responseHeaders = { ...headers, 'Content-Type': types[(status === 404 ? '/404.html' : resolved).split('.').at(-1)] || 'application/octet-stream' };
   if ((req.headers['accept-encoding'] || '').includes('gzip')) { buffer = gzipSync(buffer); responseHeaders['Content-Encoding'] = 'gzip'; }
   responseHeaders['Content-Length'] = buffer.length;
   res.writeHead(status, responseHeaders);
