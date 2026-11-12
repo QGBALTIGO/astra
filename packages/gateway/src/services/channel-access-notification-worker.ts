@@ -21,7 +21,12 @@ const RETRY_DELAY_MS = 60_000;
 interface WorkerDependencies {
   notifications: Pick<
     ChannelAccessNotificationsRepository,
-    'queueExpiringWithin24Hours' | 'claimDue' | 'beginSend' | 'deferBeforeSend' | 'finish' | 'markCaktoWelcomeDelivered'
+    | 'queueExpiringWithin24Hours'
+    | 'claimDue'
+    | 'beginSend'
+    | 'deferBeforeSend'
+    | 'finish'
+    | 'markCaktoWelcomeDelivered'
   >;
   users: Pick<typeof channelUsersRepo, 'getById'>;
   channels: () => Pick<IChannelService, 'getChannel' | 'listChannels' | 'send'>;
@@ -79,10 +84,14 @@ function ineligibleReason(
   // Do not surprise buyers with a second welcome if they already wrote first.
   const inbound = user.metadata.astraAccessNotices;
   if (
-    entry.kind === 'approved' && isProactivePaidCaktoNotice(user, entry.kind) &&
-    inbound != null && typeof inbound === 'object' && !Array.isArray(inbound) &&
+    entry.kind === 'approved' &&
+    isProactivePaidCaktoNotice(user, entry.kind) &&
+    inbound != null &&
+    typeof inbound === 'object' &&
+    !Array.isArray(inbound) &&
     (inbound as Record<string, unknown>).firstAuthorized === true
-  ) return 'already_welcomed';
+  )
+    return 'already_welcomed';
   if (!isSameAccessNotificationCycle(entry, user)) return 'access_cycle_changed';
   if (entry.kind === 'expiring') {
     const expiry = user.accessExpiresAt?.getTime();
