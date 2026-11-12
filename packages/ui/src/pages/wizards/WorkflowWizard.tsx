@@ -1,0 +1,808 @@
+/**
+ * Workflow Builder Wizard
+ *
+ * Steps: Name & Description → Choose Method → Define Workflow → Create → Complete
+ */
+
+import { useState, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router';
+import { WizardShell, type WizardStep } from '../../components/WizardShell';
+import { useWizardKeyboard } from '../../components/wizard';
+import { workflowsApi } from '../../api';
+import { Check, AlertTriangle, GitBranch, Sparkles } from '../../components/icons';
+import { aiGenerate } from './ai-helper';
+
+interface Props {
+  onComplete: () => void;
+  onCancel: () => void;
+}
+
+const STEPS: WizardStep[] = [
+  { id: 'name', label: 'Name' },
+  { id: 'method', label: 'Method' },
+  { id: 'define', label: 'Define' },
+  { id: 'create', label: 'Create' },
+  { id: 'done', label: 'Complete' },
+];
+
+const WORKFLOW_TEMPLATES = [
+  {
+    id: 'daily-summary',
+    name: 'Daily Summary',
+    desc: 'Summarize recent activity and create a daily briefing',
+    nodes: [
+      {
+        id: 'node_1',
+        type: 'triggerNode',
+        position: { x: 300, y: 50 },
+        data: { label: 'Daily Schedule', triggerType: 'schedule', cron: '0 9 * * 1-5' },
+      },
+      {
+        id: 'node_2',
+        type: 'toolNode',
+        position: { x: 300, y: 200 },
+        data: {
+          label: 'Get Recent Activity',
+          toolName: 'core.get_recent_conversations',
+          toolArgs: {},
+        },
+      },
+      {
+        id: 'node_3',
+        type: 'llmNode',
+        position: { x: 300, y: 350 },
+        data: {
+          label: 'Summarize',
+          provider: 'default',
+          model: 'default',
+          systemPrompt: 'You are a concise summarizer.',
+          userMessage:
+            'Summarize the recent activity into a brief daily summary:\n{{node_2.output}}',
+        },
+      },
+      {
+        id: 'node_4',
+        type: 'notificationNode',
+        position: { x: 300, y: 500 },
+        data: { label: 'Send Summary', message: '{{node_3.output}}', severity: 'info' },
+      },
+    ],
+    edges: [
+      { source: 'node_1', target: 'node_2' },
+      { source: 'node_2', target: 'node_3' },
+      { source: 'node_3', target: 'node_4' },
+    ],
+  },
+  {
+    id: 'web-research',
+    name: 'Web Research Pipeline',
+    desc: 'Search the web, extract content, and summarize findings',
+    nodes: [
+      {
+        id: 'node_1',
+        type: 'triggerNode',
+        position: { x: 300, y: 50 },
+        data: { label: 'Manual Trigger', triggerType: 'manual' },
+      },
+      {
+        id: 'node_2',
+        type: 'toolNode',
+        position: { x: 300, y: 200 },
+        data: { label: 'Web Search', toolName: 'core.web_search', toolArgs: {} },
+      },
+      {
+        id: 'node_3',
+        type: 'llmNode',
+        position: { x: 300, y: 350 },
+        data: {
+          label: 'Analyze & Summarize',
+          provider: 'default',
+          model: 'default',
+          systemPrompt:
+            'You are a research analyst. Provide comprehensive, well-structured summaries.',
+          userMessage:
+            'Analyze the search results and create a comprehensive summary:\n{{node_2.output}}',
+        },
+      },
+      {
+        id: 'node_4',
+        type: 'notificationNode',
+        position: { x: 300, y: 500 },
+        data: { label: 'Report', message: '{{node_3.output}}', severity: 'info' },
+      },
+    ],
+    edges: [
+      { source: 'node_1', target: 'node_2' },
+      { source: 'node_2', target: 'node_3' },
+      { source: 'node_3', target: 'node_4' },
+    ],
+  },
+  {
+    id: 'api-health-check',
+    name: 'API Health Monitor',
+    desc: 'Check API endpoints and alert on failures',
+    nodes: [
+      {
+        id: 'node_1',
+        type: 'triggerNode',
+        position: { x: 300, y: 50 },
+        data: { label: 'Every 5 Minutes', triggerType: 'schedule', cron: '*/5 * * * *' },
+      },
+      {
+        id: 'node_2',
+        type: 'httpRequestNode',
+        position: { x: 300, y: 200 },
+        data: { label: 'Health Check', method: 'GET', url: 'https://api.example.com/health' },
+      },
+      {
+        id: 'node_3',
+        type: 'conditionNode',
+        position: { x: 300, y: 350 },
+        data: { label: 'Status OK?', expression: 'data.status === 200 || data.statusCode === 200' },
+      },
+      {
+        id: 'node_4',
+        type: 'notificationNode',
+        position: { x: 100, y: 500 },
+        data: {
+          label: 'Alert: API Down',
+          message: 'API health check failed! Response: {{node_2.output}}',
+          severity: 'error',
+        },
+      },
+      {
+        id: 'node_5',
+        type: 'dataStoreNode',
+        position: { x: 500, y: 500 },
+        data: {
+          label: 'Log Success',
+          operation: 'set',
+          key: 'last_health_check',
+          value: '{{node_2.output}}',
+        },
+      },
+    ],
+    edges: [
+      { source: 'node_1', target: 'node_2' },
+      { source: 'node_2', target: 'node_3' },
+      { source: 'node_3', target: 'node_4', sourceHandle: 'false' },
+      { source: 'node_3', target: 'node_5', sourceHandle: 'true' },
+    ],
+  },
+  {
+    id: 'content-approval',
+    name: 'Content Review & Approval',
+    desc: 'Generate content, review with AI, and require human approval',
+    nodes: [
+      {
+        id: 'node_1',
+        type: 'triggerNode',
+        position: { x: 300, y: 50 },
+        data: { label: 'Manual Trigger', triggerType: 'manual' },
+      },
+      {
+        id: 'node_2',
+        type: 'llmNode',
+        position: { x: 300, y: 200 },
+        data: {
+          label: 'Draft Content',
+          provider: 'default',
+          model: 'default',
+          systemPrompt: 'You are a professional content writer.',
+          userMessage: 'Write a concise blog post about the latest trends in AI.',
+        },
+      },
+      {
+        id: 'node_3',
+        type: 'llmNode',
+        position: { x: 300, y: 350 },
+        data: {
+          label: 'Quality Review',
+          provider: 'default',
+          model: 'default',
+          systemPrompt: 'You are a senior editor. Rate the content 1-10 and suggest improvements.',
+          userMessage: 'Review this draft:\n{{node_2.output}}',
+        },
+      },
+      {
+        id: 'node_4',
+        type: 'approvalNode',
+        position: { x: 300, y: 500 },
+        data: {
+          label: 'Human Approval',
+          approvalMessage: 'Review draft:\n{{node_2.output}}\n\nAI Review:\n{{node_3.output}}',
+          timeoutMinutes: 1440,
+        },
+      },
+      {
+        id: 'node_5',
+        type: 'notificationNode',
+        position: { x: 300, y: 650 },
+        data: {
+          label: 'Published',
+          message: 'Content approved and ready for publishing.',
+          severity: 'success',
+        },
+      },
+    ],
+    edges: [
+      { source: 'node_1', target: 'node_2' },
+      { source: 'node_2', target: 'node_3' },
+      { source: 'node_3', target: 'node_4' },
+      { source: 'node_4', target: 'node_5' },
+    ],
+  },
+  {
+    id: 'data-processing',
+    name: 'Data Transform Pipeline',
+    desc: 'Fetch data from API, filter, transform, and aggregate results',
+    nodes: [
+      {
+        id: 'node_1',
+        type: 'triggerNode',
+        position: { x: 300, y: 50 },
+        data: { label: 'Manual Trigger', triggerType: 'manual' },
+      },
+      {
+        id: 'node_2',
+        type: 'httpRequestNode',
+        position: { x: 300, y: 200 },
+        data: {
+          label: 'Fetch Data',
+          method: 'GET',
+          url: 'https://jsonplaceholder.typicode.com/users',
+        },
+      },
+      {
+        id: 'node_3',
+        type: 'filterNode',
+        position: { x: 300, y: 350 },
+        data: {
+          label: 'Active Users',
+          arrayExpression: '{{node_2.output.body}}',
+          condition: 'item.id <= 5',
+        },
+      },
+      {
+        id: 'node_4',
+        type: 'mapNode',
+        position: { x: 300, y: 500 },
+        data: {
+          label: 'Extract Names',
+          arrayExpression: '{{node_3.output}}',
+          expression: '({ name: item.name, email: item.email, city: item.address?.city })',
+        },
+      },
+      {
+        id: 'node_5',
+        type: 'notificationNode',
+        position: { x: 300, y: 650 },
+        data: {
+          label: 'Results',
+          message: 'Processed {{node_4.output.length}} users: {{node_4.output}}',
+          severity: 'info',
+        },
+      },
+    ],
+    edges: [
+      { source: 'node_1', target: 'node_2' },
+      { source: 'node_2', target: 'node_3' },
+      { source: 'node_3', target: 'node_4' },
+      { source: 'node_4', target: 'node_5' },
+    ],
+  },
+];
+
+type Method = 'template' | 'copilot' | 'manual';
+
+export function WorkflowWizard({ onComplete, onCancel }: Props) {
+  const navigate = useNavigate();
+  const [step, setStep] = useState(0);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [method, setMethod] = useState<Method | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [copilotPrompt, setCopilotPrompt] = useState('');
+  const [copilotGenerated, setCopilotGenerated] = useState<{
+    nodes: unknown[];
+    edges: unknown[];
+  } | null>(null);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const aiAbortRef = useRef<AbortController | null>(null);
+  const [manualDefinition, setManualDefinition] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; workflowId?: string; error?: string } | null>(
+    null
+  );
+
+  const canGoNext = useMemo(() => {
+    switch (step) {
+      case 0:
+        return name.trim().length >= 2;
+      case 1:
+        return !!method;
+      case 2: {
+        if (method === 'template') return !!selectedTemplate;
+        if (method === 'copilot') return !!copilotGenerated || copilotPrompt.trim().length >= 10;
+        if (method === 'manual') return manualDefinition.trim().length >= 10;
+        return false;
+      }
+      case 3:
+        return result?.ok === true;
+      default:
+        return false;
+    }
+  }, [
+    step,
+    name,
+    method,
+    selectedTemplate,
+    copilotPrompt,
+    copilotGenerated,
+    manualDefinition,
+    result,
+  ]);
+
+  const generateWorkflow = async () => {
+    if (!copilotPrompt.trim()) return;
+    setAiGenerating(true);
+    aiAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    aiAbortRef.current = ctrl;
+    try {
+      const prompt = `Generate a workflow definition for: "${copilotPrompt.trim()}"
+Workflow name: "${name.trim()}"
+
+Return a JSON object with "nodes" and "edges" arrays.
+
+Each node must have: { "id": "node_1", "type": "<nodeType>", "position": { "x": 300, "y": <increment by 150> }, "data": { "label": "...", ...type-specific fields } }
+
+Valid node types and their data fields:
+- "triggerNode": { "label", "triggerType": "manual"|"schedule"|"event"|"webhook", "cron"?: "0 8 * * *" }
+- "toolNode": { "label", "toolName": "core.tool_name", "toolArgs": {} }
+- "llmNode": { "label", "provider": "default", "model": "default", "systemPrompt", "userMessage", "responseFormat"?: "json" }
+- "conditionNode": { "label", "expression": "data.value > 0" } — edges need sourceHandle "true"/"false"
+- "codeNode": { "label", "language": "javascript", "code": "return data;" }
+- "transformerNode": { "label", "expression": "data.items.map(i => i.name)" }
+- "httpRequestNode": { "label", "method": "GET"|"POST"|"PUT"|"DELETE", "url", "headers"?: {}, "body"?: "", "auth"?: { "type": "bearer", "token": "..." } }
+- "delayNode": { "label", "duration": "5", "unit": "seconds"|"minutes"|"hours" }
+- "notificationNode": { "label", "message", "severity": "info"|"warning"|"error"|"success" }
+- "switchNode": { "label", "expression": "data.status", "cases": [{ "label": "Active", "value": "active" }] } — edges need sourceHandle per case label or "default"
+- "forEachNode": { "label", "arrayExpression": "{{node_2.output}}", "itemVariable"?: "item" } — edges: "each" (loop body) + "done" (after)
+- "parallelNode": { "label", "branchCount": 3, "branchLabels"?: ["A","B","C"] } — edges: "branch-0", "branch-1", etc.
+- "mergeNode": { "label", "mode": "waitAll"|"firstCompleted" } — collects parallel branches
+- "filterNode": { "label", "arrayExpression": "{{node_2.output}}", "condition": "item.active === true" }
+- "mapNode": { "label", "arrayExpression": "{{node_2.output}}", "expression": "item.name" }
+- "aggregateNode": { "label", "arrayExpression": "{{node_2.output}}", "operation": "sum"|"count"|"avg"|"min"|"max", "field"?: "amount" }
+- "dataStoreNode": { "label", "operation": "get"|"set"|"delete", "key", "value"?: "{{node_2.output}}" }
+- "approvalNode": { "label", "approvalMessage": "Please review...", "timeoutMinutes"?: 60 }
+- "subWorkflowNode": { "label", "subWorkflowId": "wf_id", "inputMapping"?: {} }
+- "errorHandlerNode": { "label", "continueOnSuccess"?: false } — max ONE per workflow
+- "schemaValidatorNode": { "label", "schema": { "required": ["name"], "properties": { "name": { "type": "string" } } }, "strict"?: true }
+- "stickyNoteNode": { "label", "text": "...", "color"?: "yellow" } — annotation only, no connections
+- "webhookResponseNode": { "label", "statusCode"?: 200, "body": "{{node_3.output}}" }
+- "clawNode": { "label", "name": "Agent Name", "mission": "What the autonomous agent should accomplish", "mode"?: "single-shot", "sandbox"?: "auto" }
+
+Each edge: { "source": "node_1", "target": "node_2" }
+For conditionNode: add "sourceHandle": "true" or "false"
+For forEachNode: add "sourceHandle": "each" or "done"
+For switchNode: add "sourceHandle": case label or "default"
+For parallelNode: add "sourceHandle": "branch-0", "branch-1", etc.
+
+Rules:
+- First node should be a triggerNode
+- Use toolNode for calling tools, llmNode for AI processing
+- Use notificationNode for output/notifications
+- Create 3-6 nodes typically
+- IDs must be sequential: node_1, node_2, node_3...
+- Positions: start at y=50, increment by ~150 for each level
+- Use {{node_N.output}} for referencing upstream node results
+
+Return ONLY the JSON object, no explanations.`;
+
+      const text = await aiGenerate(prompt, ctrl.signal);
+      // Extract JSON object
+      let cleaned = text
+        .replace(/```(?:json)?\s*/gi, '')
+        .replace(/```/g, '')
+        .trim();
+      const start = cleaned.indexOf('{');
+      const end = cleaned.lastIndexOf('}');
+      if (start !== -1 && end > start) {
+        cleaned = cleaned.slice(start, end + 1);
+      }
+      try {
+        const parsed = JSON.parse(cleaned);
+        if (parsed.nodes && parsed.edges) {
+          setCopilotGenerated({ nodes: parsed.nodes, edges: parsed.edges });
+        }
+      } catch {
+        // Parse failed — ignore
+      }
+    } catch {
+      // Aborted or failed
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const handleNext = async () => {
+    if (step === 2) {
+      // Create workflow
+      setIsProcessing(true);
+      setResult(null);
+      try {
+        let nodes: unknown[] = [];
+        let edges: unknown[] = [];
+
+        if (method === 'template') {
+          const tmpl = WORKFLOW_TEMPLATES.find((t) => t.id === selectedTemplate);
+          if (tmpl) {
+            nodes = tmpl.nodes;
+            edges = tmpl.edges;
+          }
+        } else if (method === 'copilot' && copilotGenerated) {
+          nodes = copilotGenerated.nodes;
+          edges = copilotGenerated.edges;
+        }
+
+        // Backend edge schema requires an id — templates and AI output omit it
+        edges = (edges as Array<Record<string, unknown>>).map((e, i) => ({
+          ...e,
+          id: e.id ?? `edge_${e.source}_${e.target}_${i}`,
+        }));
+
+        const workflow = await workflowsApi.create({
+          name: name.trim(),
+          description: description.trim() || undefined,
+          nodes,
+          edges,
+          status: 'inactive',
+        });
+        setResult({ ok: true, workflowId: workflow.id });
+        setStep(3);
+      } catch (err) {
+        setResult({
+          ok: false,
+          error: err instanceof Error ? err.message : 'Failed to create workflow',
+        });
+        setStep(3);
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+    setStep(step + 1);
+  };
+
+  useWizardKeyboard({ canGoNext, onNext: handleNext, onCancel, isProcessing });
+
+  return (
+    <WizardShell
+      title="Create Workflow"
+      description="Build an automation workflow with connected steps"
+      steps={STEPS}
+      currentStep={step}
+      canGoNext={canGoNext}
+      isProcessing={isProcessing}
+      isLastStep={step === 4}
+      onNext={handleNext}
+      onBack={() => setStep(Math.max(0, step - 1))}
+      onCancel={onCancel}
+      onComplete={onComplete}
+      onStepClick={setStep}
+    >
+      {/* Step 0: Name */}
+      {step === 0 && (
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-1">
+            Name Your Workflow
+          </h2>
+          <p className="text-sm text-text-muted dark:text-dark-text-muted mb-6">
+            Give your workflow a descriptive name.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-text-primary dark:text-dark-text-primary mb-2">
+                Workflow Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g., Daily Briefing, Content Pipeline"
+                className="w-full px-3 py-2.5 rounded-lg border border-border dark:border-dark-border bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary dark:text-dark-text-primary mb-2">
+                Description{' '}
+                <span className="text-text-muted dark:text-dark-text-muted font-normal">
+                  (optional)
+                </span>
+              </label>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="What does this workflow automate?"
+                className="w-full px-3 py-2.5 rounded-lg border border-border dark:border-dark-border bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 1: Choose Method */}
+      {step === 1 && (
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-1">
+            How to Build
+          </h2>
+          <p className="text-sm text-text-muted dark:text-dark-text-muted mb-6">
+            Choose how you'd like to create your workflow.
+          </p>
+
+          <div className="space-y-3">
+            {[
+              {
+                id: 'template' as const,
+                label: 'Start from Template',
+                desc: 'Pick a pre-built workflow and customize it',
+                icon: Check,
+              },
+              {
+                id: 'copilot' as const,
+                label: 'AI Copilot',
+                desc: 'Describe what you want and let AI generate the workflow',
+                icon: Sparkles,
+              },
+              {
+                id: 'manual' as const,
+                label: 'Manual JSON',
+                desc: 'Write the workflow definition in JSON for full control',
+                icon: GitBranch,
+              },
+            ].map((m) => {
+              const Icon = m.icon;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => setMethod(m.id)}
+                  className={`w-full text-left p-4 rounded-lg border transition-all flex items-center gap-4 ${
+                    method === m.id
+                      ? 'border-primary bg-primary/5 dark:bg-primary/10 ring-1 ring-primary'
+                      : 'border-border dark:border-dark-border hover:border-primary/40'
+                  }`}
+                >
+                  <Icon className="w-5 h-5 text-primary flex-shrink-0" />
+                  <div>
+                    <span className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
+                      {m.label}
+                    </span>
+                    <p className="text-xs text-text-muted dark:text-dark-text-muted mt-0.5">
+                      {m.desc}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Define */}
+      {step === 2 && (
+        <div>
+          {method === 'template' && (
+            <>
+              <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-1">
+                Choose a Template
+              </h2>
+              <p className="text-sm text-text-muted dark:text-dark-text-muted mb-6">
+                Select a pre-built workflow. You can customize it in the editor after creation.
+              </p>
+              <div className="space-y-3">
+                {WORKFLOW_TEMPLATES.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setSelectedTemplate(t.id)}
+                    className={`w-full text-left p-4 rounded-lg border transition-all ${
+                      selectedTemplate === t.id
+                        ? 'border-primary bg-primary/5 dark:bg-primary/10 ring-1 ring-primary'
+                        : 'border-border dark:border-dark-border hover:border-primary/40'
+                    }`}
+                  >
+                    <span className="text-sm font-medium text-text-primary dark:text-dark-text-primary">
+                      {t.name}
+                    </span>
+                    <p className="text-xs text-text-muted dark:text-dark-text-muted mt-1">
+                      {t.desc}
+                    </p>
+                    <p className="text-xs text-primary mt-2">{t.nodes.length} nodes</p>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {method === 'copilot' && (
+            <>
+              <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-1">
+                Describe Your Workflow
+              </h2>
+              <p className="text-sm text-text-muted dark:text-dark-text-muted mb-4">
+                Describe what you want the workflow to do, then let AI generate it.
+              </p>
+              <textarea
+                value={copilotPrompt}
+                onChange={(e) => {
+                  setCopilotPrompt(e.target.value);
+                  setCopilotGenerated(null);
+                }}
+                placeholder="e.g., Every morning, check my calendar, summarize today's meetings, and send me a briefing message..."
+                rows={4}
+                className="w-full px-3 py-2.5 rounded-lg border border-border dark:border-dark-border bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
+              />
+
+              <button
+                onClick={generateWorkflow}
+                disabled={aiGenerating || copilotPrompt.trim().length < 10}
+                className="flex items-center gap-2 mt-3 px-4 py-2 text-sm rounded-lg bg-gradient-to-r from-purple-500 to-primary text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                <Sparkles className="w-4 h-4" />
+                {aiGenerating ? 'Generating...' : 'Generate Workflow'}
+              </button>
+
+              {copilotGenerated && (
+                <div className="mt-4 p-4 rounded-lg border border-success/30 bg-success/5">
+                  <p className="text-sm font-medium text-success mb-2">
+                    Workflow Generated — {copilotGenerated.nodes.length} nodes
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {(copilotGenerated.nodes as Array<{ label?: string; type?: string }>).map(
+                      (n, i) => (
+                        <span
+                          key={i}
+                          className="px-2 py-1 text-xs rounded bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-secondary dark:text-dark-text-secondary"
+                        >
+                          {n.label || n.type || `Node ${i + 1}`}
+                        </span>
+                      )
+                    )}
+                  </div>
+                  <p className="text-xs text-text-muted dark:text-dark-text-muted mt-2">
+                    Click Next to create. You can refine in the visual editor.
+                  </p>
+                </div>
+              )}
+
+              {!copilotGenerated && (
+                <p className="text-xs text-text-muted dark:text-dark-text-muted mt-2">
+                  Generate a workflow or click Next to create a draft you can build in the editor.
+                </p>
+              )}
+            </>
+          )}
+
+          {method === 'manual' && (
+            <>
+              <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-1">
+                Manual Definition
+              </h2>
+              <p className="text-sm text-text-muted dark:text-dark-text-muted mb-4">
+                Define your workflow nodes and edges. The workflow editor provides a better visual
+                experience.
+              </p>
+              <textarea
+                value={manualDefinition}
+                onChange={(e) => setManualDefinition(e.target.value)}
+                placeholder="Describe the steps you want to add later in the visual editor..."
+                rows={6}
+                className="w-full px-3 py-2.5 rounded-lg border border-border dark:border-dark-border bg-bg-primary dark:bg-dark-bg-primary text-text-primary dark:text-dark-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y font-mono"
+              />
+              <p className="text-xs text-text-muted dark:text-dark-text-muted mt-2">
+                An empty workflow will be created. Add nodes in the visual editor.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Step 3: Create */}
+      {step === 3 && (
+        <div className="text-center py-8">
+          {!result && (
+            <div className="flex flex-col items-center gap-3">
+              <svg className="w-10 h-10 animate-spin text-primary" viewBox="0 0 24 24" fill="none">
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                />
+              </svg>
+              <p className="text-text-muted dark:text-dark-text-muted">Creating workflow...</p>
+            </div>
+          )}
+
+          {result?.ok && (
+            <>
+              <div className="w-16 h-16 mx-auto rounded-full bg-success/10 flex items-center justify-center mb-4">
+                <GitBranch className="w-8 h-8 text-success" />
+              </div>
+              <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-2">
+                Workflow Created!
+              </h3>
+              <p className="text-sm text-text-muted dark:text-dark-text-muted">
+                Open the visual editor to refine your workflow.
+              </p>
+            </>
+          )}
+
+          {result && !result.ok && (
+            <>
+              <div className="w-16 h-16 mx-auto rounded-full bg-error/10 flex items-center justify-center mb-4">
+                <AlertTriangle className="w-8 h-8 text-error" />
+              </div>
+              <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary mb-2">
+                Creation Failed
+              </h3>
+              <p className="text-sm text-error max-w-md mx-auto">{result.error}</p>
+              <button
+                onClick={() => {
+                  setStep(2);
+                  setResult(null);
+                }}
+                className="mt-3 text-sm text-primary hover:underline"
+              >
+                Go back and try again
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Step 4: Complete */}
+      {step === 4 && (
+        <div className="text-center py-8">
+          <div className="w-16 h-16 mx-auto rounded-full bg-success/10 flex items-center justify-center mb-4">
+            <GitBranch className="w-8 h-8 text-success" />
+          </div>
+          <h2 className="text-xl font-semibold text-text-primary dark:text-dark-text-primary mb-2">
+            Workflow Ready!
+          </h2>
+          <p className="text-sm text-text-muted dark:text-dark-text-muted mb-6 max-w-md mx-auto">
+            <strong>{name}</strong> has been created. Open it in the editor to add nodes and
+            configure triggers.
+          </p>
+          <div className="flex justify-center gap-3">
+            {result?.workflowId && (
+              <button
+                onClick={() => navigate(`/workflows/${result.workflowId}`)}
+                className="px-4 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
+              >
+                Open in Editor
+              </button>
+            )}
+            <button
+              onClick={() => navigate('/workflows')}
+              className="px-4 py-2 text-sm rounded-lg border border-border dark:border-dark-border text-text-primary dark:text-dark-text-primary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary transition-colors"
+            >
+              View All Workflows
+            </button>
+          </div>
+        </div>
+      )}
+    </WizardShell>
+  );
+}

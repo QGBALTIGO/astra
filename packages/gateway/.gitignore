@@ -1,0 +1,59 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build outputs
+dist
+build
+coverage
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Data directories
+.data
+postgres-data
+mosquitto-data
+gateway-data
+pgadmin-data
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+*.lcov
+
+# Temporary files
+tmp
+temp
+*.tmp
+.cache
+
+# Docker
+.docker
+
+# Misc
+*.pid
+*.seed
+*.pid.lock

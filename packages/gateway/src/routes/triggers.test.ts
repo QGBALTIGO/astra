@@ -1,0 +1,671 @@
+/**
+ * Triggers Routes Tests
+ *
+ * Integration tests for the triggers API endpoints.
+ * Mocks TriggerService and TriggerEngine to test route logic and response formatting.
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Hono } from 'hono';
+import { requestId } from '../middleware/request-id.js';
+import { errorHandler } from '../middleware/error-handler.js';
+
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+
+const mockTriggerService = {
+  listTriggers: vi.fn(async () => []),
+  createTrigger: vi.fn(),
+  getTrigger: vi.fn(),
+  updateTrigger: vi.fn(),
+  deleteTrigger: vi.fn(),
+  getStats: vi.fn(async () => ({ total: 5, enabled: 3, byType: { schedule: 2, event: 1 } })),
+  getRecentHistory: vi.fn(async () => ({ history: [], total: 0 })),
+  getDueTriggers: vi.fn(async () => []),
+  getHistoryForTrigger: vi.fn(async () => ({ history: [], total: 0 })),
+  cleanupHistory: vi.fn(async () => 0),
+};
+
+const mockTriggerEngine = {
+  fireTrigger: vi.fn(),
+  isRunning: vi.fn(() => false),
+  start: vi.fn(),
+  stop: vi.fn(),
+};
+
+vi.mock('../services/trigger-service.js', () => ({
+  getTriggerService: () => mockTriggerService,
+}));
+
+vi.mock('../triggers/index.js', () => ({
+  getTriggerEngine: () => mockTriggerEngine,
+}));
+
+vi.mock('@ownpilot/core/services', async (importOriginal) => {
+  const original = await importOriginal<Record<string, unknown>>();
+  return {
+    ...original,
+    getServiceRegistry: vi.fn(() => ({
+      get: vi.fn((token: { name: string }) => {
+        const services: Record<string, unknown> = { trigger: mockTriggerService };
+        return services[token.name];
+      }),
+    })),
+    // Trigger now resolves through the capability accessor.
+    getTriggerService: vi.fn(() => mockTriggerService),
+  };
+});
+
+vi.mock('@ownpilot/core/scheduler', async (importOriginal) => {
+  const original = await importOriginal<Record<string, unknown>>();
+  return {
+    ...original,
+    validateCronExpression: vi.fn((cron: string) => {
+      if (cron === 'invalid') return { valid: false, error: 'Invalid cron expression' };
+      return { valid: true };
+    }),
+  };
+});
+
+vi.mock('../middleware/validation.js', () => ({
+  validateBody: vi.fn((_schema: unknown, body: unknown) => body),
+  createTriggerSchema: {},
+  updatePlanStepSchema: {},
+}));
+
+// Import after mocks
+const { triggersRoutes } = await import('./triggers.js');
+
+// ---------------------------------------------------------------------------
+// App setup
+// ---------------------------------------------------------------------------
+
+function createApp() {
+  const app = new Hono();
+  app.use('*', requestId);
+  // Simulate authenticated user
+  app.use('*', async (c, next) => {
+    c.set('userId', 'default');
+    await next();
+  });
+  app.route('/triggers', triggersRoutes);
+  app.onError(errorHandler);
+  return app;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('Triggers Routes', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    app = createApp();
+  });
+
+  // ========================================================================
+  // GET /triggers
+  // ========================================================================
+
+  describe('GET /triggers', () => {
+    it('returns triggers list', async () => {
+      mockTriggerService.listTriggers.mockResolvedValue([
+        { id: 't1', name: 'Morning', type: 'schedule', enabled: true },
+      ]);
+
+      const res = await app.request('/triggers');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.triggers).toHaveLength(1);
+      expect(json.data.total).toBe(1);
+    });
+
+    it('passes query params to service', async () => {
+      mockTriggerService.listTriggers.mockResolvedValue([]);
+
+      await app.request('/triggers?type=schedule&enabled=true&limit=5');
+
+      expect(mockTriggerService.listTriggers).toHaveBeenCalledWith('default', {
+        type: 'schedule',
+        enabled: true,
+        limit: 5,
+      });
+    });
+
+    it('parses enabled=false correctly', async () => {
+      mockTriggerService.listTriggers.mockResolvedValue([]);
+
+      await app.request('/triggers?enabled=false');
+
+      expect(mockTriggerService.listTriggers).toHaveBeenCalledWith(
+        'default',
+        expect.objectContaining({
+          enabled: false,
+        })
+      );
+    });
+  });
+
+  // ========================================================================
+  // POST /triggers
+  // ========================================================================
+
+  describe('POST /triggers', () => {
+    it('creates a trigger', async () => {
+      mockTriggerService.createTrigger.mockResolvedValue({
+        id: 't1',
+        name: 'Daily Check',
+        type: 'schedule',
+        enabled: true,
+      });
+
+      const res = await app.request('/triggers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Daily Check',
+          type: 'schedule',
+          config: { cron: '0 9 * * *' },
+          action: { type: 'notification', message: 'Time to check!' },
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.trigger.id).toBe('t1');
+      expect(mockTriggerService.createTrigger).toHaveBeenCalledWith(
+        'default',
+        expect.objectContaining({
+          action: { type: 'notification', payload: { message: 'Time to check!' } },
+        })
+      );
+    });
+
+    it('rejects unsupported action types before create', async () => {
+      const res = await app.request('/triggers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Bad Action',
+          type: 'event',
+          config: { event: 'message.received' },
+          action: { type: 'run_shell', payload: {} },
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_INPUT');
+      expect(mockTriggerService.createTrigger).not.toHaveBeenCalled();
+    });
+
+    it('rejects schedule trigger without cron', async () => {
+      const res = await app.request('/triggers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Bad Trigger',
+          type: 'schedule',
+          config: {},
+          action: { type: 'notification' },
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_CRON');
+    });
+
+    it('rejects invalid cron expression', async () => {
+      const res = await app.request('/triggers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Bad Cron',
+          type: 'schedule',
+          config: { cron: 'invalid' },
+          action: { type: 'notification' },
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_CRON');
+    });
+
+    it('returns 400 when service throws on create', async () => {
+      mockTriggerService.createTrigger.mockRejectedValueOnce(new Error('DB constraint violation'));
+
+      const res = await app.request('/triggers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Test',
+          type: 'event',
+          config: { event: 'message.received' },
+          action: { type: 'notification', message: 'Hi' },
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('CREATE_FAILED');
+    });
+  });
+
+  // ========================================================================
+  // GET /triggers/stats
+  // ========================================================================
+
+  describe('GET /triggers/stats', () => {
+    it('returns trigger statistics', async () => {
+      const res = await app.request('/triggers/stats');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.total).toBe(5);
+    });
+  });
+
+  // ========================================================================
+  // GET /triggers/history
+  // ========================================================================
+
+  describe('GET /triggers/history', () => {
+    it('returns recent trigger history', async () => {
+      mockTriggerService.getRecentHistory.mockResolvedValue({
+        history: [{ id: 'h1', triggerId: 't1', firedAt: '2026-01-31' }],
+        total: 1,
+      });
+
+      const res = await app.request('/triggers/history');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.history).toHaveLength(1);
+      expect(json.data.total).toBe(1);
+    });
+  });
+
+  // ========================================================================
+  // GET /triggers/due
+  // ========================================================================
+
+  describe('GET /triggers/due', () => {
+    it('returns due triggers', async () => {
+      mockTriggerService.getDueTriggers.mockResolvedValue([
+        { id: 't1', name: 'Overdue', nextFireAt: '2026-01-30' },
+      ]);
+
+      const res = await app.request('/triggers/due');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.triggers).toHaveLength(1);
+    });
+  });
+
+  // ========================================================================
+  // GET /triggers/:id
+  // ========================================================================
+
+  describe('GET /triggers/:id', () => {
+    it('returns trigger with recent history', async () => {
+      mockTriggerService.getTrigger.mockResolvedValue({
+        id: 't1',
+        name: 'Morning',
+        type: 'schedule',
+      });
+      mockTriggerService.getHistoryForTrigger.mockResolvedValue({
+        history: [{ id: 'h1', firedAt: '2026-01-31' }],
+        total: 1,
+      });
+
+      const res = await app.request('/triggers/t1');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.id).toBe('t1');
+      expect(json.data.recentHistory).toHaveLength(1);
+    });
+
+    it('returns 404 when trigger not found', async () => {
+      mockTriggerService.getTrigger.mockResolvedValue(null);
+
+      const res = await app.request('/triggers/nonexistent');
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ========================================================================
+  // PATCH /triggers/:id
+  // ========================================================================
+
+  describe('PATCH /triggers/:id', () => {
+    it('updates a trigger', async () => {
+      mockTriggerService.updateTrigger.mockResolvedValue({
+        id: 't1',
+        name: 'Updated',
+      });
+
+      const res = await app.request('/triggers/t1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Updated' }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.name).toBe('Updated');
+    });
+
+    it('returns 404 when trigger not found', async () => {
+      mockTriggerService.updateTrigger.mockResolvedValue(null);
+
+      const res = await app.request('/triggers/nonexistent', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Updated' }),
+      });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 400 when body is invalid JSON', async () => {
+      const res = await app.request('/triggers/t1', {
+        method: 'PATCH',
+        // No Content-Type → parseJsonBody returns null
+        body: 'not json',
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_INPUT');
+    });
+
+    it('returns 400 when cron is not a string on schedule trigger', async () => {
+      mockTriggerService.getTrigger.mockResolvedValueOnce({ id: 't1', type: 'schedule' });
+
+      const res = await app.request('/triggers/t1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: { cron: 123 } }),
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_CRON');
+    });
+
+    it('returns 400 when cron is invalid on schedule trigger', async () => {
+      mockTriggerService.getTrigger.mockResolvedValueOnce({ id: 't1', type: 'schedule' });
+
+      const res = await app.request('/triggers/t1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: { cron: 'invalid' } }),
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_CRON');
+    });
+  });
+
+  // ========================================================================
+  // POST /triggers/:id/enable & disable
+  // ========================================================================
+
+  describe('POST /triggers/:id/enable', () => {
+    it('enables a trigger', async () => {
+      mockTriggerService.updateTrigger.mockResolvedValue({
+        id: 't1',
+        enabled: true,
+      });
+
+      const res = await app.request('/triggers/t1/enable', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.message).toContain('enabled');
+      expect(mockTriggerService.updateTrigger).toHaveBeenCalledWith('default', 't1', {
+        enabled: true,
+      });
+    });
+
+    it('returns 404 when trigger not found', async () => {
+      mockTriggerService.updateTrigger.mockResolvedValue(null);
+
+      const res = await app.request('/triggers/nonexistent/enable', { method: 'POST' });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /triggers/:id/disable', () => {
+    it('disables a trigger', async () => {
+      mockTriggerService.updateTrigger.mockResolvedValue({
+        id: 't1',
+        enabled: false,
+      });
+
+      const res = await app.request('/triggers/t1/disable', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.message).toContain('disabled');
+      expect(mockTriggerService.updateTrigger).toHaveBeenCalledWith('default', 't1', {
+        enabled: false,
+      });
+    });
+
+    it('returns 404 when trigger not found', async () => {
+      mockTriggerService.updateTrigger.mockResolvedValueOnce(null);
+
+      const res = await app.request('/triggers/nonexistent/disable', { method: 'POST' });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ========================================================================
+  // POST /triggers/:id/fire
+  // ========================================================================
+
+  describe('POST /triggers/:id/fire', () => {
+    it('fires a trigger manually', async () => {
+      mockTriggerService.getTrigger.mockResolvedValue({ id: 't1', name: 'Test' });
+      mockTriggerEngine.fireTrigger.mockResolvedValue({ success: true });
+
+      const res = await app.request('/triggers/t1/fire', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+    });
+
+    it('returns 404 when trigger not found', async () => {
+      mockTriggerService.getTrigger.mockResolvedValue(null);
+
+      const res = await app.request('/triggers/nonexistent/fire', { method: 'POST' });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 500 when fire fails', async () => {
+      mockTriggerService.getTrigger.mockResolvedValue({ id: 't1' });
+      mockTriggerEngine.fireTrigger.mockResolvedValue({ success: false, error: 'Execution error' });
+
+      const res = await app.request('/triggers/t1/fire', { method: 'POST' });
+
+      expect(res.status).toBe(500);
+    });
+
+    it('returns 500 when engine throws exception', async () => {
+      mockTriggerService.getTrigger.mockResolvedValueOnce({ id: 't1' });
+      mockTriggerEngine.fireTrigger.mockRejectedValueOnce(new Error('Engine crashed'));
+
+      const res = await app.request('/triggers/t1/fire', { method: 'POST' });
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error.code).toBe('EXECUTION_ERROR');
+    });
+  });
+
+  // ========================================================================
+  // DELETE /triggers/:id
+  // ========================================================================
+
+  describe('DELETE /triggers/:id', () => {
+    it('deletes a trigger', async () => {
+      mockTriggerService.deleteTrigger.mockResolvedValue(true);
+
+      const res = await app.request('/triggers/t1', { method: 'DELETE' });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+    });
+
+    it('returns 404 when trigger not found', async () => {
+      mockTriggerService.deleteTrigger.mockResolvedValue(false);
+
+      const res = await app.request('/triggers/nonexistent', { method: 'DELETE' });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ========================================================================
+  // GET /triggers/:id/history
+  // ========================================================================
+
+  describe('GET /triggers/:id/history', () => {
+    it('returns history for a specific trigger', async () => {
+      mockTriggerService.getTrigger.mockResolvedValue({ id: 't1', name: 'Morning' });
+      mockTriggerService.getHistoryForTrigger.mockResolvedValue({
+        history: [{ id: 'h1', firedAt: '2026-01-31' }],
+        total: 1,
+      });
+
+      const res = await app.request('/triggers/t1/history');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.triggerId).toBe('t1');
+      expect(json.data.triggerName).toBe('Morning');
+      expect(json.data.history).toHaveLength(1);
+      expect(json.data.total).toBe(1);
+    });
+
+    it('returns 404 when trigger not found', async () => {
+      mockTriggerService.getTrigger.mockResolvedValue(null);
+
+      const res = await app.request('/triggers/nonexistent/history');
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ========================================================================
+  // POST /triggers/cleanup
+  // ========================================================================
+
+  describe('POST /triggers/cleanup', () => {
+    it('cleans up old history', async () => {
+      mockTriggerService.cleanupHistory.mockResolvedValue(10);
+
+      const res = await app.request('/triggers/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ maxAgeDays: 30 }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.deletedCount).toBe(10);
+    });
+
+    it('defaults to 30 days when body is not valid JSON', async () => {
+      mockTriggerService.cleanupHistory.mockResolvedValue(5);
+
+      const res = await app.request('/triggers/cleanup', {
+        method: 'POST',
+        // No Content-Type — json() will throw, catch returns {}
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.deletedCount).toBe(5);
+      // Should use default of 30 days
+      expect(mockTriggerService.cleanupHistory).toHaveBeenCalledWith('default', 30);
+    });
+
+    it('defaults to 30 when maxAgeDays is not a finite number', async () => {
+      mockTriggerService.cleanupHistory.mockResolvedValue(3);
+
+      const res = await app.request('/triggers/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ maxAgeDays: 'not-a-number' }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.deletedCount).toBe(3);
+      expect(mockTriggerService.cleanupHistory).toHaveBeenCalledWith('default', 30);
+    });
+  });
+
+  // ========================================================================
+  // Engine control routes
+  // ========================================================================
+
+  describe('GET /triggers/engine/status', () => {
+    it('returns engine running status', async () => {
+      mockTriggerEngine.isRunning.mockReturnValue(true);
+
+      const res = await app.request('/triggers/engine/status');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.running).toBe(true);
+    });
+  });
+
+  describe('POST /triggers/engine/start', () => {
+    it('starts the trigger engine', async () => {
+      mockTriggerEngine.isRunning.mockReturnValue(true);
+
+      const res = await app.request('/triggers/engine/start', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      expect(mockTriggerEngine.start).toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /triggers/engine/stop', () => {
+    it('stops the trigger engine', async () => {
+      mockTriggerEngine.isRunning.mockReturnValue(false);
+
+      const res = await app.request('/triggers/engine/stop', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      expect(mockTriggerEngine.stop).toHaveBeenCalled();
+    });
+  });
+});

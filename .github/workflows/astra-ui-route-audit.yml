@@ -1,0 +1,92 @@
+name: Astra interface audit (isolated)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/astra-ui-route-audit.yml'
+      - 'packages/ui/e2e/astra-route-audit.spec.ts'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/astra-ui-route-audit.yml'
+      - 'packages/ui/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+
+# A new push supersedes older audits for the same PR, avoiding duplicate CI work.
+concurrency:
+  group: astra-ui-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  responsive-sweep:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ownpilot
+          POSTGRES_PASSWORD: ownpilot_ci_password
+          POSTGRES_DB: ownpilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ownpilot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm --filter @ownpilot/ui exec playwright install chromium --with-deps
+      - name: Boot isolated gateway and configure test login
+        env:
+          PORT: '18080'
+          HOST: '127.0.0.1'
+          NODE_ENV: development
+          POSTGRES_HOST: '127.0.0.1'
+          POSTGRES_PORT: '5432'
+          POSTGRES_USER: ownpilot
+          POSTGRES_PASSWORD: ownpilot_ci_password
+          POSTGRES_DB: ownpilot
+          AUTH_TYPE: jwt
+          MEMORY_SALT: 'testing-only-memory-salt'
+          OWNPILOT_DATA_DIR: /tmp/astra-qa
+        run: |
+          set -euo pipefail
+          export BOOTSTRAP_TOKEN="$(openssl rand -hex 40)"
+          export JWT_SECRET="$(openssl rand -hex 40)"
+          mkdir -p /tmp/astra-qa
+          nohup node packages/gateway/dist/server.js >/tmp/astra-qa.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:18080/health/ready >/dev/null; then break; fi
+            if [ "$i" -eq 90 ]; then tail -n 60 /tmp/astra-qa.log; exit 1; fi
+            sleep 2
+          done
+          curl -fsS -X POST http://127.0.0.1:18080/api/v1/auth/password \
+            -H "Content-Type: application/json" \
+            -H "X-Bootstrap-Token: $BOOTSTRAP_TOKEN" \
+            --data '{"password":"AstraQA_Only2026!"}' > /tmp/qa-auth.json
+          node -e 'if(!require("/tmp/qa-auth.json").success) process.exit(1)'
+      - name: Audit all pages on phone, tablet and desktop
+        run: pnpm --filter @ownpilot/ui exec playwright test -c e2e/astra-audit.config.ts
+        env:
+          CI: 'true'
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-ui-audit
+          path: packages/ui/qa/reports/
+          retention-days: 14
+          if-no-files-found: warn

@@ -1,0 +1,1273 @@
+const WIDGET_TAG_NAMES = [
+  'widget',
+  'metric',
+  'metrics',
+  'metric_grid',
+  'stats',
+  'table',
+  'list',
+  'checklist',
+  'key_value',
+  'key_values',
+  'facts',
+  'details',
+  'properties',
+  'card',
+  'cards',
+  'card_grid',
+  'step',
+  'steps',
+  'plan',
+  'callout',
+  'note',
+  'progress',
+  'bar',
+  'bar_chart',
+  'timeline',
+  // Code & Media
+  'code',
+  'code_block',
+  'image',
+  'images',
+  'video',
+  'audio',
+  'file',
+  'files',
+  // Advanced
+  'chart',
+  'pie_chart',
+  'line_chart',
+  'map',
+  'embed',
+  'iframe',
+  'html',
+  'json',
+  'raw',
+] as const;
+
+const WIDGET_TAG_PATTERN = WIDGET_TAG_NAMES.join('|');
+const WIDGET_TAG_START_REGEX = new RegExp(`<(${WIDGET_TAG_PATTERN})\\b`, 'gi');
+
+type WidgetName = (typeof WIDGET_TAG_NAMES)[number];
+
+interface ParsedWidget {
+  name: string;
+  data: unknown;
+}
+
+interface WidgetTagParts {
+  tagName: string;
+  attrsSource: string;
+  body?: string;
+}
+
+const INVALID_WIDGET_TITLE = 'Widget could not be rendered';
+const INVALID_WIDGET_BODY =
+  'The data for this widget was incomplete or malformed, so it was hidden from the chat.';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function decodeAttributeValue(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function readBalancedAttributeValue(
+  source: string,
+  startIndex: number
+): { value: string; nextIndex: number } | null {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  let index = startIndex;
+
+  while (index < source.length) {
+    const char = source[index]!;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === '{') {
+      stack.push('}');
+    } else if (char === '[') {
+      stack.push(']');
+    } else if ((char === '}' || char === ']') && stack[stack.length - 1] === char) {
+      stack.pop();
+      if (stack.length === 0) {
+        index += 1;
+        return { value: source.slice(startIndex, index), nextIndex: index };
+      }
+    }
+
+    index += 1;
+  }
+
+  return stack.length > 0 ? { value: source.slice(startIndex), nextIndex: index } : null;
+}
+
+/**
+ * Skip past a single-quoted balanced-JSON attribute value (`='{"…"}'`,
+ * `='[…]'`). A same-quote toggle cannot delimit such a value: an apostrophe
+ * INSIDE a JSON string ("Don't") would close it early, the JSON's own double
+ * quotes would re-open quote mode, and the tag's `/>` / `>` terminator would
+ * be swallowed — the widget then fails to parse and its raw markup leaks
+ * into chat. Brace-balance the JSON body instead (the same knowledge
+ * parseTagAttributes applies to the data attribute) and expect the closing
+ * quote right after it. Returns the index just past the closing quote, or
+ * null when the value is not this shape.
+ */
+function skipQuotedBalancedValue(source: string, eqIndex: number): number | null {
+  let index = eqIndex + 1;
+  while (/\s/.test(source[index] ?? '')) index += 1;
+  if (source[index] !== "'") return null;
+  index += 1;
+  while (/\s/.test(source[index] ?? '')) index += 1;
+  const open = source[index];
+  if (open !== '{' && open !== '[') return null;
+  const balanced = readBalancedAttributeValue(source, index);
+  if (!balanced) return null;
+  let after = balanced.nextIndex;
+  while (/\s/.test(source[after] ?? '')) after += 1;
+  if (source[after] !== "'") return null;
+  return after + 1;
+}
+
+function parseTagAttributes(source: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  let index = 0;
+
+  while (index < source.length) {
+    while (/\s/.test(source[index] ?? '')) index += 1;
+
+    const nameStart = index;
+    while (/[a-zA-Z0-9_:.-]/.test(source[index] ?? '')) index += 1;
+    const attrName = source.slice(nameStart, index).toLowerCase();
+    if (!attrName) break;
+
+    while (/\s/.test(source[index] ?? '')) index += 1;
+    if (source[index] !== '=') continue;
+    index += 1;
+    while (/\s/.test(source[index] ?? '')) index += 1;
+
+    const quote = source[index];
+    if (quote !== '"' && quote !== "'") {
+      const balanced =
+        attrName === 'data' && (quote === '{' || quote === '[')
+          ? readBalancedAttributeValue(source, index)
+          : null;
+      if (balanced) {
+        attrs[attrName] = decodeAttributeValue(balanced.value);
+        index = balanced.nextIndex;
+        continue;
+      }
+
+      const valueStart = index;
+      while (index < source.length && !/\s/.test(source[index] ?? '')) index += 1;
+      attrs[attrName] = decodeAttributeValue(source.slice(valueStart, index));
+      continue;
+    }
+    index += 1;
+
+    let value = '';
+    if (attrName === 'data' && quote === "'" && /^[\s]*[\[{]/.test(source.slice(index))) {
+      const closingQuote = source.lastIndexOf(quote);
+      if (closingQuote >= index) {
+        value = source.slice(index, closingQuote);
+        index = closingQuote;
+      }
+    }
+
+    while (index < source.length) {
+      const char = source[index]!;
+      const next = source[index + 1];
+      if (char === '\\' && next === quote) {
+        value += char + next;
+        index += 2;
+        continue;
+      }
+      if (char === quote) break;
+      value += char;
+      index += 1;
+    }
+
+    attrs[attrName] = decodeAttributeValue(value);
+    if (source[index] === quote) index += 1;
+  }
+
+  return attrs;
+}
+
+function parseWidgetData(value: string): unknown {
+  const candidates = expandWidgetDataCandidates(value);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (typeof parsed === 'string' && /^[\s[{]/.test(parsed)) {
+        return JSON.parse(parsed);
+      }
+      return parsed;
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  throw new Error('Invalid widget data');
+}
+
+function expandWidgetDataCandidates(value: string): string[] {
+  const normalized = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+  return Array.from(
+    new Set([
+      value,
+      normalized,
+      repairJsonLikeWidgetData(value),
+      repairJsonLikeWidgetData(normalized),
+    ])
+  ).filter(Boolean);
+}
+
+function repairJsonLikeWidgetData(value: string): string {
+  let repaired = value.trim();
+  if (!repaired) return repaired;
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (const char of repaired) {
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === '{') {
+      stack.push('}');
+    } else if (char === '[') {
+      stack.push(']');
+    } else if ((char === '}' || char === ']') && stack[stack.length - 1] === char) {
+      stack.pop();
+    }
+  }
+
+  if (escaped) repaired = repaired.slice(0, -1);
+  if (inString) repaired += '"';
+
+  while (stack.length > 0) {
+    repaired = repaired.replace(/,\s*$/, '');
+    repaired += stack.pop();
+  }
+
+  return repaired.replace(/,\s*([}\]])/g, '$1');
+}
+
+function decodeJsonString(value: string): string {
+  try {
+    return JSON.parse(`"${value.replace(/"/g, '\\"')}"`) as string;
+  } catch {
+    return value.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\'/g, "'");
+  }
+}
+
+function recoverStringField(source: string, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const closed = source.match(
+      new RegExp(`"${key}"\\s*:\\s*"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)"`)
+    )?.[1];
+    if (closed) return decodeJsonString(closed);
+
+    const partial = source.match(new RegExp(`"${key}"\\s*:\\s*"([\\s\\S]*)$`))?.[1];
+    if (partial) return decodeJsonString(partial.replace(/[,\]}]\s*$/, ''));
+  }
+
+  return undefined;
+}
+
+function recoverStringArray(source: string, key: string): string[] {
+  const start = source.search(new RegExp(`"${key}"\\s*:\\s*\\[`));
+  if (start === -1) return [];
+
+  const afterKey = source.slice(start);
+  const arrayStart = afterKey.indexOf('[');
+  if (arrayStart === -1) return [];
+
+  const arrayEnd = afterKey.indexOf(']', arrayStart + 1);
+  const arrayBody =
+    arrayEnd === -1 ? afterKey.slice(arrayStart + 1) : afterKey.slice(arrayStart + 1, arrayEnd);
+  return Array.from(arrayBody.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g)).map((match) =>
+    decodeJsonString(match[1] ?? '')
+  );
+}
+
+function parseRecoveredNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return undefined;
+  const parsed = Number(value.replace(/%$/, '').trim());
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function recoverNumberField(source: string, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const direct = source.match(new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`))?.[1];
+    const parsedDirect = parseRecoveredNumber(direct);
+    if (parsedDirect !== undefined) return parsedDirect;
+
+    const quoted = recoverStringField(source, [key]);
+    const parsedQuoted = parseRecoveredNumber(quoted);
+    if (parsedQuoted !== undefined) return parsedQuoted;
+  }
+
+  return undefined;
+}
+
+function recoverScalarPairs(
+  source: string,
+  ignoredKeys = new Set<string>()
+): Array<{ key: string; value: string | number | boolean }> {
+  const pairs = new Map<string, string | number | boolean>();
+
+  for (const match of source.matchAll(
+    /"([^"\\]*(?:\\.[^"\\]*)*)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/g
+  )) {
+    const key = decodeJsonString(match[1] ?? '');
+    const value = decodeJsonString(match[2] ?? '');
+    if (key && value && !ignoredKeys.has(key)) pairs.set(key, value);
+  }
+
+  for (const match of source.matchAll(
+    /"([^"\\]*(?:\\.[^"\\]*)*)"\s*:\s*(-?\d+(?:\.\d+)?|true|false)\b/g
+  )) {
+    const key = decodeJsonString(match[1] ?? '');
+    const rawValue = match[2] ?? '';
+    if (!key || ignoredKeys.has(key) || pairs.has(key)) continue;
+    pairs.set(key, rawValue === 'true' ? true : rawValue === 'false' ? false : Number(rawValue));
+  }
+
+  return Array.from(pairs, ([key, value]) => ({ key, value })).slice(0, 12);
+}
+
+function compactRecoveredRecord(
+  record: Record<string, string | number | boolean | undefined>
+): Record<string, string | number | boolean> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined && value !== '')
+  ) as Record<string, string | number | boolean>;
+}
+
+function recoverObjectItems(
+  source: string,
+  collectionKeys: string[],
+  mapItem: (itemSource: string) => Record<string, string | number | boolean>
+): Array<Record<string, string | number | boolean>> {
+  const collectionStart = source.search(
+    new RegExp(`"(?:${collectionKeys.join('|')})"\\s*:\\s*\\[`)
+  );
+  const collectionSource = collectionStart === -1 ? source : source.slice(collectionStart);
+
+  return collectionSource
+    .split('{')
+    .slice(1)
+    .map((chunk) => mapItem(`{${chunk}`))
+    .filter((item) => Object.keys(item).length > 0)
+    .slice(0, 12);
+}
+
+function recoverTableData(value: string): unknown {
+  const normalized = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+  const headers = recoverStringArray(normalized, 'headers');
+  if (headers.length === 0) headers.push(...recoverStringArray(normalized, 'columns'));
+  const rowsSourceStart = normalized.search(/"rows"\s*:\s*\[/);
+  const rowsSource = rowsSourceStart === -1 ? normalized : normalized.slice(rowsSourceStart);
+
+  const rows = Array.from(rowsSource.matchAll(/\[([^\[\]]*"[^\[\]]*")\s*\]/g))
+    .map((match) =>
+      Array.from((match[1] ?? '').matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g)).map((cell) =>
+        decodeJsonString(cell[1] ?? '')
+      )
+    )
+    .filter((row) => row.length >= Math.max(1, Math.min(headers.length || 1, 2)));
+
+  if (headers.length > 0 && rows.length > 0) return { headers, rows };
+
+  const objectRows = Array.from(rowsSource.split('{').slice(1))
+    .map((chunk) => {
+      const itemSource = chunk.split('}')[0] ?? chunk;
+      const row: Record<string, string> = {};
+      for (const pair of itemSource.matchAll(
+        /"([^"\\]*(?:\\.[^"\\]*)*)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/g
+      )) {
+        const key = decodeJsonString(pair[1] ?? '');
+        if (key === 'headers' || key === 'columns' || key === 'rows') continue;
+        row[key] = decodeJsonString(pair[2] ?? '');
+      }
+      for (const header of headers) {
+        row[header] ??= recoverStringField(itemSource, [header]) ?? '';
+      }
+      return row;
+    })
+    .filter((row) => Object.keys(row).length > 0);
+
+  if (objectRows.length > 0) {
+    const recoveredHeaders =
+      headers.length > 0
+        ? headers
+        : Array.from(new Set(objectRows.flatMap((row) => Object.keys(row))));
+    return { headers: recoveredHeaders, rows: objectRows };
+  }
+
+  return invalidWidgetData();
+}
+
+function recoverMetricData(value: string): unknown {
+  const normalized = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+  const title = recoverStringField(normalized, ['title', 'heading']);
+  const items = recoverObjectItems(normalized, ['items', 'metrics', 'stats', 'values'], (item) =>
+    compactRecoveredRecord({
+      label: recoverStringField(item, ['label', 'name', 'title', 'key']),
+      value:
+        recoverStringField(item, ['value', 'count', 'total', 'amount']) ??
+        recoverNumberField(item, ['value', 'count', 'total', 'amount']),
+      detail: recoverStringField(item, ['detail', 'description', 'change', 'status']),
+      tone: recoverStringField(item, ['tone', 'status', 'type']),
+    })
+  );
+
+  if (items.length > 0) return title ? { title, items } : { items };
+
+  const scalarItems = recoverScalarPairs(
+    normalized,
+    new Set(['title', 'heading', 'tone', 'status', 'type', 'items', 'metrics', 'stats', 'values'])
+  ).map((item) => ({ label: item.key, value: item.value }));
+
+  if (scalarItems.length > 0) return title ? { title, items: scalarItems } : { items: scalarItems };
+  return recoverGenericCalloutData(value) ?? invalidWidgetData();
+}
+
+function recoverProgressData(value: string): unknown {
+  const normalized = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+  const title = recoverStringField(normalized, ['title', 'heading']);
+  const label = recoverStringField(normalized, ['label', 'name']) ?? title;
+  const recoveredValue = recoverNumberField(normalized, [
+    'value',
+    'percent',
+    'progress',
+    'current',
+  ]);
+  const max = recoverNumberField(normalized, ['max', 'total', 'target']);
+  const body = recoverStringField(normalized, [
+    'body',
+    'detail',
+    'description',
+    'text',
+    'message',
+    'summary',
+  ]);
+
+  if (recoveredValue !== undefined || label || title) {
+    return {
+      ...(title ? { title } : {}),
+      label: label ?? body ?? 'Progress',
+      value: recoveredValue ?? 0,
+      max: max ?? 100,
+    };
+  }
+
+  return recoverGenericCalloutData(value) ?? invalidWidgetData();
+}
+
+function recoverBarChartData(value: string): unknown {
+  const normalized = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+  const title = recoverStringField(normalized, ['title', 'heading']);
+  const items = recoverObjectItems(normalized, ['items', 'bars', 'series', 'values'], (item) => {
+    const numericValue = recoverNumberField(item, ['value', 'count', 'total', 'amount']);
+    return compactRecoveredRecord({
+      label: recoverStringField(item, ['label', 'name', 'title', 'key']),
+      value: numericValue ?? 0,
+      displayValue: recoverStringField(item, ['displayValue', 'display', 'value']),
+    });
+  });
+
+  if (items.length > 0) return title ? { title, items } : { items };
+  return recoverGenericCalloutData(value) ?? invalidWidgetData();
+}
+
+function recoverTimelineData(value: string): unknown {
+  const normalized = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+  const title = recoverStringField(normalized, ['title', 'heading']);
+  const items = recoverObjectItems(normalized, ['items', 'events', 'entries'], (item) =>
+    compactRecoveredRecord({
+      time: recoverStringField(item, ['time', 'date', 'when']),
+      label: recoverStringField(item, ['label', 'title', 'name']),
+      detail: recoverStringField(item, ['detail', 'description', 'body', 'text']),
+      tone: recoverStringField(item, ['tone', 'status', 'type']),
+    })
+  );
+
+  if (items.length > 0) return title ? { title, items } : { items };
+  return recoverGenericCalloutData(value) ?? invalidWidgetData();
+}
+
+function recoverListData(value: string, name: string): unknown {
+  const normalized = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+  const title = recoverStringField(normalized, ['title']);
+  const collectionStart = normalized.search(/"(?:items|entries|facts|cards|steps)"\s*:\s*\[/);
+  const collectionSource = collectionStart === -1 ? normalized : normalized.slice(collectionStart);
+  const isKeyValue =
+    name === 'key_value' ||
+    name === 'key_values' ||
+    name === 'facts' ||
+    name === 'details' ||
+    name === 'properties';
+  const items: Array<Record<string, string | undefined>> = [];
+
+  for (const chunk of collectionSource.split('{').slice(1)) {
+    const itemSource = `{${chunk}`;
+    if (isKeyValue) {
+      const key = recoverStringField(itemSource, ['key', 'label', 'name', 'title']);
+      const value = recoverStringField(itemSource, [
+        'value',
+        'detail',
+        'description',
+        'body',
+        'text',
+      ]);
+      if (key || value) items.push({ key, value });
+      continue;
+    }
+
+    const itemTitle = recoverStringField(itemSource, ['title', 'label', 'name', 'key']);
+    const detail = recoverStringField(itemSource, [
+      'detail',
+      'description',
+      'body',
+      'text',
+      'value',
+    ]);
+    if (itemTitle || detail) items.push({ title: itemTitle, detail });
+  }
+
+  if (items.length > 0) return title ? { title, items } : { items };
+  return invalidWidgetData();
+}
+
+function invalidWidgetData(): Record<string, string> {
+  return {
+    title: INVALID_WIDGET_TITLE,
+    body: INVALID_WIDGET_BODY,
+    tone: 'warning',
+  };
+}
+
+function recoverGenericCalloutData(value: string): Record<string, string> | null {
+  const normalized = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+  const title = recoverStringField(normalized, ['title', 'heading', 'label', 'name']);
+  const body = recoverStringField(normalized, [
+    'body',
+    'detail',
+    'description',
+    'text',
+    'message',
+    'summary',
+    'value',
+  ]);
+
+  if (title || body) {
+    return {
+      title: title ?? 'Recovered widget content',
+      body: body ?? title ?? '',
+      tone: 'info',
+    };
+  }
+
+  const ignoredKeys = new Set(['headers', 'columns', 'rows', 'items', 'entries', 'data']);
+  const extracted = Array.from(
+    normalized.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/g)
+  )
+    .map((match) => ({
+      key: decodeJsonString(match[1] ?? ''),
+      value: decodeJsonString(match[2] ?? ''),
+    }))
+    .filter((item) => item.key && item.value && !ignoredKeys.has(item.key))
+    .slice(0, 5);
+
+  if (extracted.length === 0) return null;
+
+  return {
+    title: 'Recovered widget content',
+    body: extracted.map((item) => `${item.key}: ${item.value}`).join('\n'),
+    tone: 'info',
+  };
+}
+
+function isInvalidWidgetFallback(data: unknown): boolean {
+  return isRecord(data) && data.title === INVALID_WIDGET_TITLE && data.body === INVALID_WIDGET_BODY;
+}
+
+function isCalloutLikeFallback(data: unknown): boolean {
+  return isRecord(data) && typeof data.body === 'string' && !Array.isArray(data.items);
+}
+
+function firstArrayValue(record: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (Array.isArray(record[key])) return record[key];
+  }
+  return undefined;
+}
+
+function canonicalWidgetName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+}
+
+function normalizeWidgetDataShape(name: string, data: unknown): unknown {
+  name = canonicalWidgetName(name);
+  if (!isRecord(data)) return data;
+  if (isInvalidWidgetFallback(data)) return data;
+
+  if (name === 'metric' || name === 'metrics' || name === 'metric_grid' || name === 'stats') {
+    const items = firstArrayValue(data, ['items', 'metrics', 'stats', 'values']);
+    return items && !Array.isArray(data.items) ? { ...data, items } : data;
+  }
+
+  if (name === 'list' || name === 'checklist') {
+    const items = firstArrayValue(data, [
+      'items',
+      'entries',
+      'list',
+      'tasks',
+      'todos',
+      'recommendations',
+      'suggestions',
+    ]);
+    return items && !Array.isArray(data.items) ? { ...data, items } : data;
+  }
+
+  if (name === 'table') {
+    const rows = firstArrayValue(data, ['rows', 'items', 'entries', 'data']);
+    const headers = firstArrayValue(data, ['headers', 'columns', 'fields']);
+    const normalized = { ...data };
+    if (rows && !Array.isArray(normalized.rows)) normalized.rows = rows;
+    if (headers && !Array.isArray(normalized.headers)) normalized.headers = headers;
+    return normalized;
+  }
+
+  if (
+    name === 'key_value' ||
+    name === 'key_values' ||
+    name === 'facts' ||
+    name === 'details' ||
+    name === 'properties'
+  ) {
+    const items = firstArrayValue(data, ['items', 'entries', 'facts', 'properties', 'details']);
+    if (items && !Array.isArray(data.items)) return { ...data, items };
+
+    const singleLabel = data.key ?? data.label ?? data.name;
+    const singleValue = data.value ?? data.text ?? data.detail ?? data.description;
+    if (
+      (typeof singleLabel === 'string' || typeof singleLabel === 'number') &&
+      (typeof singleValue === 'string' ||
+        typeof singleValue === 'number' ||
+        typeof singleValue === 'boolean')
+    ) {
+      return {
+        title: data.title,
+        items: [{ key: singleLabel, value: singleValue }],
+      };
+    }
+
+    const reserved = new Set([
+      'title',
+      'tone',
+      'status',
+      'type',
+      'items',
+      'entries',
+      'facts',
+      'properties',
+      'details',
+    ]);
+    const scalarItems = Object.entries(data)
+      .filter(
+        ([key, value]) =>
+          !reserved.has(key) &&
+          (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+      )
+      .map(([key, value]) => ({ key, value }));
+    return scalarItems.length > 0 ? { title: data.title, items: scalarItems } : data;
+  }
+
+  if (name === 'card' || name === 'cards' || name === 'card_grid') {
+    const items = firstArrayValue(data, ['items', 'cards', 'entries']);
+    if (items && !Array.isArray(data.items)) return { ...data, items };
+
+    const hasCardFields = ['title', 'label', 'name', 'detail', 'description', 'body', 'text'].some(
+      (key) => data[key] !== undefined
+    );
+    return hasCardFields ? { items: [data] } : data;
+  }
+
+  if (name === 'step' || name === 'steps' || name === 'plan') {
+    const items = firstArrayValue(data, ['items', 'steps', 'plan', 'tasks']);
+    return items && !Array.isArray(data.items) ? { ...data, items } : data;
+  }
+
+  if (name === 'bar' || name === 'bar_chart') {
+    const items = firstArrayValue(data, ['items', 'bars', 'series', 'values']);
+    return items && !Array.isArray(data.items) ? { ...data, items } : data;
+  }
+
+  if (name === 'timeline') {
+    const items = firstArrayValue(data, ['items', 'events', 'entries']);
+    return items && !Array.isArray(data.items) ? { ...data, items } : data;
+  }
+
+  if ((name === 'callout' || name === 'note') && data.type && !data.tone) {
+    return { ...data, tone: data.type };
+  }
+
+  return data;
+}
+
+function recoverWidgetData(name: string, value: string): unknown {
+  name = canonicalWidgetName(name);
+  const normalized = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+
+  if (name === 'callout' || name === 'note') {
+    const title = recoverStringField(normalized, ['title']);
+    const body = recoverStringField(normalized, ['body', 'detail', 'description', 'text']);
+    if (title || body) {
+      return {
+        title,
+        body,
+        tone: recoverStringField(normalized, ['type', 'tone', 'status']) ?? 'info',
+      };
+    }
+  }
+
+  if (name === 'table') return recoverTableData(value);
+  if (name === 'metric' || name === 'metrics' || name === 'metric_grid' || name === 'stats') {
+    return recoverMetricData(value);
+  }
+  if (name === 'progress') return recoverProgressData(value);
+  if (name === 'bar' || name === 'bar_chart') return recoverBarChartData(value);
+  if (name === 'timeline') return recoverTimelineData(value);
+  if (
+    name === 'list' ||
+    name === 'checklist' ||
+    name === 'key_value' ||
+    name === 'key_values' ||
+    name === 'facts' ||
+    name === 'details' ||
+    name === 'properties' ||
+    name === 'card' ||
+    name === 'cards' ||
+    name === 'card_grid' ||
+    name === 'step' ||
+    name === 'steps' ||
+    name === 'plan'
+  ) {
+    return recoverListData(value, name);
+  }
+  return recoverGenericCalloutData(value) ?? invalidWidgetData();
+}
+
+function splitWidgetTag(tag: string): WidgetTagParts | null {
+  const trimmed = tag.trim();
+  const nameMatch = trimmed.match(/^<([a-zA-Z_][\w.-]*)/);
+  const tagName = nameMatch?.[1];
+  if (!tagName) return null;
+
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  const attrsStart = nameMatch[0].length;
+
+  for (let index = attrsStart; index < trimmed.length; index += 1) {
+    const char = trimmed[index]!;
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '=') {
+      // A single-quoted JSON data value may contain apostrophes — the
+      // same-quote toggle below would mis-deliminate it (round 69).
+      const skipped = skipQuotedBalancedValue(trimmed, index);
+      if (skipped !== null) {
+        index = skipped - 1;
+        continue;
+      }
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === '/' && trimmed[index + 1] === '>') {
+      return { tagName, attrsSource: trimmed.slice(attrsStart, index).trim() };
+    }
+
+    if (char === '>') {
+      const closingTag = `</${tagName}>`;
+      if (!trimmed.toLowerCase().endsWith(closingTag.toLowerCase())) return null;
+      return {
+        tagName,
+        attrsSource: trimmed.slice(attrsStart, index).trim(),
+        body: trimmed.slice(index + 1, trimmed.length - closingTag.length),
+      };
+    }
+  }
+
+  return null;
+}
+
+function parseWidgetTag(tag: string): ParsedWidget | null {
+  const parts = splitWidgetTag(tag);
+  if (!parts) return null;
+  const tagName = parts?.tagName.toLowerCase() as WidgetName | undefined;
+  if (!tagName || !WIDGET_TAG_NAMES.includes(tagName)) return null;
+
+  const attrs = parseTagAttributes(parts.attrsSource);
+  const name =
+    tagName === 'widget'
+      ? canonicalWidgetName(attrs.name ?? attrs.type ?? attrs.widget ?? attrs.kind ?? '')
+      : canonicalWidgetName(tagName);
+  if (!name) return null;
+
+  const dataValue = attrs.data ?? parts.body?.trim();
+  if (!dataValue) return { name, data: {} };
+
+  try {
+    return { name, data: normalizeWidgetDataShape(name, parseWidgetData(dataValue)) };
+  } catch {
+    const data = recoverWidgetData(name, dataValue);
+    return {
+      name: isInvalidWidgetFallback(data) || isCalloutLikeFallback(data) ? 'callout' : name,
+      data: normalizeWidgetDataShape(name, data),
+    };
+  }
+}
+
+function encodeAttributeValue(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function renderWidgetTag(widget: ParsedWidget): string {
+  const data = encodeAttributeValue(JSON.stringify(widget.data));
+  return `<widget name="${encodeAttributeValue(widget.name)}" data="${data}" />`;
+}
+
+function findWidgetTagEnd(content: string, startIndex: number, tagName: string): number {
+  const lowerContent = content.toLowerCase();
+  const closingTag = `</${tagName.toLowerCase()}>`;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let index = startIndex; index < content.length; index += 1) {
+    const char = content[index]!;
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '=') {
+      // A single-quoted JSON data value may contain apostrophes — the
+      // same-quote toggle below would mis-deliminate it (round 69).
+      const skipped = skipQuotedBalancedValue(content, index);
+      if (skipped !== null) {
+        index = skipped - 1;
+        continue;
+      }
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === '/' && content[index + 1] === '>') return index + 2;
+
+    if (char === '>') {
+      const closingAt = lowerContent.indexOf(closingTag, index + 1);
+      return closingAt === -1 ? -1 : closingAt + closingTag.length;
+    }
+  }
+
+  return -1;
+}
+
+function findNextWidgetTag(
+  content: string,
+  startIndex: number
+): { start: number; end: number } | null {
+  WIDGET_TAG_START_REGEX.lastIndex = startIndex;
+  let match: RegExpExecArray | null;
+
+  while ((match = WIDGET_TAG_START_REGEX.exec(content)) !== null) {
+    const tagName = match[1];
+    if (!tagName) continue;
+    const end = findWidgetTagEnd(content, match.index, tagName);
+    if (end !== -1) return { start: match.index, end };
+  }
+
+  return null;
+}
+
+function normalizeChatWidgetsInText(content: string): string {
+  let index = 0;
+  let result = '';
+  let match: ReturnType<typeof findNextWidgetTag>;
+
+  while ((match = findNextWidgetTag(content, index)) !== null) {
+    result += content.slice(index, match.start);
+    const tag = content.slice(match.start, match.end);
+    const widget = parseWidgetTag(tag);
+    result += widget ? renderWidgetTag(widget) : tag;
+    index = match.end;
+  }
+
+  result += content.slice(index);
+  return result;
+}
+
+export function normalizeChatWidgets(content: string): string {
+  const codeBlockRegex = /```[\s\S]*?```/g;
+  let lastIndex = 0;
+  let result = '';
+  let match: RegExpExecArray | null;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    result += normalizeChatWidgetsInText(content.slice(lastIndex, match.index));
+    result += match[0];
+    lastIndex = match.index + match[0].length;
+  }
+
+  result += normalizeChatWidgetsInText(content.slice(lastIndex));
+  return result;
+}
+
+// ============================================================================
+// Plain-text flattening for non-web channels (Telegram, WhatsApp, Discord, ...)
+// ============================================================================
+
+function asString(value: unknown): string | undefined {
+  if (typeof value === 'string') return value.trim() || undefined;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return undefined;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function pickString(record: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = asString(record[key]);
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function pickNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+    if (typeof raw === 'string') {
+      const parsed = Number(raw.replace(/%$/, '').trim());
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return undefined;
+}
+
+function renderMetricGrid(data: Record<string, unknown>): string {
+  const lines: string[] = [];
+  const title = pickString(data, ['title', 'heading']);
+  if (title) lines.push(`**${title}**`);
+  for (const raw of asArray(data.items)) {
+    if (!isRecord(raw)) continue;
+    const label = pickString(raw, ['label', 'name', 'title', 'key']) ?? '';
+    const value = pickString(raw, ['value', 'count', 'total', 'amount']) ?? '';
+    const detail = pickString(raw, ['detail', 'description', 'change', 'status']);
+    if (!label && !value) continue;
+    const headline = label && value ? `${label}: **${value}**` : label || value;
+    lines.push(detail ? `• ${headline} — ${detail}` : `• ${headline}`);
+  }
+  return lines.join('\n');
+}
+
+function renderTable(data: Record<string, unknown>): string {
+  const headers = asArray(data.headers).map((h) => asString(h) ?? '');
+  const rawRows = asArray(data.rows);
+  const rows: string[][] = rawRows
+    .map((row) => {
+      if (Array.isArray(row)) return row.map((cell) => asString(cell) ?? '');
+      if (isRecord(row)) return headers.map((h) => asString(row[h]) ?? '');
+      return [];
+    })
+    .filter((row) => row.length > 0);
+
+  if (headers.length === 0 && rows.length === 0) return '';
+
+  const lines: string[] = [];
+  const title = pickString(data, ['title', 'heading']);
+  if (title) lines.push(`**${title}**`);
+  if (headers.length > 0) {
+    lines.push(`| ${headers.join(' | ')} |`);
+    lines.push(`| ${headers.map(() => '---').join(' | ')} |`);
+  }
+  for (const row of rows) lines.push(`| ${row.join(' | ')} |`);
+  return lines.join('\n');
+}
+
+function renderList(data: Record<string, unknown>, ordered: boolean): string {
+  const lines: string[] = [];
+  const title = pickString(data, ['title', 'heading']);
+  if (title) lines.push(`**${title}**`);
+  let index = 1;
+  for (const raw of asArray(data.items)) {
+    let text: string | undefined;
+    let done: boolean | undefined;
+    if (isRecord(raw)) {
+      text =
+        pickString(raw, ['text', 'title', 'label', 'name']) ??
+        pickString(raw, ['detail', 'description', 'body']);
+      done = typeof raw.done === 'boolean' ? raw.done : raw.status === 'done' || undefined;
+    } else {
+      text = asString(raw);
+    }
+    if (!text) continue;
+    const marker = ordered ? `${index}.` : '•';
+    const check = done === true ? '[x] ' : done === false ? '[ ] ' : '';
+    lines.push(`${marker} ${check}${text}`);
+    index += 1;
+  }
+  return lines.join('\n');
+}
+
+function renderKeyValue(data: Record<string, unknown>): string {
+  const lines: string[] = [];
+  const title = pickString(data, ['title', 'heading']);
+  if (title) lines.push(`**${title}**`);
+  for (const raw of asArray(data.items)) {
+    if (!isRecord(raw)) continue;
+    const key = pickString(raw, ['key', 'label', 'name', 'title']);
+    const value = pickString(raw, ['value', 'text', 'detail', 'description']);
+    if (key && value) lines.push(`• **${key}:** ${value}`);
+    else if (key) lines.push(`• ${key}`);
+    else if (value) lines.push(`• ${value}`);
+  }
+  return lines.join('\n');
+}
+
+function renderCards(data: Record<string, unknown>): string {
+  const lines: string[] = [];
+  const title = pickString(data, ['title', 'heading']);
+  if (title) lines.push(`**${title}**`);
+  for (const raw of asArray(data.items)) {
+    if (!isRecord(raw)) continue;
+    const cardTitle = pickString(raw, ['title', 'label', 'name']);
+    const body = pickString(raw, ['description', 'detail', 'body', 'text']);
+    if (cardTitle && body) lines.push(`**${cardTitle}** — ${body}`);
+    else if (cardTitle) lines.push(`**${cardTitle}**`);
+    else if (body) lines.push(body);
+  }
+  return lines.join('\n\n');
+}
+
+function renderSteps(data: Record<string, unknown>): string {
+  const lines: string[] = [];
+  const title = pickString(data, ['title', 'heading']);
+  if (title) lines.push(`**${title}**`);
+  let index = 1;
+  for (const raw of asArray(data.items)) {
+    if (!isRecord(raw)) continue;
+    const stepTitle = pickString(raw, ['title', 'label', 'name']);
+    const detail = pickString(raw, ['detail', 'description', 'body', 'text']);
+    if (!stepTitle && !detail) continue;
+    if (stepTitle && detail) lines.push(`${index}. **${stepTitle}** — ${detail}`);
+    else lines.push(`${index}. ${stepTitle ?? detail!}`);
+    index += 1;
+  }
+  return lines.join('\n');
+}
+
+function renderCallout(data: Record<string, unknown>): string {
+  const title = pickString(data, ['title', 'heading']);
+  const body = pickString(data, ['body', 'detail', 'description', 'text', 'message', 'summary']);
+  if (title && body) return `**${title}**\n${body}`;
+  return title ?? body ?? '';
+}
+
+function renderProgress(data: Record<string, unknown>): string {
+  const label = pickString(data, ['label', 'title', 'heading', 'name']) ?? 'Progress';
+  const value = pickNumber(data, ['value', 'percent', 'progress', 'current']) ?? 0;
+  const max = pickNumber(data, ['max', 'total', 'target']) ?? 100;
+  return `${label}: ${value}/${max}`;
+}
+
+function renderBarChart(data: Record<string, unknown>): string {
+  const lines: string[] = [];
+  const title = pickString(data, ['title', 'heading']);
+  if (title) lines.push(`**${title}**`);
+  for (const raw of asArray(data.items)) {
+    if (!isRecord(raw)) continue;
+    const label = pickString(raw, ['label', 'name', 'title']) ?? '';
+    const value =
+      pickString(raw, ['displayValue', 'display']) ??
+      pickNumber(raw, ['value', 'count', 'total', 'amount'])?.toString() ??
+      '';
+    if (!label && !value) continue;
+    lines.push(label && value ? `• ${label}: ${value}` : `• ${label || value}`);
+  }
+  return lines.join('\n');
+}
+
+function renderTimeline(data: Record<string, unknown>): string {
+  const lines: string[] = [];
+  const title = pickString(data, ['title', 'heading']);
+  if (title) lines.push(`**${title}**`);
+  for (const raw of asArray(data.items)) {
+    if (!isRecord(raw)) continue;
+    const time = pickString(raw, ['time', 'date', 'when']);
+    const label = pickString(raw, ['label', 'title', 'name']);
+    const detail = pickString(raw, ['detail', 'description', 'body', 'text']);
+    const head = [time, label].filter(Boolean).join(' — ');
+    if (!head && !detail) continue;
+    lines.push(head && detail ? `• ${head}: ${detail}` : `• ${head || detail!}`);
+  }
+  return lines.join('\n');
+}
+
+function renderWidgetAsText(widget: ParsedWidget): string {
+  if (!isRecord(widget.data)) {
+    const fallback = asString(widget.data);
+    return fallback ?? '';
+  }
+  switch (widget.name) {
+    case 'metric_grid':
+    case 'metrics':
+    case 'metric':
+    case 'stats':
+      return renderMetricGrid(widget.data);
+    case 'table':
+      return renderTable(widget.data);
+    case 'list':
+      return renderList(widget.data, false);
+    case 'checklist':
+      return renderList(widget.data, false);
+    case 'key_value':
+    case 'key_values':
+    case 'facts':
+    case 'details':
+    case 'properties':
+      return renderKeyValue(widget.data);
+    case 'cards':
+    case 'card':
+    case 'card_grid':
+      return renderCards(widget.data);
+    case 'steps':
+    case 'step':
+    case 'plan':
+      return renderSteps(widget.data);
+    case 'callout':
+    case 'note':
+      return renderCallout(widget.data);
+    case 'progress':
+      return renderProgress(widget.data);
+    case 'bar_chart':
+    case 'bar':
+      return renderBarChart(widget.data);
+    case 'timeline':
+      return renderTimeline(widget.data);
+    default:
+      return renderCallout(widget.data);
+  }
+}
+
+function flattenChatWidgetsInText(content: string): string {
+  let index = 0;
+  let result = '';
+  let match: ReturnType<typeof findNextWidgetTag>;
+
+  while ((match = findNextWidgetTag(content, index)) !== null) {
+    result += content.slice(index, match.start);
+    const tag = content.slice(match.start, match.end);
+    const widget = parseWidgetTag(tag);
+    if (widget) {
+      const text = renderWidgetAsText(widget).trim();
+      if (text) result += text;
+    }
+    index = match.end;
+  }
+
+  result += content.slice(index);
+  return result;
+}
+
+/**
+ * Flatten `<widget>` tags to plain-text markdown for non-web channels
+ * (Telegram, WhatsApp, Discord, Slack). Web channels keep the canonical
+ * `<widget>` tags and render them visually in MarkdownContent; this
+ * function exists so chat apps don't get raw XML.
+ *
+ * Content inside fenced code blocks (```) is preserved verbatim.
+ */
+export function flattenChatWidgetsToText(content: string): string {
+  const codeBlockRegex = /```[\s\S]*?```/g;
+  let lastIndex = 0;
+  let result = '';
+  let match: RegExpExecArray | null;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    result += flattenChatWidgetsInText(content.slice(lastIndex, match.index));
+    result += match[0];
+    lastIndex = match.index + match[0].length;
+  }
+
+  result += flattenChatWidgetsInText(content.slice(lastIndex));
+  return result.replace(/\n{3,}/g, '\n\n');
+}

@@ -1,0 +1,235 @@
+/**
+ * Expense Tools — Gateway DB-backed Implementation
+ *
+ * Replaces the file-based expense executors from core/agent/tools/expense-tracker.ts.
+ * Uses ExpensesRepository (PostgreSQL) instead of JSON file storage.
+ *
+ * The tool DEFINITIONS remain in core (for portability). Only the EXECUTORS
+ * are overridden here to use the DB.
+ */
+
+import { getErrorMessage } from '@ownpilot/core/services';
+import { ExpensesRepository } from '../db/repositories/expenses.js';
+import type { ToolExecutionResult } from '../services/tool/executor.js';
+import { wsGateway } from '../ws/server.js';
+import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
+import { customerLocalDay } from '../services/customer-date.js';
+
+/** Local-day 'YYYY-MM-DD' — expense dates and summary windows are
+ * user-calendar days (the DB-backed twin of round 27's core fix).
+ * toISOString() is UTC: in UTC+ timezones an expense added at local 00:30
+ * would be stamped YESTERDAY, and a LOCAL month start paired with a UTC
+ * end day produced an inverted, empty summary window. */
+function localDayString(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')}`;
+}
+
+// ============================================================================
+// Executor
+// ============================================================================
+
+export async function executeExpenseTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  userId = 'default'
+): Promise<ToolExecutionResult> {
+  try {
+    const repo = new ExpensesRepository(userId);
+    const customerScope = userId.startsWith('whatsapp:');
+    const account = customerScope ? await customerAccountsRepo.getByDataUserId(userId) : null;
+    const dayFor = (date: Date) =>
+      customerScope
+        ? customerLocalDay(date, account?.timeZone ?? 'America/Campo_Grande')
+        : localDayString(date);
+
+    switch (toolName) {
+      case 'add_expense': {
+        const expense = await repo.create({
+          date: (args.date as string) ?? dayFor(new Date()),
+          amount: args.amount as number,
+          currency: (args.currency as string) ?? 'BRL',
+          category: (args.category as string) ?? 'other',
+          description: args.description as string,
+          paymentMethod: args.paymentMethod as string | undefined,
+          tags: args.tags as string[] | undefined,
+          notes: args.notes as string | undefined,
+          source: 'manual',
+        });
+        wsGateway.broadcast('data:changed', {
+          entity: 'expense',
+          action: 'created',
+          id: expense.id,
+        });
+        return { success: true, result: expense };
+      }
+
+      case 'batch_add_expenses': {
+        const items = args.expenses as Array<Record<string, unknown>>;
+        if (!Array.isArray(items)) return { success: false, error: 'expenses must be an array' };
+        if (items.length > 100) return { success: false, error: 'Max 100 expenses per batch' };
+
+        const results = [];
+        for (const item of items) {
+          const expense = await repo.create({
+            date: (item.date as string) ?? dayFor(new Date()),
+            amount: item.amount as number,
+            currency: (item.currency as string) ?? 'BRL',
+            category: (item.category as string) ?? 'other',
+            description: item.description as string,
+            paymentMethod: item.paymentMethod as string | undefined,
+            tags: item.tags as string[] | undefined,
+            notes: item.notes as string | undefined,
+            source: 'batch',
+          });
+          results.push(expense);
+        }
+        return { success: true, result: { added: results.length, expenses: results } };
+      }
+
+      case 'query_expenses': {
+        const expenses = await repo.list({
+          dateFrom: args.dateFrom as string | undefined,
+          dateTo: args.dateTo as string | undefined,
+          category: args.category as string | undefined,
+          minAmount: args.minAmount as number | undefined,
+          maxAmount: args.maxAmount as number | undefined,
+          search: args.search as string | undefined,
+          limit: (args.limit as number) ?? 50,
+        });
+        return {
+          success: true,
+          result: {
+            expenses,
+            count: expenses.length,
+            message:
+              expenses.length === 0 ? 'No expenses found.' : `Found ${expenses.length} expense(s).`,
+          },
+        };
+      }
+
+      case 'expense_summary': {
+        const period = (args.period as string) ?? 'this_month';
+        // Calendar arithmetic uses the already resolved customer day. It does
+        // not inherit the gateway process's date at a timezone boundary.
+        const now = customerScope ? new Date(`${dayFor(new Date())}T12:00:00`) : new Date();
+        let dateFrom: string | undefined;
+        let dateTo: string | undefined;
+
+        switch (period) {
+          case 'today':
+            dateFrom = dateTo = localDayString(now);
+            break;
+          case 'this_week': {
+            const day = now.getDay();
+            const start = new Date(now);
+            start.setDate(now.getDate() - day);
+            dateFrom = localDayString(start);
+            dateTo = localDayString(now);
+            break;
+          }
+          case 'this_month':
+            dateFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+            dateTo = localDayString(now);
+            break;
+          case 'last_month': {
+            const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const lastEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+            dateFrom = localDayString(last);
+            dateTo = localDayString(lastEnd);
+            break;
+          }
+          case 'this_year':
+            dateFrom = `${now.getFullYear()}-01-01`;
+            dateTo = localDayString(now);
+            break;
+          case 'all_time':
+            break;
+        }
+
+        const summary = await repo.getSummary(dateFrom, dateTo);
+        const currencies = Object.keys(summary.byCurrency ?? {});
+        if (currencies.length > 1) {
+          // Summing BRL, USD, TRY etc. without FX conversion is misleading.
+          // Return accurate per-currency totals, not the invalid combined amount.
+          return {
+            success: true,
+            result: {
+              period,
+              count: summary.count,
+              byCurrency: summary.byCurrency,
+              warning:
+                'Despesas em moedas diferentes. Apresente os totais por moeda separadamente; não faça a soma sem conversão.',
+            },
+          };
+        }
+        return { success: true, result: { period, ...summary } };
+      }
+
+      case 'update_expense': {
+        const expenseId = args.expenseId as string;
+        const updated = await repo.update(expenseId, {
+          date: args.date as string | undefined,
+          amount: args.amount as number | undefined,
+          currency: args.currency as string | undefined,
+          category: args.category as string | undefined,
+          description: args.description as string | undefined,
+          paymentMethod: args.paymentMethod as string | undefined,
+          tags: args.tags as string[] | undefined,
+          notes: args.notes as string | undefined,
+        });
+        if (!updated) return { success: false, error: `Expense not found: ${expenseId}` };
+        wsGateway.broadcast('data:changed', {
+          entity: 'expense',
+          action: 'updated',
+          id: expenseId,
+        });
+        return { success: true, result: updated };
+      }
+
+      case 'delete_expense': {
+        const expenseId = args.expenseId as string;
+        const deleted = await repo.delete(expenseId);
+        if (!deleted) return { success: false, error: `Expense not found: ${args.expenseId}` };
+        wsGateway.broadcast('data:changed', {
+          entity: 'expense',
+          action: 'deleted',
+          id: expenseId,
+        });
+        return { success: true, result: { message: 'Expense deleted.' } };
+      }
+
+      case 'export_expenses': {
+        const format = (args.format as string) ?? 'json';
+        const expenses = await repo.list({
+          dateFrom: args.dateFrom as string | undefined,
+          dateTo: args.dateTo as string | undefined,
+          category: args.category as string | undefined,
+        });
+
+        if (format === 'csv') {
+          const header = 'id,date,amount,currency,category,description,paymentMethod,tags,notes';
+          const rows = expenses.map(
+            (e) =>
+              `${e.id},${e.date},${e.amount},${e.currency},${e.category},"${e.description}",${e.paymentMethod ?? ''},"${(e.tags ?? []).join(';')}","${e.notes ?? ''}"`
+          );
+          return {
+            success: true,
+            result: { format: 'csv', data: [header, ...rows].join('\n'), count: expenses.length },
+          };
+        }
+
+        return {
+          success: true,
+          result: { format: 'json', data: expenses, count: expenses.length },
+        };
+      }
+
+      default:
+        return { success: false, error: `Unknown expense tool: ${toolName}` };
+    }
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error) };
+  }
+}

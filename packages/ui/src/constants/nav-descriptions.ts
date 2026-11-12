@@ -1,0 +1,70 @@
+/**
+ * Descrições curtas das funções do Astra.
+ *
+ * Fonte única para a busca e os detalhes da personalização; manter pt-BR.
+ */
+export const NAV_DESCRIPTIONS: Record<string, string> = {
+  '/': 'Inicie ou continue uma conversa com o Astra',
+  '/dashboard': 'Resumo de tarefas, anotações e agentes',
+  '/analytics': 'Estatísticas de uso, modelos e tokens',
+  '/channels': 'Canais de mensagens e integrações conectadas',
+  '/history': 'Consulte e pesquise conversas anteriores',
+
+  '/tasks': 'Cadastre, organize e conclua suas tarefas',
+  '/notes': 'Guarde e organize suas anotações',
+  '/calendar': 'Consulte e gerencie seus compromissos',
+  '/contacts': 'Cadastre e encontre seus contatos',
+  '/bookmarks': 'Guarde e organize links importantes',
+  '/expenses': 'Acompanhe seus gastos e despesas',
+  '/habits': 'Organize os hábitos do dia a dia',
+  '/pomodoro': 'Concentre-se usando um temporizador de foco',
+
+  '/memories': 'Informações que o assistente pode lembrar',
+  '/goals': 'Defina e acompanhe seus objetivos',
+  '/plans': 'Organize planos e etapas de execução',
+  '/triggers': 'Configure lembretes e eventos automáticos',
+  '/workflows': 'Monte e execute automações com várias etapas',
+  '/agentic': 'Gerencie recursos e execuções da IA',
+  '/autonomous': 'Gerencie equipes e agentes com tarefas persistentes',
+  '/claws': 'Acompanhe agentes autônomos e suas execuções',
+  '/mission-control': 'Monitore agentes, pendências e atividades',
+  '/coding-agents': 'Gerencie executores e tarefas de programação',
+  '/artifacts': 'Acesse arquivos produzidos pelo assistente',
+  '/canvas': 'Organize elementos numa área visual',
+  '/approvals': 'Revise e autorize ações pendentes da IA',
+  '/autonomy': 'Configure níveis de autonomia e confiança',
+
+  '/tools': 'Explore ferramentas disponíveis para o assistente',
+  '/custom-tools': 'Crie e gerencie ferramentas personalizadas',
+  '/skills': 'Instale e organize habilidades adicionais',
+  '/plugins': 'Gerencie extensões e integrações',
+
+  '/agents': 'Configure perfis reutilizáveis de agentes',
+  '/wizards': 'Acesse assistentes para configuração guiada',
+  '/workspaces': 'Gerencie ambientes e arquivos de trabalho',
+  '/custom-data': 'Cadastre e consulte dados personalizados',
+  '/costs': 'Acompanhe uso e custos de IA',
+  '/logs': 'Consulte atividades e registros do sistema',
+  '/agent-observability': 'Acompanhe a atividade dos agentes em tempo real',
+  '/edge-devices': 'Gerencie conexões de dispositivos e sensores',
+  '/tunnel': 'Gerencie conexões externas ao ambiente',
+
+  '/settings/api-keys': 'Gerencie as chaves dos provedores de IA',
+  '/settings/providers': 'Configure provedores de IA',
+  '/settings/ai-models': 'Escolha modelos e configurações de IA',
+  '/settings/model-routing': 'Configure como os modelos são selecionados',
+  '/settings/security': 'Gerencie a senha e a proteção do acesso',
+  '/settings/security-scanner': 'Execute verificações de segurança',
+  '/settings/tool-groups': 'Organize permissões de ferramentas',
+  '/settings/cli-tools': 'Cadastre ferramentas de linha de comando',
+  '/settings/coding-agents': 'Configure ambientes de programação',
+  '/settings/mcp-servers': 'Gerencie conexões com servidores MCP',
+  '/settings/connected-apps': 'Conecte serviços e aplicativos externos',
+  '/settings/workflow-tools': 'Gerencie ferramentas usadas nas automações',
+  '/settings/config-center': 'Ajuste as configurações globais do Astra',
+  '/settings/layout': 'Personalize a navegação e a aparência',
+  '/settings/system': 'Consulte armazenamento e diagnósticos do sistema',
+
+  '/about': 'Informações sobre o Astra e sua versão',
+  '/profile': 'Gerencie seu perfil e suas preferências',
+};

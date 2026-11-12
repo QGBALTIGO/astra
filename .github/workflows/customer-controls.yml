@@ -1,0 +1,68 @@
+name: Customer touch and keyboard regression
+
+on:
+  pull_request:
+    paths:
+      - 'packages/ui/**'
+      - '.github/workflows/customer-controls.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: customer-controls-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Focus modality unit tests
+        run: pnpm --filter @ownpilot/ui exec vitest run src/pages/customer/interaction.test.ts
+      - name: Check formatting and emit exact correction
+        if: always()
+        run: |
+          pnpm exec prettier --write packages/ui/src/main.tsx packages/ui/src/pages/customer/interaction.ts packages/ui/src/pages/customer/interaction.css packages/ui/src/pages/customer/interaction.test.ts packages/ui/e2e/customer-mobile-controls.spec.ts packages/ui/e2e/customer-controls.config.ts .github/workflows/customer-controls.yml
+          git diff --no-ext-diff > customer-controls-format.patch
+          git diff --exit-code
+      - name: Upload formatting correction
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-controls-format
+          path: customer-controls-format.patch
+          retention-days: 3
+  controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Install Chromium and WebKit
+        run: pnpm --filter @ownpilot/ui exec playwright install chromium webkit --with-deps
+      - name: Test touch, keyboard, date navigation and mobile geometry
+        run: pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-controls.config.ts
+      - name: Upload synthetic screenshots and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-controls-visual-review
+          path: |
+            packages/ui/customer-controls-report
+            packages/ui/test-results
+          retention-days: 7

@@ -1,0 +1,284 @@
+/**
+ * Base Repository Class for PostgreSQL
+ *
+ * All repositories should extend this class for PostgreSQL support
+ */
+
+import { getAdapter } from '../adapters/index.js';
+import type { DatabaseAdapter, Row } from '../adapters/types.js';
+import type { StandardQuery, PaginatedResult } from './interfaces.js';
+import { buildPaginatedResult } from './interfaces.js';
+import { getLog } from '../../services/log.js';
+
+const log = getLog('Repository');
+
+/**
+ * Base class for all PostgreSQL repositories
+ * Provides common database access methods
+ */
+export abstract class BaseRepository {
+  protected adapter: DatabaseAdapter | null = null;
+
+  /**
+   * Get the database adapter (async)
+   */
+  protected async getAdapter(): Promise<DatabaseAdapter> {
+    if (!this.adapter || !this.adapter.isConnected()) {
+      this.adapter = await getAdapter();
+    }
+    return this.adapter;
+  }
+
+  /**
+   * Execute a query that returns rows
+   */
+  protected async query<T extends object = Row>(sql: string, params?: unknown[]): Promise<T[]> {
+    const adapter = await this.getAdapter();
+    return adapter.query<T>(sql, params);
+  }
+
+  /**
+   * Execute a query that returns a single row
+   */
+  protected async queryOne<T extends object = Row>(
+    sql: string,
+    params?: unknown[]
+  ): Promise<T | null> {
+    const adapter = await this.getAdapter();
+    return adapter.queryOne<T>(sql, params);
+  }
+
+  /**
+   * Execute a statement (INSERT, UPDATE, DELETE)
+   */
+  protected async execute(
+    sql: string,
+    params?: unknown[]
+  ): Promise<{ changes: number; lastInsertRowid?: number | bigint }> {
+    const adapter = await this.getAdapter();
+    return adapter.execute(sql, params);
+  }
+
+  /**
+   * Execute raw SQL (for schema changes)
+   */
+  protected async exec(sql: string): Promise<void> {
+    const adapter = await this.getAdapter();
+    return adapter.exec(sql);
+  }
+
+  /**
+   * Run operations in a transaction
+   */
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    const adapter = await this.getAdapter();
+    return adapter.transaction(fn);
+  }
+
+  /**
+   * Get current timestamp SQL
+   */
+  protected now(): string {
+    return this.adapter?.now() ?? 'NOW()';
+  }
+
+  /**
+   * Convert boolean for storage
+   */
+  protected boolean(value: boolean): unknown {
+    return this.adapter?.boolean(value) ?? value;
+  }
+
+  /**
+   * Parse boolean from storage
+   */
+  protected parseBoolean(value: unknown): boolean {
+    return this.adapter?.parseBoolean(value) ?? Boolean(value);
+  }
+
+  /**
+   * Escape LIKE wildcard characters (%, _) in a value.
+   * Use this when building LIKE patterns from user input.
+   */
+  protected escapeLike(value: string): string {
+    // Backslash MUST be escaped first — it is LIKE's escape character. A
+    // literal backslash left unescaped corrupts the rest of the pattern: the
+    // escape added to a following %/_ gets consumed (re-enabling the
+    // wildcard) and \b collapses to a literal 'b' match (round 26).
+    return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+  }
+
+  /**
+   * Execute a paginated query with automatic count.
+   *
+   * @param baseSql - The base SELECT query (without ORDER BY, LIMIT, OFFSET)
+   * @param countSql - The matching COUNT(*) query
+   * @param query - Standard query parameters for pagination
+   * @param params - Base parameters for both queries
+   * @param defaultOrderBy - Default ORDER BY clause if query.orderBy is not set
+   * @param allowedOrderByColumns - Optional set of allowed column names for ORDER BY (security)
+   * @returns Rows and total count, ready for buildPaginatedResult
+   */
+  protected async paginatedQuery<T extends object = Row>(
+    baseSql: string,
+    countSql: string,
+    query: StandardQuery = {},
+    params: unknown[] = [],
+    defaultOrderBy = 'created_at DESC',
+    allowedOrderByColumns?: Set<string>
+  ): Promise<{ rows: T[]; total: number; limit: number; offset: number }> {
+    // Round 73: LIMIT bounds the actual row-pull size, so it gets the same
+    // defense H-D11 gave offset. The route layer caps limit (helpers.ts
+    // Math.min(Math.max(1,…), maxLimit); caps 100/500), but repos called
+    // directly from non-HTTP contexts (jobs, channels) bypass routes and
+    // could pass limit=1_000_000 (whole-table materialization in one query)
+    // or an invalid value (negative → PG syntax error; NaN → driver error).
+    // MAX_LIMIT mirrors MAX_OFFSET and sits above every legitimate route
+    // caller's cap, so no valid flow changes.
+    const MAX_LIMIT = 10_000;
+    const DEFAULT_LIMIT = 50;
+    const rawLimit = query.limit;
+    const limit =
+      typeof rawLimit !== 'number' || !Number.isFinite(rawLimit)
+        ? DEFAULT_LIMIT
+        : Math.min(MAX_LIMIT, Math.max(1, rawLimit));
+    if (
+      typeof rawLimit === 'number' &&
+      Number.isFinite(rawLimit) &&
+      (rawLimit > MAX_LIMIT || rawLimit < 1)
+    ) {
+      log.warn(
+        `[paginatedQuery] limit ${rawLimit} clamped to ${limit} — direct repo callers should pass a bounded limit`
+      );
+    }
+
+    // H-D11: clamp offset to bound deep-paging table-scan cost. Mirrors the
+    // route-layer cap in helpers.ts so repos called directly from non-HTTP
+    // contexts (jobs, channels) are equally bounded.
+    const MAX_OFFSET = 10000;
+    const rawOffset = query.offset ?? 0;
+    const offset = Math.min(MAX_OFFSET, Math.max(0, rawOffset));
+    if (rawOffset > MAX_OFFSET) {
+      log.warn(
+        `[paginatedQuery] offset ${rawOffset} clamped to ${MAX_OFFSET} — consider keyset pagination`
+      );
+    }
+
+    // Count query
+    const countResult = await this.queryOne<{ count: string }>(countSql, params);
+    const total = parseInt(countResult?.count ?? '0', 10);
+
+    // H-D2 fix: secure-by-default ORDER BY. The previous behavior accepted
+    // any identifier-shaped column when no allowlist was passed, which
+    // turned a `?orderBy=` query param into a column-existence oracle and
+    // let callers pivot to expensive/unindexed columns (table-scan DoS).
+    //
+    // Contract is now:
+    //   - allowedOrderByColumns absent → user orderBy is IGNORED entirely
+    //     (fall back to defaultOrderBy and log a warning to the operator)
+    //   - allowedOrderByColumns present → orderBy must be in the allowlist
+    let orderClause = defaultOrderBy;
+    if (query.orderBy) {
+      if (!allowedOrderByColumns) {
+        log.warn(
+          `[SQL Injection Prevention] orderBy '${query.orderBy}' ignored — caller did not provide an allowlist`
+        );
+      } else if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(query.orderBy)) {
+        log.warn(
+          `[SQL Injection Prevention] orderBy '${query.orderBy}' ignored — invalid identifier format`
+        );
+      } else if (!allowedOrderByColumns.has(query.orderBy)) {
+        log.warn(
+          `[SQL Injection Prevention] orderBy '${query.orderBy}' ignored — not in allowlist`
+        );
+      } else {
+        const dir = query.orderDir === 'asc' ? 'ASC' : 'DESC';
+        orderClause = `${query.orderBy} ${dir}`;
+      }
+    }
+
+    // Data query with pagination
+    const paramIndex = params.length + 1;
+    const dataSql = `${baseSql} ORDER BY ${orderClause} LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    const rows = await this.query<T>(dataSql, [...params, limit, offset]);
+
+    return { rows, total, limit, offset };
+  }
+
+  /**
+   * Build a PaginatedResult from rows and total.
+   */
+  protected buildPaginated<T>(
+    items: T[],
+    total: number,
+    limit: number,
+    offset: number
+  ): PaginatedResult<T> {
+    return buildPaginatedResult(items, total, limit, offset);
+  }
+}
+
+/**
+ * Ensure the PostgreSQL schema exists for a table
+ * Call this in repository initialization
+ */
+export async function ensureTable(tableName: string, createSQL: string): Promise<void> {
+  const adapter = await getAdapter();
+
+  // Check if table exists
+  const result = await adapter.queryOne<{ exists: boolean }>(
+    `SELECT EXISTS (
+      SELECT FROM information_schema.tables
+      WHERE table_schema = 'public'
+      AND table_name = $1
+    ) as exists`,
+    [tableName]
+  );
+
+  if (!result?.exists) {
+    await adapter.exec(createSQL);
+    log.info(`[PostgreSQL] Created table: ${tableName}`);
+  }
+}
+
+/**
+ * Parse a JSON column that may be stored as a string (SQLite) or already parsed (PostgreSQL).
+ * Returns the fallback when the value is null, undefined, or an empty string.
+ */
+export function parseJsonField<T>(value: unknown, fallback: T): T {
+  if (typeof value === 'string') {
+    if (!value) return fallback;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return (value as T) ?? fallback;
+}
+
+/**
+ * Parse a nullable JSON column. Returns null when the value is null, undefined, or empty.
+ */
+/**
+ * Parse a boolean value that may arrive as a real boolean, a string
+ * ('true'/'false'), or a numeric (0/1) depending on the driver.
+ */
+export function parseBool(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value === 'true';
+  return value === 1;
+}
+
+export function parseJsonFieldNullable<T>(value: unknown): T | null {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    if (!value) return null;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return null;
+    }
+  }
+  return value as T;
+}

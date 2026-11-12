@@ -1,0 +1,452 @@
+/**
+ * Agent cache infrastructure and provider/config helpers.
+ *
+ * Extracted from agents.ts — contains runtime caches, LRU eviction,
+ * provider resolution, and config-related helpers.
+ */
+
+import {
+  type Agent,
+  type AgentConfig,
+  getProviderConfig as coreGetProviderConfig,
+} from '@ownpilot/core/agent';
+import { TOOL_GROUPS } from '@ownpilot/core/tools';
+import { generateId } from '@ownpilot/core/services';
+import { getModelPricing } from '@ownpilot/core/costs';
+import type { AIProvider } from '@ownpilot/core/costs';
+import { generateId as _genId } from '@ownpilot/core/services';
+import { localProvidersRepo } from '../../db/repositories/index.js';
+import { getApiKey } from '../app-settings.js';
+import { toHostPath } from '../../utils/host-path.js';
+import { getApprovalManager, checkAutonomy, AutonomyLevel } from '../../autonomy/index.js';
+import type { ActionCategory } from '../../autonomy/index.js';
+import type { SoulAutonomy } from '@ownpilot/core/agent';
+import {
+  MAX_AGENT_CACHE_SIZE,
+  MAX_CHAT_AGENT_CACHE_SIZE,
+  AGENT_CREATE_DEFAULT_MAX_TOKENS,
+  AGENT_DEFAULT_TEMPERATURE,
+  AGENT_DEFAULT_MAX_TURNS,
+  AGENT_DEFAULT_MAX_TOOL_CALLS,
+} from '../../config/defaults.js';
+import { getLog } from '../log.js';
+import { safeStringArray } from '../../tools/agent-tool-registry.js';
+
+const log = getLog('AgentCache');
+
+/** Providers with built-in SDK support (non-native fall back to OpenAI-compatible) */
+export const NATIVE_PROVIDERS = new Set([
+  'openai',
+  'anthropic',
+  'google',
+  'deepseek',
+  'groq',
+  'mistral',
+  'xai',
+  'together',
+  'fireworks',
+  'perplexity',
+]);
+
+/**
+ * Hardcoded baseUrls for known OpenAI-compatible providers.
+ * Used as final fallback when no JSON config or local provider exists.
+ * This ensures providers like groq work even if data/providers/groq.json hasn't been synced.
+ */
+const CANONICAL_PROVIDER_BASEURLS: Record<string, string> = {
+  groq: 'https://api.groq.com/openai/v1',
+  deepseek: 'https://api.deepseek.com/v1',
+  mistral: 'https://api.mistral.ai/v1',
+  together: 'https://api.together.xyz/v1',
+  fireworks: 'https://api.fireworks.ai/inference/v1',
+  perplexity: 'https://api.perplexity.ai',
+  xai: 'https://api.x.ai/v1',
+};
+
+// Runtime agent cache (runtime instances, not serializable)
+export const agentCache = new Map<string, Agent>();
+export const agentConfigCache = new Map<string, AgentConfig>();
+export const chatAgentCache = new Map<string, Agent>(); // Chat agents keyed by provider:model
+export { MAX_AGENT_CACHE_SIZE, MAX_CHAT_AGENT_CACHE_SIZE };
+
+/** LRU touch: move entry to end of Map iteration order */
+export function lruGet<V>(cache: Map<string, V>, key: string): V | undefined {
+  const value = cache.get(key);
+  if (value !== undefined) {
+    cache.delete(key);
+    cache.set(key, value);
+  }
+  return value;
+}
+
+// In-flight creation promises to prevent duplicate concurrent creation
+export const pendingAgents = new Map<string, Promise<Agent>>();
+export const pendingChatAgents = new Map<string, Promise<Agent>>();
+
+/**
+ * Clear all agent caches
+ * Call this when custom tools, plugins, or other dynamic resources change
+ */
+export function invalidateAgentCache(): void {
+  agentCache.clear();
+  agentConfigCache.clear();
+  chatAgentCache.clear();
+  pendingAgents.clear();
+  pendingChatAgents.clear();
+  log.info('Agent cache invalidated due to tool/plugin changes');
+}
+
+/**
+ * Generate unique agent ID
+ */
+export function generateAgentId(): string {
+  return generateId('agent');
+}
+
+/**
+ * Create a requestApproval callback for agent configs.
+ * Bridges the Agent tool system to the ApprovalManager.
+ *
+ * NOTE: This callback is used in non-streaming contexts where there is no
+ * bidirectional channel to the user. If approval is required and no remembered
+ * decision exists, the action is rejected immediately and the pending action
+ * is cleaned up. Streaming paths use wireStreamApproval() instead, which can
+ * send approval_required SSE events and await user response.
+ */
+export function createApprovalCallback(): AgentConfig['requestApproval'] {
+  return async (category, actionType, description, params) => {
+    const approvalMgr = getApprovalManager();
+    const result = await approvalMgr.requestApproval(
+      'default',
+      category as ActionCategory,
+      actionType,
+      description,
+      params
+    );
+    if (!result) return true;
+    if (result.action.status === 'rejected') return false;
+
+    // Non-streaming: no way to prompt user — reject and clean up the pending action
+    approvalMgr.processDecision({
+      actionId: result.action.id,
+      decision: 'reject',
+      reason: 'Auto-rejected: approval not available in non-streaming context',
+    });
+    return false;
+  };
+}
+
+/**
+ * Create a requestApproval callback that enforces SoulAutonomy rules.
+ * This integrates the soul's autonomy level with the approval system.
+ *
+ * AGENT-HIGH-002: Autonomy Level Enforcement
+ * - Level 0 (MANUAL): All actions require approval
+ * - Level 1 (ASSISTED): Only allowedActions bypass approval
+ * - Level 2 (SUPERVISED): Risk-based with explicit lists
+ * - Level 3 (AUTONOMOUS): Allow unless blocked, notify
+ * - Level 4 (FULL): Allow unless blocked, minimal notifications
+ */
+export function createSoulAwareApprovalCallback(
+  agentId: string,
+  agentName: string,
+  autonomy: SoulAutonomy
+): AgentConfig['requestApproval'] {
+  return async (category, actionType, description, params) => {
+    // First check: blocked actions always block
+    if (autonomy.blockedActions.includes(actionType)) {
+      log.warn(`Action blocked by soul configuration`, {
+        agentId,
+        actionType,
+        reason: 'in blockedActions',
+      });
+      return false;
+    }
+
+    // Apply autonomy level rules
+    const decision = checkAutonomy(
+      { autonomy, agentId, agentName },
+      category as ActionCategory,
+      actionType,
+      description
+    );
+
+    // If not allowed and doesn't require approval, it's permanently blocked
+    if (!decision.allowed && !decision.requiresApproval) {
+      log.warn(`Action blocked by autonomy guard`, {
+        agentId,
+        actionType,
+        reason: decision.reason,
+      });
+      return false;
+    }
+
+    // If allowed without approval, proceed
+    if (decision.allowed && !decision.requiresApproval) {
+      // Log autonomous actions at higher levels
+      if (autonomy.level >= AutonomyLevel.AUTONOMOUS && decision.notify) {
+        log.info(`Autonomous action executed`, { agentId, actionType, level: autonomy.level });
+      }
+      return true;
+    }
+
+    // Requires approval - delegate to ApprovalManager
+    const approvalMgr = getApprovalManager();
+    const result = await approvalMgr.requestApproval(
+      'default',
+      category as ActionCategory,
+      actionType,
+      description,
+      params,
+      { metadata: { agentId, agentName, autonomyLevel: autonomy.level } }
+    );
+
+    if (!result) return true; // Auto-approved by risk assessment
+    if (result.action.status === 'rejected') return false;
+
+    // Non-streaming: auto-reject
+    approvalMgr.processDecision({
+      actionId: result.action.id,
+      decision: 'reject',
+      reason: 'Auto-rejected: approval not available in non-streaming context',
+    });
+    return false;
+  };
+}
+
+/**
+ * Helper: Get API key for a provider
+ * Uses getApiKey from settings which checks both env vars and database
+ */
+export async function getProviderApiKey(provider: string): Promise<string | undefined> {
+  // Check local provider first (may have its own API key, or none required)
+  const localProv = await localProvidersRepo.getProvider(provider);
+  if (localProv) {
+    // Local providers may not require API key; return key or a dummy placeholder
+    return localProv.apiKey || 'local-no-key';
+  }
+  // Fallback to remote provider API key
+  return await getApiKey(provider);
+}
+
+/**
+ * Load provider config from core module
+ * Uses the core's getProviderConfig which properly resolves JSON paths
+ */
+export function loadProviderConfig(
+  providerId: string,
+  pageContext?: { path?: string } | null
+): {
+  baseUrl?: string;
+  apiKeyEnv?: string;
+  type?: string;
+  headers?: Record<string, string>;
+  endpoint?: string;
+  features?: {
+    streaming?: boolean;
+    toolUse?: boolean;
+    vision?: boolean;
+    jsonMode?: boolean;
+    systemMessage?: boolean;
+  };
+} | null {
+  // 1. Check builtin provider configs
+  const config = coreGetProviderConfig(providerId);
+  if (config) {
+    return {
+      baseUrl: config.baseUrl,
+      apiKeyEnv: config.apiKeyEnv,
+      type: config.type,
+      headers: config.headers,
+      endpoint: config.endpoint,
+      features: config.features,
+    };
+  }
+
+  // 2. Check local providers (sync access via cache)
+  const localProv = localProvidersRepo.getProviderSync(providerId);
+  if (localProv) {
+    // Ensure baseUrl ends with /v1 for OpenAI-compatible chat/completions endpoint
+    // Discovery uses its own endpoint paths, but the provider SDK appends /chat/completions
+    const base = localProv.baseUrl.replace(/\/+$/, '');
+    const baseUrl = base.endsWith('/v1') ? base : `${base}/v1`;
+    // Bridge multi-provider routing: if provider name starts with 'bridge-',
+    // inject X-Runtime header so the bridge routes to the correct runtime
+    const headers: Record<string, string> = {};
+    if (localProv.name?.startsWith('bridge-')) {
+      headers['X-Runtime'] = localProv.name.replace('bridge-', '');
+    }
+    // X-Project-Dir: forward host path to bridge for CWD routing
+    if (localProv.name?.startsWith('bridge-') && pageContext?.path) {
+      const hostPath = toHostPath(pageContext.path);
+      if (hostPath) {
+        headers['X-Project-Dir'] = hostPath;
+      }
+    }
+    return {
+      baseUrl,
+      apiKeyEnv: undefined,
+      type: 'openai-compatible',
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+    };
+  }
+
+  // 3. Use canonical baseUrl for known providers (fallback if JSON not synced yet)
+  const canonicalBaseUrl = CANONICAL_PROVIDER_BASEURLS[providerId];
+  if (canonicalBaseUrl) {
+    return {
+      baseUrl: canonicalBaseUrl,
+      apiKeyEnv: undefined,
+      type: 'openai-compatible',
+      headers: undefined,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Resolve context window size using the fallback chain:
+ * 1. User model config override (from AI Models settings)
+ * 2. Provider JSON config (accurate per-model data from models.dev)
+ * 3. Static pricing database (may not have all models)
+ * 4. Hardcoded fallback: 128K
+ */
+export function resolveContextWindow(
+  provider: string,
+  model: string,
+  userOverride?: number
+): number {
+  if (userOverride !== undefined) return userOverride;
+
+  // Provider config has accurate context windows for all models (loaded from JSON)
+  const providerConfig = coreGetProviderConfig(provider);
+  const modelConfig = providerConfig?.models?.find((m) => m.id === model);
+  if (modelConfig?.contextWindow) return modelConfig.contextWindow;
+
+  // Static pricing database (fallback — may match wrong model variant)
+  const pricing = getModelPricing(provider as AIProvider, model);
+  return pricing?.contextWindow ?? 128_000;
+}
+
+/**
+ * Resolve the model's max output token cap using the same fallback chain
+ * as `resolveContextWindow`. Returned value is the absolute output ceiling
+ * for the model, sourced from models.dev when synced, falling back to the
+ * pricing database, then a conservative 4K default.
+ *
+ * Used to size the output buffer reserved inside the in-memory cap so we
+ * never request more output tokens than the model can actually produce.
+ */
+export function resolveMaxOutput(provider: string, model: string): number {
+  const providerConfig = coreGetProviderConfig(provider);
+  const modelConfig = providerConfig?.models?.find((m) => m.id === model);
+  if (modelConfig?.maxOutput) return modelConfig.maxOutput;
+
+  const pricing = getModelPricing(provider as AIProvider, model);
+  return pricing?.maxOutput ?? 4096;
+}
+
+/**
+ * Compute a safe in-memory message-history cap that leaves room for the
+ * system prompt, dynamic per-request injection (extensions/skills/context),
+ * the model's output, and a safety margin.
+ *
+ * Used by both the chat path (`agent-service.ts`) and the autonomous runner
+ * path (`agent-runner-utils.ts`) so all agents stay safely inside the
+ * model's context window regardless of window size.
+ *
+ * Inputs:
+ * - `ctxWindow`: total context window for the model (tokens).
+ * - `systemPromptTokens`: estimated tokens in the static system prompt.
+ * - `outputBuffer`: tokens to reserve for the model's response. Should be
+ *   `min(AGENT_DEFAULT_MAX_TOKENS, resolveMaxOutput(provider, model))`.
+ * - `dynamicInjectionReserve` (optional): defaults to `min(8192, 25% of
+ *   window)` — empirical headroom for middleware that grows the prompt at
+ *   request time. Pass 0 for runners that don't use injection middleware.
+ *
+ * The cap is bounded below by 1024 (so tiny windows still have a usable
+ * message budget) and above by 75% of the window (legacy baseline so we're
+ * never more permissive than the original heuristic).
+ */
+export function computeMemoryMaxTokens(opts: {
+  ctxWindow: number;
+  systemPromptTokens: number;
+  outputBuffer: number;
+  dynamicInjectionReserve?: number;
+}): number {
+  const SAFETY_MARGIN_TOKENS = 1024;
+  const reserve = opts.dynamicInjectionReserve ?? Math.min(8192, Math.floor(opts.ctxWindow * 0.25));
+  return Math.max(
+    1024,
+    Math.min(
+      Math.floor(opts.ctxWindow * 0.75),
+      opts.ctxWindow - opts.systemPromptTokens - reserve - opts.outputBuffer - SAFETY_MARGIN_TOKENS
+    )
+  );
+}
+
+/**
+ * Resolve toolGroups to individual tool names
+ */
+export function resolveToolGroups(
+  toolGroups: string[] | undefined,
+  explicitTools: string[] | undefined
+): string[] {
+  const tools = new Set<string>();
+
+  // Add explicit tools first
+  if (explicitTools && explicitTools.length > 0) {
+    for (const tool of explicitTools) {
+      tools.add(tool);
+    }
+  }
+
+  // Add tools from groups
+  if (toolGroups && toolGroups.length > 0) {
+    for (const groupId of toolGroups) {
+      const group = TOOL_GROUPS[groupId];
+      if (group) {
+        for (const tool of group.tools) {
+          tools.add(tool);
+        }
+      }
+    }
+  }
+
+  return Array.from(tools);
+}
+
+/** Resolve configured tools and toolGroups from an agent record's config */
+export function resolveRecordTools(config: Record<string, unknown>): {
+  configuredTools: string[] | undefined;
+  configuredToolGroups: string[] | undefined;
+  tools: string[];
+} {
+  const configuredTools = safeStringArray(config.tools);
+  const configuredToolGroups = safeStringArray(config.toolGroups);
+  const tools = resolveToolGroups(configuredToolGroups, configuredTools);
+  return { configuredTools, configuredToolGroups, tools };
+}
+
+/** Build standardized agent config response object */
+export function buildAgentConfigResponse(
+  config: Record<string, unknown>,
+  configuredTools: string[] | undefined,
+  configuredToolGroups: string[] | undefined
+) {
+  return {
+    maxTokens: (config.maxTokens as number) ?? AGENT_CREATE_DEFAULT_MAX_TOKENS,
+    temperature: (config.temperature as number) ?? AGENT_DEFAULT_TEMPERATURE,
+    maxTurns: (config.maxTurns as number) ?? AGENT_DEFAULT_MAX_TURNS,
+    maxToolCalls: (config.maxToolCalls as number) ?? AGENT_DEFAULT_MAX_TOOL_CALLS,
+    tools: configuredTools,
+    toolGroups: configuredToolGroups,
+  };
+}
+
+/** Invalidate both agent caches for a given agent ID */
+export function evictAgentFromCache(id: string): void {
+  agentCache.delete(id);
+  agentConfigCache.delete(id);
+}

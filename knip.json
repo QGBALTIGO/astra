@@ -1,0 +1,25 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "ignoreBinaries": ["cloudflared", "pg_dump"],
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.mjs", "scripts/generate-provider-configs.ts"]
+    },
+    "packages/core": {},
+    "packages/gateway": {
+      "entry": [
+        "src/mcp/cli-mcp-server.ts",
+        "src/mcp/e2e-test.ts",
+        "scripts/generate-squashed-migration.ts"
+      ],
+      "ignoreDependencies": ["@types/adm-zip"]
+    },
+    "packages/cli": {},
+    "packages/ui": {
+      "entry": ["dev-proxy.mjs", "e2e/**/*.ts"]
+    },
+    "website": {
+      "entry": ["index.html"]
+    }
+  }
+}

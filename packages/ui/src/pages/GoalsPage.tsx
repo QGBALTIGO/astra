@@ -1,0 +1,691 @@
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router';
+import { useGateway } from '../hooks/useWebSocket';
+import { useSkipHome } from '../hooks/useSkipHome';
+import { useDebouncedCallback } from '../hooks';
+import { goalsApi } from '../api';
+import { silentCatch } from '../utils/ignore-error';
+import { parseLocalDay } from '../utils/formatters';
+import type { Goal, GoalStep } from '../api';
+import {
+  Target,
+  Plus,
+  Trash2,
+  ChevronRight,
+  CheckCircle2,
+  Circle,
+  AlertTriangle,
+  Pause,
+  Star,
+  BarChart,
+  Sparkles,
+  Home,
+  RefreshCw,
+} from '../components/icons';
+import { useDialog } from '../components/ConfirmDialog';
+import { useToast } from '../components/ToastProvider';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+import { EmptyState } from '../components/EmptyState';
+import { useModalClose } from '../hooks';
+import { PageHomeTab } from '../components/PageHomeTab';
+
+type TabId = 'home' | 'goals';
+const TAB_LABELS: Record<TabId, string> = { home: 'Como funciona', goals: 'Objetivos' };
+
+const statusColors = {
+  active: 'bg-primary/10 text-primary',
+  paused: 'bg-warning/10 text-warning',
+  completed: 'bg-success/10 text-success',
+  abandoned: 'bg-text-muted/10 text-text-muted',
+};
+
+const statusLabels: Record<Goal['status'] | 'all', string> = {
+  all: 'Todos',
+  active: 'Ativo',
+  paused: 'Pausado',
+  completed: 'Concluído',
+  abandoned: 'Abandonado',
+};
+
+const priorityLabels: Record<number, string> = {
+  1: 'Muito baixa',
+  2: 'Baixa',
+  3: 'Baixa',
+  4: 'Normal',
+  5: 'Normal',
+  6: 'Normal',
+  7: 'Alta',
+  8: 'Alta',
+  9: 'Crítica',
+  10: 'Crítica',
+};
+
+export function GoalsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Skip home preference from localStorage
+  const { skipHome, onSkipHomeChange } = useSkipHome({
+    pageName: 'goals',
+    defaultTab: 'goals',
+  });
+
+  const activeTab = (searchParams.get('tab') as TabId) || 'goals';
+  const setActiveTab = (t: TabId) => setSearchParams({ tab: t });
+
+  const { confirm } = useDialog();
+  const toast = useToast();
+  const { subscribe } = useGateway();
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<Goal['status'] | 'all'>('all');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [expandedGoal, setExpandedGoal] = useState<string | null>(null);
+  const fetchGoals = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const params: Record<string, string> = {};
+      if (statusFilter !== 'all') {
+        params.status = statusFilter;
+      }
+
+      const data = await goalsApi.list(params);
+      setGoals(data.goals);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar os objetivos');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [statusFilter]);
+
+  useEffect(() => {
+    fetchGoals();
+  }, [fetchGoals]);
+
+  const debouncedRefresh = useDebouncedCallback(() => fetchGoals(), 2000);
+
+  useEffect(() => {
+    const unsub = subscribe<{ entity: string }>('data:changed', (data) => {
+      if (data.entity === 'goal') debouncedRefresh();
+    });
+    return () => {
+      unsub();
+    };
+  }, [subscribe, debouncedRefresh]);
+
+  const handleDelete = useCallback(
+    async (goalId: string) => {
+      if (
+        !(await confirm({
+          message: 'Excluir este objetivo? Essa ação não pode ser desfeita.',
+          variant: 'danger',
+        }))
+      )
+        return;
+
+      try {
+        await goalsApi.delete(goalId);
+        toast.success('Objetivo excluído.');
+        fetchGoals();
+      } catch {
+        // API client handles error reporting
+      }
+    },
+    [confirm, toast, fetchGoals]
+  );
+
+  const handleStatusChange = useCallback(
+    async (goalId: string, status: Goal['status']) => {
+      try {
+        await goalsApi.update(goalId, { status });
+        toast.success(`Objetivo: ${statusLabels[status].toLowerCase()}.`);
+        fetchGoals();
+      } catch {
+        // API client handles error reporting
+      }
+    },
+    [toast, fetchGoals]
+  );
+
+  const activeCount = useMemo(() => goals.filter((g) => g.status === 'active').length, [goals]);
+  const completedCount = useMemo(
+    () => goals.filter((g) => g.status === 'completed').length,
+    [goals]
+  );
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 dark:border-dark-border sm:px-6">
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
+            Objetivos
+          </h2>
+          <p className="text-sm text-text-muted dark:text-dark-text-muted">
+            {activeCount} ativos, {completedCount} concluídos
+          </p>
+        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Novo objetivo
+        </button>
+      </header>
+
+      {/* URL-based tabs */}
+      <div className="flex border-b border-border dark:border-dark-border px-6">
+        {(['home', 'goals'] as TabId[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setActiveTab(t)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === t
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-muted dark:text-dark-text-muted hover:text-text-secondary dark:hover:text-dark-text-secondary hover:border-border dark:hover:border-dark-border'
+            }`}
+          >
+            {t === 'home' && <Home className="w-3.5 h-3.5" />}
+            {TAB_LABELS[t]}
+          </button>
+        ))}
+      </div>
+
+      {/* Home Tab */}
+      {activeTab === 'home' && (
+        <div className="flex-1 overflow-y-auto p-6">
+          <PageHomeTab
+            heroIcons={[
+              { icon: Target, color: 'text-primary bg-primary/10' },
+              { icon: CheckCircle2, color: 'text-emerald-500 bg-emerald-500/10' },
+              { icon: Star, color: 'text-violet-500 bg-violet-500/10' },
+            ]}
+            title="Meus objetivos"
+            subtitle="Defina objetivos pessoais ou profissionais, acompanhe etapas e organize seu progresso com a ajuda do Astra."
+            cta={{ label: 'Ver objetivos', icon: Target, onClick: () => setActiveTab('goals') }}
+            skipHomeChecked={skipHome}
+            onSkipHomeChange={onSkipHomeChange}
+            skipHomeLabel="Ir diretamente para Objetivos"
+            features={[
+              {
+                icon: Target,
+                color: 'text-blue-500 bg-blue-500/10',
+                title: 'Planejamento de objetivos',
+                description: 'Defina o que deseja alcançar com título, descrição e prazo.',
+              },
+              {
+                icon: CheckCircle2,
+                color: 'text-green-500 bg-green-500/10',
+                title: 'Acompanhamento de etapas',
+                description: 'Divida objetivos em etapas e acompanhe sua conclusão.',
+              },
+              {
+                icon: BarChart,
+                color: 'text-amber-500 bg-amber-500/10',
+                title: 'Gráficos de progresso',
+                description: 'Visualize seu avanço por meio de indicadores percentuais.',
+              },
+              {
+                icon: Sparkles,
+                color: 'text-violet-500 bg-violet-500/10',
+                title: 'Apoio da IA',
+                description: 'Receba sugestões de próximos passos de acordo com seus objetivos.',
+              },
+            ]}
+            steps={[
+              {
+                title: 'Criar um objetivo',
+                detail: 'Informe o resultado desejado com título e descrição claros.',
+              },
+              {
+                title: 'Defina as etapas',
+                detail: 'Organize o objetivo em passos práticos para acompanhar a evolução.',
+              },
+              {
+                title: 'Acompanhe seu progresso',
+                detail: 'Atualize a situação das etapas conforme forem concluídas.',
+              },
+              {
+                title: 'Sugestões da IA',
+                detail: 'Consulte o Astra para decidir quais ações priorizar.',
+              },
+            ]}
+          />
+        </div>
+      )}
+
+      {/* Goals Tab */}
+      {activeTab === 'goals' && (
+        <>
+          {/* Filters */}
+          <div className="flex min-w-0 gap-2 overflow-x-auto border-b border-border px-4 py-3 dark:border-dark-border sm:px-6">
+            {(['all', 'active', 'paused', 'completed', 'abandoned'] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={`shrink-0 rounded-full px-3 py-1 text-sm transition-colors ${
+                  statusFilter === status
+                    ? 'bg-primary text-white'
+                    : 'bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-secondary dark:text-dark-text-secondary hover:bg-bg-secondary dark:hover:bg-dark-bg-secondary'
+                }`}
+              >
+                {statusLabels[status]}
+              </button>
+            ))}
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-6 animate-fade-in-up">
+            {isLoading ? (
+              <LoadingSpinner message="Carregando objetivos..." />
+            ) : error ? (
+              <EmptyState
+                icon={AlertTriangle}
+                title="Não foi possível carregar os objetivos"
+                description={error}
+                variant="card"
+                action={{
+                  label: 'Tentar novamente',
+                  onClick: fetchGoals,
+                  icon: RefreshCw,
+                }}
+              />
+            ) : goals.length === 0 ? (
+              <EmptyState
+                icon={Target}
+                title={
+                  statusFilter === 'all'
+                    ? 'Nenhum objetivo ainda'
+                    : `Nenhum objetivo com status ${statusLabels[statusFilter].toLowerCase()}`
+                }
+                description={
+                  statusFilter === 'all'
+                    ? 'Crie objetivos e acompanhe seu progresso. O Astra pode ajudar a dividir cada meta em etapas práticas.'
+                    : `Não há objetivos com status ${statusLabels[statusFilter].toLowerCase()}.`
+                }
+                variant="card"
+                iconBgColor="bg-amber-500/10 dark:bg-amber-500/20"
+                iconColor="text-amber-500"
+                action={{
+                  label: 'Criar objetivo',
+                  onClick: () => setShowCreateModal(true),
+                  icon: Plus,
+                }}
+              />
+            ) : (
+              <div className="space-y-3">
+                {goals.map((goal) => (
+                  <GoalItem
+                    key={goal.id}
+                    goal={goal}
+                    isExpanded={expandedGoal === goal.id}
+                    onToggle={() => setExpandedGoal(expandedGoal === goal.id ? null : goal.id)}
+                    onEdit={() => setEditingGoal(goal)}
+                    onDelete={() => handleDelete(goal.id)}
+                    onStatusChange={(status) => handleStatusChange(goal.id, status)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Create/Edit Modal */}
+      {(showCreateModal || editingGoal) && (
+        <GoalModal
+          goal={editingGoal}
+          onClose={() => {
+            setShowCreateModal(false);
+            setEditingGoal(null);
+          }}
+          onSave={() => {
+            toast.success(editingGoal ? 'Goal updated' : 'Goal created');
+            setShowCreateModal(false);
+            setEditingGoal(null);
+            fetchGoals();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+interface GoalItemProps {
+  goal: Goal;
+  isExpanded: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onStatusChange: (status: Goal['status']) => void;
+}
+
+function GoalItem({ goal, isExpanded, onToggle, onEdit, onDelete, onStatusChange }: GoalItemProps) {
+  const [steps, setSteps] = useState<GoalStep[]>([]);
+  const [loadingSteps, setLoadingSteps] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (isExpanded && steps.length === 0) {
+      setLoadingSteps(true);
+      goalsApi
+        .steps(goal.id)
+        .then((data) => {
+          if (!cancelled) setSteps(data.steps);
+        })
+        .catch(silentCatch('goals.steps'))
+        .finally(() => {
+          if (!cancelled) setLoadingSteps(false);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [isExpanded, goal.id, steps.length]);
+
+  const handleStepStatusChange = useCallback(
+    async (stepId: string, status: GoalStep['status']) => {
+      try {
+        await goalsApi.updateStep(goal.id, stepId, { status });
+        setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, status } : s)));
+      } catch {
+        // API client handles error reporting
+      }
+    },
+    [goal.id]
+  );
+
+  return (
+    <div className="card-elevated card-hover bg-bg-secondary dark:bg-dark-bg-secondary border border-border dark:border-dark-border rounded-lg overflow-hidden">
+      <div className="flex items-start gap-3 p-4">
+        <button
+          onClick={onToggle}
+          className="mt-1 flex-shrink-0 text-text-muted dark:text-dark-text-muted hover:text-primary transition-colors"
+          aria-label={isExpanded ? 'Collapse goal steps' : 'Expand goal steps'}
+        >
+          <ChevronRight
+            className={`w-5 h-5 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+          />
+        </button>
+
+        <div
+          className="flex-1 min-w-0 cursor-pointer"
+          role="button"
+          tabIndex={0}
+          onClick={onEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onEdit();
+            }
+          }}
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <span className="font-medium text-text-primary dark:text-dark-text-primary">
+              {goal.title}
+            </span>
+            <span className={`px-2 py-0.5 text-xs rounded-full ${statusColors[goal.status]}`}>
+              {goal.status}
+            </span>
+            <span className="px-2 py-0.5 text-xs rounded-full bg-bg-tertiary dark:bg-dark-bg-tertiary text-text-muted dark:text-dark-text-muted">
+              P{goal.priority}
+            </span>
+          </div>
+
+          {goal.description && (
+            <p className="text-sm text-text-muted dark:text-dark-text-muted line-clamp-2">
+              {goal.description}
+            </p>
+          )}
+
+          <div className="mt-2">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-2 bg-bg-tertiary dark:bg-dark-bg-tertiary rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${goal.progress}%` }}
+                />
+              </div>
+              <span className="text-xs text-text-muted dark:text-dark-text-muted">
+                {Math.round(goal.progress)}%
+              </span>
+            </div>
+          </div>
+
+          {goal.dueDate && (
+            <p className="mt-2 text-xs text-text-muted dark:text-dark-text-muted">
+              Due: {parseLocalDay(goal.dueDate).toLocaleDateString()}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1">
+          {goal.status === 'active' && (
+            <button
+              onClick={() => onStatusChange('completed')}
+              className="p-1 text-text-muted dark:text-dark-text-muted hover:text-success transition-colors"
+              title="Marcar como concluído"
+              aria-label="Concluir objetivo"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+            </button>
+          )}
+          {goal.status === 'active' && (
+            <button
+              onClick={() => onStatusChange('paused')}
+              className="p-1 text-text-muted dark:text-dark-text-muted hover:text-warning transition-colors"
+              title="Pausar"
+              aria-label="Pausar objetivo"
+            >
+              <Pause className="w-4 h-4" />
+            </button>
+          )}
+          {goal.status === 'paused' && (
+            <button
+              onClick={() => onStatusChange('active')}
+              className="p-1 text-text-muted dark:text-dark-text-muted hover:text-primary transition-colors"
+              title="Retomar"
+              aria-label="Retomar objetivo"
+            >
+              <Target className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            onClick={onDelete}
+            className="p-1 text-text-muted dark:text-dark-text-muted hover:text-error transition-colors"
+            aria-label="Excluir objetivo"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded Steps */}
+      {isExpanded && (
+        <div className="border-t border-border dark:border-dark-border bg-bg-tertiary/50 dark:bg-dark-bg-tertiary/50 p-4">
+          {loadingSteps ? (
+            <p className="text-sm text-text-muted dark:text-dark-text-muted">Loading steps...</p>
+          ) : steps.length === 0 ? (
+            <p className="text-sm text-text-muted dark:text-dark-text-muted">
+              No steps defined. Ask the AI to decompose this goal.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {steps.map((step) => (
+                <div key={step.id} className="flex items-center gap-2">
+                  <button
+                    onClick={() =>
+                      handleStepStatusChange(
+                        step.id,
+                        step.status === 'completed' ? 'pending' : 'completed'
+                      )
+                    }
+                    className="flex-shrink-0"
+                    aria-label={
+                      step.status === 'completed' ? 'Mark step as pending' : 'Mark step as complete'
+                    }
+                  >
+                    {step.status === 'completed' ? (
+                      <CheckCircle2 className="w-4 h-4 text-success" />
+                    ) : step.status === 'blocked' ? (
+                      <AlertTriangle className="w-4 h-4 text-warning" />
+                    ) : (
+                      <Circle className="w-4 h-4 text-text-muted dark:text-dark-text-muted" />
+                    )}
+                  </button>
+                  <span
+                    className={`text-sm ${
+                      step.status === 'completed'
+                        ? 'text-text-muted dark:text-dark-text-muted line-through'
+                        : 'text-text-primary dark:text-dark-text-primary'
+                    }`}
+                  >
+                    {step.title}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface GoalModalProps {
+  goal: Goal | null;
+  onClose: () => void;
+  onSave: () => void;
+}
+
+function GoalModal({ goal, onClose, onSave }: GoalModalProps) {
+  const { onBackdropClick } = useModalClose(onClose);
+  const [title, setTitle] = useState(goal?.title ?? '');
+  const [description, setDescription] = useState(goal?.description ?? '');
+  const [priority, setPriority] = useState(goal?.priority ?? 5);
+  const [dueDate, setDueDate] = useState(goal?.dueDate ?? '');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!title.trim()) return;
+
+      setIsSaving(true);
+      try {
+        const body = {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          priority,
+          dueDate: dueDate || undefined,
+        };
+
+        if (goal) {
+          await goalsApi.update(goal.id, body);
+        } else {
+          await goalsApi.create(body);
+        }
+        onSave();
+      } catch {
+        // API client handles error reporting
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [title, description, priority, dueDate, goal, onSave]
+  );
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      onClick={onBackdropClick}
+    >
+      <div className="w-full max-w-lg bg-bg-primary dark:bg-dark-bg-primary border border-border dark:border-dark-border rounded-xl shadow-xl">
+        <form onSubmit={handleSubmit}>
+          <div className="p-6 border-b border-border dark:border-dark-border">
+            <h3 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
+              {goal ? 'Editar objetivo' : 'Criar objetivo'}
+            </h3>
+          </div>
+
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
+                Title
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Qual objetivo deseja alcançar?"
+                className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
+                Description
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Adicione mais detalhes..."
+                rows={3}
+                className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
+                  Priority ({priorityLabels[priority] || 'Normal'})
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={priority}
+                  onChange={(e) => setPriority(parseInt(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-secondary dark:text-dark-text-secondary mb-1">
+                  Due Date
+                </label>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4 border-t border-border dark:border-dark-border flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-text-secondary dark:text-dark-text-secondary hover:bg-bg-tertiary dark:hover:bg-dark-bg-tertiary rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!title.trim() || isSaving}
+              className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isSaving ? 'Salvando...' : goal ? 'Salvar' : 'Criar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,165 @@
+/**
+ * @ownpilot/gateway
+ *
+ * HTTP API gateway for OwnPilot
+ *
+ * @packageDocumentation
+ */
+
+// App
+export { createApp } from './app.js';
+
+// Types
+export type {
+  ApiResponse,
+  ApiError,
+  ResponseMeta,
+  ChatRequest,
+  ChatResponse,
+  StreamChunkResponse,
+  CreateAgentRequest,
+  AgentInfo,
+  ConversationInfo,
+  ToolInfo,
+  HealthResponse,
+  HealthCheck,
+  GatewayConfig,
+  RateLimitConfig,
+  AuthConfig,
+} from './types/index.js';
+
+// Middleware
+export {
+  requestId,
+  timing,
+  createAuthMiddleware,
+  createOptionalAuthMiddleware,
+  createRateLimitMiddleware,
+  createSlidingWindowRateLimiter,
+  errorHandler,
+  notFoundHandler,
+} from './middleware/index.js';
+
+// Routes
+export {
+  healthRoutes,
+  agentRoutes,
+  chatRoutes,
+  toolsRoutes,
+  getAgent,
+  getOrCreateDefaultAgent,
+} from './routes/index.js';
+
+// Scheduler
+export { initializeScheduler, getScheduler, stopScheduler } from './scheduler/index.js';
+
+// Channels (plugin-based)
+export { createChannelServiceImpl, getChannelServiceImpl } from './channels/service-impl.js';
+
+// Settings (database-driven)
+export {
+  getApiKey,
+  hasApiKey,
+  getDefaultProvider,
+  getDefaultModel,
+  setDefaultProvider,
+  setDefaultModel,
+  loadApiKeysToEnvironment,
+  resolveDefaultProviderAndModel,
+  isDemoModeFromSettings,
+} from './services/app-settings.js';
+
+// Database
+export { initializeAdapter, closeAdapter, getAdapter } from './db/adapters/index.js';
+export { settingsRepo } from './db/repositories/index.js';
+export { initializeSettingsRepo } from './db/repositories/settings/index.js';
+export { initializeConfigServicesRepo } from './db/repositories/config-services.js';
+export { initializeLocalProvidersRepo } from './db/repositories/local-providers.js';
+export { initializePluginsRepo } from './db/repositories/plugins.js';
+export { seedConfigServices } from './db/seeds/config-services-seed.js';
+
+// Plugins
+export { initializePlugins, getDefaultPluginRegistry } from './plugins/index.js';
+
+// ACP (Agent Client Protocol) server — lets external IDEs/tools drive
+// OwnPilot as if it were any other ACP-compliant agent.
+export { runAcpServer, AcpServerAgent } from './acp/acp-server.js';
+
+// Config defaults (shared with CLI)
+export { RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS } from './config/defaults.js';
+
+// Data Paths (for proper data directory management)
+export {
+  getDataPaths,
+  getDataPath,
+  getWorkspacePath,
+  getDatabasePath,
+  initializeDataDirectories,
+  areDataDirectoriesInitialized,
+  getDataDirectoryInfo,
+  setDataPathEnvironment,
+  hasLegacyData,
+  getLegacyDataPath,
+  type DataPaths,
+  type DataDirType,
+  type WorkspaceSubdir,
+} from './paths/index.js';
+
+// Services (gateway implementations)
+export {
+  // Log
+  LogService,
+  createLogService,
+  type LogServiceOptions,
+  // Session
+  SessionService,
+  createSessionService,
+  // Message Bus
+  MessageBus,
+  createMessageBus,
+  // Config Center
+  GatewayConfigCenter,
+  gatewayConfigCenter,
+  // Tool
+  ToolService,
+  createToolService,
+  // Provider
+  ProviderService,
+  createProviderService,
+  // Audit
+  AuditService,
+  createAuditService,
+  // Plugin
+  PluginServiceImpl,
+  createPluginService,
+  // Memory
+  MemoryService,
+  getMemoryService,
+  // Database
+  CustomDataService,
+  getCustomDataService,
+  // Workspace
+  WorkspaceServiceImpl,
+  createWorkspaceServiceImpl,
+  // Goal
+  GoalService,
+  getGoalService,
+  // Trigger
+  TriggerService,
+  getTriggerService,
+  // Plan
+  PlanService,
+  getPlanService,
+  // Resource
+  ResourceServiceImpl,
+  createResourceServiceImpl,
+} from './services/index.js';
+
+// Data Migration
+export {
+  needsMigration,
+  getMigrationStatus,
+  migrateData,
+  autoMigrateIfNeeded,
+  type MigrationResult,
+} from './paths/migration.js';

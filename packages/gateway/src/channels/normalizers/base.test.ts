@@ -1,0 +1,387 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
+import {
+  baseNormalizer,
+  createBaseNormalizer,
+  stripInternalTags,
+  transcribeAudioAttachment,
+} from './base.js';
+
+// Hoisted mocks so they can be overridden per test
+const { mockGetConfig, mockTranscribe } = vi.hoisted(() => ({
+  mockGetConfig: vi.fn(async () => ({
+    available: false,
+    sttSupported: false,
+    sttAvailable: false,
+  })),
+  mockTranscribe: vi.fn(async () => ({ text: '' })),
+}));
+
+vi.mock('../../services/voice-service.js', () => ({
+  getVoiceService: () => ({
+    getConfig: mockGetConfig,
+    transcribe: mockTranscribe,
+  }),
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetConfig.mockResolvedValue({
+    available: false,
+    sttSupported: false,
+    sttAvailable: false,
+  });
+  mockTranscribe.mockResolvedValue({ text: '' });
+});
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function makeMsg(overrides: Partial<ChannelIncomingMessage> = {}): ChannelIncomingMessage {
+  return {
+    id: 'msg-1',
+    channelPluginId: 'default-1',
+    platform: 'generic',
+    platformChatId: 'chat-123',
+    text: 'Hello world',
+    sender: {
+      platformUserId: 'user-1',
+      displayName: 'Test User',
+    },
+    receivedAt: new Date(),
+    ...overrides,
+  };
+}
+
+// ============================================================================
+// stripInternalTags
+// ============================================================================
+
+describe('stripInternalTags', () => {
+  it('strips <memories> tags', () => {
+    expect(stripInternalTags('Hello <memories>secret</memories> world')).toBe('Hello  world');
+  });
+
+  it('strips <suggestions> tags', () => {
+    expect(stripInternalTags('Text <suggestions>hint</suggestions>')).toBe('Text');
+  });
+
+  it('strips unclosed <suggestions> tags', () => {
+    expect(stripInternalTags('Text <suggestions>[{"title":"A","detail":"B"}]')).toBe('Text');
+  });
+
+  it('strips unclosed <memories> tags', () => {
+    expect(stripInternalTags('Text <memories>[{"type":"fact","content":"x"}]')).toBe('Text');
+  });
+
+  it('strips thinking tags', () => {
+    expect(stripInternalTags('Before <thinking>internal chain</thinking> after')).toBe(
+      'Before  after'
+    );
+    expect(stripInternalTags('Before <think>unfinished')).toBe('Before');
+  });
+
+  it('strips <system> tags', () => {
+    expect(stripInternalTags('Before <system>internal</system> after')).toBe('Before  after');
+  });
+
+  it('strips <context> tags', () => {
+    expect(stripInternalTags('A <context>injected context</context> B')).toBe('A  B');
+  });
+
+  it('strips multiple different tags', () => {
+    const input = '<memories>m</memories>Hello<suggestions>s</suggestions><system>sys</system>';
+    const result = stripInternalTags(input);
+    expect(result).toBe('Hello');
+  });
+
+  it('strips multiline tag content', () => {
+    const input = 'Text <memories>\nline1\nline2\n</memories> end';
+    expect(stripInternalTags(input)).toBe('Text  end');
+  });
+
+  it('returns empty string for only-tags input', () => {
+    expect(stripInternalTags('<memories>stuff</memories>')).toBe('');
+  });
+
+  it('handles text with no tags', () => {
+    expect(stripInternalTags('plain text')).toBe('plain text');
+  });
+
+  it('trims whitespace from result', () => {
+    expect(stripInternalTags('  hello  ')).toBe('hello');
+  });
+});
+
+// ============================================================================
+// baseNormalizer.normalizeIncoming
+// ============================================================================
+
+describe('baseNormalizer.normalizeIncoming', () => {
+  it('passes through text as-is', async () => {
+    const result = await baseNormalizer.normalizeIncoming(makeMsg({ text: 'Hello world' }));
+    expect(result.text).toBe('Hello world');
+  });
+
+  it('returns [Attachment] for empty text with attachments', async () => {
+    const result = await baseNormalizer.normalizeIncoming(
+      makeMsg({
+        text: '',
+        attachments: [
+          {
+            type: 'image',
+            mimeType: 'image/png',
+            data: Buffer.from('test'),
+            filename: 'img.png',
+            size: 4,
+          },
+        ],
+      })
+    );
+    expect(result.text).toBe('[Attachment]');
+  });
+
+  it('returns empty string for empty text with no attachments', async () => {
+    const result = await baseNormalizer.normalizeIncoming(makeMsg({ text: '' }));
+    expect(result.text).toBe('');
+  });
+
+  it('converts attachments to base64 data URIs', async () => {
+    const data = Buffer.from('hello');
+    const result = await baseNormalizer.normalizeIncoming(
+      makeMsg({
+        attachments: [
+          { type: 'document', mimeType: 'text/plain', data, filename: 'f.txt', size: 5 },
+        ],
+      })
+    );
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments![0].data).toMatch(/^data:text\/plain;base64,/);
+  });
+
+  it('filters out attachments without data', async () => {
+    const result = await baseNormalizer.normalizeIncoming(
+      makeMsg({
+        attachments: [{ type: 'image', mimeType: 'image/png', filename: 'no-data.png', size: 0 }],
+      })
+    );
+    expect(result.attachments).toBeUndefined();
+  });
+
+  it('handles message with no attachments', async () => {
+    const result = await baseNormalizer.normalizeIncoming(makeMsg({ text: 'hi' }));
+    expect(result.attachments).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// baseNormalizer.normalizeOutgoing
+// ============================================================================
+
+describe('baseNormalizer.normalizeOutgoing', () => {
+  it('returns text as single-element array', () => {
+    expect(baseNormalizer.normalizeOutgoing('Hello world')).toEqual(['Hello world']);
+  });
+
+  it('strips internal tags from output', () => {
+    const parts = baseNormalizer.normalizeOutgoing('Reply <memories>secret</memories> here');
+    expect(parts).toEqual(['Reply  here']);
+  });
+
+  it('returns empty array for empty string', () => {
+    expect(baseNormalizer.normalizeOutgoing('')).toEqual([]);
+  });
+
+  it('returns empty array when response is only internal tags', () => {
+    expect(
+      baseNormalizer.normalizeOutgoing('<memories>data</memories><suggestions>s</suggestions>')
+    ).toEqual([]);
+  });
+
+  it('does not split long messages (no platform limit)', () => {
+    const longText = 'A'.repeat(10000);
+    const parts = baseNormalizer.normalizeOutgoing(longText);
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toBe(longText);
+  });
+
+  it('splits long messages when built with a platform length limit', () => {
+    const normalizer = createBaseNormalizer('sms', 100);
+    const longText = 'word '.repeat(60).trim(); // ~299 chars, splits at spaces
+    const parts = normalizer.normalizeOutgoing(longText);
+
+    expect(parts.length).toBeGreaterThan(1);
+    for (const part of parts) expect(part.length).toBeLessThanOrEqual(100);
+    // Content round-trips (modulo the whitespace consumed at split points).
+    expect(parts.join(' ').replace(/\s+/g, ' ').trim()).toBe(longText);
+  });
+
+  it('strips internal tags before splitting', () => {
+    const normalizer = createBaseNormalizer('sms', 100);
+    const parts = normalizer.normalizeOutgoing('<think>secret reasoning</think>visible');
+    expect(parts.join('')).not.toContain('secret');
+    expect(parts.join('')).toContain('visible');
+  });
+
+  it('flattens <widget> tags to plain text — never leaks raw XML', () => {
+    const response = `Report:\n<widget name="metric_grid" data='{"items":[{"label":"Total","value":"28"}]}' />\nDone.`;
+    const parts = baseNormalizer.normalizeOutgoing(response);
+    expect(parts[0]).not.toContain('<widget');
+    expect(parts[0]).not.toContain('&quot;');
+    expect(parts[0]).toContain('Total');
+    expect(parts[0]).toContain('28');
+    expect(parts[0]).toContain('Done.');
+  });
+});
+
+// ============================================================================
+// transcribeAudioAttachment
+// ============================================================================
+
+describe('transcribeAudioAttachment', () => {
+  it('returns null when voice service is not available', async () => {
+    mockGetConfig.mockResolvedValueOnce({
+      available: false,
+      sttSupported: false,
+      sttAvailable: false,
+    });
+    const result = await transcribeAudioAttachment(new Uint8Array([1, 2, 3]), 'audio/ogg');
+    expect(result).toBeNull();
+  });
+
+  it('returns transcription text when voice service is available', async () => {
+    mockGetConfig.mockResolvedValueOnce({
+      available: true,
+      sttSupported: true,
+      sttAvailable: true,
+    });
+    mockTranscribe.mockResolvedValueOnce({ text: 'hello world' });
+
+    const result = await transcribeAudioAttachment(new Uint8Array([1, 2, 3]), 'audio/ogg');
+    expect(result).toBe('hello world');
+    expect(mockTranscribe).toHaveBeenCalledWith(expect.any(Buffer), 'voice.ogg');
+  });
+
+  it('uses correct extension for different mime types', async () => {
+    mockGetConfig.mockResolvedValueOnce({
+      available: true,
+      sttSupported: true,
+      sttAvailable: true,
+    });
+    mockTranscribe.mockResolvedValueOnce({ text: 'test' });
+
+    await transcribeAudioAttachment(new Uint8Array([1]), 'audio/mpeg');
+    expect(mockTranscribe).toHaveBeenCalledWith(expect.any(Buffer), 'voice.mp3');
+  });
+
+  it('maps Telegram opus voice messages to ogg extension', async () => {
+    mockGetConfig.mockResolvedValueOnce({
+      available: true,
+      sttSupported: true,
+      sttAvailable: true,
+    });
+    mockTranscribe.mockResolvedValueOnce({ text: 'test' });
+
+    await transcribeAudioAttachment(new Uint8Array([1]), 'audio/opus');
+    expect(mockTranscribe).toHaveBeenCalledWith(expect.any(Buffer), 'voice.ogg');
+  });
+
+  it('falls back to ogg extension for unknown mime type', async () => {
+    mockGetConfig.mockResolvedValueOnce({
+      available: true,
+      sttSupported: true,
+      sttAvailable: true,
+    });
+    mockTranscribe.mockResolvedValueOnce({ text: 'test' });
+
+    await transcribeAudioAttachment(new Uint8Array([1]), 'audio/unknown-format');
+    expect(mockTranscribe).toHaveBeenCalledWith(expect.any(Buffer), 'voice.ogg');
+  });
+
+  it('returns null when transcription returns empty text', async () => {
+    mockGetConfig.mockResolvedValueOnce({
+      available: true,
+      sttSupported: true,
+      sttAvailable: true,
+    });
+    mockTranscribe.mockResolvedValueOnce({ text: '  ' });
+
+    const result = await transcribeAudioAttachment(new Uint8Array([1]), 'audio/ogg');
+    expect(result).toBeNull();
+  });
+
+  it('returns null on transcription error', async () => {
+    mockGetConfig.mockResolvedValueOnce({
+      available: true,
+      sttSupported: true,
+      sttAvailable: true,
+    });
+    mockTranscribe.mockRejectedValueOnce(new Error('transcription failed'));
+
+    const result = await transcribeAudioAttachment(new Uint8Array([1]), 'audio/ogg');
+    expect(result).toBeNull();
+  });
+});
+
+// ============================================================================
+// baseNormalizer.normalizeIncoming — audio transcription integration
+// ============================================================================
+
+describe('baseNormalizer.normalizeIncoming — audio transcription', () => {
+  it('prepends transcription as [Voice message] prefix', async () => {
+    mockGetConfig.mockResolvedValue({
+      available: true,
+      sttSupported: true,
+      sttAvailable: true,
+    });
+    mockTranscribe.mockResolvedValue({ text: 'Hello from audio' });
+
+    const result = await baseNormalizer.normalizeIncoming(
+      makeMsg({
+        text: '',
+        attachments: [{ type: 'audio', mimeType: 'audio/ogg', data: Buffer.from('audio data') }],
+      })
+    );
+
+    expect(result.text).toContain('[Voice message]: Hello from audio');
+  });
+
+  it('combines transcription with existing text using double newline', async () => {
+    mockGetConfig.mockResolvedValue({
+      available: true,
+      sttSupported: true,
+      sttAvailable: true,
+    });
+    mockTranscribe.mockResolvedValue({ text: 'Audio text' });
+
+    const result = await baseNormalizer.normalizeIncoming(
+      makeMsg({
+        text: 'Also typed this',
+        attachments: [{ type: 'audio', mimeType: 'audio/ogg', data: Buffer.from('audio') }],
+      })
+    );
+
+    expect(result.text).toContain('[Voice message]: Audio text');
+    expect(result.text).toContain('Also typed this');
+    expect(result.text).toContain('\n\n');
+  });
+
+  it('skips audio transcription when voice service unavailable', async () => {
+    mockGetConfig.mockResolvedValue({
+      available: false,
+      sttSupported: false,
+      sttAvailable: false,
+    });
+
+    const result = await baseNormalizer.normalizeIncoming(
+      makeMsg({
+        text: 'only text',
+        attachments: [{ type: 'audio', mimeType: 'audio/ogg', data: Buffer.from('audio') }],
+      })
+    );
+
+    expect(result.text).toBe('only text');
+    expect(mockTranscribe).not.toHaveBeenCalled();
+  });
+});

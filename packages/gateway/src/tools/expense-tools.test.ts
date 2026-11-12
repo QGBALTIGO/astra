@@ -1,0 +1,257 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const mockAccount = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock('../db/repositories/customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: mockAccount },
+}));
+
+// ── Mocks ──
+
+const mockRepo = {
+  create: vi.fn(async (input: Record<string, unknown>) => ({ id: 'exp-1', ...input })),
+  list: vi.fn(async () => []),
+  get: vi.fn(async () => null),
+  update: vi.fn(async () => null),
+  delete: vi.fn(async () => true),
+  getSummary: vi.fn(async () => ({ totalAmount: 0, count: 0, byCategory: {}, byCurrency: {} })),
+};
+
+vi.mock('../db/repositories/expenses.js', () => ({
+  ExpensesRepository: vi.fn(function () {
+    return mockRepo;
+  }),
+}));
+
+const { executeExpenseTool } = await import('./expense-tools.js');
+
+// ── Tests ──
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe('executeExpenseTool', () => {
+  it('uses a WhatsApp customer timezone for creation and today totals', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-11T02:00:00Z'));
+    mockAccount
+      .mockResolvedValueOnce({ timeZone: 'America/Campo_Grande' })
+      .mockResolvedValueOnce({ timeZone: 'America/Campo_Grande' });
+    try {
+      await executeExpenseTool(
+        'add_expense',
+        { amount: 10, description: 'Café' },
+        'whatsapp:5511999990101'
+      );
+      expect(mockRepo.create).toHaveBeenCalledWith(expect.objectContaining({ date: '2026-11-10' }));
+      await executeExpenseTool('expense_summary', { period: 'today' }, 'whatsapp:5511999990101');
+      expect(mockRepo.getSummary).toHaveBeenCalledWith('2026-11-10', '2026-11-10');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('add_expense creates an expense', async () => {
+    const result = await executeExpenseTool(
+      'add_expense',
+      {
+        amount: 42.5,
+        description: 'Coffee',
+        category: 'food',
+      },
+      'user-1'
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 42.5,
+        description: 'Coffee',
+        category: 'food',
+        currency: 'BRL',
+      })
+    );
+  });
+
+  it('batch_add_expenses creates multiple', async () => {
+    const result = await executeExpenseTool(
+      'batch_add_expenses',
+      {
+        expenses: [
+          { amount: 10, description: 'A' },
+          { amount: 20, description: 'B' },
+        ],
+      },
+      'user-1'
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockRepo.create).toHaveBeenCalledTimes(2);
+    expect((result.result as { added: number }).added).toBe(2);
+  });
+
+  it('batch_add_expenses rejects non-array', async () => {
+    const result = await executeExpenseTool(
+      'batch_add_expenses',
+      { expenses: 'not array' },
+      'user-1'
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it('query_expenses returns expenses', async () => {
+    mockRepo.list.mockResolvedValue([{ id: 'e1', amount: 50 }]);
+    const result = await executeExpenseTool('query_expenses', { category: 'food' }, 'user-1');
+
+    expect(result.success).toBe(true);
+    expect((result.result as { count: number }).count).toBe(1);
+  });
+
+  it('expense_summary returns aggregated data', async () => {
+    mockRepo.getSummary.mockResolvedValue({
+      totalAmount: 150,
+      count: 3,
+      byCategory: { food: { amount: 100, count: 2 } },
+      byCurrency: { TRY: 150 },
+    });
+
+    const result = await executeExpenseTool('expense_summary', { period: 'this_month' }, 'user-1');
+
+    expect(result.success).toBe(true);
+    expect((result.result as { totalAmount: number }).totalAmount).toBe(150);
+  });
+
+  it('does not invent a single monetary total when expenses mix currencies', async () => {
+    mockRepo.getSummary.mockResolvedValue({
+      totalAmount: 150,
+      count: 2,
+      byCategory: { food: { amount: 150, count: 2 } },
+      byCurrency: { BRL: 50, USD: 100 },
+    });
+
+    const result = await executeExpenseTool('expense_summary', { period: 'today' }, 'user-1');
+    expect(result.success).toBe(true);
+    const summary = result.result as Record<string, unknown>;
+    expect(summary).not.toHaveProperty('totalAmount');
+    expect(summary.byCurrency).toEqual({ BRL: 50, USD: 100 });
+    expect(summary.warning).toContain('moedas diferentes');
+  });
+
+  it('update_expense updates and returns', async () => {
+    mockRepo.update.mockResolvedValue({ id: 'e1', amount: 99 });
+    const result = await executeExpenseTool(
+      'update_expense',
+      { expenseId: 'e1', amount: 99 },
+      'user-1'
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('update_expense returns error for missing', async () => {
+    mockRepo.update.mockResolvedValue(null);
+    const result = await executeExpenseTool('update_expense', { expenseId: 'missing' }, 'user-1');
+    expect(result.success).toBe(false);
+  });
+
+  it('delete_expense succeeds', async () => {
+    const result = await executeExpenseTool('delete_expense', { expenseId: 'e1' }, 'user-1');
+    expect(result.success).toBe(true);
+  });
+
+  it('delete_expense returns error for missing', async () => {
+    mockRepo.delete.mockResolvedValue(false);
+    const result = await executeExpenseTool('delete_expense', { expenseId: 'missing' }, 'user-1');
+    expect(result.success).toBe(false);
+  });
+
+  it('export_expenses returns JSON format', async () => {
+    mockRepo.list.mockResolvedValue([{ id: 'e1', amount: 50 }]);
+    const result = await executeExpenseTool('export_expenses', { format: 'json' }, 'user-1');
+
+    expect(result.success).toBe(true);
+    expect((result.result as { format: string }).format).toBe('json');
+  });
+
+  it('export_expenses returns CSV format', async () => {
+    mockRepo.list.mockResolvedValue([
+      {
+        id: 'e1',
+        date: '2026-01-01',
+        amount: 50,
+        currency: 'TRY',
+        category: 'food',
+        description: 'Test',
+        paymentMethod: 'card',
+        tags: [],
+        notes: '',
+      },
+    ]);
+    const result = await executeExpenseTool('export_expenses', { format: 'csv' }, 'user-1');
+
+    expect(result.success).toBe(true);
+    expect((result.result as { format: string }).format).toBe('csv');
+    expect((result.result as { data: string }).data).toContain('id,date,amount');
+  });
+
+  it('returns error for unknown tool', async () => {
+    const result = await executeExpenseTool('unknown', {}, 'user-1');
+    expect(result.success).toBe(false);
+  });
+
+  it('catches exceptions', async () => {
+    mockRepo.create.mockRejectedValue(new Error('DB down'));
+    const result = await executeExpenseTool(
+      'add_expense',
+      { amount: 1, description: 'x' },
+      'user-1'
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('DB down');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Calendar-day basis (round 41 regression) — the DB-backed twin of round 27
+// ---------------------------------------------------------------------------
+
+describe('executeExpenseTool calendar-day basis (round 41 regression)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('add_expense defaults to the LOCAL day, not the UTC day', async () => {
+    vi.useFakeTimers();
+    // Local Oct 1 00:30 — on UTC+ hosts the UTC clock still reads Sep 30,
+    // so the old UTC-derived default stamped the expense YESTERDAY.
+    vi.setSystemTime(new Date(2026, 9, 1, 0, 30, 0));
+
+    await executeExpenseTool(
+      'add_expense',
+      { amount: 1, category: 'food', description: 'late-night snack' },
+      'user-1'
+    );
+
+    expect(mockRepo.create.mock.calls[0]![0]).toMatchObject({ date: '2026-10-01' });
+  });
+
+  it('expense_summary this_month window is locally based and never inverted', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 1, 0, 30, 0));
+
+    await executeExpenseTool('expense_summary', { period: 'this_month' }, 'user-1');
+
+    // Regression: the old code paired a LOCAL month start with a UTC end
+    // day — at local month start in UTC+ zones the window was INVERTED
+    // ([2026-10-01, 2026-09-30]) and selected nothing.
+    const [from, to] = mockRepo.getSummary.mock.calls[0]! as [string, string];
+    expect(from <= to).toBe(true);
+    expect(to).toBe('2026-10-01');
+  });
+
+  it('expense_summary today window equals the local day', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 1, 0, 30, 0));
+
+    await executeExpenseTool('expense_summary', { period: 'today' }, 'user-1');
+
+    const [from, to] = mockRepo.getSummary.mock.calls[0]! as [string, string];
+    expect([from, to]).toEqual(['2026-10-01', '2026-10-01']);
+  });
+});

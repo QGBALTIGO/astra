@@ -1,0 +1,743 @@
+/**
+ * Personal Data Routes
+ *
+ * API endpoints for managing personal data:
+ * - Tasks
+ * - Bookmarks
+ * - Notes
+ * - Calendar Events
+ * - Contacts
+ */
+
+import { LOCAL_OWNER_ID } from '../config/defaults.js';
+import { Hono } from 'hono';
+import {
+  TasksRepository,
+  BookmarksRepository,
+  NotesRepository,
+  CalendarRepository,
+  ContactsRepository,
+  HabitsRepository,
+  ExpensesRepository,
+  type TaskQuery,
+  type BookmarkQuery,
+  type NoteQuery,
+  type CreateEventInput,
+  type UpdateEventInput,
+  type EventQuery,
+  type ContactQuery,
+} from '../db/repositories/index.js';
+import {
+  apiResponse,
+  apiError,
+  ERROR_CODES,
+  getErrorMessage,
+  getIntParam,
+  getOptionalIntParam,
+  validateQueryEnum,
+  notFoundError,
+} from './helpers.js';
+import {
+  validateBody,
+  createTaskSchema,
+  updateTaskSchema,
+  createBookmarkSchema,
+  updateBookmarkSchema,
+  createNoteSchema,
+  updateNoteSchema,
+  createContactSchema,
+  updateContactSchema,
+  createCalendarEventSchema,
+  updateCalendarEventSchema,
+} from '../middleware/validation.js';
+import { MAX_DAYS_LOOKBACK, MAX_PAGINATION_OFFSET } from '../config/defaults.js';
+import { wsGateway } from '../ws/server.js';
+import type { ServerEvents } from '../ws/types.js';
+
+type DataEntity = ServerEvents['data:changed']['entity'];
+type DataAction = ServerEvents['data:changed']['action'];
+
+function emitDataChanged(entity: DataEntity, action: DataAction, id?: string): void {
+  wsGateway.broadcast('data:changed', { entity, action, id });
+}
+
+/**
+ * Parse + validate a JSON body, returning either the typed value or a
+ * Hono error response. Centralises the "raw JSON parse fails → 400" +
+ * "schema mismatch → 400" handling that each mutating handler needs.
+ */
+async function parseBody<T>(
+  c: import('hono').Context,
+  schema: import('zod').z.ZodType<T>
+): Promise<{ ok: true; data: T } | { ok: false; res: Response }> {
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    return {
+      ok: false,
+      res: apiError(c, { code: ERROR_CODES.INVALID_REQUEST, message: 'Invalid JSON body' }, 400),
+    };
+  }
+  try {
+    return { ok: true, data: validateBody(schema, raw) };
+  } catch (e) {
+    return {
+      ok: false,
+      res: apiError(c, { code: ERROR_CODES.VALIDATION_ERROR, message: getErrorMessage(e) }, 400),
+    };
+  }
+}
+
+export const personalDataRoutes = new Hono();
+
+// =====================================================
+// TASKS
+// =====================================================
+
+const tasksRoutes = new Hono();
+
+tasksRoutes.get('/', async (c) => {
+  const repo = new TasksRepository(LOCAL_OWNER_ID);
+  const query: TaskQuery = {
+    status: validateQueryEnum(c.req.query('status'), [
+      'pending',
+      'in_progress',
+      'completed',
+      'cancelled',
+    ] as const),
+    priority: validateQueryEnum(c.req.query('priority'), [
+      'low',
+      'normal',
+      'high',
+      'urgent',
+    ] as const),
+    category: c.req.query('category'),
+    projectId: c.req.query('projectId'),
+    search: c.req.query('search'),
+    limit: getOptionalIntParam(c, 'limit', 1, 100),
+    offset: getOptionalIntParam(c, 'offset', 0, MAX_PAGINATION_OFFSET),
+  };
+
+  const tasks = await repo.list(query);
+  return apiResponse(c, tasks);
+});
+
+tasksRoutes.get('/today', async (c) => {
+  const repo = new TasksRepository(LOCAL_OWNER_ID);
+  const tasks = await repo.getDueToday();
+  return apiResponse(c, tasks);
+});
+
+tasksRoutes.get('/overdue', async (c) => {
+  const repo = new TasksRepository(LOCAL_OWNER_ID);
+  const tasks = await repo.getOverdue();
+  return apiResponse(c, tasks);
+});
+
+tasksRoutes.get('/upcoming', async (c) => {
+  const repo = new TasksRepository(LOCAL_OWNER_ID);
+  const days = getIntParam(c, 'days', 7, 1, MAX_DAYS_LOOKBACK);
+  const tasks = await repo.getUpcoming(days);
+  return apiResponse(c, tasks);
+});
+
+tasksRoutes.get('/categories', async (c) => {
+  const repo = new TasksRepository(LOCAL_OWNER_ID);
+  const categories = await repo.getCategories();
+  return apiResponse(c, categories);
+});
+
+tasksRoutes.get('/:id', async (c) => {
+  const repo = new TasksRepository(LOCAL_OWNER_ID);
+  const task = await repo.get(c.req.param('id'));
+  if (!task) {
+    return notFoundError(c, 'Task', c.req.param('id'));
+  }
+  return apiResponse(c, task);
+});
+
+tasksRoutes.post('/', async (c) => {
+  const parsed = await parseBody(c, createTaskSchema);
+  if (!parsed.ok) return parsed.res;
+  const repo = new TasksRepository(LOCAL_OWNER_ID);
+  const task = await repo.create(parsed.data);
+  emitDataChanged('task', 'created', task.id);
+  return apiResponse(c, task, 201);
+});
+
+tasksRoutes.patch('/:id', async (c) => {
+  const parsed = await parseBody(c, updateTaskSchema);
+  if (!parsed.ok) return parsed.res;
+  const repo = new TasksRepository(LOCAL_OWNER_ID);
+  const task = await repo.update(c.req.param('id'), parsed.data);
+  if (!task) {
+    return notFoundError(c, 'Task', c.req.param('id'));
+  }
+  emitDataChanged('task', 'updated', task.id);
+  return apiResponse(c, task);
+});
+
+tasksRoutes.post('/:id/complete', async (c) => {
+  const repo = new TasksRepository(LOCAL_OWNER_ID);
+  const task = await repo.complete(c.req.param('id'));
+  if (!task) {
+    return notFoundError(c, 'Task', c.req.param('id'));
+  }
+  emitDataChanged('task', 'updated', task.id);
+  return apiResponse(c, task);
+});
+
+tasksRoutes.delete('/:id', async (c) => {
+  const repo = new TasksRepository(LOCAL_OWNER_ID);
+  const id = c.req.param('id');
+  const deleted = await repo.delete(id);
+  if (!deleted) {
+    return notFoundError(c, 'Task', c.req.param('id'));
+  }
+  emitDataChanged('task', 'deleted', id);
+  return apiResponse(c, { deleted: true });
+});
+
+// =====================================================
+// BOOKMARKS
+// =====================================================
+
+const bookmarksRoutes = new Hono();
+
+bookmarksRoutes.get('/', async (c) => {
+  const repo = new BookmarksRepository(LOCAL_OWNER_ID);
+  const query: BookmarkQuery = {
+    category: c.req.query('category'),
+    isFavorite: c.req.query('favorite') === 'true' ? true : undefined,
+    search: c.req.query('search'),
+    limit: getOptionalIntParam(c, 'limit', 1, 100),
+    offset: getOptionalIntParam(c, 'offset', 0, MAX_PAGINATION_OFFSET),
+  };
+
+  const bookmarks = await repo.list(query);
+  return apiResponse(c, bookmarks);
+});
+
+bookmarksRoutes.get('/favorites', async (c) => {
+  const repo = new BookmarksRepository(LOCAL_OWNER_ID);
+  const bookmarks = await repo.getFavorites();
+  return apiResponse(c, bookmarks);
+});
+
+bookmarksRoutes.get('/recent', async (c) => {
+  const repo = new BookmarksRepository(LOCAL_OWNER_ID);
+  const limit = getIntParam(c, 'limit', 10, 1, 50);
+  const bookmarks = await repo.getRecent(limit);
+  return apiResponse(c, bookmarks);
+});
+
+bookmarksRoutes.get('/categories', async (c) => {
+  const repo = new BookmarksRepository(LOCAL_OWNER_ID);
+  const categories = await repo.getCategories();
+  return apiResponse(c, categories);
+});
+
+bookmarksRoutes.get('/:id', async (c) => {
+  const repo = new BookmarksRepository(LOCAL_OWNER_ID);
+  const bookmark = await repo.get(c.req.param('id'));
+  if (!bookmark) {
+    return notFoundError(c, 'Bookmark', c.req.param('id'));
+  }
+  return apiResponse(c, bookmark);
+});
+
+bookmarksRoutes.post('/', async (c) => {
+  const parsed = await parseBody(c, createBookmarkSchema);
+  if (!parsed.ok) return parsed.res;
+  const repo = new BookmarksRepository(LOCAL_OWNER_ID);
+  const bookmark = await repo.create(parsed.data);
+  emitDataChanged('bookmark', 'created', bookmark.id);
+  return apiResponse(c, bookmark, 201);
+});
+
+bookmarksRoutes.patch('/:id', async (c) => {
+  const parsed = await parseBody(c, updateBookmarkSchema);
+  if (!parsed.ok) return parsed.res;
+  const repo = new BookmarksRepository(LOCAL_OWNER_ID);
+  const bookmark = await repo.update(c.req.param('id'), parsed.data);
+  if (!bookmark) {
+    return notFoundError(c, 'Bookmark', c.req.param('id'));
+  }
+  emitDataChanged('bookmark', 'updated', bookmark.id);
+  return apiResponse(c, bookmark);
+});
+
+bookmarksRoutes.post('/:id/favorite', async (c) => {
+  const repo = new BookmarksRepository(LOCAL_OWNER_ID);
+  const bookmark = await repo.toggleFavorite(c.req.param('id'));
+  if (!bookmark) {
+    return notFoundError(c, 'Bookmark', c.req.param('id'));
+  }
+  emitDataChanged('bookmark', 'updated', bookmark.id);
+  return apiResponse(c, bookmark);
+});
+
+bookmarksRoutes.delete('/:id', async (c) => {
+  const repo = new BookmarksRepository(LOCAL_OWNER_ID);
+  const id = c.req.param('id');
+  const deleted = await repo.delete(id);
+  if (!deleted) {
+    return notFoundError(c, 'Bookmark', c.req.param('id'));
+  }
+  emitDataChanged('bookmark', 'deleted', id);
+  return apiResponse(c, { deleted: true });
+});
+
+// =====================================================
+// NOTES
+// =====================================================
+
+const notesRoutes = new Hono();
+
+notesRoutes.get('/', async (c) => {
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const query: NoteQuery = {
+    category: c.req.query('category'),
+    isPinned: c.req.query('pinned') === 'true' ? true : undefined,
+    isArchived: c.req.query('archived') === 'true' ? true : false,
+    search: c.req.query('search'),
+    limit: getOptionalIntParam(c, 'limit', 1, 100),
+    offset: getOptionalIntParam(c, 'offset', 0, MAX_PAGINATION_OFFSET),
+  };
+
+  const notes = await repo.list(query);
+  return apiResponse(c, notes);
+});
+
+notesRoutes.get('/pinned', async (c) => {
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const notes = await repo.getPinned();
+  return apiResponse(c, notes);
+});
+
+notesRoutes.get('/archived', async (c) => {
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const notes = await repo.getArchived();
+  return apiResponse(c, notes);
+});
+
+notesRoutes.get('/categories', async (c) => {
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const categories = await repo.getCategories();
+  return apiResponse(c, categories);
+});
+
+notesRoutes.get('/:id', async (c) => {
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const note = await repo.get(c.req.param('id'));
+  if (!note) {
+    return notFoundError(c, 'Note', c.req.param('id'));
+  }
+  return apiResponse(c, note);
+});
+
+notesRoutes.post('/', async (c) => {
+  const parsed = await parseBody(c, createNoteSchema);
+  if (!parsed.ok) return parsed.res;
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const note = await repo.create(parsed.data);
+  emitDataChanged('note', 'created', note.id);
+  return apiResponse(c, note, 201);
+});
+
+notesRoutes.patch('/:id', async (c) => {
+  const parsed = await parseBody(c, updateNoteSchema);
+  if (!parsed.ok) return parsed.res;
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const note = await repo.update(c.req.param('id'), parsed.data);
+  if (!note) {
+    return notFoundError(c, 'Note', c.req.param('id'));
+  }
+  emitDataChanged('note', 'updated', note.id);
+  return apiResponse(c, note);
+});
+
+notesRoutes.post('/:id/pin', async (c) => {
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const note = await repo.togglePin(c.req.param('id'));
+  if (!note) {
+    return notFoundError(c, 'Note', c.req.param('id'));
+  }
+  emitDataChanged('note', 'updated', note.id);
+  return apiResponse(c, note);
+});
+
+notesRoutes.post('/:id/archive', async (c) => {
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const note = await repo.archive(c.req.param('id'));
+  if (!note) {
+    return notFoundError(c, 'Note', c.req.param('id'));
+  }
+  emitDataChanged('note', 'updated', note.id);
+  return apiResponse(c, note);
+});
+
+notesRoutes.post('/:id/unarchive', async (c) => {
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const note = await repo.unarchive(c.req.param('id'));
+  if (!note) {
+    return notFoundError(c, 'Note', c.req.param('id'));
+  }
+  emitDataChanged('note', 'updated', note.id);
+  return apiResponse(c, note);
+});
+
+notesRoutes.delete('/:id', async (c) => {
+  const repo = new NotesRepository(LOCAL_OWNER_ID);
+  const id = c.req.param('id');
+  const deleted = await repo.delete(id);
+  if (!deleted) {
+    return notFoundError(c, 'Note', c.req.param('id'));
+  }
+  emitDataChanged('note', 'deleted', id);
+  return apiResponse(c, { deleted: true });
+});
+
+// =====================================================
+// CALENDAR
+// =====================================================
+
+const calendarRoutes = new Hono();
+
+calendarRoutes.get('/', async (c) => {
+  const repo = new CalendarRepository(LOCAL_OWNER_ID);
+  const query: EventQuery = {
+    startAfter: c.req.query('startAfter'),
+    startBefore: c.req.query('startBefore'),
+    category: c.req.query('category'),
+    search: c.req.query('search'),
+    limit: getOptionalIntParam(c, 'limit', 1, 100),
+    offset: getOptionalIntParam(c, 'offset', 0, MAX_PAGINATION_OFFSET),
+  };
+
+  const events = await repo.list(query);
+  return apiResponse(c, events);
+});
+
+calendarRoutes.get('/today', async (c) => {
+  const repo = new CalendarRepository(LOCAL_OWNER_ID);
+  const events = await repo.getToday();
+  return apiResponse(c, events);
+});
+
+calendarRoutes.get('/upcoming', async (c) => {
+  const repo = new CalendarRepository(LOCAL_OWNER_ID);
+  const days = getIntParam(c, 'days', 7, 1, MAX_DAYS_LOOKBACK);
+  const events = await repo.getUpcoming(days);
+  return apiResponse(c, events);
+});
+
+calendarRoutes.get('/categories', async (c) => {
+  const repo = new CalendarRepository(LOCAL_OWNER_ID);
+  const categories = await repo.getCategories();
+  return apiResponse(c, categories);
+});
+
+calendarRoutes.get('/:id', async (c) => {
+  const repo = new CalendarRepository(LOCAL_OWNER_ID);
+  const event = await repo.get(c.req.param('id'));
+  if (!event) {
+    return notFoundError(c, 'Event', c.req.param('id'));
+  }
+  return apiResponse(c, event);
+});
+
+calendarRoutes.post('/', async (c) => {
+  const parsed = await parseBody(c, createCalendarEventSchema);
+  if (!parsed.ok) return parsed.res;
+  const { startDate, endDate, startTime, endTime, isAllDay, reminders, ...rest } = parsed.data;
+  const allDay = Boolean(isAllDay);
+
+  let startISO: string;
+  let endISO: string | undefined;
+
+  if (allDay) {
+    startISO = `${startDate}T00:00:00`;
+    endISO = endDate ? `${endDate}T23:59:59` : undefined;
+  } else {
+    const sTime = startTime || '00:00';
+    startISO = `${startDate}T${sTime}:00`;
+    if (endDate) {
+      endISO = `${endDate}T${endTime || '23:59'}:00`;
+    } else if (endTime) {
+      endISO = `${startDate}T${endTime}:00`;
+    }
+  }
+
+  const createInput: CreateEventInput = {
+    ...rest,
+    title: rest.title as string,
+    startTime: startISO,
+    endTime: endISO,
+    allDay,
+    reminderMinutes: reminders && reminders.length > 0 ? Number(reminders[0]) : undefined,
+  };
+
+  const repo = new CalendarRepository(LOCAL_OWNER_ID);
+  const event = await repo.create(createInput);
+  emitDataChanged('calendar', 'created', event.id);
+  return apiResponse(c, event, 201);
+});
+
+calendarRoutes.patch('/:id', async (c) => {
+  const parsed = await parseBody(c, updateCalendarEventSchema);
+  if (!parsed.ok) return parsed.res;
+  const { startDate, endDate, startTime, endTime, isAllDay, reminders, ...rest } = parsed.data;
+  const updateInput: UpdateEventInput = { ...rest };
+
+  if (startDate !== undefined) {
+    const startTimeStr = isAllDay ? '00:00' : startTime || '00:00';
+    updateInput.startTime = `${startDate}T${startTimeStr}:00`;
+  }
+  if (endDate !== undefined) {
+    const endTimeStr = isAllDay ? '23:59' : endTime || '23:59';
+    updateInput.endTime = `${endDate}T${endTimeStr}:00`;
+  }
+  if (isAllDay !== undefined) {
+    updateInput.allDay = Boolean(isAllDay);
+  }
+  if (reminders !== undefined && reminders.length > 0) {
+    updateInput.reminderMinutes = Number(reminders[0]);
+  }
+
+  const repo = new CalendarRepository(LOCAL_OWNER_ID);
+  const event = await repo.update(c.req.param('id'), updateInput);
+  if (!event) {
+    return notFoundError(c, 'Event', c.req.param('id'));
+  }
+  emitDataChanged('calendar', 'updated', event.id);
+  return apiResponse(c, event);
+});
+
+calendarRoutes.delete('/:id', async (c) => {
+  const repo = new CalendarRepository(LOCAL_OWNER_ID);
+  const id = c.req.param('id');
+  const deleted = await repo.delete(id);
+  if (!deleted) {
+    return notFoundError(c, 'Event', c.req.param('id'));
+  }
+  emitDataChanged('calendar', 'deleted', id);
+  return apiResponse(c, { deleted: true });
+});
+
+// =====================================================
+// CONTACTS
+// =====================================================
+
+const contactsRoutes = new Hono();
+
+contactsRoutes.get('/', async (c) => {
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const query: ContactQuery = {
+    relationship: c.req.query('relationship'),
+    company: c.req.query('company'),
+    isFavorite: c.req.query('favorite') === 'true' ? true : undefined,
+    search: c.req.query('search'),
+    limit: getOptionalIntParam(c, 'limit', 1, 100),
+    offset: getOptionalIntParam(c, 'offset', 0, MAX_PAGINATION_OFFSET),
+  };
+
+  const contacts = await repo.list(query);
+  return apiResponse(c, contacts);
+});
+
+contactsRoutes.get('/favorites', async (c) => {
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const contacts = await repo.getFavorites();
+  return apiResponse(c, contacts);
+});
+
+contactsRoutes.get('/recent', async (c) => {
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const limit = getIntParam(c, 'limit', 10, 1, 100);
+  const contacts = await repo.getRecentlyContacted(limit);
+  return apiResponse(c, contacts);
+});
+
+contactsRoutes.get('/birthdays', async (c) => {
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const days = getIntParam(c, 'days', 30, 1, MAX_DAYS_LOOKBACK);
+  const contacts = await repo.getUpcomingBirthdays(days);
+  return apiResponse(c, contacts);
+});
+
+contactsRoutes.get('/relationships', async (c) => {
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const relationships = await repo.getRelationships();
+  return apiResponse(c, relationships);
+});
+
+contactsRoutes.get('/companies', async (c) => {
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const companies = await repo.getCompanies();
+  return apiResponse(c, companies);
+});
+
+contactsRoutes.get('/:id', async (c) => {
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const contact = await repo.get(c.req.param('id'));
+  if (!contact) {
+    return notFoundError(c, 'Contact', c.req.param('id'));
+  }
+  return apiResponse(c, contact);
+});
+
+contactsRoutes.post('/', async (c) => {
+  const parsed = await parseBody(c, createContactSchema);
+  if (!parsed.ok) return parsed.res;
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const contact = await repo.create(parsed.data);
+  emitDataChanged('contact', 'created', contact.id);
+  return apiResponse(c, contact, 201);
+});
+
+contactsRoutes.patch('/:id', async (c) => {
+  const parsed = await parseBody(c, updateContactSchema);
+  if (!parsed.ok) return parsed.res;
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const contact = await repo.update(c.req.param('id'), parsed.data);
+  if (!contact) {
+    return notFoundError(c, 'Contact', c.req.param('id'));
+  }
+  emitDataChanged('contact', 'updated', contact.id);
+  return apiResponse(c, contact);
+});
+
+contactsRoutes.post('/:id/favorite', async (c) => {
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const contact = await repo.toggleFavorite(c.req.param('id'));
+  if (!contact) {
+    return notFoundError(c, 'Contact', c.req.param('id'));
+  }
+  emitDataChanged('contact', 'updated', contact.id);
+  return apiResponse(c, contact);
+});
+
+contactsRoutes.delete('/:id', async (c) => {
+  const repo = new ContactsRepository(LOCAL_OWNER_ID);
+  const id = c.req.param('id');
+  const deleted = await repo.delete(id);
+  if (!deleted) {
+    return notFoundError(c, 'Contact', c.req.param('id'));
+  }
+  emitDataChanged('contact', 'deleted', id);
+  return apiResponse(c, { deleted: true });
+});
+
+// =====================================================
+// MOUNT ALL SUB-ROUTES
+// =====================================================
+
+personalDataRoutes.route('/tasks', tasksRoutes);
+personalDataRoutes.route('/bookmarks', bookmarksRoutes);
+personalDataRoutes.route('/notes', notesRoutes);
+personalDataRoutes.route('/calendar', calendarRoutes);
+personalDataRoutes.route('/contacts', contactsRoutes);
+
+// Summary endpoint - get overview of all personal data
+personalDataRoutes.get('/summary', async (c) => {
+  const userId = LOCAL_OWNER_ID;
+
+  const tasksRepo = new TasksRepository(userId);
+  const bookmarksRepo = new BookmarksRepository(userId);
+  const notesRepo = new NotesRepository(userId);
+  const calendarRepo = new CalendarRepository(userId);
+  const contactsRepo = new ContactsRepository(userId);
+  const habitsRepo = new HabitsRepository(userId);
+  const expensesRepo = new ExpensesRepository(userId);
+
+  const [
+    tasksTotal,
+    tasksPending,
+    tasksCompleted,
+    tasksOverdue,
+    tasksDueToday,
+    bookmarksTotal,
+    bookmarksFavorites,
+    notesTotal,
+    notesPinned,
+    notesRecent,
+    calendarTotal,
+    calendarToday,
+    calendarUpcoming,
+    contactsTotal,
+    contactsFavorites,
+    contactsUpcomingBirthdays,
+    habitsProgress,
+    habitsList,
+    expenseSummary,
+    expensesTotal,
+  ] = await Promise.all([
+    tasksRepo.count(),
+    tasksRepo.count({ status: 'pending' }),
+    tasksRepo.count({ status: 'completed' }),
+    tasksRepo.getOverdue(),
+    tasksRepo.getDueToday(),
+    bookmarksRepo.count(),
+    bookmarksRepo.getFavorites(),
+    notesRepo.count(),
+    notesRepo.getPinned(),
+    notesRepo.getRecent(7),
+    calendarRepo.count(),
+    calendarRepo.getToday(),
+    calendarRepo.getUpcoming(7),
+    contactsRepo.count(),
+    contactsRepo.getFavorites(),
+    contactsRepo.getUpcomingBirthdays(30),
+    habitsRepo.getTodayProgress(),
+    habitsRepo.list({ isArchived: false }),
+    expensesRepo
+      .getSummary()
+      .catch(() => ({ totalAmount: 0, count: 0, byCategory: {}, byCurrency: {} })),
+    expensesRepo.count().catch(() => 0),
+  ]);
+
+  const summary = {
+    tasks: {
+      total: tasksTotal,
+      pending: tasksPending,
+      completed: tasksCompleted,
+      overdue: tasksOverdue.length,
+      dueToday: tasksDueToday.length,
+    },
+    bookmarks: {
+      total: bookmarksTotal,
+      favorites: bookmarksFavorites.length,
+    },
+    notes: {
+      total: notesTotal,
+      pinned: notesPinned.length,
+      recent: notesRecent.length,
+    },
+    calendar: {
+      total: calendarTotal,
+      today: calendarToday.length,
+      upcoming: calendarUpcoming.length,
+    },
+    contacts: {
+      total: contactsTotal,
+      favorites: contactsFavorites.length,
+      upcomingBirthdays: contactsUpcomingBirthdays.length,
+    },
+    habits: {
+      total: habitsList.length,
+      completedToday: habitsProgress.completed,
+      totalToday: habitsProgress.total,
+      percentage: habitsProgress.percentage,
+      bestStreak: Math.max(0, ...habitsList.map((h) => h.streakCurrent)),
+    },
+    expenses: {
+      total: expensesTotal,
+      thisMonth: expenseSummary.totalAmount,
+      byCategory: expenseSummary.byCategory,
+    },
+  };
+
+  return apiResponse(c, summary);
+});

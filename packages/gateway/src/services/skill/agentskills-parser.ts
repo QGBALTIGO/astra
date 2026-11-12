@@ -1,0 +1,453 @@
+/**
+ * AgentSkills.io SKILL.md Parser
+ *
+ * Parses the open-standard AgentSkills.io format (SKILL.md) into OwnPilot's
+ * ExtensionManifest. The format uses YAML frontmatter for metadata and
+ * Markdown body for agent instructions.
+ *
+ * Spec: https://agentskills.io/specification
+ *
+ * Directory structure:
+ *   skill-name/
+ *   ├── SKILL.md          # Required: YAML frontmatter + instructions
+ *   ├── scripts/           # Optional: executable code
+ *   ├── references/        # Optional: documentation
+ *   └── assets/            # Optional: templates, resources
+ */
+
+import { readdirSync, existsSync } from 'fs';
+import { join } from 'path';
+import type { ExtensionManifest, ExtensionRequirements } from '../extension/types.js';
+import { validateAgentSkillsFrontmatter, type AgentSkillsFrontmatter } from '../extension/types.js';
+import { getLog } from '../log.js';
+
+const log = getLog('AgentSkillsParser');
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function requiredFrontmatterString(
+  frontmatter: Record<string, unknown>,
+  key: 'name' | 'description'
+): string {
+  const value = frontmatter[key];
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid SKILL.md frontmatter: missing "${key}"`);
+  }
+  return value;
+}
+
+function frontmatterMetadata(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const entries = Object.entries(value)
+    .filter(([key]) => key.length > 0)
+    .map(([key, metadataValue]) => [key, String(metadataValue)] as const);
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function validatedFrontmatter(frontmatter: Record<string, unknown>): AgentSkillsFrontmatter {
+  const fm: AgentSkillsFrontmatter = {
+    name: requiredFrontmatterString(frontmatter, 'name'),
+    description: requiredFrontmatterString(frontmatter, 'description'),
+  };
+
+  const license = optionalString(frontmatter.license);
+  if (license) fm.license = license;
+
+  const compatibility = optionalString(frontmatter.compatibility);
+  if (compatibility) fm.compatibility = compatibility;
+
+  const metadata = frontmatterMetadata(frontmatter.metadata);
+  if (metadata) fm.metadata = metadata;
+
+  const allowedTools = optionalString(frontmatter['allowed-tools']);
+  if (allowedTools) fm['allowed-tools'] = allowedTools;
+
+  return fm;
+}
+
+// =============================================================================
+// YAML frontmatter parser (lightweight, no dependency)
+// =============================================================================
+
+/**
+ * Extract YAML frontmatter and markdown body from a SKILL.md file.
+ * Expects `---\n...\n---\n` at the start of the file.
+ */
+export function parseSkillMdFrontmatter(content: string): {
+  frontmatter: Record<string, unknown>;
+  body: string;
+} {
+  const trimmed = content.trimStart();
+  if (!trimmed.startsWith('---')) {
+    throw new Error('SKILL.md must start with YAML frontmatter (---)');
+  }
+
+  const endIndex = trimmed.indexOf('\n---', 3);
+  if (endIndex === -1) {
+    throw new Error('SKILL.md frontmatter not closed (missing second ---)');
+  }
+
+  const yamlBlock = trimmed.substring(3, endIndex).trim();
+  const body = trimmed.substring(endIndex + 4).trim();
+
+  // Lightweight YAML parser for flat key-value + simple nested objects
+  const frontmatter = parseSimpleYaml(yamlBlock);
+
+  return { frontmatter, body };
+}
+
+// Keys that must never be written into a parsed object — assigning them can
+// reparent the object's prototype (prototype pollution). Skipped defensively
+// even though untrusted SKILL.md frontmatter only ever reaches a single object
+// instance here.
+const RESERVED_YAML_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * Parse simple YAML (flat key-value pairs, one level of nesting).
+ * Supports: strings, quoted strings, arrays (flow/block), nested maps (one level).
+ */
+function parseSimpleYaml(yaml: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  const lines = yaml.split('\n');
+  let currentKey: string | null = null;
+  let currentMap: Record<string, string> | null = null;
+  let currentList: string[] | null = null;
+
+  const flushCurrent = () => {
+    if (currentKey) {
+      if (currentList && currentList.length > 0) {
+        result[currentKey] = currentList;
+      } else if (currentMap && Object.keys(currentMap).length > 0) {
+        result[currentKey] = currentMap;
+      }
+      // If both are empty, the key had no nested content — skip it
+    }
+    currentKey = null;
+    currentMap = null;
+    currentList = null;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+
+    // Skip empty lines and comments
+    if (!line.trim() || line.trim().startsWith('#')) continue;
+
+    // Check if this is an indented line (part of a nested block)
+    if (currentKey && /^\s{2,}/.test(line)) {
+      const trimmed = line.trim();
+
+      // Block-style list item: "- value" or "- key: value"
+      if (trimmed.startsWith('- ')) {
+        if (!currentList) currentList = [];
+        const itemValue = unquote(trimmed.slice(2).trim());
+        if (itemValue) currentList.push(itemValue);
+        continue;
+      }
+
+      // Nested key-value pair: "key: value"
+      if (currentMap) {
+        const match = trimmed.match(/^([^:]+):\s*(.*)$/);
+        if (match) {
+          const mapKey = match[1]!.trim();
+          const val = unquote(match[2]!.trim());
+          if (!RESERVED_YAML_KEYS.has(mapKey)) currentMap[mapKey] = val;
+        }
+      }
+      continue;
+    }
+
+    // Flush current nested block if we're back at top level
+    flushCurrent();
+
+    // Top-level key: value
+    const kvMatch = line.match(/^([a-z_-]+):\s*(.*)$/i);
+    if (!kvMatch) continue;
+
+    const key = kvMatch[1]!.trim();
+    const rawValue = kvMatch[2]!.trim();
+
+    // Drop prototype-polluting keys (and any nested block they would open).
+    if (RESERVED_YAML_KEYS.has(key)) continue;
+
+    if (!rawValue) {
+      // Start of a nested map or block sequence
+      currentKey = key;
+      currentMap = {};
+      currentList = null;
+      continue;
+    }
+
+    // Flow-style array: [item1, item2]
+    if (rawValue.startsWith('[') && rawValue.endsWith(']')) {
+      const items = rawValue
+        .slice(1, -1)
+        .split(',')
+        .map((s) => unquote(s.trim()))
+        .filter(Boolean);
+      result[key] = items;
+      continue;
+    }
+
+    // Simple value
+    result[key] = unquote(rawValue);
+  }
+
+  // Flush last nested block
+  flushCurrent();
+
+  return result;
+}
+
+function unquote(s: string): string {
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    return s.slice(1, -1);
+  }
+  return s;
+}
+
+// =============================================================================
+// Directory scanner
+// =============================================================================
+
+/**
+ * Scan a skill directory for optional scripts/, references/, and assets/ subdirs.
+ * Returns relative paths to discovered files.
+ */
+export function scanSkillDirectory(skillDir: string): {
+  scriptPaths: string[];
+  referencePaths: string[];
+  assetPaths: string[];
+} {
+  const scriptPaths: string[] = [];
+  const referencePaths: string[] = [];
+  const assetPaths: string[] = [];
+
+  const scriptsDir = join(skillDir, 'scripts');
+  if (existsSync(scriptsDir)) {
+    try {
+      for (const entry of readdirSync(scriptsDir, { withFileTypes: true })) {
+        if (entry.isFile()) {
+          scriptPaths.push(`scripts/${entry.name}`);
+        }
+      }
+    } catch (err) {
+      log.warn(`Failed to read scripts directory: ${scriptsDir}`, { error: String(err) });
+    }
+  }
+
+  const refsDir = join(skillDir, 'references');
+  if (existsSync(refsDir)) {
+    try {
+      for (const entry of readdirSync(refsDir, { withFileTypes: true })) {
+        if (entry.isFile()) {
+          referencePaths.push(`references/${entry.name}`);
+        }
+      }
+    } catch (err) {
+      log.warn(`Failed to read references directory: ${refsDir}`, { error: String(err) });
+    }
+  }
+
+  const assetsDir = join(skillDir, 'assets');
+  if (existsSync(assetsDir)) {
+    try {
+      for (const entry of readdirSync(assetsDir, { withFileTypes: true })) {
+        if (entry.isFile()) {
+          assetPaths.push(`assets/${entry.name}`);
+        }
+      }
+    } catch (err) {
+      log.warn(`Failed to read assets directory: ${assetsDir}`, { error: String(err) });
+    }
+  }
+
+  return { scriptPaths, referencePaths, assetPaths };
+}
+
+// =============================================================================
+// Main converter
+// =============================================================================
+
+/**
+ * Parse a SKILL.md file and its parent directory into an ExtensionManifest.
+ *
+ * The resulting manifest has `format: 'agentskills'` and stores the full
+ * markdown body in `instructions`. Tools array is empty (agentskills format
+ * is instruction-based, not tool-based). Scripts from scripts/ are listed
+ * in `script_paths` for optional bridge-to-tools.
+ */
+export function parseAgentSkillsMd(content: string, skillDir?: string): ExtensionManifest {
+  const { frontmatter, body } = parseSkillMdFrontmatter(content);
+
+  // Validate frontmatter
+  const validation = validateAgentSkillsFrontmatter(frontmatter);
+  if (!validation.valid) {
+    throw new Error(`Invalid SKILL.md frontmatter: ${validation.errors.join('; ')}`);
+  }
+
+  const fm = validatedFrontmatter(frontmatter);
+  const metadata = fm.metadata ?? {};
+
+  // Scan directory for scripts/references/assets
+  let scriptPaths: string[] = [];
+  let referencePaths: string[] = [];
+  if (skillDir) {
+    const scanned = scanSkillDirectory(skillDir);
+    scriptPaths = scanned.scriptPaths;
+    referencePaths = [...scanned.referencePaths, ...scanned.assetPaths];
+  }
+
+  // Parse allowed-tools (string → split by space, array → use directly)
+  const allowedToolsRaw = frontmatter['allowed-tools'] as string | string[] | undefined;
+  let allowedTools: string[] | undefined;
+  if (Array.isArray(allowedToolsRaw)) {
+    allowedTools = allowedToolsRaw.filter(Boolean);
+  } else if (typeof allowedToolsRaw === 'string') {
+    allowedTools = allowedToolsRaw.split(/\s+/).filter(Boolean);
+  }
+
+  const manifest: ExtensionManifest = {
+    id: fm.name, // agentskills uses name as ID (must match directory name)
+    name: fm.name,
+    version: (metadata.version as string) ?? '1.0.0',
+    description: fm.description,
+    format: 'agentskills',
+
+    // Map agentskills metadata to extension fields
+    author: metadata.author ? { name: metadata.author } : undefined,
+    category: inferCategory(fm.description, body),
+    tags: inferTags(fm.name, fm.description),
+    icon: '📘', // Default icon for agentskills format
+
+    // AgentSkills.io doesn't define tools — it's instruction-based
+    tools: [],
+
+    // The full markdown body becomes the system prompt
+    system_prompt: body || undefined,
+
+    // AgentSkills.io specific fields
+    instructions: body,
+    license: fm.license,
+    compatibility: fm.compatibility,
+    allowed_tools: allowedTools,
+    script_paths: scriptPaths.length > 0 ? scriptPaths : undefined,
+    reference_paths: referencePaths.length > 0 ? referencePaths : undefined,
+
+    // Host gate (OS / binaries / env). Skill stays dormant where unmet.
+    requirements: parseRequirements(frontmatter),
+  };
+
+  log.info(`Parsed AgentSkills.io skill: ${fm.name}`, {
+    bodyLength: body.length,
+    scripts: scriptPaths.length,
+    references: referencePaths.length,
+  });
+
+  return manifest;
+}
+
+/**
+ * Map `requires-os` / `requires-binaries` / `requires-env` frontmatter keys
+ * (top-level, kebab- or snake-case) into ExtensionRequirements. Accepts YAML
+ * arrays or whitespace/comma-delimited strings. Returns undefined when none
+ * are declared.
+ */
+export function parseRequirements(
+  frontmatter: Record<string, unknown>
+): ExtensionRequirements | undefined {
+  const toStrArray = (v: unknown): string[] | undefined => {
+    if (Array.isArray(v)) {
+      const arr = v.map((x) => String(x).trim()).filter(Boolean);
+      return arr.length > 0 ? arr : undefined;
+    }
+    if (typeof v === 'string' && v.trim()) {
+      const arr = v
+        .split(/[\s,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return arr.length > 0 ? arr : undefined;
+    }
+    return undefined;
+  };
+
+  const os = toStrArray(frontmatter['requires-os'] ?? frontmatter['requires_os']);
+  const binaries = toStrArray(frontmatter['requires-binaries'] ?? frontmatter['requires_binaries']);
+  const env = toStrArray(frontmatter['requires-env'] ?? frontmatter['requires_env']);
+
+  if (!os && !binaries && !env) return undefined;
+
+  const req: ExtensionRequirements = {};
+  if (os) req.os = os as ExtensionRequirements['os'];
+  if (binaries) req.binaries = binaries;
+  if (env) req.env = env;
+  return req;
+}
+
+/**
+ * Check if a directory contains an AgentSkills.io skill (has SKILL.md).
+ */
+export function isAgentSkillsDir(dir: string): boolean {
+  return existsSync(join(dir, 'SKILL.md'));
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/** Infer category from description/body keywords */
+function inferCategory(description: string, body: string): ExtensionManifest['category'] {
+  const text = `${description} ${body}`.toLowerCase();
+  if (
+    text.includes('code') ||
+    text.includes('developer') ||
+    text.includes('git') ||
+    text.includes('debug')
+  )
+    return 'developer';
+  if (text.includes('email') || text.includes('slack') || text.includes('message'))
+    return 'communication';
+  if (
+    text.includes('data') ||
+    text.includes('csv') ||
+    text.includes('database') ||
+    text.includes('sql')
+  )
+    return 'data';
+  if (
+    text.includes('image') ||
+    text.includes('video') ||
+    text.includes('audio') ||
+    text.includes('pdf')
+  )
+    return 'media';
+  if (text.includes('api') || text.includes('integration') || text.includes('webhook'))
+    return 'integrations';
+  if (
+    text.includes('task') ||
+    text.includes('calendar') ||
+    text.includes('note') ||
+    text.includes('plan')
+  )
+    return 'productivity';
+  return 'other';
+}
+
+/** Extract tags from name and description */
+function inferTags(name: string, description: string): string[] {
+  const words = `${name} ${description}`
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && w.length < 20);
+  // Deduplicate and take top 5
+  return [...new Set(words)].slice(0, 5);
+}

@@ -1,0 +1,604 @@
+/**
+ * App Tests
+ *
+ * Tests the Hono application setup including middleware chain,
+ * route mounting, security headers, and configuration.
+ */
+
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+const mockCustomerAuthenticate = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock('./services/customer-auth.js', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, getCustomerAuthService: () => ({ authenticate: mockCustomerAuthenticate }) };
+});
+
+// Mock middleware modules
+const mockRequestId = vi.fn().mockImplementation((c, next) => next());
+const mockTiming = vi.fn().mockImplementation((c, next) => next());
+// Records every request path the auth middleware actually runs on, so tests can
+// assert which routes are covered by authentication (regression guard for the
+// /api/v2/* auth-bypass fix — auth must cover all /api/* versions, not just v1).
+const authSeenPaths: string[] = [];
+const mockCreateAuthMiddleware = vi.fn().mockImplementation(() => (c, next) => {
+  authSeenPaths.push(c.req.path);
+  return next();
+});
+const mockCreateRateLimitMiddleware = vi.fn().mockImplementation(() => (c, next) => next());
+const mockErrorHandler = vi.fn().mockImplementation((err, c) => c.json({ error: 'test' }, 500));
+const mockNotFoundHandler = vi.fn().mockImplementation((c) => c.json({ error: 'Not found' }, 404));
+const mockAuditMiddleware = vi.fn().mockImplementation((c, next) => next());
+const mockUiSessionMiddleware = vi.fn().mockImplementation((c, next) => next());
+const mockCreateUiSessionMiddleware = vi.fn(() => mockUiSessionMiddleware);
+
+vi.mock('./middleware/index.js', () => ({
+  requestId: mockRequestId,
+  timing: mockTiming,
+  createAuthMiddleware: mockCreateAuthMiddleware,
+  createRateLimitMiddleware: mockCreateRateLimitMiddleware,
+  errorHandler: mockErrorHandler,
+  notFoundHandler: mockNotFoundHandler,
+  auditMiddleware: mockAuditMiddleware,
+  uiSessionMiddleware: mockUiSessionMiddleware,
+  createUiSessionMiddleware: mockCreateUiSessionMiddleware,
+}));
+
+// Mock route modules - use a factory pattern for proper hoisting
+const createMockRoutes = () => {
+  const { Hono } = require('hono');
+  const app = new Hono();
+  app.get('/', (c) => c.json({ ok: true }));
+  return app;
+};
+
+vi.mock('./routes/index.js', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    healthRoutes: createMockRoutes(),
+    agentRoutes: createMockRoutes(),
+    chatRoutes: createMockRoutes(),
+    toolsRoutes: createMockRoutes(),
+    settingsRoutes: createMockRoutes(),
+    channelRoutes: createMockRoutes(),
+    costRoutes: createMockRoutes(),
+    modelsRoutes: createMockRoutes(),
+    providersRoutes: createMockRoutes(),
+    profileRoutes: createMockRoutes(),
+    personalDataRoutes: createMockRoutes(),
+    customDataRoutes: createMockRoutes(),
+    memoriesRoutes: createMockRoutes(),
+    goalsRoutes: createMockRoutes(),
+    triggersRoutes: createMockRoutes(),
+    plansRoutes: createMockRoutes(),
+    autonomyRoutes: createMockRoutes(),
+    auditRoutes: createMockRoutes(),
+    workspaceRoutes: createMockRoutes(),
+    fileWorkspaceRoutes: createMockRoutes(),
+    pluginsRoutes: createMockRoutes(),
+    productivityRoutes: createMockRoutes(),
+    modelConfigsRoutes: createMockRoutes(),
+    dashboardRoutes: createMockRoutes(),
+    customToolsRoutes: createMockRoutes(),
+    databaseRoutes: createMockRoutes(),
+    expensesRoutes: createMockRoutes(),
+    configServicesRoutes: createMockRoutes(),
+    localProvidersRoutes: createMockRoutes(),
+    channelAuthRoutes: createMockRoutes(),
+    debugRoutes: createMockRoutes(),
+    executionPermissionsRoutes: createMockRoutes(),
+    heartbeatsRoutes: createMockRoutes(),
+    extensionsRoutes: createMockRoutes(),
+    mcpRoutes: createMockRoutes(),
+    webhookRoutes: createMockRoutes(),
+    workflowRoutes: createMockRoutes(),
+    composioRoutes: createMockRoutes(),
+    uiAuthRoutes: createMockRoutes(),
+    modelRoutingRoutes: createMockRoutes(),
+    codingAgentsRoutes: createMockRoutes(),
+    cliProvidersRoutes: createMockRoutes(),
+    cliToolsRoutes: createMockRoutes(),
+    cliChatRoutes: createMockRoutes(),
+    securityRoutes: createMockRoutes(),
+    bridgeRoutes: createMockRoutes(),
+    artifactsRoutes: createMockRoutes(),
+    voiceRoutes: createMockRoutes(),
+    browserRoutes: createMockRoutes(),
+    skillsRoutes: createMockRoutes(),
+    edgeRoutes: createMockRoutes(),
+    soulRoutes: createMockRoutes(),
+    crewRoutes: createMockRoutes(),
+    agentMessageRoutes: createMockRoutes(),
+    heartbeatLogRoutes: createMockRoutes(),
+    agentCommandCenterRoutes: createMockRoutes(),
+  };
+});
+
+// Mock defaults
+vi.mock('./config/defaults.js', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    RATE_LIMIT_WINDOW_MS: 60000,
+    RATE_LIMIT_MAX_REQUESTS: 100,
+    RATE_LIMIT_BURST: 10,
+    SECONDS_PER_DAY: 86400,
+  };
+});
+
+// Mock core VERSION
+vi.mock('@ownpilot/core/version', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    VERSION: '1.0.0-test',
+  };
+});
+
+// Import after mocks
+const { createApp } = await import('./app.js');
+
+describe('createApp', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authSeenPaths.length = 0;
+    mockCustomerAuthenticate.mockResolvedValue(null);
+    delete process.env.NODE_ENV;
+    delete process.env.UI_PORT;
+    delete process.env.CORS_ORIGINS;
+    delete process.env.HTTPS_ONLY;
+    delete process.env.BODY_SIZE_LIMIT;
+  });
+
+  describe('basic setup', () => {
+    it('returns a Hono app instance', () => {
+      const app = createApp();
+      expect(app).toBeDefined();
+      expect(typeof app.request).toBe('function');
+    });
+
+    it('uses default configuration', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      expect(res.status).toBe(200);
+    });
+
+    it('merges custom config with defaults', async () => {
+      const customConfig = {
+        port: 3000,
+        host: '0.0.0.0',
+      };
+      const app = createApp(customConfig);
+      const res = await app.request('/api/v1/agents');
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe('customer authentication boundary', () => {
+    const customer = {
+      accountId: 'account-1',
+      dataUserId: 'whatsapp:5511999990001',
+      phoneNumber: '5511999990001',
+      displayName: 'Ana',
+      timeZone: 'America/Campo_Grande',
+      currency: 'BRL',
+      theme: 'system',
+      hideAmounts: false,
+      access: { status: 'active', expiresAt: '2099-01-01T00:00:00Z', canWrite: true },
+    };
+
+    it('never grants a customer API implicit owner access, even with auth disabled', async () => {
+      const app = createApp({ auth: { type: 'none' } });
+      const response = await app.request('/api/v1/customer/profile');
+      expect(response.status).toBe(401);
+      expect(mockUiSessionMiddleware).not.toHaveBeenCalled();
+      expect(response.headers.get('cache-control')).toBe('no-store');
+    });
+
+    it('accepts only the dedicated customer session before owner authentication', async () => {
+      mockCustomerAuthenticate.mockResolvedValue({ customer, sessionId: 'customer-session-1' });
+      const app = createApp();
+      const response = await app.request('/api/v1/customer/profile', {
+        headers: { cookie: 'astra_customer_session=private-token' },
+      });
+      expect(response.status).toBe(200);
+      expect((await response.json()).data.profile).toEqual(customer);
+      expect(mockCustomerAuthenticate).toHaveBeenCalledExactlyOnceWith('private-token');
+      expect(authSeenPaths).not.toContain('/api/v1/customer/profile');
+      expect(mockUiSessionMiddleware).not.toHaveBeenCalled();
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    });
+
+    it('does not bypass owner authentication when a customer cookie is sent to an admin endpoint', async () => {
+      const app = createApp();
+      await app.request('/api/v1/settings', {
+        headers: { cookie: 'astra_customer_session=private-token' },
+      });
+      expect(authSeenPaths).toContain('/api/v1/settings');
+      expect(mockCustomerAuthenticate).not.toHaveBeenCalled();
+    });
+
+    it('terminates unknown customer paths without falling into the owner router', async () => {
+      mockCustomerAuthenticate.mockResolvedValue({ customer, sessionId: 'customer-session-1' });
+      const app = createApp();
+      const response = await app.request('/api/v1/customer/admin/settings', {
+        headers: { cookie: 'astra_customer_session=private-token' },
+      });
+      expect(response.status).toBe(404);
+      expect(authSeenPaths).toEqual([]);
+    });
+
+    it('blocks cross-origin customer writes before their payload or account is used', async () => {
+      const app = createApp();
+      const response = await app.request('/api/v1/customer/finance/transactions', {
+        method: 'POST',
+        headers: {
+          cookie: 'astra_customer_session=private-token',
+          origin: 'https://foreign.example',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ amount: 10 }),
+      });
+      expect(response.status).toBe(403);
+      expect(mockCustomerAuthenticate).not.toHaveBeenCalled();
+      expect(mockUiSessionMiddleware).not.toHaveBeenCalled();
+    });
+  });
+
+  // Regression guard: the auth + UI-session middleware must cover the entire
+  // /api/* surface. Previously they were scoped to /api/v1/* only, leaving the
+  // identical handlers mirrored at /api/v2/* (registerV2Routes) completely
+  // unauthenticated (CWE-306). The unprefixed /health route must stay public.
+  describe('API authentication coverage (v2 bypass regression)', () => {
+    it('applies authentication to /api/v2/* routes', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v2/agents');
+      expect(res.status).toBe(200);
+      expect(authSeenPaths).toContain('/api/v2/agents');
+    });
+
+    it('still applies authentication to /api/v1/* routes', async () => {
+      const app = createApp();
+      await app.request('/api/v1/agents');
+      expect(authSeenPaths).toContain('/api/v1/agents');
+    });
+
+    it('does not apply authentication to the public /health route', async () => {
+      const app = createApp();
+      await app.request('/health');
+      expect(authSeenPaths).not.toContain('/health');
+    });
+
+    it('does not mount authentication when auth.type is none', async () => {
+      const app = createApp({ auth: { type: 'none' } });
+      await app.request('/api/v2/agents');
+      expect(authSeenPaths).toHaveLength(0);
+    });
+  });
+
+  describe('security headers middleware', () => {
+    it('applies X-Content-Type-Options header', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
+
+    it('applies X-Frame-Options header', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      expect(res.headers.get('X-Frame-Options')).toBe('SAMEORIGIN');
+    });
+
+    it('applies X-XSS-Protection header', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      expect(res.headers.get('X-XSS-Protection')).toBe('1; mode=block');
+    });
+
+    it('removes X-Powered-By header', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      // Header is either null or empty string when removed
+      const header = res.headers.get('X-Powered-By');
+      expect(header === null || header === '').toBe(true);
+    });
+
+    it('removes Server header', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      // Header is either null or empty string when removed
+      const header = res.headers.get('Server');
+      expect(header === null || header === '').toBe(true);
+    });
+
+    it('applies CSP header to API routes', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      const csp = res.headers.get('Content-Security-Policy');
+      // CSP is applied (either general or API-specific)
+      expect(csp).toBeTruthy();
+      expect(csp).toContain('default-src');
+    });
+
+    it('applies HSTS with preload when HTTPS_ONLY=true', async () => {
+      process.env.HTTPS_ONLY = 'true';
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      const hsts = res.headers.get('Strict-Transport-Security');
+      expect(hsts).toContain('preload');
+    });
+
+    it('applies HSTS without preload by default', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      const hsts = res.headers.get('Strict-Transport-Security');
+      expect(hsts).not.toContain('preload');
+    });
+
+    it('redirects plain HTTP when HTTPS_ONLY=true', async () => {
+      process.env.HTTPS_ONLY = 'true';
+      const app = createApp({ auth: { type: 'none' } });
+      const res = await app.request('http://example.com/api/v1/agents');
+
+      expect(res.status).toBe(301);
+      expect(res.headers.get('Location')).toBe('https://example.com/api/v1/agents');
+    });
+
+    it('ignores spoofed forwarded-proto headers without a trusted proxy', async () => {
+      process.env.HTTPS_ONLY = 'true';
+      const app = createApp({ auth: { type: 'none' } });
+      const res = await app.request('http://example.com/api/v1/agents', {
+        headers: { 'X-Forwarded-Proto': 'https' },
+      });
+
+      expect(res.status).toBe(301);
+      expect(res.headers.get('Location')).toBe('https://example.com/api/v1/agents');
+    });
+
+    it('does not redirect a request already received over HTTPS', async () => {
+      process.env.HTTPS_ONLY = 'true';
+      const app = createApp({ auth: { type: 'none' } });
+      const res = await app.request('https://example.com/api/v1/agents');
+
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe('cache control headers', () => {
+    it('adds no-cache headers to API responses by default', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      const cacheControl = res.headers.get('Cache-Control');
+      expect(cacheControl).toContain('no-store');
+      expect(cacheControl).toContain('no-cache');
+      expect(cacheControl).toContain('must-revalidate');
+    });
+
+    it('adds Pragma header', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      expect(res.headers.get('Pragma')).toBe('no-cache');
+    });
+
+    it('adds Expires header', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      expect(res.headers.get('Expires')).toBe('0');
+    });
+  });
+
+  describe('body size limit', () => {
+    it('uses default body size limit (1MB)', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      expect(res.status).toBe(200);
+    });
+
+    it('respects BODY_SIZE_LIMIT env var', async () => {
+      process.env.BODY_SIZE_LIMIT = '2097152'; // 2MB
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe('middleware factory calls', () => {
+    it('calls createRateLimitMiddleware when rateLimit config provided', () => {
+      vi.clearAllMocks();
+      createApp({ rateLimit: { windowMs: 60000, maxRequests: 100 } });
+      expect(mockCreateRateLimitMiddleware).toHaveBeenCalled();
+    });
+
+    it('calls createAuthMiddleware when auth type is not none', () => {
+      vi.clearAllMocks();
+      createApp({ auth: { type: 'api-key' } });
+      expect(mockCreateAuthMiddleware).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'api-key' })
+      );
+    });
+
+    it('does not call createAuthMiddleware when auth type is none', () => {
+      vi.clearAllMocks();
+      createApp({ auth: { type: 'none' } });
+      expect(mockCreateAuthMiddleware).not.toHaveBeenCalled();
+    });
+
+    it('defers passwordless exposed requests to configured API auth', () => {
+      vi.clearAllMocks();
+      createApp({ host: '0.0.0.0', auth: { type: 'api-key', apiKeys: ['secret'] } });
+      expect(mockCreateUiSessionMiddleware).toHaveBeenCalledWith({
+        allowImplicitOwnerWithoutPassword: false,
+      });
+    });
+
+    it('preserves implicit passwordless owner access on loopback', () => {
+      vi.clearAllMocks();
+      createApp({ host: '127.0.0.1', auth: { type: 'api-key', apiKeys: ['secret'] } });
+      expect(mockCreateUiSessionMiddleware).toHaveBeenCalledWith({
+        allowImplicitOwnerWithoutPassword: true,
+      });
+    });
+  });
+
+  describe('route mounting', () => {
+    it('mounts health routes at /health', async () => {
+      const app = createApp();
+      const res = await app.request('/health');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts health routes at /api/v1/health', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/health');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts webhook routes at /webhooks', async () => {
+      const app = createApp();
+      const res = await app.request('/webhooks');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts auth routes at /api/v1/auth', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/auth');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts agents routes at /api/v1/agents', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts chat routes at /api/v1/chat', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/chat');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts tools routes at /api/v1/tools', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/tools');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts channels routes at /api/v1/channels', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/channels');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts memories routes at /api/v1/memories', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/memories');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts goals routes at /api/v1/goals', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/goals');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts triggers routes at /api/v1/triggers', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/triggers');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+
+    it('mounts plans routes at /api/v1/plans', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/plans');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    });
+  });
+
+  describe('error handling', () => {
+    it('registers error handler', () => {
+      const app = createApp();
+      expect(app.errorHandler).toBeDefined();
+    });
+
+    it('registers not found handler', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/non-existent-route-12345');
+      expect(res).toBeDefined();
+    });
+  });
+
+  describe('Hono context type extensions', () => {
+    it('app accepts requests with extended context', async () => {
+      const app = createApp();
+      const res = await app.request('/api/v1/agents', {
+        headers: {
+          'X-Request-ID': 'test-request-id',
+        },
+      });
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe('complex configuration scenarios', () => {
+    it('handles production-like config with all features enabled', () => {
+      const config = {
+        port: 8080,
+        host: '0.0.0.0',
+        corsOrigins: ['https://app.example.com'],
+        rateLimit: {
+          windowMs: 60000,
+          maxRequests: 1000,
+          burstLimit: 50,
+          softLimit: false,
+          excludePaths: ['/health'],
+        },
+        auth: {
+          type: 'jwt' as const,
+          jwtSecret: 'test-secret',
+        },
+      };
+      const app = createApp(config);
+      expect(app).toBeDefined();
+    });
+
+    it('handles minimal config with auth disabled', () => {
+      const config = {
+        auth: {
+          type: 'none' as const,
+        },
+        rateLimit: undefined,
+      };
+      const app = createApp(config);
+      expect(app).toBeDefined();
+    });
+
+    it('handles empty corsOrigins array', async () => {
+      const app = createApp({ corsOrigins: [] });
+      const res = await app.request('/api/v1/agents');
+      expect(res.status).toBe(200);
+    });
+  });
+});

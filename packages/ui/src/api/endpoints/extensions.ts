@@ -1,0 +1,151 @@
+/**
+ * Extensions API Endpoints
+ */
+
+import { apiClient } from '../client';
+import type { ExtensionInfo } from '../types';
+
+interface LlmAuditRisk {
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  description: string;
+  mitigation?: string;
+}
+
+export interface LlmAuditResult {
+  summary: string;
+  capabilities: string[];
+  dataAccess: string[];
+  externalCommunication: string[];
+  risks: LlmAuditRisk[];
+  trustScore: number;
+  verdict: 'safe' | 'caution' | 'unsafe';
+  reasoning: string;
+}
+
+export interface StaticAuditResult {
+  blocked: boolean;
+  reasons: string[];
+  warnings: string[];
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  undeclaredTools: string[];
+}
+
+export interface ExtensionAuditResult {
+  extensionId: string;
+  extensionName: string;
+  format: string;
+  staticAnalysis: StaticAuditResult;
+  llmAnalysis: LlmAuditResult | null;
+  llmError: string | null;
+}
+
+export interface FileEntry {
+  path: string;
+  name: string;
+  type: 'file' | 'directory';
+  size?: number;
+  children?: FileEntry[];
+}
+
+export interface FileTreeResult {
+  skillDir: string;
+  manifestFile: string;
+  tree: FileEntry[];
+}
+
+interface FileContentResult {
+  path: string;
+  content: string;
+  language: string;
+  size: number;
+}
+
+export const extensionsApi = {
+  list: (params?: { status?: string; category?: string; format?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.status) search.set('status', params.status);
+    if (params?.category) search.set('category', params.category);
+    if (params?.format) search.set('format', params.format);
+    const qs = search.toString();
+    return apiClient
+      .get<{ packages: ExtensionInfo[]; total: number }>(`/extensions${qs ? `?${qs}` : ''}`)
+      .then((r) => r.packages ?? []);
+  },
+  getById: (id: string) =>
+    apiClient.get<{ package: ExtensionInfo }>(`/extensions/${id}`).then((r) => r.package),
+  install: (manifest: Record<string, unknown>) =>
+    apiClient.post<{ package: ExtensionInfo }>('/extensions', { manifest }),
+  installFromPath: (path: string) =>
+    apiClient.post<{ package: ExtensionInfo }>('/extensions/install', { path }),
+  uninstall: (id: string) => apiClient.delete<void>(`/extensions/${id}`),
+  remove: (id: string) =>
+    apiClient.post<{ deleted: boolean; removed: boolean }>(`/extensions/${id}/remove`),
+  enable: (id: string) => apiClient.post<{ package: ExtensionInfo }>(`/extensions/${id}/enable`),
+  disable: (id: string) => apiClient.post<{ package: ExtensionInfo }>(`/extensions/${id}/disable`),
+  reload: (id: string) => apiClient.post<{ package: ExtensionInfo }>(`/extensions/${id}/reload`),
+  scan: (directory?: string) =>
+    apiClient.post<{ installed: number; updated: number; failed: number; errors: string[] }>(
+      '/extensions/scan',
+      directory ? { directory } : {}
+    ),
+  generate: (description: string) =>
+    apiClient.post<{
+      manifest: Record<string, unknown>;
+      validation: { valid: boolean; errors: string[] };
+    }>('/extensions/generate', { description }),
+
+  generateSkill: (description: string) =>
+    apiClient.post<{
+      content: string;
+      name: string;
+      validation: { valid: boolean; errors: string[] };
+    }>('/extensions/generate-skill', { description }),
+
+  /** Update extension metadata (name, description, version) */
+  update: (id: string, updates: { name?: string; description?: string; version?: string }) =>
+    apiClient.patch<{ package: ExtensionInfo; message: string }>(`/extensions/${id}`, updates),
+
+  /** Run LLM-powered security audit on an installed extension */
+  audit: (id: string, options?: { provider?: string; model?: string }) =>
+    apiClient.post<ExtensionAuditResult>(`/extensions/${id}/audit`, options ?? {}),
+
+  /** List all files in a skill's directory as a tree */
+  listFiles: (id: string) => apiClient.get<FileTreeResult>(`/extensions/${id}/files`),
+
+  /** Read a single file's content */
+  readFile: (id: string, path: string) =>
+    apiClient.get<FileContentResult>(`/extensions/${id}/files/${path}`),
+
+  /** Write/create a file */
+  writeFile: (id: string, path: string, content: string) =>
+    apiClient.put<{ path: string; size: number; saved: boolean }>(
+      `/extensions/${id}/files/${path}`,
+      { content }
+    ),
+
+  /** Delete a file */
+  deleteFile: (id: string, path: string) =>
+    apiClient.delete<{ path: string; deleted: boolean }>(`/extensions/${id}/files/${path}`),
+
+  upload: async (file: File): Promise<{ package: ExtensionInfo; message: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Use raw fetch for multipart upload (apiClient only supports JSON).
+    const response = await fetch('/api/v1/extensions/upload', {
+      method: 'POST',
+      body: formData,
+      credentials: 'same-origin',
+    });
+
+    const body = await response.json();
+
+    if (!response.ok || !body.success) {
+      const msg =
+        typeof body.error === 'string' ? body.error : (body.error?.message ?? 'Upload failed');
+      throw new Error(msg);
+    }
+
+    return body.data;
+  },
+};

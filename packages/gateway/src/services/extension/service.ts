@@ -1,0 +1,756 @@
+/**
+ * Extension Service
+ *
+ * Business logic for installing, enabling/disabling, and managing user extensions.
+ * Handles trigger synchronization and Config Center registration.
+ */
+
+import { readFileSync, existsSync, rmSync } from 'fs';
+import { resolve } from 'path';
+import { getEventSystem } from '@ownpilot/core/events';
+import type { IExtensionService } from '@ownpilot/core/services';
+import { extensionsRepo, type ExtensionRecord } from '../../db/repositories/extensions.js';
+import {
+  validateManifest,
+  validateAgentSkillsFrontmatter,
+  type ExtensionManifest,
+  type ExtensionToolDefinition,
+} from './types.js';
+import { parseExtensionMarkdown } from './markdown.js';
+import { parseAgentSkillsMd } from '../skill/agentskills-parser.js';
+import { auditSkillSecurity } from '../skill/security-audit.js';
+import {
+  registerToolConfigRequirements,
+  unregisterDependencies,
+} from '../api-service-registrar.js';
+import { getLog } from '../log.js';
+import {
+  activateExtensionTriggers,
+  deactivateExtensionTriggers,
+  cleanupOrphanTriggers as cleanupOrphanTriggersImpl,
+} from './trigger-manager.js';
+import {
+  getAllScanDirectories,
+  resolveManagedSkillDir,
+  scanSingleDirectory,
+  type ScanResult,
+} from './scanner.js';
+import { isWithinDirectory } from '../../utils/file-safety.js';
+import { evaluateExtensionGate, describeGateFailure, type ExtensionGateResult } from './gate.js';
+
+const log = getLog('ExtService');
+
+// =============================================================================
+// Types
+// =============================================================================
+
+type ExtensionErrorCode = 'VALIDATION_ERROR' | 'NOT_FOUND' | 'ALREADY_EXISTS' | 'IO_ERROR';
+
+export class ExtensionError extends Error {
+  constructor(
+    message: string,
+    public readonly code: ExtensionErrorCode
+  ) {
+    super(message);
+    this.name = 'ExtensionError';
+  }
+}
+
+export interface ToolDefinitionForRegistry {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  category?: string;
+  /** Extension ID that owns this tool */
+  extensionId: string;
+  /** Original extension tool definition (for code execution) */
+  extensionTool: ExtensionToolDefinition;
+  /** Format of the parent extension ('ownpilot' or 'agentskills') */
+  format?: 'ownpilot' | 'agentskills';
+}
+
+// =============================================================================
+// Service
+// =============================================================================
+
+export class ExtensionService implements IExtensionService {
+  /** Cache of host-gate results, keyed by `id@version` (requirements are static per build). */
+  #gateCache = new Map<string, ExtensionGateResult>();
+
+  // --------------------------------------------------------------------------
+  // Host gate (OS / binaries / env requirements)
+  // --------------------------------------------------------------------------
+
+  #evaluateGate(pkg: ExtensionRecord): ExtensionGateResult {
+    const key = `${pkg.id}@${pkg.manifest.version}`;
+    const cached = this.#gateCache.get(key);
+    if (cached) return cached;
+    const result = evaluateExtensionGate(pkg.manifest.requirements);
+    this.#gateCache.set(key, result);
+    if (!result.ok) {
+      log.info('Extension gated out — host requirements unmet', {
+        id: pkg.id,
+        reason: describeGateFailure(result),
+      });
+    }
+    return result;
+  }
+
+  /** Enabled extensions whose host requirements are satisfied on this machine. */
+  #getActiveEnabled(): ExtensionRecord[] {
+    return extensionsRepo.getEnabled().filter((pkg) => this.#evaluateGate(pkg).ok);
+  }
+
+  /** Gate status for every installed extension (for management UI / API). */
+  getGateStatus(): Array<{ id: string; ok: boolean; missing: ExtensionGateResult['missing'] }> {
+    return extensionsRepo.getAll().map((pkg) => {
+      const result = this.#evaluateGate(pkg);
+      return { id: pkg.id, ok: result.ok, missing: result.missing };
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Install
+  // --------------------------------------------------------------------------
+
+  async install(manifestPath: string, userId = 'default'): Promise<ExtensionRecord> {
+    let rawContent: string;
+    try {
+      rawContent = readFileSync(manifestPath, 'utf-8');
+    } catch {
+      throw new ExtensionError(`Cannot read manifest: ${manifestPath}`, 'IO_ERROR');
+    }
+
+    let manifest: ExtensionManifest;
+    const fileName = manifestPath.split(/[/\\]/).pop() ?? '';
+
+    if (fileName === 'SKILL.md') {
+      // AgentSkills.io open standard format
+      try {
+        const skillDir = manifestPath.replace(/[/\\]SKILL\.md$/, '');
+        manifest = parseAgentSkillsMd(rawContent, skillDir);
+      } catch (e) {
+        throw new ExtensionError(
+          `Invalid AgentSkills.io SKILL.md: ${manifestPath} — ${e instanceof Error ? e.message : String(e)}`,
+          'VALIDATION_ERROR'
+        );
+      }
+      // AgentSkills.io format skips tool validation (no tools required)
+      return this.installFromManifest(manifest, userId, manifestPath);
+    }
+
+    if (manifestPath.endsWith('.md')) {
+      // OwnPilot extension markdown format
+      try {
+        manifest = parseExtensionMarkdown(rawContent);
+      } catch (e) {
+        throw new ExtensionError(
+          `Invalid markdown manifest: ${manifestPath} — ${e instanceof Error ? e.message : String(e)}`,
+          'VALIDATION_ERROR'
+        );
+      }
+    } else {
+      // OwnPilot extension JSON format
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawContent);
+      } catch {
+        throw new ExtensionError(`Invalid JSON in manifest: ${manifestPath}`, 'VALIDATION_ERROR');
+      }
+      manifest = parsed as ExtensionManifest;
+    }
+
+    return this.installFromManifest(manifest, userId, manifestPath);
+  }
+
+  async installFromManifest(
+    manifest: ExtensionManifest,
+    userId = 'default',
+    sourcePath?: string
+  ): Promise<ExtensionRecord> {
+    const normalizedSourcePath = sourcePath ? resolve(sourcePath) : undefined;
+
+    // Validate manifest format
+    if (manifest.format === 'agentskills') {
+      const fmValidation = validateAgentSkillsFrontmatter(
+        Object.fromEntries(Object.entries(manifest))
+      );
+      if (!fmValidation.valid) {
+        throw new ExtensionError(
+          `Invalid skill: ${fmValidation.errors.join('; ')}`,
+          'VALIDATION_ERROR'
+        );
+      }
+    } else {
+      const validation = validateManifest(manifest);
+      if (!validation.valid) {
+        throw new ExtensionError(
+          `Invalid manifest: ${validation.errors.join('; ')}`,
+          'VALIDATION_ERROR'
+        );
+      }
+    }
+
+    const securityResult = auditSkillSecurity(manifest);
+    if (securityResult.blocked) {
+      throw new ExtensionError(
+        `Extension blocked by security audit: ${securityResult.reasons.join('; ')}`,
+        'VALIDATION_ERROR'
+      );
+    }
+
+    manifest._security = {
+      riskLevel: securityResult.riskLevel,
+      blocked: false,
+      warnings: securityResult.warnings,
+      undeclaredTools: securityResult.undeclaredTools,
+      auditedAt: Date.now(),
+    };
+
+    if (securityResult.warnings.length > 0) {
+      log.warn('Extension installed with security warnings', {
+        extensionId: manifest.id,
+        format: manifest.format ?? 'ownpilot',
+        riskLevel: securityResult.riskLevel,
+        warnings: securityResult.warnings,
+      });
+    }
+
+    // Register required services in Config Center
+    if (manifest.required_services?.length) {
+      try {
+        await registerToolConfigRequirements(
+          manifest.name,
+          manifest.id,
+          'custom',
+          manifest.required_services.map((s) => ({
+            name: s.name,
+            displayName: s.display_name,
+            description: s.description,
+            category: s.category,
+            docsUrl: s.docs_url,
+            configSchema: s.config_schema?.map((f) => ({
+              name: f.name,
+              label: f.label,
+              type: f.type as 'string' | 'secret' | 'url' | 'number' | 'boolean',
+              required: f.required,
+              description: f.description,
+            })),
+          }))
+        );
+      } catch (e) {
+        log.warn('Failed to register config requirements', { id: manifest.id, error: String(e) });
+      }
+    }
+
+    // Upsert DB record
+    try {
+      await (
+        extensionsRepo as typeof extensionsRepo & {
+          clearRemoval?: (
+            userId: string,
+            extensionId: string,
+            sourcePath?: string
+          ) => Promise<void>;
+        }
+      ).clearRemoval?.(userId, manifest.id, normalizedSourcePath);
+    } catch (e) {
+      log.warn('Failed to clear extension removal marker', {
+        id: manifest.id,
+        error: String(e),
+      });
+    }
+
+    const record = await extensionsRepo.upsert({
+      id: manifest.id,
+      userId,
+      name: manifest.name,
+      version: manifest.version,
+      description: manifest.description,
+      category: manifest.category ?? 'other',
+      format: manifest.format ?? 'ownpilot',
+      icon: manifest.icon,
+      authorName: manifest.author?.name,
+      manifest,
+      sourcePath: normalizedSourcePath,
+      toolCount: manifest.tools.length,
+      triggerCount: manifest.triggers?.length ?? 0,
+    });
+
+    // Create triggers for enabled extensions (non-fatal — triggers can be retried via reload)
+    if (record.status === 'enabled') {
+      try {
+        await this.activateExtTriggers(manifest, userId);
+      } catch (e) {
+        log.warn('Failed to activate triggers during install', {
+          id: manifest.id,
+          error: String(e),
+        });
+      }
+    }
+
+    getEventSystem().emit('resource.created', 'extension-service', {
+      resourceType: 'extension',
+      id: manifest.id,
+    });
+    getEventSystem().emit('extension.installed', 'extension-service', {
+      extensionId: manifest.id,
+      userId,
+      name: manifest.name,
+      format: manifest.format ?? 'ownpilot',
+    });
+
+    log.info(`Installed extension "${manifest.name}" v${manifest.version}`, {
+      id: manifest.id,
+      tools: manifest.tools.length,
+      triggers: manifest.triggers?.length ?? 0,
+    });
+
+    return record;
+  }
+
+  // --------------------------------------------------------------------------
+  // Uninstall
+  // --------------------------------------------------------------------------
+
+  async uninstall(id: string, userId = 'default'): Promise<boolean> {
+    const record = extensionsRepo.getById(id);
+    if (!record || record.userId !== userId) return false;
+
+    // Deactivate triggers
+    await this.deactivateExtTriggers(id, userId);
+
+    // Remove config dependencies
+    try {
+      await unregisterDependencies(id);
+    } catch (e) {
+      log.warn('Failed to unregister dependencies', { id, error: String(e) });
+    }
+
+    const deleted = await extensionsRepo.delete(id);
+
+    if (deleted) {
+      // Hard-delete the skill's files when they live in a writable, OwnPilot-managed
+      // scan directory (uploads, personal/workspace skills). Without this the manifest
+      // stays on disk and the startup scanner keeps re-discovering it — a soft delete
+      // that masquerades as a real one. Bundled (read-only) skills return null here and
+      // fall back to the removal marker below.
+      const skillDir = resolveManagedSkillDir(record.sourcePath);
+      if (skillDir) {
+        try {
+          rmSync(skillDir, { recursive: true, force: true });
+          log.info('Deleted skill files from disk', { id, dir: skillDir });
+        } catch (e) {
+          log.warn('Failed to delete skill files from disk', {
+            id,
+            dir: skillDir,
+            error: String(e),
+          });
+        }
+      }
+
+      try {
+        await (
+          extensionsRepo as typeof extensionsRepo & {
+            markRemoved?: (record: ExtensionRecord) => Promise<void>;
+          }
+        ).markRemoved?.(record);
+      } catch (e) {
+        log.warn('Failed to remember extension removal', { id, error: String(e) });
+      }
+
+      getEventSystem().emit('resource.deleted', 'extension-service', {
+        resourceType: 'extension',
+        id,
+      });
+      getEventSystem().emit('extension.uninstalled', 'extension-service', {
+        extensionId: id,
+        userId,
+      });
+      log.info(`Uninstalled extension "${record.name}"`, { id });
+    }
+
+    return deleted;
+  }
+
+  // --------------------------------------------------------------------------
+  // Enable / Disable
+  // --------------------------------------------------------------------------
+
+  async enable(id: string, userId = 'default'): Promise<ExtensionRecord | null> {
+    const record = extensionsRepo.getById(id);
+    if (!record || record.userId !== userId) return null;
+
+    if (record.status === 'enabled') return record;
+
+    await this.activateExtTriggers(record.manifest, userId);
+    const updated = await extensionsRepo.updateStatus(id, 'enabled');
+
+    if (updated) {
+      getEventSystem().emit('resource.updated', 'extension-service', {
+        resourceType: 'extension',
+        id,
+        changes: { status: 'enabled' },
+      });
+      getEventSystem().emit('extension.enabled', 'extension-service', {
+        extensionId: id,
+        userId,
+        triggers: record.manifest.triggers?.length ?? 0,
+      });
+    }
+
+    return updated;
+  }
+
+  async disable(id: string, userId = 'default'): Promise<ExtensionRecord | null> {
+    const record = extensionsRepo.getById(id);
+    if (!record || record.userId !== userId) return null;
+
+    if (record.status === 'disabled') return record;
+
+    await this.deactivateExtTriggers(id, userId);
+    const updated = await extensionsRepo.updateStatus(id, 'disabled');
+
+    if (updated) {
+      getEventSystem().emit('resource.updated', 'extension-service', {
+        resourceType: 'extension',
+        id,
+        changes: { status: 'disabled' },
+      });
+      getEventSystem().emit('extension.disabled', 'extension-service', {
+        extensionId: id,
+        userId,
+      });
+    }
+
+    return updated;
+  }
+
+  // --------------------------------------------------------------------------
+  // Recover (clear error status)
+  // --------------------------------------------------------------------------
+
+  async recover(id: string, userId = 'default'): Promise<ExtensionRecord | null> {
+    const record = extensionsRepo.getById(id);
+    if (!record || record.userId !== userId) return null;
+
+    if (record.status !== 'error') return record;
+
+    // Try to reload from disk if source path exists (refreshes the manifest and
+    // re-registers config requirements). Do NOT return install()'s record here:
+    // install() upserts, but the ON CONFLICT clause preserves the existing
+    // status, so a successful reload leaves the row still 'error'. We must fall
+    // through and explicitly clear the error below — otherwise "recover" is a
+    // no-op that returns an extension still stuck in the error state.
+    if (record.sourcePath && existsSync(record.sourcePath)) {
+      try {
+        await this.install(record.sourcePath, userId);
+      } catch (e) {
+        log.warn(`Recovery reload failed for ${id}, resetting to disabled`, { error: String(e) });
+      }
+    }
+
+    // Clear the error state. 'disabled' is the safe post-recovery state; the
+    // user re-enables when ready (which re-activates triggers).
+    const updated = await extensionsRepo.updateStatus(id, 'disabled');
+    if (updated) {
+      getEventSystem().emit('extension.disabled', 'extension-service', {
+        extensionId: id,
+        userId,
+      });
+      log.info(`Recovered extension "${record.name}" from error state`, { id });
+    }
+
+    return updated;
+  }
+
+  // --------------------------------------------------------------------------
+  // Cleanup orphan triggers (call on startup) — delegates to trigger manager
+  // --------------------------------------------------------------------------
+
+  async cleanupOrphanTriggers(userId = 'default'): Promise<number> {
+    return cleanupOrphanTriggersImpl(userId);
+  }
+
+  // --------------------------------------------------------------------------
+  // Read
+  // --------------------------------------------------------------------------
+
+  getById(id: string): ExtensionRecord | null {
+    return extensionsRepo.getById(id);
+  }
+
+  getAll(): ExtensionRecord[] {
+    return extensionsRepo.getAll();
+  }
+
+  getEnabled(): ExtensionRecord[] {
+    return extensionsRepo.getEnabled();
+  }
+
+  // --------------------------------------------------------------------------
+  // Tool definitions (aggregated from all enabled extensions)
+  // --------------------------------------------------------------------------
+
+  getToolDefinitions(): ToolDefinitionForRegistry[] {
+    const enabled = this.#getActiveEnabled();
+    const defs: ToolDefinitionForRegistry[] = [];
+
+    for (const pkg of enabled) {
+      // OwnPilot extensions: register their inline JS tools
+      const pkgFormat = (pkg.manifest.format ?? 'ownpilot') as 'ownpilot' | 'agentskills';
+      for (const tool of pkg.manifest.tools) {
+        defs.push({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+          category: pkg.manifest.category ?? 'other',
+          extensionId: pkg.id,
+          extensionTool: tool,
+          format: pkgFormat,
+        });
+      }
+
+      // AgentSkills.io: bridge scripts/ to executable tools.
+      //
+      // H-S10: this bridge silently grants `filesystem` permission to every
+      // installed skill that ships scripts, and the generated tool body
+      // directs the LLM to run those scripts via execute_shell / _python /
+      // _javascript. Installing a skill therefore implicitly elevates host
+      // capability without operator consent. We now require the operator to
+      // explicitly opt in via OWNPILOT_ENABLE_SKILL_SCRIPTS=true. When the
+      // env is unset, skills still install (SKILL.md, instructions, manifest
+      // tools all work) — but `script_paths` no longer auto-create callable
+      // shell/python bridges.
+      const SKILL_SCRIPTS_ENABLED = process.env.OWNPILOT_ENABLE_SKILL_SCRIPTS === 'true';
+      if (
+        pkg.manifest.format === 'agentskills' &&
+        pkg.manifest.script_paths?.length &&
+        pkg.sourcePath &&
+        SKILL_SCRIPTS_ENABLED
+      ) {
+        const skillDir = pkg.sourcePath.replace(/[/\\]SKILL\.md$/, '');
+        for (const scriptPath of pkg.manifest.script_paths) {
+          const scriptName =
+            scriptPath
+              .split('/')
+              .pop()
+              ?.replace(/\.[^.]+$/, '') ?? scriptPath;
+          const ext = scriptPath.split('.').pop()?.toLowerCase();
+          const toolName = `${pkg.id}_${scriptName}`.replace(/[^a-z0-9_]/g, '_');
+
+          // Determine execution tool based on file extension
+          let execTool: string;
+          if (ext === 'py') execTool = 'execute_python';
+          else if (ext === 'sh' || ext === 'bash') execTool = 'execute_shell';
+          else if (ext === 'js' || ext === 'mjs') execTool = 'execute_javascript';
+          else continue; // Skip unsupported script types
+
+          // Path traversal protection: resolve and verify path is within skillDir
+          const fullPath = resolve(skillDir, scriptPath);
+          if (!isWithinDirectory(skillDir, fullPath)) {
+            log.warn(`Path traversal detected for ${pkg.id}: ${scriptPath}`);
+            continue; // Skip this script
+          }
+          const safeFullPath = JSON.stringify(fullPath.replace(/\\/g, '/'));
+          const code = `
+            const fs = require('fs');
+            const script = fs.readFileSync(${safeFullPath}, 'utf-8');
+            const argsJson = JSON.stringify(args);
+            return { content: { script_path: ${safeFullPath}, exec_tool: ${JSON.stringify(execTool)}, args: argsJson, note: 'Use ${execTool} to run this script with the provided arguments.' } };
+          `.trim();
+
+          defs.push({
+            name: toolName,
+            description: `Run script: ${scriptPath} (from skill "${pkg.manifest.name}"). Use ${execTool} to execute.`,
+            parameters: {
+              type: 'object',
+              properties: {
+                args: { type: 'string', description: 'Arguments to pass to the script' },
+              },
+            },
+            category: pkg.manifest.category ?? 'other',
+            extensionId: pkg.id,
+            format: 'agentskills',
+            extensionTool: {
+              name: toolName,
+              description: `Run ${scriptPath}`,
+              parameters: { type: 'object', properties: { args: { type: 'string' } } },
+              code,
+              permissions: ['filesystem'],
+            },
+          });
+        }
+      }
+    }
+
+    return defs;
+  }
+
+  // --------------------------------------------------------------------------
+  // System prompt sections
+  // --------------------------------------------------------------------------
+
+  getSystemPromptSections(): string[] {
+    const enabled = this.#getActiveEnabled();
+    return enabled.map((pkg) => this.#buildPromptSection(pkg)).filter(Boolean) as string[];
+  }
+
+  #buildPromptSection(pkg: ExtensionRecord): string | undefined {
+    if (pkg.manifest.format === 'agentskills') {
+      const instructions = pkg.manifest.instructions?.trim();
+      if (instructions) return `## Skill: ${pkg.manifest.name}\n${instructions}`;
+    } else if (pkg.manifest.system_prompt?.trim()) {
+      return `## Extension: ${pkg.manifest.name}\n${pkg.manifest.system_prompt.trim()}`;
+    }
+    return undefined;
+  }
+
+  /**
+   * Get lightweight skill metadata for initial context injection.
+   * Used by AgentSkills.io progressive disclosure: only name + description
+   * are injected at startup (~100 tokens each). Full instructions are
+   * loaded when the agent decides to activate a skill.
+   */
+  getAvailableSkillsMetadata(): Array<{ name: string; description: string; id: string }> {
+    const enabled = extensionsRepo.getEnabled();
+    return enabled
+      .filter((pkg) => pkg.manifest.format === 'agentskills')
+      .map((pkg) => ({
+        name: pkg.manifest.name,
+        description: pkg.manifest.description,
+        id: pkg.id,
+      }));
+  }
+
+  /**
+   * Get system prompt sections for specific extension IDs only.
+   * Used by the request preprocessor for selective context injection.
+   */
+  getSystemPromptSectionsForIds(ids: string[]): string[] {
+    if (ids.length === 0) return [];
+    const idSet = new Set(ids);
+    const enabled = extensionsRepo.getEnabled();
+    return enabled
+      .filter((pkg) => idSet.has(pkg.id))
+      .map((pkg) => this.#buildPromptSection(pkg))
+      .filter(Boolean) as string[];
+  }
+
+  /**
+   * Get lightweight metadata for all enabled extensions.
+   * Used by the request preprocessor to build its keyword index.
+   */
+  getEnabledMetadata(): Array<{
+    id: string;
+    name: string;
+    description: string;
+    format: string;
+    category?: string;
+    toolNames: string[];
+    keywords?: string[];
+  }> {
+    const enabled = this.#getActiveEnabled();
+    return enabled.map((pkg) => ({
+      id: pkg.id,
+      name: pkg.manifest.name,
+      description: pkg.manifest.description,
+      format: pkg.manifest.format ?? 'ownpilot',
+      category: pkg.manifest.category,
+      toolNames: (pkg.manifest.tools ?? []).map((t) => t.name),
+      keywords: pkg.manifest.keywords ?? pkg.manifest.tags,
+    }));
+  }
+
+  // --------------------------------------------------------------------------
+  // Reload from disk
+  // --------------------------------------------------------------------------
+
+  async reload(id: string, userId = 'default'): Promise<ExtensionRecord | null> {
+    // Drop cached gate results so changed requirements are re-evaluated.
+    this.#gateCache.clear();
+    const record = extensionsRepo.getById(id);
+    if (!record || record.userId !== userId) return null;
+    if (!record.sourcePath) {
+      throw new ExtensionError('No source path to reload from', 'IO_ERROR');
+    }
+
+    // Deactivate old triggers
+    await this.deactivateExtTriggers(id, userId);
+
+    // Re-install from source
+    const updated = await this.install(record.sourcePath, userId);
+    return updated;
+  }
+
+  // --------------------------------------------------------------------------
+  // Scan directory for new extensions — delegates to extension-scanner
+  // --------------------------------------------------------------------------
+
+  async scanDirectory(directory?: string, userId = 'default'): Promise<ScanResult> {
+    const installFn = (manifestPath: string, uid: string) => this.install(manifestPath, uid);
+    const shouldSkipRemoved = async (manifestPath: string, uid: string) => {
+      try {
+        return Boolean(
+          await (
+            extensionsRepo as typeof extensionsRepo & {
+              isRemoved?: (
+                userId: string,
+                extensionId?: string,
+                sourcePath?: string
+              ) => Promise<boolean>;
+            }
+          ).isRemoved?.(uid, undefined, resolve(manifestPath))
+        );
+      } catch (e) {
+        log.warn('Failed to check extension removal marker', {
+          path: manifestPath,
+          error: String(e),
+        });
+        return false;
+      }
+    };
+
+    if (!directory) {
+      const dirs = getAllScanDirectories();
+      let totalInstalled = 0;
+      const allErrors: Array<{ path: string; error: string }> = [];
+      for (const dir of dirs) {
+        const r = await scanSingleDirectory(dir, userId, installFn, shouldSkipRemoved);
+        totalInstalled += r.installed;
+        allErrors.push(...r.errors);
+      }
+      return { installed: totalInstalled, errors: allErrors };
+    }
+    return scanSingleDirectory(directory, userId, installFn, shouldSkipRemoved);
+  }
+
+  // --------------------------------------------------------------------------
+  // Trigger management — delegates to extension-trigger-manager
+  // --------------------------------------------------------------------------
+
+  private activateExtTriggers(manifest: ExtensionManifest, userId: string): Promise<void> {
+    return activateExtensionTriggers(manifest, userId);
+  }
+
+  private deactivateExtTriggers(extensionId: string, userId: string): Promise<void> {
+    return deactivateExtensionTriggers(extensionId, userId);
+  }
+}
+
+// =============================================================================
+// Singleton
+// =============================================================================
+
+let instance: ExtensionService | null = null;
+
+export function getExtensionService(): ExtensionService {
+  if (!instance) {
+    instance = new ExtensionService();
+  }
+  return instance;
+}
+
+export function resetExtensionService(): void {
+  instance = null;
+}

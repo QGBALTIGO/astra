@@ -1,0 +1,154 @@
+// Channels and Chat History types
+
+export interface Channel {
+  id: string;
+  type: string;
+  name: string;
+  status: 'connected' | 'disconnected' | 'connecting' | 'error';
+  icon?: string;
+  botInfo?: {
+    username: string;
+    firstName: string;
+  };
+}
+
+export interface ChannelMessage {
+  id: string;
+  channelId: string;
+  channelType: string;
+  sender: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  content: string;
+  timestamp: string;
+  read: boolean;
+  replied: boolean;
+  direction: 'incoming' | 'outgoing';
+  replyTo?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ChannelUser {
+  id: string;
+  platform: string;
+  platformUserId: string;
+  platformUsername?: string;
+  displayName?: string;
+  isVerified: boolean;
+  isBlocked: boolean;
+  lastSeenAt: string;
+  ownpilotUserId?: string;
+  isOwner?: boolean;
+  accessExpiresAt?: string | null;
+  accessGrantedAt?: string | null;
+  accessSource?: 'manual' | 'cakto' | null;
+  accessStatus?: 'active' | 'expired' | 'revoked' | 'blocked' | 'pending';
+  /** False for a number authorized before its first incoming message. */
+  hasInteracted?: boolean;
+  /** Present when user is in DM pairing flow — shows the code they need to give the owner */
+  pendingPairingCode?: string;
+  /** ISO timestamp of when pendingPairingCode expires */
+  pendingPairingExpiry?: string;
+}
+
+export interface AuthorizeWhatsAppUserInput {
+  platform: 'whatsapp';
+  phoneNumber: string;
+  displayName?: string;
+  /** Omitted means 30 days; null explicitly grants access without an expiry. */
+  durationDays?: number | null;
+}
+
+export interface ChannelUsersPage {
+  users: ChannelUser[];
+  count: number;
+  limit: number;
+  offset: number;
+}
+
+export interface WhatsAppAccessMessageSettings {
+  siteUrl: string;
+  renewalUrl: string | null;
+  timeZone: string;
+}
+
+export interface ChannelStats {
+  totalMessages: number;
+  todayMessages: number;
+  weekMessages: number;
+  lastActivityAt: string | null;
+}
+
+// ---- Chat History ----
+
+export interface Conversation {
+  id: string;
+  title: string;
+  agentId?: string;
+  agentName?: string;
+  provider?: string;
+  model?: string;
+  messageCount: number;
+  isArchived: boolean;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  /** 'web' for UI chat, 'channel' for Telegram/Discord/etc. */
+  source?: 'web' | 'channel';
+  channelPlatform?: string | null;
+  channelSenderName?: string | null;
+}
+
+export interface HistoryMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  provider?: string;
+  model?: string;
+  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+  trace?: Record<string, unknown>;
+  isError?: boolean;
+  attachments?: Array<{
+    type: 'image' | 'file';
+    mimeType?: string;
+    filename?: string;
+    size?: number;
+    path?: string;
+  }> | null;
+  createdAt: string;
+}
+
+/** Unified message — used in channel conversations to merge AI + channel data. */
+export interface UnifiedMessage {
+  id: string;
+  role: string;
+  content: string;
+  provider?: string | null;
+  model?: string | null;
+  toolCalls?: unknown[] | null;
+  trace?: Record<string, unknown> | null;
+  isError?: boolean;
+  attachments?: Array<{
+    type: 'image' | 'file';
+    mimeType?: string;
+    filename?: string;
+    size?: number;
+    path?: string;
+  }> | null;
+  createdAt: string;
+  source: 'channel' | 'ai' | 'web';
+  direction: 'inbound' | 'outbound';
+  senderName?: string;
+  senderId?: string;
+}
+
+/** Channel info attached to unified conversation response. */
+export interface ChannelInfo {
+  platform: string;
+  channelPluginId: string;
+  platformChatId: string;
+  senderName?: string;
+  sessionId: string;
+}

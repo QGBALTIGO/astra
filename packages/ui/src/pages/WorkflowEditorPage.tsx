@@ -1,0 +1,283 @@
+/**
+ * Workflow Editor Page
+ *
+ * Three-panel layout:
+ * +------------------+------------------------+-----------------+
+ * | ToolPalette      | ReactFlow Canvas       | NodeConfigPanel |
+ * | (240px, left)    | (flex-1, center)       | (320px, right)  |
+ * +------------------+------------------------+-----------------+
+ *
+ * Top bar: Back, workflow name (editable), Save, Execute, status.
+ * Execution: SSE streaming with real-time node coloring.
+ */
+
+import { lazy, Suspense, useState } from 'react';
+import { ReactFlowProvider, type Node, type Edge } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+
+import { useIsMobile } from '../hooks/useMediaQuery';
+import { ToolPalette } from '../components/workflows/ToolPalette';
+import { NodeConfigPanel } from '../components/workflows/NodeConfigPanel';
+import { NodeSearchPalette } from '../components/workflows/NodeSearchPalette';
+import { VariablesPanel } from '../components/workflows/VariablesPanel';
+import { WorkflowVersionsPanel } from '../components/workflows/WorkflowVersionsPanel';
+import { InputParametersPanel } from '../components/workflows/InputParametersPanel';
+import type { WorkflowDefinition } from '../components/workflows/workflowDefinition';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+import { useWorkflowEditor } from './workflows/useWorkflowEditor';
+import { WorkflowEditorToolbar } from './workflows/WorkflowEditorToolbar';
+import { WorkflowCanvas } from './workflows/WorkflowCanvas';
+import { MobileWorkflowView } from './workflows/MobileWorkflowView';
+import { getEdgeLabelProps } from './workflows/shared';
+
+const WorkflowSourceModal = lazy(() =>
+  import('../components/workflows/WorkflowSourceModal').then((m) => ({
+    default: m.WorkflowSourceModal,
+  }))
+);
+
+const WorkflowCopilotPanel = lazy(() =>
+  import('../components/workflows/WorkflowCopilotPanel').then((m) => ({
+    default: m.WorkflowCopilotPanel,
+  }))
+);
+
+const TemplateGallery = lazy(() =>
+  import('../components/workflows/TemplateGallery').then((m) => ({
+    default: m.TemplateGallery,
+  }))
+);
+
+function WorkflowPanelFallback({ className = '' }: { className?: string }) {
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center border-l border-border bg-bg-secondary text-sm text-text-muted dark:border-dark-border dark:bg-dark-bg-secondary dark:text-dark-text-muted ${className}`}
+    >
+      Carregando...
+    </div>
+  );
+}
+
+// ============================================================================
+// Main Component (wrapped in ReactFlowProvider for hook access)
+// ============================================================================
+
+export function WorkflowEditorPage() {
+  return (
+    <ReactFlowProvider>
+      <WorkflowEditorInner />
+    </ReactFlowProvider>
+  );
+}
+
+function WorkflowEditorInner() {
+  const editor = useWorkflowEditor();
+  const isMobile = useIsMobile();
+  const [mobileTab, setMobileTab] = useState<'nodes' | 'canvas' | 'config'>('nodes');
+
+  // ========================================================================
+  // Render
+  // ========================================================================
+
+  if (editor.isLoading) {
+    return <LoadingSpinner message="Carregando automação..." />;
+  }
+
+  if (!editor.workflow) {
+    return null;
+  }
+
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      {/* Top Bar */}
+      <WorkflowEditorToolbar
+        workflowName={editor.workflowName}
+        setWorkflowName={editor.setWorkflowName}
+        hasUnsavedChanges={editor.hasUnsavedChanges}
+        setHasUnsavedChanges={editor.setHasUnsavedChanges}
+        isSaving={editor.isSaving}
+        isExecuting={editor.isExecuting}
+        isDryRun={editor.isDryRun}
+        nodes={editor.nodes}
+        variables={editor.variables}
+        inputSchema={editor.inputSchema}
+        showVariables={editor.showVariables}
+        setShowVariables={editor.setShowVariables}
+        showCopilot={editor.showCopilot}
+        setShowCopilot={editor.setShowCopilot}
+        showVersions={editor.showVersions}
+        setShowVersions={editor.setShowVersions}
+        showInputParams={editor.showInputParams}
+        setShowInputParams={editor.setShowInputParams}
+        setShowTemplates={editor.setShowTemplates}
+        setShowSource={editor.setShowSource}
+        setSelectedNodeId={editor.setSelectedNodeId}
+        navigate={editor.navigate}
+        handleSave={editor.handleSave}
+        handleArrange={editor.handleArrange}
+        handleExecute={editor.handleExecute}
+        handleCancel={editor.handleCancel}
+        executionProgress={editor.executionProgress}
+      />
+
+      {/* Three-panel layout (desktop) / Tabbed layout (mobile) */}
+      {isMobile ? (
+        <MobileWorkflowView
+          editor={editor}
+          canvas={
+            <WorkflowCanvas
+              nodes={editor.nodes}
+              edges={editor.edges}
+              isExecuting={editor.isExecuting}
+              onNodesChange={editor.onNodesChangeWrapped}
+              onEdgesChange={editor.onEdgesChangeWrapped}
+              onConnect={editor.onConnect}
+              isValidConnection={editor.isValidConnection}
+              onNodeClick={editor.onNodeClick}
+              onPaneClick={editor.onPaneClick}
+              onDragOver={editor.onDragOver}
+              onDrop={editor.onDrop}
+            />
+          }
+          activeTab={mobileTab}
+          onTabChange={setMobileTab}
+        />
+      ) : (
+        <div className="flex-1 flex overflow-hidden">
+          <ToolPalette
+            className="w-60 shrink-0"
+            onAddTool={editor.addToolNode}
+            onAddNode={editor.handleAddNode}
+            hasTriggerNode={editor.hasTriggerNode}
+          />
+
+          <WorkflowCanvas
+            nodes={editor.nodes}
+            edges={editor.edges}
+            isExecuting={editor.isExecuting}
+            onNodesChange={editor.onNodesChangeWrapped}
+            onEdgesChange={editor.onEdgesChangeWrapped}
+            onConnect={editor.onConnect}
+            isValidConnection={editor.isValidConnection}
+            onNodeClick={editor.onNodeClick}
+            onPaneClick={editor.onPaneClick}
+            onDragOver={editor.onDragOver}
+            onDrop={editor.onDrop}
+          />
+
+          {editor.selectedNode ? (
+            <NodeConfigPanel
+              node={editor.selectedNode}
+              upstreamNodes={editor.upstreamNodes}
+              onUpdate={editor.updateNodeData}
+              onDelete={editor.deleteNode}
+              onClose={() => editor.setSelectedNodeId(null)}
+              className="w-80 shrink-0"
+            />
+          ) : editor.showVariables ? (
+            <VariablesPanel
+              variables={editor.variables}
+              onChange={editor.handleVariablesChange}
+              onClose={() => editor.setShowVariables(false)}
+              className="w-80 shrink-0"
+            />
+          ) : editor.showInputParams ? (
+            <InputParametersPanel
+              parameters={editor.inputSchema}
+              onChange={(params) => {
+                editor.setInputSchema(params);
+                editor.setHasUnsavedChanges(true);
+              }}
+              onClose={() => editor.setShowInputParams(false)}
+            />
+          ) : editor.showVersions && editor.id ? (
+            <WorkflowVersionsPanel
+              workflowId={editor.id}
+              onRestore={(data) => {
+                editor.setNodes(data.nodes as Node[]);
+                editor.setEdges(data.edges as Edge[]);
+                editor.setVariables(data.variables);
+                editor.setHasUnsavedChanges(false);
+                editor.toast.success('Version restored');
+              }}
+              onClose={() => editor.setShowVersions(false)}
+              className="w-80 shrink-0"
+            />
+          ) : editor.showCopilot ? (
+            <Suspense fallback={<WorkflowPanelFallback className="w-96" />}>
+              <WorkflowCopilotPanel
+                workflowName={editor.workflowName}
+                nodes={editor.nodes}
+                edges={editor.edges}
+                availableToolNames={editor.toolNames}
+                onApplyWorkflow={editor.handleApplyWorkflow}
+                onClose={() => editor.setShowCopilot(false)}
+              />
+            </Suspense>
+          ) : null}
+        </div>
+      )}
+
+      {editor.showNodeSearch && (
+        <NodeSearchPalette
+          toolNames={editor.toolNames}
+          onAddNode={editor.handleAddNode}
+          onAddTool={editor.addToolNode}
+          onClose={() => editor.setShowNodeSearch(false)}
+          hasTriggerNode={editor.hasTriggerNode}
+        />
+      )}
+
+      {editor.showTemplates && (
+        <Suspense fallback={null}>
+          <TemplateGallery
+            onUseTemplate={async (template) => {
+              const { convertDefinitionToReactFlow } =
+                await import('../components/workflows/workflowDefinition');
+              const {
+                nodes: rfNodes,
+                edges: rfEdges,
+                skippedNodes,
+              } = convertDefinitionToReactFlow(
+                template.definition as WorkflowDefinition,
+                editor.toolNames
+              );
+              if (skippedNodes.length > 0) {
+                editor.toast.error(`Skipped unknown node(s): ${skippedNodes.join(', ')}`);
+              }
+              const styledEdges = rfEdges.map((e) => ({
+                ...e,
+                ...getEdgeLabelProps(e.sourceHandle),
+              }));
+              const maxId = rfNodes.reduce((max, n) => {
+                const num = parseInt(n.id.replace('node_', ''), 10);
+                return isNaN(num) ? max : Math.max(max, num);
+              }, 0);
+              editor.nodeIdCounter.current = maxId;
+              editor.setNodes(rfNodes);
+              editor.setEdges(styledEdges);
+              if (template.definition.name) editor.setWorkflowName(template.definition.name);
+              editor.setHasUnsavedChanges(true);
+              editor.setShowTemplates(false);
+              editor.toast.success(`Template "${template.name}" applied`);
+            }}
+            onClose={() => editor.setShowTemplates(false)}
+          />
+        </Suspense>
+      )}
+
+      {editor.showSource && (
+        <Suspense fallback={null}>
+          <WorkflowSourceModal
+            workflowName={editor.workflowName}
+            nodes={editor.nodes}
+            edges={editor.edges}
+            variables={editor.variables}
+            onClose={() => editor.setShowSource(false)}
+            onImport={editor.handleImportWorkflow}
+          />
+        </Suspense>
+      )}
+    </div>
+  );
+}

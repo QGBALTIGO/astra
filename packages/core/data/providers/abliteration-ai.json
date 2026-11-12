@@ -1,0 +1,51 @@
+{
+  "id": "abliteration-ai",
+  "name": "abliteration.ai",
+  "type": "openai-compatible",
+  "apiKeyEnv": "ABLIT_KEY",
+  "features": {
+    "streaming": true,
+    "toolUse": true,
+    "vision": true,
+    "jsonMode": false,
+    "systemMessage": true
+  },
+  "models": [
+    {
+      "id": "abliterated-model-large",
+      "name": "Abliterated Model Large",
+      "contextWindow": 1000000,
+      "maxOutput": 999990,
+      "inputPrice": 5,
+      "outputPrice": 5,
+      "capabilities": [
+        "chat",
+        "function_calling",
+        "json_mode",
+        "reasoning",
+        "streaming"
+      ],
+      "default": true,
+      "releaseDate": "2026-07-25"
+    },
+    {
+      "id": "abliterated-model",
+      "name": "Abliterated Model",
+      "contextWindow": 150000,
+      "maxOutput": 8192,
+      "inputPrice": 3,
+      "outputPrice": 3,
+      "capabilities": [
+        "chat",
+        "vision",
+        "function_calling",
+        "reasoning",
+        "streaming"
+      ],
+      "default": false,
+      "releaseDate": "2026-01-06"
+    }
+  ],
+  "baseUrl": "https://api.abliteration.ai/v1",
+  "docsUrl": "https://docs.abliteration.ai/models"
+}

@@ -1,0 +1,125 @@
+/**
+ * IToolService - Unified Tool Access Interface
+ *
+ * Wraps the ToolRegistry to provide a consistent service interface.
+ * All tool access (execution, discovery, middleware) goes through this.
+ *
+ * Usage:
+ *   const tools = getToolService();
+ *   const defs = tools.getDefinitions();
+ *   const result = await tools.execute('get_current_time', {});
+ */
+
+import type { ToolDefinition, ToolMiddleware, ToolSource } from '../agent/types.js';
+
+// ============================================================================
+// Tool Execution Result (simplified for service layer)
+// ============================================================================
+
+export interface ToolServiceResult {
+  readonly content: string;
+  readonly isError?: boolean;
+}
+
+// ============================================================================
+// IToolService
+// ============================================================================
+
+export interface IToolService {
+  /**
+   * Execute a tool by name.
+   *
+   * @param context.execSource - Identifies the calling context (e.g. 'workflow', 'trigger')
+   *                             for centralized permission enforcement.
+   */
+  execute(
+    name: string,
+    args: Record<string, unknown>,
+    context?: { conversationId?: string; userId?: string; execSource?: string }
+  ): Promise<ToolServiceResult>;
+
+  /**
+   * Get a tool definition by name.
+   */
+  getDefinition(name: string): ToolDefinition | undefined;
+
+  /**
+   * Get all tool definitions.
+   */
+  getDefinitions(): readonly ToolDefinition[];
+
+  /**
+   * Get tool definitions filtered by source.
+   */
+  getDefinitionsBySource(source: ToolSource): readonly ToolDefinition[];
+
+  /**
+   * Check if a tool exists.
+   */
+  has(name: string): boolean;
+
+  /**
+   * Get all tool names.
+   */
+  getNames(): readonly string[];
+
+  /**
+   * Add global middleware.
+   */
+  use(middleware: ToolMiddleware): void;
+
+  /**
+   * Get tool count.
+   */
+  getCount(): number;
+}
+
+// ============================================================================
+// Singleton access — same pattern as MemoryService / GoalService / etc.
+// ============================================================================
+
+import { hasServiceRegistry, getServiceRegistry } from './registry.js';
+import { ServiceToken } from './registry.js';
+
+export const ToolToken = new ServiceToken<IToolService>('tool');
+
+let _toolService: IToolService | null = null;
+
+export function setToolService(service: IToolService): void {
+  _toolService = service;
+  if (hasServiceRegistry()) {
+    try {
+      const registry = getServiceRegistry();
+      if (!registry.has(ToolToken)) {
+        registry.register(ToolToken, service);
+      }
+    } catch {
+      // Registry not ready
+    }
+  }
+}
+
+export function getToolService(): IToolService {
+  if (hasServiceRegistry()) {
+    try {
+      return getServiceRegistry().get(ToolToken);
+    } catch {
+      // Fall through
+    }
+  }
+  if (!_toolService) {
+    throw new Error('ToolService not initialized. Call setToolService() during gateway startup.');
+  }
+  return _toolService;
+}
+
+export function hasToolService(): boolean {
+  if (hasServiceRegistry()) {
+    try {
+      return getServiceRegistry().has(ToolToken);
+    } catch {
+      // Fall through
+    }
+  }
+  return _toolService !== null;
+}

@@ -1,0 +1,221 @@
+/**
+ * Extensions Packaging Route
+ *
+ * GET /:id/package — Download extension as .skill ZIP file
+ */
+
+import { LOCAL_OWNER_ID } from '../../config/defaults.js';
+import { existsSync, readdirSync } from 'node:fs';
+import { join, basename, dirname } from 'node:path';
+import { Hono } from 'hono';
+import { getGatewayExtensionService } from '../../services/extension/accessor.js';
+import { apiError, ERROR_CODES, notFoundError, getErrorMessage } from '../helpers.js';
+import { getLog } from '../../services/log.js';
+import { attachmentDisposition, sanitizeFilenameSegment } from '../../utils/file-safety.js';
+
+const log = getLog('ExtensionPackaging');
+
+export const packagingRoutes = new Hono();
+
+const getExtService = getGatewayExtensionService;
+
+function getManifestFormat(manifest: unknown): string {
+  if (typeof manifest !== 'object' || manifest === null) return 'ownpilot';
+  const format = (manifest as Record<string, unknown>).format;
+  return typeof format === 'string' ? format : 'ownpilot';
+}
+
+function getManifestRecord(manifest: unknown): Record<string, unknown> {
+  if (typeof manifest !== 'object' || manifest === null) return {};
+  return manifest as Record<string, unknown>;
+}
+
+interface AdmZipArchive {
+  addLocalFile(localPath: string, zipPath?: string, zipName?: string): void;
+  addFile(entryName: string, data: Buffer): void;
+  toBuffer(): Buffer;
+}
+
+type AdmZipConstructor = new () => AdmZipArchive;
+type AdmZipImport = { default?: AdmZipConstructor } | AdmZipConstructor;
+
+function resolveAdmZipConstructor(mod: AdmZipImport): AdmZipConstructor | null {
+  return typeof mod === 'function' ? mod : (mod.default ?? null);
+}
+
+/**
+ * GET /:id/package — Download .skill ZIP
+ */
+packagingRoutes.get('/:id/package', async (c) => {
+  const userId = LOCAL_OWNER_ID;
+  const id = c.req.param('id');
+
+  const service = getExtService();
+  const pkg = service.getById(id);
+
+  if (!pkg || pkg.userId !== userId) {
+    return notFoundError(c, 'Extension', id);
+  }
+
+  let AdmZipClass: AdmZipConstructor | null = null;
+  try {
+    const admZipPkg = 'adm-zip';
+    const mod = (await import(admZipPkg)) as AdmZipImport;
+    AdmZipClass = resolveAdmZipConstructor(mod);
+  } catch {
+    return apiError(
+      c,
+      { code: ERROR_CODES.EXECUTION_ERROR, message: 'adm-zip not available' },
+      500
+    );
+  }
+  if (!AdmZipClass) {
+    return apiError(
+      c,
+      { code: ERROR_CODES.EXECUTION_ERROR, message: 'adm-zip constructor not available' },
+      500
+    );
+  }
+
+  try {
+    const zip = new AdmZipClass();
+    const skillName = sanitizeFilenameSegment(pkg.name, {
+      fallback: 'extension',
+      lowerCase: true,
+    });
+    const zipFolder = `${skillName}/`;
+
+    // Determine manifest file content
+    const manifest = getManifestRecord(pkg.manifest);
+    const format = getManifestFormat(manifest);
+
+    // Add the main manifest file
+    if (pkg.sourcePath && existsSync(pkg.sourcePath)) {
+      const manifestFilename = basename(pkg.sourcePath);
+      zip.addLocalFile(pkg.sourcePath, zipFolder, manifestFilename);
+
+      // Add sibling files from the skill directory
+      const skillDir = dirname(pkg.sourcePath);
+      if (existsSync(skillDir)) {
+        const entries = readdirSync(skillDir, { withFileTypes: true });
+        for (const entry of entries) {
+          const entryPath = join(skillDir, entry.name);
+          if (entry.name === manifestFilename) continue; // already added
+
+          if (entry.isDirectory()) {
+            // Add subdirectory contents (scripts/, references/, assets/)
+            const subEntries = readdirSync(entryPath, { withFileTypes: true });
+            for (const sub of subEntries) {
+              if (sub.isFile()) {
+                zip.addLocalFile(join(entryPath, sub.name), `${zipFolder}${entry.name}/`, sub.name);
+              }
+            }
+          } else if (entry.isFile() && !entry.name.startsWith('.')) {
+            zip.addLocalFile(entryPath, zipFolder, entry.name);
+          }
+        }
+      }
+    } else {
+      // No source file — create from in-memory manifest
+      const manifestFilename = format === 'agentskills' ? 'SKILL.md' : 'extension.json';
+      let manifestContent: string;
+
+      if (format === 'agentskills') {
+        manifestContent = buildSkillMd(manifest);
+      } else {
+        const { _security: _s, ...cleanManifest } = manifest as Record<string, unknown> & {
+          _security?: unknown;
+        };
+        manifestContent = JSON.stringify(cleanManifest, null, 2);
+      }
+
+      zip.addFile(`${zipFolder}${manifestFilename}`, Buffer.from(manifestContent, 'utf-8'));
+    }
+
+    // Always add skill.meta.json
+    const meta = {
+      format,
+      name: pkg.name,
+      version: pkg.version,
+      description: pkg.description ?? (manifest.description as string | undefined) ?? '',
+      author: pkg.authorName ?? (manifest.author as string | undefined) ?? '',
+      createdAt: pkg.installedAt,
+      ownpilot_version: '1.0',
+    };
+    zip.addFile(`${zipFolder}skill.meta.json`, Buffer.from(JSON.stringify(meta, null, 2), 'utf-8'));
+
+    const zipBuffer: Buffer = zip.toBuffer();
+    const safeVersion = sanitizeFilenameSegment(pkg.version, {
+      fallback: '1.0.0',
+      lowerCase: true,
+    });
+    const filename = `${skillName}-v${safeVersion}.skill`;
+
+    return new Response(zipBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': attachmentDisposition(filename),
+        'Content-Length': String(zipBuffer.length),
+      },
+    });
+  } catch (err) {
+    log.error('packaging failed', err);
+    return apiError(
+      c,
+      { code: ERROR_CODES.INTERNAL_ERROR, message: getErrorMessage(err, 'Packaging failed') },
+      500
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function buildSkillMd(manifest: Record<string, unknown>): string {
+  // Build YAML frontmatter
+  const fm: string[] = ['---'];
+  fm.push(`name: ${manifest.name ?? 'Skill'}`);
+  if (manifest.description) {
+    fm.push(`description: ${manifest.description}`);
+  }
+  fm.push(`version: ${manifest.version ?? '1.0.0'}`);
+  if (manifest.category) {
+    fm.push(`category: ${manifest.category}`);
+  }
+  if (Array.isArray(manifest.tags) && manifest.tags.length > 0) {
+    fm.push(`tags: [${manifest.tags.join(', ')}]`);
+  }
+  if (manifest.license) {
+    fm.push(`license: ${manifest.license}`);
+  }
+
+  // Nested metadata block
+  const author =
+    typeof manifest.author === 'string'
+      ? manifest.author
+      : (manifest.author as { name?: string } | undefined)?.name;
+  if (author) {
+    fm.push('metadata:');
+    fm.push(`  author: ${author}`);
+  }
+
+  // Allowed tools
+  if (Array.isArray(manifest.allowed_tools) && manifest.allowed_tools.length > 0) {
+    fm.push(`allowed-tools: [${manifest.allowed_tools.join(', ')}]`);
+  }
+
+  fm.push('---');
+  fm.push('');
+
+  // Markdown body (instructions)
+  if (manifest.instructions) {
+    fm.push(String(manifest.instructions));
+  } else {
+    fm.push(`# ${manifest.name ?? 'Skill'}`);
+    fm.push('');
+    fm.push('*No instructions provided.*');
+  }
+  return fm.join('\n');
+}
