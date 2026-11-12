@@ -36,6 +36,7 @@ import { formatAstraMessage, formatReminderConfirmation } from './response-prese
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
 import { tryListTodaysReminders } from './today-reminders.js';
+import { tryCancelNamedReminder } from './cancel-named-reminder.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 import { withContactStyleContext } from './channel-personalization.js';
 
@@ -335,6 +336,8 @@ export async function processViaBus(
   if (accessReply) return accessReply;
   const todaysReminders = await tryListTodaysReminders(message, channelUser.ownpilotUserId);
   if (todaysReminders) return todaysReminders;
+  const cancellation = await tryCancelNamedReminder(message, channelUser.ownpilotUserId);
+  if (cancellation) return cancellation;
   const timezoneReply = message.attachments?.length
     ? null
     : await tryCustomerTimezoneChannelReply(message, channelUser.ownpilotUserId);
@@ -632,6 +635,8 @@ export async function processDirectAgent(
   if (accessReply) return accessReply;
   const todaysReminders = await tryListTodaysReminders(message, userId);
   if (todaysReminders) return todaysReminders;
+  const cancellation = await tryCancelNamedReminder(message, userId);
+  if (cancellation) return cancellation;
   const timezoneReply = message.attachments?.length
     ? null
     : await tryCustomerTimezoneChannelReply(message, userId);
