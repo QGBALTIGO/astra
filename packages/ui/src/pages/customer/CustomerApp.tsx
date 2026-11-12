@@ -44,6 +44,7 @@ import type {
   CustomerTransactionFilters,
 } from './types';
 import './customer.css';
+import './premium.css';
 
 const NAVIGATION = [
   { id: 'inicio', path: '/cliente', label: 'Início', icon: Home },

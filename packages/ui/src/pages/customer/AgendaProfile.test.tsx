@@ -141,11 +141,11 @@ describe('customer profile', () => {
         /conectar.*google/i.test(button.textContent ?? '')
       )
     ).toBe(false);
-    expect(
-      Array.from(dom.container.querySelectorAll('a')).some((anchor) =>
-        /cakto|checkout/i.test(anchor.href)
-      )
-    ).toBe(false);
+    const renewal = Array.from(dom.container.querySelectorAll('a')).find((anchor) =>
+      anchor.textContent?.includes('Renovar meu plano')
+    );
+    expect(renewal?.href).toBe('https://pay.cakto.com.br/CubL455');
+    expect(renewal?.rel).toContain('noopener');
   });
   it('saves account timezone, theme and privacy preferences without accepting phone or user IDs', async () => {
     await mount('/cliente/perfil');

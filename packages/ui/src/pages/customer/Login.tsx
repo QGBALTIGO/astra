@@ -98,13 +98,14 @@ export function CustomerLogin() {
           <CustomerBrand />
           <span className="ac-eyebrow">SEU ASSISTENTE PESSOAL</span>
           <h1>
-            Mais clareza.
+            Sua rotina,
             <br />
-            Mais tempo
-            <br />
-            para você.
+            mais <em>leve.</em>
           </h1>
-          <p>O que você organiza pelo WhatsApp ganha uma visão completa no seu painel.</p>
+          <p>
+            Seu dinheiro, seus planos e seus compromissos. Tudo o que você organiza com o Astra, em
+            um espaço só seu.
+          </p>
           <ul>
             <li>
               <Receipt aria-hidden="true" />
@@ -121,7 +122,7 @@ export function CustomerLogin() {
           </ul>
           <a
             className="ac-text-link"
-            href="https://astraacessor.vercel.app"
+            href="https://astra-landing-production.up.railway.app/"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -132,9 +133,9 @@ export function CustomerLogin() {
           <div className="ac-login-mobile-brand">
             <CustomerBrand />
           </div>
-          <div className="ac-login-icon">
-            <MessageSquare aria-hidden="true" />
-          </div>
+          <p className="ac-eyebrow ac-login-form-eyebrow">
+            <Lock aria-hidden="true" /> SEU ESPAÇO PESSOAL
+          </p>
           <h2>{challenge ? 'Digite seu código de acesso' : 'Entre no seu Astra'}</h2>
           <p className="ac-login-subtitle">
             {challenge
@@ -222,8 +223,15 @@ export function CustomerLogin() {
             <summary>Preciso de ajuda</summary>
             <p>
               Use o número autorizado no seu acesso ao Astra e confira se ele está conectado ao
-              WhatsApp. Se precisar liberar ou recuperar seu acesso, fale com o administrador que
-              autorizou seu número.
+              WhatsApp. Para dúvidas sobre seu acesso,{' '}
+              <a
+                href="https://astra-landing-production.up.railway.app/#contato"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                fale com a equipe Astra
+              </a>
+              .
             </p>
           </details>
           <p className="ac-login-security">

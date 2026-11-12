@@ -7,17 +7,10 @@ import {
   CustomerQuickActions,
 } from './CommandCenter';
 import { CustomerPlanning } from './Planning';
+import { CustomerPlanAccess } from './PlanAccess';
 import { customerApi } from './api';
 import { CustomerEmpty, CustomerError, CustomerSkeleton, PeriodPicker } from './components';
-import {
-  categoryColor,
-  dateInZone,
-  dateLabel,
-  dateTimeLabel,
-  dayOffset,
-  money,
-  validPeriod,
-} from './helpers';
+import { dateInZone, dateLabel, dateTimeLabel, dayOffset, money, validPeriod } from './helpers';
 import { useCustomerQuery } from './hooks';
 import { TransactionRows } from './Transactions';
 import type {
@@ -202,7 +195,6 @@ export function CustomerHome({
   );
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
   const hidden = customer.hideAmounts;
-  const biggest = summary.data?.categories[0];
   const nextItems = upcoming.error
     ? undefined
     : upcoming.data?.items.filter((item) => !item.completed).slice(0, 4);
@@ -227,6 +219,7 @@ export function CustomerHome({
           <span>{hidden ? 'Mostrar valores' : 'Ocultar valores'}</span>
         </button>
       </header>
+      <CustomerPlanAccess customer={customer} />
       <CustomerQuickActions
         onNewTransaction={onNewTransaction}
         onAgenda={onAgenda}
@@ -330,52 +323,9 @@ export function CustomerHome({
               <ChevronRight aria-hidden="true" />
             </button>
           </div>
-          <CustomerInsights
-            summary={summary.data}
-            upcoming={nextItems}
-            timeZone={customer.timeZone}
-            hidden={hidden}
-            onAgenda={onAgenda}
-          />
-          <section className="ac-card">
-            <div className="ac-card-heading">
-              <div>
-                <h2>Entradas e despesas</h2>
-                <p>Somente movimentações realizadas.</p>
-              </div>
-              <div className="ac-chart-legend">
-                <span>
-                  <i className="ac-legend-income" />
-                  Entradas
-                </span>
-                <span>
-                  <i className="ac-legend-expense" />
-                  Despesas
-                </span>
-              </div>
-            </div>
-            <FinanceChart
-              key={period.from + period.to}
-              summary={summary.data}
-              hidden={hidden}
-              onDrillDown={onShowTransactions}
-            />
-          </section>
         </>
       ) : null}
-      <CustomerPlanning
-        plans={plans.data?.plans ?? []}
-        summary={summary.error ? undefined : summary.data}
-        categories={categories}
-        hidden={hidden}
-        canWrite={customer.access.canWrite}
-        loading={plans.loading}
-        error={plans.error}
-        onChanged={onChanged}
-        openSignal={planningOpenSignal}
-      />
-      <AstraPrompts />
-      <div className="ac-home-columns">
+      <div className="ac-home-focus">
         <section className="ac-card ac-card--flush">
           <div className="ac-card-heading ac-card-heading--padded">
             <div>
@@ -424,11 +374,50 @@ export function CustomerHome({
               ))}
             </ul>
           ) : upcoming.data ? (
-            <CustomerEmpty title="Os próximos dias estão livres">
+            <CustomerEmpty title="Sem compromissos nos próximos dias">
               Seus compromissos, lembretes e vencimentos aparecerão aqui.
             </CustomerEmpty>
           ) : null}
         </section>
+        <CustomerPlanning
+          plans={plans.data?.plans ?? []}
+          summary={summary.error ? undefined : summary.data}
+          categories={categories}
+          hidden={hidden}
+          canWrite={customer.access.canWrite}
+          loading={plans.loading}
+          error={plans.error}
+          onChanged={onChanged}
+          openSignal={planningOpenSignal}
+        />
+      </div>
+      <div className="ac-home-columns">
+        {summary.data ? (
+          <section className="ac-card">
+            <div className="ac-card-heading">
+              <div>
+                <h2>Entradas e despesas</h2>
+                <p>Somente movimentações realizadas.</p>
+              </div>
+              <div className="ac-chart-legend">
+                <span>
+                  <i className="ac-legend-income" />
+                  Entradas
+                </span>
+                <span>
+                  <i className="ac-legend-expense" />
+                  Despesas
+                </span>
+              </div>
+            </div>
+            <FinanceChart
+              key={period.from + period.to}
+              summary={summary.data}
+              hidden={hidden}
+              onDrillDown={onShowTransactions}
+            />
+          </section>
+        ) : null}
         <section className="ac-card ac-card--flush">
           <div className="ac-card-heading ac-card-heading--padded">
             <div>
@@ -469,34 +458,12 @@ export function CustomerHome({
           ) : null}
         </section>
       </div>
+      {summary.data && !summary.error ? (
+        <CustomerInsights summary={summary.data} hidden={hidden} />
+      ) : null}
+      <AstraPrompts />
       {summary.data ? (
         <CustomerPrintReport summary={summary.data} period={period} hidden={hidden} />
-      ) : null}
-      {biggest && biggest.total > 0 && !hidden ? (
-        <button
-          type="button"
-          className="ac-observation"
-          onClick={() =>
-            onShowTransactions({
-              ...period,
-              categoryId: biggest.id,
-              type: 'expense',
-              status: 'settled',
-            })
-          }
-        >
-          <span
-            className="ac-category-dot"
-            style={{ backgroundColor: categoryColor(biggest.color) }}
-          />
-          <span>
-            <strong>{biggest.name}</strong> foi sua maior categoria de despesas neste período.
-          </span>
-          <span className="ac-text-link">
-            Conferir
-            <ChevronRight aria-hidden="true" />
-          </span>
-        </button>
       ) : null}
     </div>
   );
