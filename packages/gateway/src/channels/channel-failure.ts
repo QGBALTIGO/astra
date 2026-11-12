@@ -36,26 +36,31 @@ export function channelFailureKind(details: string) {
 type Failure = ReturnType<typeof channelFailureKind>;
 const guidance = {
   calendar: {
+    check: 'Você pode conferir o compromisso em Agenda no painel.',
     read: 'Sua agenda não abriu por aqui agora. Dá uma olhada em Agenda no painel para conferir os horários.',
     write:
       'Fiquei sem a confirmação desse compromisso. Antes de pedir outra alteração, veja em Agenda no painel se a mudança já aparece.',
   },
   reminder: {
+    check: 'Para conferir o aviso e o horário, abra Agenda no painel.',
     read: 'A lista de avisos não abriu agora. Dá uma olhada em Agenda no painel. Se quiser consultar por aqui depois, pergunte “Quais são meus lembretes de hoje?”',
     write:
       'A confirmação do aviso não chegou. Confira o horário e o status em Agenda no painel antes de criar outro.',
   },
   task: {
+    check: 'Para conferir como a tarefa está, mande “Consulte a tarefa” com o título.',
     read: 'Estou sem a lista de tarefas por aqui. Você também encontra seus itens em Agenda no painel.',
     write:
       'Fiquei sem a confirmação da tarefa. Para ver como ela ficou, mande “Consulte a tarefa” seguido do título.',
   },
   subscription: {
+    check: 'Para conferir o que está no seu controle, mande “Minhas assinaturas”.',
     read: 'Os dados da assinatura não carregaram agora. No painel, abra Meu planejamento e escolha Assinaturas. Por aqui, use “Minhas assinaturas”.',
     write:
       'A confirmação da assinatura não chegou. Mande “Minhas assinaturas” para conferir se a mudança já aparece.',
   },
   finance: {
+    check: 'Dá para conferir o lançamento em Transações no painel.',
     read: 'Fiquei sem os dados dos seus lançamentos. Para conferir os valores agora, abra Transações no painel.',
     write:
       'A confirmação do lançamento não chegou. Confira em Transações no painel antes de anotar de novo, para não contar duas vezes.',
@@ -102,7 +107,12 @@ function classifyRequest(text: string) {
   const capabilityWords =
     /\b(?:como (?:isso )?funciona|quero (?:entender|aprender)|(?:so|apenas) (?:uma? )?duvida|(?:so |apenas )?quero saber se voce (?:faz|pode|consegue)|se eu pedir|estou perguntando|basta eu|preciso (?:pedir|criar)|explic[ae] (?:a diferenca|como))\b/;
   const capability =
-    capabilityWords.test(s) || /\bou (?:so acompanha|precisa ser|preciso abrir)\b/.test(s);
+    capabilityWords.test(s) ||
+    (/\b(?:aprendendo a usar|consigo (?:pedir|usar)|automaticamente|sozinh[oa]s?)\b/.test(s) &&
+      s.includes('?')) ||
+    /\bou (?:so acompanha|precisa ser|preciso abrir|(?:eu )?(?:tenho|preciso) (?:de |que )?\w+)\b/.test(
+      s
+    );
   const lookupOnly =
     /\b(?:(?:so|apenas) (?:me diga|consulta)|quero (?:saber|ver)|(?:que )?eu mesm[oa] (?:marco|agendo)|explic[ae] (?:a diferenca|como))\b/.test(
       s
@@ -113,7 +123,7 @@ function classifyRequest(text: string) {
     instructions.some((clause, index) => {
       const instruction = clause
         .trim()
-        .replace(/^(?:astra\s+|por favor\s+|a partir de (?:hoje|agora)\s+)/, '');
+        .replace(/^(?:(?:e|mas)\s+)?(?:astra\s+|por favor\s+|a partir de (?:hoje|agora)\s+)?/, '');
       const modal = /^(?:voce\s+)?(?:pode|poderia|consegue)\s+/.test(instruction);
       if (
         modal &&
@@ -137,21 +147,36 @@ function classifyRequest(text: string) {
     (!lookupOnly &&
       !s.includes('?') &&
       /^(?:hoje\s+|acabei de\s+)?(?:gastei|paguei|recebi|comprei|gastar|pagar)\b/.test(s));
-  const query =
-    !write &&
-    (capability ||
-      lookupOnly ||
-      isConversationalOnlyChannelRequest(text) ||
-      s.includes('?') ||
-      /^(?:qual|quais|quanto|quantos|quando|como|que horas|consult[ae]|confir[ae]|confere|mostr[ae]|liste|meus?|minhas?|agenda de|gastos do|tarefas de|lembretes de)\b/.test(
+  // Unknown imperatives often end with a friendly question ("pode ser?"). Only
+  // announce a lookup failure when there is evidence of a lookup in the text.
+  const readRequest =
+    /\b(?:qual|quais|quanto|quantos|que horas|sera que tenho|confer[ei]|confir[ae]|consult[ae]|mostr[ae]|liste|me diga|quero saber|quero ver)\b/.test(
+      s
+    ) ||
+    /^(?:minhas?|meus?|agenda de|gastos do|tarefas de|lembretes de)\b/.test(s) ||
+    (s.includes('?') &&
+      /\b(?:ficou (?:salv[oa]|pendente|concluid[oa])|ainda (?:esta|ta) de pe|(?:ja |ainda )?(?:aparec(?:e|eu)|consta|vence)|quando (?:eu |el[ae] )?(?:paguei|recebi|vence)|ontem ou (?:foi )?hoje|antes de eu ver|o que (?:eu|voce)|voce acha)\b/.test(
         s
       ));
-  const domain = domains.find((entry) => entry.words.test(s))?.name;
+  const query =
+    !write && (capability || lookupOnly || readRequest || isConversationalOnlyChannelRequest(text));
+  const listedDomain = domains.find((entry) => entry.words.test(s))?.name;
+  // Ordinary activities become calendar candidates only when the speaker asks
+  // to check an arrangement on a date. A reminder needs a future memory cue.
+  const domain =
+    listedDomain ??
+    (/\b(?:pra|para)(?: eu)? nao (?:me )?esquecer\b/.test(s)
+      ? 'reminder'
+      : readRequest &&
+          /\b(?:almoco|jantar|cafe|aula|encontro)\b/.test(s) &&
+          /\b(?:hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(s)
+        ? 'calendar'
+        : undefined);
   const conversion =
     query &&
     /\b(?:fuso|brasilia|cuiaba|horario de)\b/.test(s) &&
     /\b(?:que horas|qual (?:o )?horario|converta|diferenca de horario)\b/.test(s);
-  return { domain, query, capability, conversion, normalized: s };
+  return { domain, query, write, capability, conversion, normalized: s };
 }
 
 type Domain = keyof typeof guidance;
@@ -166,6 +191,8 @@ function capabilityAnswer(domain: Domain | undefined, s: string): string | undef
         return 'Por aqui você pode tirar a assinatura do seu controle no Astra. Para encerrar a cobrança, o cancelamento é com o fornecedor.';
       break;
     case 'reminder':
+      if (/\bsenhas?\b/.test(s))
+        return 'Sim. Para pedir um lembrete, basta dizer o horário e dar um título, como “Trocar a senha do banco”. Guarde a senha só com você.';
       if (/\b(?:venc\w+|conta|whatsapp|telegram|painel|chega)\b/.test(s))
         return 'O lembrete pode chegar aqui mesmo na conversa. Para agendar um, diga o que quer lembrar e quando quer receber o aviso.';
       break;
@@ -174,6 +201,8 @@ function capabilityAnswer(domain: Domain | undefined, s: string): string | undef
         return 'Uma tarefa pendente ainda está na sua lista para fazer. A concluída já foi marcada como feita. Você pode pedir para ver só as concluídas.';
       break;
     case 'calendar':
+      if (/\b(?:coincid\w*|sobrep\w*|conflit\w*|mesmo horario)\b/.test(s))
+        return 'Em Agenda, abra o dia para ver os compromissos e comparar os horários. Se dois coincidirem, você pode abrir um deles e escolher Editar.';
       if (/\b(?:reagend\w+|remarc\w+|mud\w+|alter\w+)\b/.test(s))
         return 'Para mudar o horário, abra o compromisso em Agenda no painel, escolha Editar e salve o novo horário.';
       break;
@@ -200,7 +229,7 @@ export function channelFailureReply(
   }
   if (reason === 'agent_busy')
     return 'Sua mensagem anterior ainda está em processamento. Aguarde a resposta dela antes de enviar outro pedido.';
-  const { domain, query, capability, conversion, normalized } = classifyRequest(request);
+  const { domain, query, write, capability, conversion, normalized } = classifyRequest(request);
   // An actual write invocation outweighs a read-like sentence or a question mark,
   // including partial tool failures where the final reply never arrived.
   const attemptedWrite = operations.some((r) =>
@@ -219,7 +248,9 @@ export function channelFailureReply(
     reply = 'Fiquei sem o resultado dessa conta agora.';
   else if (reading && capability)
     reply = 'Quero te orientar direito. Ainda não consegui conferir como isso funciona.';
-  else if (domain) reply = guidance[domain][reading ? 'read' : 'write'];
+  else if (domain && (reading || write || attemptedWrite))
+    reply = guidance[domain][reading ? 'read' : 'write'];
+  else if (domain) reply = 'Fiquei sem a resposta completa por aqui. ' + guidance[domain].check;
   else if (
     !attemptedWrite &&
     (reading ||
@@ -228,7 +259,7 @@ export function channelFailureReply(
     reply = 'Não consegui te responder agora. Sua pergunta ficou em aberto.';
   else
     reply =
-      'Não consegui terminar minha resposta agora. Se você pediu para mudar algum registro, vale conferir o painel antes de repetir.';
+      'Não consegui terminar minha resposta agora. Se o pedido envolvia um registro, confira no painel como ele ficou.';
   return reason === 'rate_limited'
     ? 'Cheguei ao limite de respostas por enquanto. ' + reply
     : reason === 'timeout'

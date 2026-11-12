@@ -126,6 +126,35 @@ describe('channel failure replies', () => {
     expect(r).not.toMatch(/tente novamente|pode me chamar|pergunt\w* de novo|foi criad/i);
   });
 
+  it.each([
+    ['Dá um jeito naquele gasto na lista pra mim?', 'Transações no painel'],
+    ['A tarefa do mercado, resolve aquela pra mim, pode ser?', 'Consulte a tarefa'],
+    ['Quando der a hora, chama aqui pra eu não esquecer do pão, combinado?', 'Agenda no painel'],
+    ['Aquela assinatura do jornal, deixa do jeito combinado, beleza?', 'Minhas assinaturas'],
+  ])('gives a neutral status check for an ambiguous action: %s', (request, marker) => {
+    const r = channelFailureReply(request, 'provider_unavailable');
+    expect(r).toContain(marker);
+    expect(r).not.toMatch(
+      /lista não abriu|dados da assinatura não carregaram|confirmação|pode repetir|de novo|foi salv|foi criad/i
+    );
+  });
+
+  it.each([
+    [
+      'Vocês avisam automaticamente se uma assinatura vencer, ou tenho que pedir o aviso?',
+      'peça um lembrete separado',
+    ],
+    [
+      'Consigo pedir um lembrete para trocar a senha sem dizer a senha?',
+      'Guarde a senha só com você',
+    ],
+    ['E se dois compromissos coincidirem? Estou aprendendo a usar.', 'comparar os horários'],
+  ])(
+    'explains an available capability without personal data or writes: %s',
+    (request, expected) => {
+      expect(channelFailureReply(request, 'timeout')).toContain(expected);
+    }
+  );
   it('a real write invocation outweighs read wording; a failed write never becomes confirmation', () => {
     const r = channelFailureReply('Qual é o meu próximo compromisso?', 'timeout', [
       receipt('core.add_calendar_event', { success: false }, true),
