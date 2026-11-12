@@ -290,6 +290,8 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
            AND ((u.metadata->'hasInteracted' IS NULL OR u.metadata->'hasInteracted' = 'true'::jsonb)
              OR (u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'
                AND notice.kind IN ('approved','renewed')))
+           AND (notice.kind <> 'approved' OR u.access_source <> 'cakto'
+             OR u.metadata->'astraAccessNotices'->>'firstAuthorized' IS DISTINCT FROM 'true')
            AND u.access_granted_at IS NOT DISTINCT FROM notice.access_granted_at
            AND u.access_expires_at IS NOT DISTINCT FROM notice.access_expires_at
            AND (u.access_expires_at IS NULL OR u.access_expires_at > $4::timestamptz)
