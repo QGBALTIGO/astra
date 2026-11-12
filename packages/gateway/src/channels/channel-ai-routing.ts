@@ -733,9 +733,10 @@ async function processDirectAgentInSession(
   const account = userId.startsWith('whatsapp:')
     ? await customerAccountsRepo.getByDataUserId(userId)
     : null;
+  const timeZone = account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
   const clockPrompt = withCustomerClock(
     agent.getConversation().systemPrompt ?? '',
-    account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande',
+    timeZone,
     new Date(),
     message.timestamp
   );
@@ -781,7 +782,10 @@ async function processDirectAgentInSession(
     // Strip internal tags so channel users never see prompt-control markup.
     const { extractMemoriesFromResponse } = await import('../utils/memory-extraction.js');
     const { content: stripped } = extractMemoriesFromResponse(result.value.content);
-    const response = safeChannelResponse(stripped, channelReceipts);
+    const response = safeChannelResponse(stripped, channelReceipts, {
+      timeZone,
+      requestText: interpreted.text,
+    });
     if (
       !conversationOnly ||
       channelReceipts.length > 0 ||

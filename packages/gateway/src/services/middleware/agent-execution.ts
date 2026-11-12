@@ -339,7 +339,10 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         content:
           message.metadata.source === 'channel'
             ? (safeOpinionReply ??
-              safeChannelResponse(result.value?.content ?? '', channelReceipts))
+              safeChannelResponse(result.value?.content ?? '', channelReceipts, {
+                timeZone: ctx.get<string>('channelTimeZone'),
+                requestText: message.content,
+              }))
             : (result.value?.content ?? ''),
         metadata: {
           source: message.metadata.source,

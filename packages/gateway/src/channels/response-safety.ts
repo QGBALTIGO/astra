@@ -167,6 +167,100 @@ function transactionConfirmation(receipt: ChannelToolReceipt, ids: Set<string>):
   );
 }
 
+const calendarWrite =
+  /^(?:add_calendar_event|batch_add_calendar_events|update_calendar_event|delete_calendar_event)$/;
+
+function calendarConfirmation(
+  receipt: ChannelToolReceipt,
+  ids: Set<string>,
+  timeZone?: string
+): string | null {
+  const name = normalizeName(receipt.name);
+  if (!calendarWrite.test(name) || isFailedChannelReceipt(receipt)) return null;
+  const envelope = object(json(receipt.content));
+  const result = object(envelope?.result) ?? envelope;
+  if (!result) return null;
+  if (name === 'delete_calendar_event') {
+    return result.message === 'Event deleted.'
+      ? formatAstraMessage('🗑️ Compromisso excluído', [])
+      : null;
+  }
+  const rows = name === 'batch_add_calendar_events' ? result.events : [result.event ?? result];
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const details: string[] = [];
+  for (const value of rows) {
+    const row = object(value);
+    if (
+      !row ||
+      typeof row.id !== 'string' ||
+      !row.id ||
+      typeof row.title !== 'string' ||
+      typeof row.startTime !== 'string'
+    )
+      return null;
+    const title = cleanIdentifiers(stripInternalTags(row.title), ids);
+    const start = new Date(row.startTime);
+    const end = typeof row.endTime === 'string' ? new Date(row.endTime) : null;
+    if (
+      !title ||
+      INTERNAL_TOOL.test(title) ||
+      protocol.test(title) ||
+      !Number.isFinite(start.getTime()) ||
+      (end && !Number.isFinite(end.getTime()))
+    )
+      return null;
+    const allDay = row.allDay === true;
+    const storedZone = typeof row.timezone === 'string' && row.timezone ? row.timezone : 'UTC';
+    let zone = (allDay ? storedZone : timeZone) || storedZone;
+    const options: Intl.DateTimeFormatOptions = {
+      dateStyle: 'short',
+      timeStyle: allDay ? undefined : 'short',
+    };
+    let format: Intl.DateTimeFormat;
+    try {
+      format = new Intl.DateTimeFormat('pt-BR', { ...options, timeZone: zone });
+    } catch {
+      zone = 'UTC';
+      format = new Intl.DateTimeFormat('pt-BR', { ...options, timeZone: zone });
+    }
+    const fields = [
+      { label: 'Assunto', value: title },
+      { label: allDay ? 'Dia inteiro' : 'Início', value: format.format(start) },
+    ];
+    if (end) fields.push({ label: 'Fim', value: format.format(end) });
+    if (!allDay) fields.push({ label: 'Fuso horário', value: zone });
+    details.push(
+      formatAstraMessage(
+        name === 'update_calendar_event' ? '✅ Compromisso atualizado' : '✅ Compromisso agendado',
+        fields
+      )
+    );
+  }
+  return details.join('\n\n');
+}
+
+const calendarNoun = /\b(?:agenda|evento|compromisso|consulta|reuniao)s?\b/;
+const positiveCalendarClaims = [
+  {
+    action: 'add_calendar_event',
+    first: /\b(?:agendei|marquei|criei|adicionei|inclui)\b/,
+    passive:
+      /\b(?:evento|compromisso|consulta|reuniao)s?\s+(?:(?:foi|foram|esta|estao)\s+)?(?:agendad|marcad|criad|confirmad)[oa]s?\b/,
+  },
+  {
+    action: 'update_calendar_event',
+    first: /\b(?:reagendei|remarquei|mudei|atualizei|alterei)\b/,
+    passive:
+      /\b(?:evento|compromisso|consulta|reuniao)s?\s+(?:(?:foi|foram|esta|estao)\s+)?(?:reagendad|remarcad|atualizad|alterad)[oa]s?\b/,
+  },
+  {
+    action: 'delete_calendar_event',
+    first: /\b(?:cancelei|exclui|removi)\b/,
+    passive:
+      /\b(?:evento|compromisso|consulta|reuniao)s?\s+(?:(?:foi|foram|esta|estao)\s+)?(?:cancelad|excluid|removid)[oa]s?\b/,
+  },
+];
+
 function taskConfirmation(receipt: ChannelToolReceipt, ids: Set<string>): string | null {
   const name = normalizeName(receipt.name);
   if (
@@ -211,9 +305,25 @@ export function successfulChannelTools(receipts: ChannelToolReceipt[]): Set<stri
   return names;
 }
 
-export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]): string {
+export function safeChannelResponse(
+  text: string,
+  receipts: ChannelToolReceipt[],
+  context: { timeZone?: string; requestText?: string } = {}
+): string {
+  const ids = internalIds(receipts);
+  const calendar = new Map<ChannelToolReceipt, string | null>();
+  for (const receipt of receipts) {
+    if (calendarWrite.test(normalizeName(receipt.name))) {
+      calendar.set(receipt, calendarConfirmation(receipt, ids, context.timeZone));
+    }
+  }
+  const confirmedCalendar = new Set(
+    [...calendar].filter(([, detail]) => detail).map(([r]) => normalizeName(r.name))
+  );
+  if (confirmedCalendar.has('batch_add_calendar_events'))
+    confirmedCalendar.add('add_calendar_event');
   const stripped = stripInternalTags(text);
-  const clean = cleanIdentifiers(stripped, internalIds(receipts));
+  const clean = cleanIdentifiers(stripped, ids);
   const removedIdentifiers = clean !== stripped;
   const tools = successfulChannelTools(receipts);
   const has = (...names: string[]) => names.some((name) => tools.has(name));
@@ -241,10 +351,62 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
           ''
         )
     );
-  let unsupported = false;
+  const normalizedRequest =
+    context.requestText
+      ?.normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase() ?? '';
+  const bareCalendarWrite =
+    calendarNoun.test(normalizedRequest) &&
+    /\b(?:marca|marque|agenda|agende|cria|crie|adiciona|adicione|remarca|remarque|reagende|cancela|cancele|exclua|remova)\s+(?:(?:na|no|um|uma|meu|minha|o|a|esse|essa|este|esta|para)\s+)+/.test(
+      normalizedRequest
+    ) &&
+    /^(?:pronto|feito|tudo certo|ok)[.!\s]*$/.test(lower.trim());
+  let unsupported =
+    (bareCalendarWrite && !confirmedCalendar.size) ||
+    [...calendar].some(([receipt, detail]) => !isFailedChannelReceipt(receipt) && !detail);
+  let claimsCalendarWrite = false;
+  for (const raw of statements) {
+    const sentence = raw
+      .replace(/\b(?:nao|nunca)\s+(?:marquei|remarquei|mudei|adicionei|inclui|cancelei)\b/g, '')
+      .replace(
+        /\b(?:nenhum|nenhuma)\s+(?:evento|compromisso|consulta|reuniao)\s+(?:(?:foi|esta)\s+)?(?:agendad|marcad|criad|remarcad|cancelad|alterad)[oa]\b/g,
+        ''
+      );
+    const listHeading =
+      has('list_calendar_events') &&
+      /^\s*(?:eventos|compromissos|consultas|reunioes)\s+agendad[oa]s\s*:?\s*$/.test(sentence);
+    if (listHeading) continue;
+    const reminderObject = /\b(?:re)?agendei\s+(?:(?:o|um|seu|meu|esse|este)\s+)*lembrete\b/.test(
+      sentence
+    );
+    if (
+      /\b(?:re)?agendei\b[^.!?]*\be\s+(?:(?:o|um|seu|meu)\s+)*lembrete\b/.test(sentence) &&
+      !has('schedule_channel_reminder', 'reschedule_channel_reminder')
+    )
+      unsupported = true;
+    for (const rule of positiveCalendarClaims) {
+      const ambiguous =
+        rule.action === 'add_calendar_event'
+          ? /\bagendei\b/.test(sentence)
+          : rule.action === 'update_calendar_event' && /\breagendei\b/.test(sentence);
+      const matchingReminder =
+        rule.action === 'add_calendar_event'
+          ? has('schedule_channel_reminder')
+          : has('reschedule_channel_reminder');
+      if (
+        (calendarNoun.test(sentence) && rule.first.test(sentence) && !reminderObject) ||
+        rule.passive.test(sentence) ||
+        (ambiguous && !/\blembrete/.test(sentence) && !matchingReminder)
+      ) {
+        claimsCalendarWrite = true;
+        if (!confirmedCalendar.has(rule.action)) unsupported = true;
+      }
+    }
+  }
   for (const sentence of statements) {
     if (
-      /\b(?:lembretes?\s+(?:(?:e\s+tarefas?|foi|foram|esta|estao)\s+)*(?:(?:re)?agendad[oa]s?|criad[oa]s?|salv[oa]s?)|(?:re)?agendei|voce sera avisado|vou (?:te )?(?:avisar|lembrar))\b/.test(
+      /\b(?:lembretes?\s+(?:(?:e\s+tarefas?|foi|foram|esta|estao)\s+)*(?:(?:re)?agendad[oa]s?|criad[oa]s?|salv[oa]s?)|(?:re)?agendei\s+(?:(?:o|um|seu|meu|esse|este)\s+)*lembrete|voce sera avisado|vou (?:te )?(?:avisar|lembrar))\b/.test(
         sentence
       ) &&
       !has('schedule_channel_reminder', 'reschedule_channel_reminder') &&
@@ -322,9 +484,9 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     /\b(?:nao consegui|nao foi possivel|nao pude|falhou|falharam|nao (?:foi|foram) (?:salv|criad|agendad|registrad)[oa]s?|erro ao)\b/.test(
       lower
     );
-  const ids = internalIds(receipts);
   const confirmations = operations.map(
     (receipt) =>
+      calendar.get(receipt) ??
       transactionConfirmation(receipt, ids) ??
       reminderConfirmation([receipt]) ??
       taskConfirmation(receipt, ids)
@@ -354,6 +516,8 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     )
   )
     return confirmations.filter(Boolean).join('\n\n');
+  const requireCalendarEvidence =
+    confirmedCalendar.size > 0 && (claimsCalendarWrite || failures.length > 0);
   const onlyReminder =
     operations.length === 1 &&
     /^(?:schedule|reschedule)_channel_reminder$/.test(normalizeName(operations[0]!.name));
@@ -394,6 +558,7 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     clean &&
     !unsupported &&
     !removedIdentifiers &&
+    !requireCalendarEvidence &&
     failureAcknowledged &&
     !legacyErrorBanner
   )
@@ -405,6 +570,7 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     removedIdentifiers &&
     clean &&
     !unsupported &&
+    !requireCalendarEvidence &&
     failureAcknowledged &&
     !internalTool &&
     !protocol.test(text) &&
@@ -455,6 +621,12 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
         ])
       : '';
     const failedLabels: Record<string, string> = {
+      add_calendar_event: confirmedCalendar.has('add_calendar_event')
+        ? 'outra tentativa de criar um compromisso'
+        : 'a criação do compromisso',
+      batch_add_calendar_events: 'a criação dos compromissos',
+      update_calendar_event: 'a alteração do compromisso',
+      delete_calendar_event: 'a exclusão do compromisso',
       schedule_channel_reminder: 'o agendamento do lembrete',
       reschedule_channel_reminder: 'a alteração do lembrete',
       cancel_channel_reminder: 'o cancelamento do lembrete',
