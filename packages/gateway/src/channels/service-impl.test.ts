@@ -3095,6 +3095,62 @@ describe('ChannelServiceImpl', () => {
         );
       });
 
+      it.each([
+        [
+          'cpmp acesso o dashboard',
+          'Aqui vai o painel: https://astra-gateway-production.up.railway.app/cliente/entrar',
+          'Aqui vai o painel: https://app.astraacessor.pro/cliente/entrar',
+        ],
+        [
+          'E eu entro por onde mesmo?',
+          'Acesse https://astra-gateway-production.up.railway.app/cliente/entrar.',
+          'Acesse https://app.astraacessor.pro/cliente/entrar.',
+        ],
+        [
+          'cpmp acesso o dashboard',
+          'Você entra pelo painel do Astra.',
+          'Você entra pelo painel do Astra.\n\nPainel do Astra: https://app.astraacessor.pro/cliente/entrar',
+        ],
+      ])(
+        'asks the agent about WhatsApp access and sends a readable login plus a native action for %s',
+        async (question, answer, expected) => {
+          const phone = '5511999990001';
+          mockGetOwnerUserId.mockResolvedValue(phone);
+          const granted = createChannelUser({
+            platform: 'whatsapp',
+            platformUserId: phone,
+            ownpilotUserId: 'whatsapp:' + phone,
+            accessSource: 'manual',
+            accessExpiresAt: null,
+          });
+          mockUsersRepo.findByPlatform.mockResolvedValue(granted);
+          mockUsersRepo.findOrCreate.mockResolvedValue(granted);
+          mockAgent.chat.mockResolvedValue({
+            ok: true,
+            value: { content: answer },
+          });
+          await service.processIncomingMessage(
+            createIncomingMessage({
+              ...message,
+              platform: 'whatsapp',
+              platformChatId: phone,
+              sender: { platform: 'whatsapp', platformUserId: phone },
+              text: question,
+            }) as never
+          );
+          expect(mockAgent.chat).toHaveBeenCalledTimes(1);
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+              text: expected,
+              urlButton: {
+                label: 'Abrir meu painel',
+                url: 'https://app.astraacessor.pro/cliente/entrar',
+              },
+            })
+          );
+        }
+      );
+
       it('should handle agent error result', async () => {
         mockAgent.chat.mockResolvedValue({
           ok: false,

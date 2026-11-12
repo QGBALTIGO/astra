@@ -1,13 +1,17 @@
 import type { MessageRelayOptions, proto } from '@whiskeysockets/baileys';
 import type { ChannelOutgoingMessage } from '@ownpilot/core/channels';
-import { normalizeChannelUrl } from '../../utils/url-button.js';
+import { normalizeChannelUrl, renderUrlButtonAsText } from '../../utils/url-button.js';
+import {
+  containsCustomerLoginLink,
+  currentAstraLinksInText,
+} from '../../../config/astra-public-urls.js';
 
 /**
  * WhatsApp Web's experimental native-flow URL CTA.
  *
  * Do not turn an ambiguous relay failure into a second text send: a socket
  * exception can happen AFTER WhatsApp accepted the interactive message.
- * This payload deliberately keeps the destination URL out of the text body.
+ * The public login also stays readable on clients that hide the native button.
  */
 export function buildWhatsAppUrlCtaPayload(
   text: string,
@@ -32,15 +36,17 @@ export function buildWhatsAppUrlCtaPayload(
     throw new Error('Invalid WhatsApp URL CTA');
   }
 
-  const body = text
-    // Clients should see the link only in the button, never inside its body.
-    .replaceAll(action.url, '')
-    .replaceAll(url, '')
+  const login = containsCustomerLoginLink(url);
+  const body = (
+    login
+      ? renderUrlButtonAsText({ text: currentAstraLinksInText(text), urlButton: action })
+      : text.replaceAll(action.url, '').replaceAll(url, '')
+  )
     .replace(/[ \t]+\n/gu, '\n')
     .replace(/\n{3,}/gu, '\n\n')
     .trim();
 
-  if (!body || body.length > 1024 || body.includes(url)) {
+  if (!body || body.length > 1024 || (!login && body.includes(url))) {
     throw new Error('Invalid WhatsApp URL CTA body');
   }
 

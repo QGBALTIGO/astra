@@ -12,6 +12,11 @@ import { timingSafeEqual } from 'node:crypto';
 import { InboundFloodGuard } from './flood-guard.js';
 import { GreetingBurstGuard } from './greeting-burst-guard.js';
 import { dashboardActionForConfirmedReply } from './channel-dashboard-action.js';
+import {
+  ASTRA_CUSTOMER_LOGIN_URL,
+  containsCustomerLoginLink,
+} from '../config/astra-public-urls.js';
+import { isAstraAccessAnswerRequested } from './astra-access.js';
 import { maybePersonalizeConfirmedReply } from './confirmed-reply-personality.js';
 import {
   type IChannelService,
@@ -1163,14 +1168,27 @@ export class ChannelServiceImpl implements IChannelService {
 
       // 8. Send response (guard against empty text — Telegram rejects it)
       responseText = presentChannelReply(responseText || '', message.text);
+      const accessRequest =
+        (message.platform === 'whatsapp' || message.platform === 'telegram') &&
+        !message.attachments?.length &&
+        isAstraAccessAnswerRequested(message.text);
+      if (accessRequest && !containsCustomerLoginLink(responseText))
+        responseText += '\n\nPainel do Astra: ' + ASTRA_CUSTOMER_LOGIN_URL;
 
       // Public navigation only; the customer portal still requires its own login.
-      const dashboardAction = dashboardActionForConfirmedReply(
+      const confirmedAction = dashboardActionForConfirmedReply(
         responseText,
         dataUserId,
         message.platform
       );
-      if (dashboardAction && message.platform === 'whatsapp') {
+      const accessAction =
+        message.platform === 'whatsapp' &&
+        !message.attachments?.length &&
+        containsCustomerLoginLink(responseText)
+          ? { label: 'Abrir meu painel', url: ASTRA_CUSTOMER_LOGIN_URL }
+          : undefined;
+      const dashboardAction = confirmedAction ?? accessAction;
+      if (confirmedAction && message.platform === 'whatsapp') {
         // The verified, structured receipt is immutable. The AI may only add a
         // short, safe sentence and never delays delivery beyond 1.8 seconds.
         responseText = await maybePersonalizeConfirmedReply({

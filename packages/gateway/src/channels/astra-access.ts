@@ -50,3 +50,8 @@ export function tryAstraAccessReply(text: string): string | null {
     .replace(/\s+/g, ' ');
   return ACCESS_REQUESTS.some((request) => request.test(normalized)) ? ASTRA_ACCESS_REPLY : null;
 }
+
+/** Only the final answer uses this more tolerant check. The model still interprets a typo. */
+export function isAstraAccessAnswerRequested(text: string): boolean {
+  return tryAstraAccessReply(text.replace(/\bcpmp\b/giu, 'como')) !== null;
+}

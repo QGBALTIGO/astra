@@ -22,6 +22,28 @@ const calendar = receipt('core.add_calendar_event', {
   },
 });
 describe('channel failure replies', () => {
+  it('keeps the misspelled access question useful if all models fail', () => {
+    expect(channelFailureReply('cpmp acesso o dashboard', 'provider_unavailable')).toContain(
+      'https://app.astraacessor.pro/cliente/entrar'
+    );
+  });
+  it('replaces official link origins in model prose without redirecting external links or an embedded return URL', () => {
+    const external = 'https://example.org/go?return=https://astraacessor.vercel.app/privacidade';
+    const checkout = 'https://pay.cakto.com.br/CubL455';
+    const answer =
+      '[Site](https://astraacessor.vercel.app/condicoes?q=R%2420#leia), ' +
+      external +
+      ' e ' +
+      checkout +
+      '.';
+    expect(presentChannelReply(answer, 'cpmp acesso o dashboard')).toBe(
+      '[Site](https://astraacessor.pro/condicoes?q=R%2420#leia), ' +
+        external +
+        ' e ' +
+        checkout +
+        '.'
+    );
+  });
   it.each([
     'Preciso mudar a Revisão do orçamento Acácia de sexta para 16h, mantendo meia hora. Se encontrar esse evento, remarca o mesmo; se não encontrar, me avisa.',
     'Remarque a reunião para sexta e me avise se não achar.',

@@ -42,7 +42,12 @@ import { getLog } from '../../../services/log.js';
 import { getErrorMessage } from '../../../utils/common.js';
 import { MAX_MESSAGE_CHAT_MAP_SIZE } from '../../../config/defaults.js';
 import { splitMessage } from '../../utils/message-utils.js';
-import { renderUrlButtonAsText } from '../../utils/url-button.js';
+import {
+  normalizeChannelUrl,
+  publishChannelMessage,
+  renderUrlButtonAsText,
+} from '../../utils/url-button.js';
+import { containsCustomerLoginLink } from '../../../config/astra-public-urls.js';
 import { buildWhatsAppUrlCtaPayload } from './whatsapp-url-cta.js';
 import { getSessionDir, clearSession } from './session-store.js';
 import { buildWhatsAppCopyCodePayload } from './whatsapp-copy-code.js';
@@ -650,6 +655,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   }
 
   async sendMessage(message: ChannelOutgoingMessage): Promise<string> {
+    message = publishChannelMessage(message);
     assertSendDeadline(message.sendBefore);
     if (message.copyCode && (message.urlButton || message.attachments?.length)) {
       throw new Error('WhatsApp copy-code messages cannot contain other actions or attachments');
@@ -660,9 +666,14 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     const copyPayload = message.copyCode
       ? buildWhatsAppCopyCodePayload(message.text, message.copyCode)
       : undefined;
-    const urlPayload = message.urlButton
-      ? buildWhatsAppUrlCtaPayload(message.text, message.urlButton)
-      : undefined;
+    const loginButton = containsCustomerLoginLink(
+      normalizeChannelUrl(message.urlButton?.url) ?? ''
+    );
+    const loginBodyTooLong = loginButton && renderUrlButtonAsText(message).length > 1024;
+    const urlPayload =
+      message.urlButton && !loginBodyTooLong
+        ? buildWhatsAppUrlCtaPayload(message.text, message.urlButton)
+        : undefined;
     const interactivePayload = copyPayload ?? urlPayload;
     // Replies already being prepared may outlive a temporary transport outage.
     // Wait only before sending, for the same authenticated account, and never
@@ -686,8 +697,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       );
     }
     const isSelf = this.isSelfChat(jid);
-    // URL and copy actions use one native-flow message. Never append an exposed
-    // link, retry with plain text, or split an interactive button into two sends.
+    // URL and copy actions use one message. An uncertain relay must never be retried.
     const parts = interactivePayload
       ? [urlPayload?.body ?? message.text]
       : splitMessage(renderUrlButtonAsText(message), WHATSAPP_MAX_LENGTH);
@@ -724,7 +734,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       }
       assertSendDeadline(message.sendBefore);
 
-      if (interactivePayload) {
+      const loginTextOnly = loginButton && typeof sock.relayMessage !== 'function';
+      if (interactivePayload && !loginTextOnly) {
         const userJid = sock.user?.id;
         if (!userJid) throw new Error('WhatsApp account unavailable before sending');
         const generated = generateWAMessageFromContent(jid, interactivePayload.content, {

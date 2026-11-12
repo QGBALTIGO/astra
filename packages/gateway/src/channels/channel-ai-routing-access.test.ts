@@ -108,6 +108,34 @@ describe.each(['bus', 'direct'] as const)(
       getById.mockResolvedValue(null);
     });
 
+    it.each(['whatsapp', 'telegram'] as const)(
+      'sends the misspelled dashboard question to the agent and corrects the URLs in its actual reply for %s',
+      async (platform) => {
+        const old = 'https://astra-gateway-production.up.railway.app/cliente/entrar';
+        const prose =
+          'Você pode entrar por aqui: ' +
+          old +
+          '?plano=pessoal#inicio. Site: https://astraacessor.vercel.app/privacidade.';
+        agent.chat.mockResolvedValue({ ok: true, value: { content: prose } });
+        bus.process.mockResolvedValue({ response: { content: prose } });
+        const result = await route(
+          incoming({
+            platform,
+            channelPluginId: 'channel.' + platform,
+            text: 'cpmp acesso o dashboard',
+            metadata: { chatType: 'private' },
+          })
+        );
+        expect(path === 'bus' ? bus.process : agent.chat).toHaveBeenCalledTimes(1);
+        expect(result).toContain('Você pode entrar por aqui');
+        expect(result).toContain(
+          'https://app.astraacessor.pro/cliente/entrar?plano=pessoal#inicio.'
+        );
+        expect(result).toContain('https://astraacessor.pro/privacidade.');
+        expect(result).not.toMatch(/railway\.app|vercel\.app/);
+      }
+    );
+
     it.each([
       'Posso te enviar a minha senha?',
       'Você pode guardar minha senha?',
