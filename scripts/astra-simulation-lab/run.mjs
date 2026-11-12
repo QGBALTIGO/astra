@@ -14,6 +14,7 @@ import {
   LAB_VERSION, DEFAULT_SEED, PERSONA_COUNT, SCENARIO_COUNT, CATEGORIES,
   personaAt, scenarioAt, inspectScenario, effectiveNoDuplicateState,
 } from './core.mjs';
+import { SyntheticWorldOracle } from './world-oracle.mjs';
 
 function options(argv) {
   const opts = {
@@ -124,11 +125,14 @@ export async function runSynthetic(argv=process.argv.slice(2)) {
   let generated=0,executedSynthetic=0,passedSynthetic=0,failedSynthetic=0;
   let goalCases=0,criticalCases=0,criticalOraclePassed=0;
   let scriptsCompleted=0,personas=0,oracleScopeAssertions=0;
+  let syntheticStateWrites=0,virtualReminderDeliveries=0,crossUserDenials=0;
+  let deduplicatedWriteAttempts=0,syntheticGoalUpdates=0;
   for (let profileIndex=0;profileIndex<Math.ceil(opts.limit/10);profileIndex++) {
     const persona=personaAt(profileIndex,opts.seed);
     personas++;
     professions.add(persona.profession);
     await people.add(persona);
+    const world=new SyntheticWorldOracle(persona);
     const story={
       scriptId:persona.id,synthetic:true,personaId:persona.id,
       stableFacts:{
@@ -146,20 +150,28 @@ export async function runSynthetic(argv=process.argv.slice(2)) {
       if(scenario.category==='goals')goalCases++;
       if(scenario.expected.critical)criticalCases++;
       const verdict=inspectScenario(scenario);
+      let worldResult=null,worldFailure=null;
+      try{
+        worldResult=world.apply(scenario);
+      }catch(error){
+        worldFailure=error instanceof Error?error.message:String(error);
+      }
+      scenario.oracle=worldResult;
       executedSynthetic++;
-      if(verdict.pass){
+      if(verdict.pass&&!worldFailure&&worldResult?.success===true){
         passedSynthetic++;
         if(scenario.expected.critical)criticalOraclePassed++;
       }else{
         failedSynthetic++;
         failures.push({
           id:scenario.id,severity:scenario.expected.critical?'P0':'P2',
-          expected:'Schema e isolamento sintéticos válidos',observed:verdict.reason,
+          expected:'Schema, contexto, finanças e isolamento do mundo sintético',
+          observed:worldFailure??verdict.reason,
           category:scenario.category,mode:'synthetic_oracle',reproducedInAstra:false,
         });
       }
       story.turns.push({id:scenario.id,virtualAt:scenario.virtualAt,category:scenario.category,
-        message:scenario.message});
+        message:scenario.message,syntheticAction:worldResult?.decision??null});
       sha.update(scenario.id+'\0'+scenario.message+'\n');
       if(examples.length<18 && (step===0 || index%6249===0))examples.push({
         id:scenario.id,category:scenario.category,personaId:scenario.personaId,
@@ -167,6 +179,12 @@ export async function runSynthetic(argv=process.argv.slice(2)) {
       await corpus.add(scenario);
     }
     if(story.turns.length===10)scriptsCompleted++;
+    story.finalSyntheticState=world.snapshot();
+    syntheticStateWrites+=world.stats.writes;
+    virtualReminderDeliveries+=world.stats.virtualReminderDeliveries;
+    crossUserDenials+=world.stats.deniedCrossUserReads;
+    deduplicatedWriteAttempts+=world.stats.duplicateWritesPrevented;
+    syntheticGoalUpdates+=world.stats.goalUpdates;
     await scripts.add(story);
     // State checks are only for the synthetic ledger oracle.
     const event={userId:persona.id,eventId:'SIM-E'+profileIndex,type:'expense',amountCents:100};
@@ -184,6 +202,8 @@ export async function runSynthetic(argv=process.argv.slice(2)) {
     skippedSynthetic:0,personas,scripts:scriptsCompleted,partialScripts:personas-scriptsCompleted,
     categories,styles,professionCoverage:professions.size,semanticFamilies:families.size,
     goalCases,criticalCases,criticalOraclePassed,oracleScopeAssertions,
+    syntheticStateWrites,virtualReminderDeliveries,crossUserDenials,
+    deduplicatedWriteAttempts,syntheticGoalUpdates,
     actualAstraConversations:0,realModelConversations:0,
     realModelIntentAccuracy:null,realModelQualityScore:null,
     realModelLatencyP95:null,realModelLatencyP99:null,realModelTokens:null,realModelCost:null,
@@ -213,6 +233,7 @@ export async function runSynthetic(argv=process.argv.slice(2)) {
   console.log('ASTRA_LAB_REPORT='+JSON.stringify({
     generated,personas,scripts:scriptsCompleted,syntheticPassed:passedSynthetic,
     syntheticFailed:failedSynthetic,goalCases,semanticFamilies:families.size,
+    syntheticStateWrites,virtualReminderDeliveries,crossUserDenials,
     actualAstraTurns:0,actualModelTurns:0,digest:report.digest.sha256,output:opts.output,
   }));
   if(failedSynthetic!==0)process.exitCode=1;
