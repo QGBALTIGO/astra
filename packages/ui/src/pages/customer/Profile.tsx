@@ -23,8 +23,8 @@ import {
   CustomerSkeleton,
 } from './components';
 import {
+  customerSiteUrl,
   dateTimeLabel,
-  fullDate,
   safeLink,
   TIME_ZONES,
   timeZoneLabel,
@@ -32,6 +32,7 @@ import {
 } from './helpers';
 import { useCustomerQuery } from './hooks';
 import { CustomerPhoneChange } from './PhoneChange';
+import { CustomerPlanAccess } from './PlanAccess';
 import type { Customer, CustomerSession, CustomerTheme } from './types';
 
 export function CustomerProfile({
@@ -81,8 +82,8 @@ export function CustomerProfile({
   useEffect(() => {
     if (profile.data) onUpdated(profile.data.profile);
   }, [profile.data, onUpdated]);
-  const siteUrl = safeLink(integrations.data?.siteUrl);
-  const renewalUrl = safeLink(integrations.data?.renewalUrl) ?? siteUrl;
+  const siteUrl = customerSiteUrl(integrations.data?.siteUrl);
+  const renewalUrl = safeLink(integrations.data?.renewalUrl) ?? 'https://pay.cakto.com.br/CubL455';
   const supportUrl = safeLink(integrations.data?.supportUrl);
   const exportData = async (format: 'json' | 'csv') => {
     if (lock.current) return;
@@ -216,19 +217,7 @@ export function CustomerProfile({
               </div>
               <ShieldCheck aria-hidden="true" />
             </div>
-            <span
-              className={
-                'ac-status ac-status--' +
-                (current.access.status === 'active' ? 'settled' : 'pending')
-              }
-            >
-              {current.access.status === 'active' ? 'Acesso ativo' : 'Acesso vencido'}
-            </span>
-            <p className="ac-plan-expiry">
-              {current.access.expiresAt
-                ? `Válido até ${fullDate(current.access.expiresAt, current.timeZone)}`
-                : 'Acesso sem vencimento'}
-            </p>
+            <CustomerPlanAccess customer={current} detailed />
             <p className="ac-muted">
               {current.access.canWrite
                 ? 'Você pode consultar e organizar seus registros pelo WhatsApp e pelo painel.'
@@ -242,7 +231,7 @@ export function CustomerProfile({
               </p>
             ) : renewalUrl ? (
               <a href={renewalUrl} target="_blank" rel="noopener noreferrer" className="ac-button">
-                {integrations.data?.renewalUrl ? 'Renovar acesso' : 'Ver opções de renovação'}
+                Renovar meu plano
                 <ExternalLink aria-hidden="true" />
               </a>
             ) : (

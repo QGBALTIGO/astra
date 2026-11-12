@@ -129,3 +129,6 @@ packages/ui/vite.config.d.ts
 !/.wrongstack/
 /.wrongstack/*
 !/.wrongstack/project.json
+
+# Reviewed synthetic customer portal visual references.
+!packages/ui/e2e/customer-premium-snapshots/**/*.png

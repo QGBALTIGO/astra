@@ -10,20 +10,98 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto
 const RELEASE = 'astra-cakto-20261112-pix-pending-v2';
 const SECRET = String(Bun.env.CAKTO_WEBHOOK_SECRET || '');
 const PRODUCT_ID = String(Bun.env.CAKTO_PRODUCT_ID || '').trim();
-const PRODUCT_NAME = String(Bun.env.CAKTO_PRODUCT_NAME || 'Astra Acessor').trim().toLowerCase();
+const PRODUCT_NAME = String(Bun.env.CAKTO_PRODUCT_NAME || 'Astra Acessor')
+  .trim()
+  .toLowerCase();
 const DAYS = Number(Bun.env.CAKTO_ACCESS_DAYS || 30);
 const MAX_BODY = 65536;
-const GRANT_EVENTS = new Set(['purchase_approved', 'subscription_renewed', 'subscription_late_recovered']);
-const REVOKE_EVENTS = new Set(['refund', 'chargeback', 'subscription_canceled', 'subscription_paused']);
+const GRANT_EVENTS = new Set([
+  'purchase_approved',
+  'subscription_renewed',
+  'subscription_late_recovered',
+]);
+const REVOKE_EVENTS = new Set([
+  'refund',
+  'chargeback',
+  'subscription_canceled',
+  'subscription_paused',
+]);
 const RESUME_EVENTS = new Set(['subscription_resumed']);
 const PENDING_PIX_EVENTS = new Set(['pix_gerado']);
-const RELEVANT = new Set([...GRANT_EVENTS, ...REVOKE_EVENTS, ...RESUME_EVENTS, ...PENDING_PIX_EVENTS]);
+const RELEVANT = new Set([
+  ...GRANT_EVENTS,
+  ...REVOKE_EVENTS,
+  ...RESUME_EVENTS,
+  ...PENDING_PIX_EVENTS,
+]);
 const BRAZIL_AREA_CODES = new Set([
-  '11','12','13','14','15','16','17','18','19','21','22','24','27','28',
-  '31','32','33','34','35','37','38','41','42','43','44','45','46',
-  '47','48','49','51','53','54','55','61','62','63','64','65','66','67','68',
-  '69','71','73','74','75','77','79','81','82','83','84','85','86','87',
-  '88','89','91','92','93','94','95','96','97','98','99'
+  '11',
+  '12',
+  '13',
+  '14',
+  '15',
+  '16',
+  '17',
+  '18',
+  '19',
+  '21',
+  '22',
+  '24',
+  '27',
+  '28',
+  '31',
+  '32',
+  '33',
+  '34',
+  '35',
+  '37',
+  '38',
+  '41',
+  '42',
+  '43',
+  '44',
+  '45',
+  '46',
+  '47',
+  '48',
+  '49',
+  '51',
+  '53',
+  '54',
+  '55',
+  '61',
+  '62',
+  '63',
+  '64',
+  '65',
+  '66',
+  '67',
+  '68',
+  '69',
+  '71',
+  '73',
+  '74',
+  '75',
+  '77',
+  '79',
+  '81',
+  '82',
+  '83',
+  '84',
+  '85',
+  '86',
+  '87',
+  '88',
+  '89',
+  '91',
+  '92',
+  '93',
+  '94',
+  '95',
+  '96',
+  '97',
+  '98',
+  '99',
 ]);
 
 function normalizePhone(input) {
@@ -42,7 +120,11 @@ function normalizePhone(input) {
   } else return null;
   if (normalized.startsWith('55')) {
     const national = normalized.slice(2);
-    if (!BRAZIL_AREA_CODES.has(national.slice(0,2)) || !/^(?:\d{2}[2-9]\d{7}|\d{2}9\d{8})$/.test(national)) return null;
+    if (
+      !BRAZIL_AREA_CODES.has(national.slice(0, 2)) ||
+      !/^(?:\d{2}[2-9]\d{7}|\d{2}9\d{8})$/.test(national)
+    )
+      return null;
   }
   return normalized;
 }
@@ -57,10 +139,16 @@ function safeEqual(a, b) {
 function verifySignature(headers, rawBody, now = Date.now()) {
   if (!SECRET || SECRET.length < 24) return false;
   const timestamp = headers.get('x-cakto-timestamp') || '';
-  if (!/^\d{10}$/.test(timestamp) || Math.abs(now/1000 - Number(timestamp)) > 300) return false;
-  const signature = (headers.get('x-cakto-signature') || '').split(',').map(x => x.trim()).find(x => /^v1=[a-f0-9]{64}$/i.test(x));
+  if (!/^\d{10}$/.test(timestamp) || Math.abs(now / 1000 - Number(timestamp)) > 300) return false;
+  const signature = (headers.get('x-cakto-signature') || '')
+    .split(',')
+    .map((x) => x.trim())
+    .find((x) => /^v1=[a-f0-9]{64}$/i.test(x));
   if (!signature) return false;
-  const actual = createHmac('sha256', SECRET).update(timestamp + '.').update(rawBody).digest('hex');
+  const actual = createHmac('sha256', SECRET)
+    .update(timestamp + '.')
+    .update(rawBody)
+    .digest('hex');
   return safeEqual(signature, 'v1=' + actual);
 }
 
@@ -92,7 +180,7 @@ function productMatches(data) {
 
 if (!Number.isInteger(DAYS) || DAYS < 1 || DAYS > 366) throw new Error('Invalid access days');
 if (!SECRET || SECRET.length < 24) throw new Error('Missing Cakto webhook secret');
-for (const field of ['POSTGRES_HOST','POSTGRES_USER','POSTGRES_PASSWORD','POSTGRES_DB']) {
+for (const field of ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB']) {
   if (!Bun.env[field]) throw new Error('Missing PostgreSQL configuration: ' + field);
 }
 const sql = new SQL({
@@ -101,8 +189,10 @@ const sql = new SQL({
   username: Bun.env.POSTGRES_USER,
   password: Bun.env.POSTGRES_PASSWORD,
   database: Bun.env.POSTGRES_DB,
-  max: 4, idleTimeout: 10, connectionTimeout: 8,
-  connection: { application_name: 'astra-cakto-webhook', statement_timeout: '5000' }
+  max: 4,
+  idleTimeout: 10,
+  connectionTimeout: 8,
+  connection: { application_name: 'astra-cakto-webhook', statement_timeout: '5000' },
 });
 
 await sql`CREATE TABLE IF NOT EXISTS astra_cakto_orders (
@@ -132,7 +222,6 @@ await sql`CREATE TABLE IF NOT EXISTS astra_cakto_events (
   outcome TEXT NOT NULL,
   received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )`;
-
 
 // A generated PIX is an unpaid lead, never a subscription grant.
 // Store only the minimum buyer details needed to identify a pending checkout;
@@ -171,36 +260,49 @@ async function applyEvent(event, data, digest) {
   const paymentUntil = paymentDate ? new Date(paymentDate.getTime() + DAYS * 86_400_000) : null;
   const key = event + ':' + orderId;
 
-
   // PIX generated is not a payment confirmation. Record the interested buyer
   // without modifying channel_users, sessions, or any existing entitlement.
   if (PENDING_PIX_EVENTS.has(event)) {
-    const email = typeof customer?.email === 'string'
-      ? customer.email.trim().toLowerCase().slice(0, 254).replace(/[\\u0000-\\u001f]/g, '')
-      : '';
+    const email =
+      typeof customer?.email === 'string'
+        ? customer.email
+            .trim()
+            .toLowerCase()
+            .slice(0, 254)
+            .replace(/[\\u0000-\\u001f]/g, '')
+        : '';
     const generatedISO = (dateValue(data.createdAt) || when).toISOString();
-    return sql.begin(async tx => {
+    return sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`astra-cakto:${phone}`},0))`;
-      const existingOrder = await tx`SELECT phone,product_id,status FROM astra_cakto_orders WHERE order_id=${orderId} FOR UPDATE`;
-      if (existingOrder.length &&
-          (existingOrder[0].phone !== phone || existingOrder[0].product_id !== productId)) {
+      const existingOrder =
+        await tx`SELECT phone,product_id,status FROM astra_cakto_orders WHERE order_id=${orderId} FOR UPDATE`;
+      if (
+        existingOrder.length &&
+        (existingOrder[0].phone !== phone || existingOrder[0].product_id !== productId)
+      ) {
         return { outcome: 'held_order_conflict' };
       }
       const existingPending = await tx`SELECT phone,product_id,status
         FROM astra_cakto_pending_pix WHERE order_id=${orderId} FOR UPDATE`;
-      if (existingPending.length &&
-          (existingPending[0].phone !== phone || existingPending[0].product_id !== productId)) {
+      if (
+        existingPending.length &&
+        (existingPending[0].phone !== phone || existingPending[0].product_id !== productId)
+      ) {
         return { outcome: 'held_order_conflict' };
       }
-      const inserted = await tx`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
+      const inserted =
+        await tx`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
         VALUES (${key},${orderId},${event},${digest},'processing')
         ON CONFLICT DO NOTHING RETURNING event_key`;
       if (!inserted.length) return { outcome: 'duplicate' };
       const orderStatus = existingOrder[0]?.status;
       const pendingStatus = existingPending[0]?.status;
-      const terminal = new Set(['paid','refunded','chargedback','canceled']);
-      const status = terminal.has(orderStatus) ? orderStatus
-        : terminal.has(pendingStatus) ? pendingStatus : 'pending';
+      const terminal = new Set(['paid', 'refunded', 'chargedback', 'canceled']);
+      const status = terminal.has(orderStatus)
+        ? orderStatus
+        : terminal.has(pendingStatus)
+          ? pendingStatus
+          : 'pending';
       await tx`INSERT INTO astra_cakto_pending_pix(
           order_id,phone,product_id,buyer_name,buyer_email,status,generated_at)
         VALUES (${orderId},${phone},${productId},${name},${email},${status},${generatedISO})
@@ -217,16 +319,21 @@ async function applyEvent(event, data, digest) {
     });
   }
 
-  return sql.begin(async tx => {
+  return sql.begin(async (tx) => {
     // A transaction advisory lock serializes this phone's renewals and revocations.
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`astra-cakto:${phone}`},0))`;
-    const inserted = await tx`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
+    const inserted =
+      await tx`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
       VALUES (${key},${orderId},${event},${digest},'processing') ON CONFLICT DO NOTHING RETURNING event_key`;
-    if (!inserted.length) return { outcome:'duplicate' };
-    const existingOrder = await tx`SELECT phone,product_id FROM astra_cakto_orders WHERE order_id=${orderId} FOR UPDATE`;
-    if (existingOrder.length && (existingOrder[0].phone !== phone || existingOrder[0].product_id !== productId)) {
+    if (!inserted.length) return { outcome: 'duplicate' };
+    const existingOrder =
+      await tx`SELECT phone,product_id FROM astra_cakto_orders WHERE order_id=${orderId} FOR UPDATE`;
+    if (
+      existingOrder.length &&
+      (existingOrder[0].phone !== phone || existingOrder[0].product_id !== productId)
+    ) {
       await tx`UPDATE astra_cakto_events SET outcome='held_order_conflict' WHERE event_key=${key}`;
-      return { outcome:'held_order_conflict' };
+      return { outcome: 'held_order_conflict' };
     }
 
     if (GRANT_EVENTS.has(event)) {
@@ -236,7 +343,8 @@ async function applyEvent(event, data, digest) {
         status='paid', paid_at=EXCLUDED.paid_at, valid_until=EXCLUDED.valid_until,
         subscription_id=EXCLUDED.subscription_id, event_at=EXCLUDED.event_at,updated_at=now()
         WHERE astra_cakto_orders.event_at <= EXCLUDED.event_at`;
-      if (subId) await tx`INSERT INTO astra_cakto_subscriptions(subscription_id,phone,status,event_at)
+      if (subId)
+        await tx`INSERT INTO astra_cakto_subscriptions(subscription_id,phone,status,event_at)
         VALUES (${subId},${phone},'active',${whenISO}) ON CONFLICT(subscription_id) DO UPDATE SET
         status='active', event_at=EXCLUDED.event_at,updated_at=now()
         WHERE astra_cakto_subscriptions.event_at <= EXCLUDED.event_at AND astra_cakto_subscriptions.phone=EXCLUDED.phone`;
@@ -274,22 +382,30 @@ async function applyEvent(event, data, digest) {
       WHERE o.phone=${phone} AND o.status='paid' AND o.valid_until>now()
         AND (o.subscription_id IS NULL OR (s.status='active' AND s.phone=${phone}))`;
     const expires = entitlement[0]?.expires ? new Date(entitlement[0].expires) : null;
-    const users = await tx`SELECT id,ownpilot_user_id,is_blocked,is_verified,access_source,access_expires_at,display_name
+    const users =
+      await tx`SELECT id,ownpilot_user_id,is_blocked,is_verified,access_source,access_expires_at,display_name
       FROM channel_users WHERE platform='whatsapp' AND platform_user_id=${phone} FOR UPDATE`;
     const user = users[0] || null;
-    const retired = await tx`SELECT 1 FROM customer_phone_aliases WHERE phone_number=${phone} AND retired_at IS NOT NULL LIMIT 1`;
+    const retired =
+      await tx`SELECT 1 FROM customer_phone_aliases WHERE phone_number=${phone} AND retired_at IS NOT NULL LIMIT 1`;
     let outcome = 'no_active_payment';
-    if (retired.length || (user && (user.is_blocked || user.ownpilot_user_id !== 'whatsapp:' + phone))) {
+    if (
+      retired.length ||
+      (user && (user.is_blocked || user.ownpilot_user_id !== 'whatsapp:' + phone))
+    ) {
       outcome = 'held_identity_conflict';
-    } else if (user?.access_source === 'manual' && user.is_verified &&
-      (!user.access_expires_at || new Date(user.access_expires_at).getTime() > Date.now())) {
+    } else if (
+      user?.access_source === 'manual' &&
+      user.is_verified &&
+      (!user.access_expires_at || new Date(user.access_expires_at).getTime() > Date.now())
+    ) {
       outcome = 'manual_access_preserved';
     } else if (expires && expires.getTime() > Date.now()) {
       if (!user) {
         await tx`INSERT INTO channel_users(id,ownpilot_user_id,platform,platform_user_id,display_name,
           is_verified,verified_at,verification_method,status,access_expires_at,access_granted_at,access_source,metadata)
           VALUES (${randomUUID()},${'whatsapp:' + phone},'whatsapp',${phone},${name || null},true,now(),
-          'admin','active',${expires.toISOString()},now(),'cakto',${JSON.stringify({hasInteracted:false,manualPreauthorized:false,caktoManaged:true})}::jsonb)`;
+          'admin','active',${expires.toISOString()},now(),'cakto',${JSON.stringify({ hasInteracted: false, manualPreauthorized: false, caktoManaged: true })}::jsonb)`;
       } else {
         await tx`UPDATE channel_users SET is_verified=true,verified_at=now(),verification_method='admin',
           status='active', access_expires_at=${expires.toISOString()}, access_granted_at=now(),
@@ -308,42 +424,65 @@ async function applyEvent(event, data, digest) {
   });
 }
 
-const noCache = { 'content-type':'application/json; charset=utf-8','cache-control':'no-store',
-  'x-content-type-options':'nosniff','referrer-policy':'no-referrer' };
-function reply(value,status=200) { return new Response(JSON.stringify(value),{status,headers:noCache}); }
+const noCache = {
+  'content-type': 'application/json; charset=utf-8',
+  'cache-control': 'no-store',
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'no-referrer',
+};
+function reply(value, status = 200) {
+  return new Response(JSON.stringify(value), { status, headers: noCache });
+}
 
 Bun.serve({
-  hostname:'0.0.0.0', port:Number(Bun.env.PORT || 8080), maxRequestBodySize:MAX_BODY,
+  hostname: '0.0.0.0',
+  port: Number(Bun.env.PORT || 8080),
+  maxRequestBodySize: MAX_BODY,
   async fetch(request) {
     const u = new URL(request.url);
     if (u.pathname === '/health' && request.method === 'GET')
-      return reply({ status:'ok',service:'astra-cakto-webhook',release:RELEASE,pendingPixTracking:true });
-    if (u.pathname !== '/webhooks/cakto') return reply({error:'not_found'},404);
-    if (request.method !== 'POST') return reply({error:'method_not_allowed'},405);
+      return reply({
+        status: 'ok',
+        service: 'astra-cakto-webhook',
+        release: RELEASE,
+        pendingPixTracking: true,
+      });
+    if (u.pathname !== '/webhooks/cakto') return reply({ error: 'not_found' }, 404);
+    if (request.method !== 'POST') return reply({ error: 'method_not_allowed' }, 405);
     if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
-      return reply({error:'invalid_content_type'},415);
+      return reply({ error: 'invalid_content_type' }, 415);
     const raw = await request.text();
-    if (Buffer.byteLength(raw,'utf8') > MAX_BODY) return reply({error:'payload_too_large'},413);
-    if (!verifySignature(request.headers,raw)) return reply({error:'unauthorized'},401);
+    if (Buffer.byteLength(raw, 'utf8') > MAX_BODY)
+      return reply({ error: 'payload_too_large' }, 413);
+    if (!verifySignature(request.headers, raw)) return reply({ error: 'unauthorized' }, 401);
     let envelope;
-    try { envelope = JSON.parse(raw); } catch { return reply({error:'invalid_json'},400); }
-    if (!asObject(envelope) || typeof envelope.event !== 'string' || !safeEqual(envelope.secret,SECRET))
-      return reply({error:'unauthorized'},401);
+    try {
+      envelope = JSON.parse(raw);
+    } catch {
+      return reply({ error: 'invalid_json' }, 400);
+    }
+    if (
+      !asObject(envelope) ||
+      typeof envelope.event !== 'string' ||
+      !safeEqual(envelope.secret, SECRET)
+    )
+      return reply({ error: 'unauthorized' }, 401);
     if (envelope.event === 'checkout_abandonment' || !RELEVANT.has(envelope.event))
-      return reply({received:true,result:'ignored'});
+      return reply({ received: true, result: 'ignored' });
     const records = Array.isArray(envelope.data) ? envelope.data : [envelope.data];
-    if (!records.length || records.length>15 || records.some(x=>!asObject(x)))
-      return reply({error:'invalid_data'},422);
+    if (!records.length || records.length > 15 || records.some((x) => !asObject(x)))
+      return reply({ error: 'invalid_data' }, 422);
     const digest = createHash('sha256').update(raw).digest('hex');
     try {
-      const outcomes=[];
-      for(const record of records) outcomes.push((await applyEvent(envelope.event,record,digest)).outcome);
-      console.log(JSON.stringify({event:'cakto_delivery',type:envelope.event,outcomes}));
-      return reply({received:true,outcomes});
-    } catch(e) {
+      const outcomes = [];
+      for (const record of records)
+        outcomes.push((await applyEvent(envelope.event, record, digest)).outcome);
+      console.log(JSON.stringify({ event: 'cakto_delivery', type: envelope.event, outcomes }));
+      return reply({ received: true, outcomes });
+    } catch (e) {
       console.error('CAKTO_PROCESSING_FAILED', e instanceof Error ? e.name : 'UnknownError');
-      return reply({error:'processing_unavailable'},503);
+      return reply({ error: 'processing_unavailable' }, 503);
     }
-  }
+  },
 });
-console.log(JSON.stringify({event:'astra_cakto_ready',release:RELEASE}));
+console.log(JSON.stringify({ event: 'astra_cakto_ready', release: RELEASE }));

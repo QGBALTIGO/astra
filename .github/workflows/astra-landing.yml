@@ -25,6 +25,9 @@ jobs:
       - run: npx playwright install --with-deps chromium firefox webkit
       - name: Generate first visual references when absent
         run: |
+          if [ ! -f tests/browser/screenshots/phone-320/night-hero.png ]; then
+            npm run test:browser -- tests/browser/night.spec.mjs --update-snapshots
+          fi
           if [ -d tests/browser/screenshots ]; then
             npm run test:browser
           else

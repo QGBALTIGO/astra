@@ -8,11 +8,10 @@ import {
   Plus,
   Target,
   Lightbulb,
-  Clock,
 } from '../../components/icons';
 import { CustomerDialog } from './components';
-import { dateLabel, dateTimeLabel, money, periodLabel } from './helpers';
-import type { CustomerAgendaItem, CustomerFinanceSummary, CustomerPeriod } from './types';
+import { money, periodLabel } from './helpers';
+import type { CustomerFinanceSummary, CustomerPeriod } from './types';
 
 const PROMPTS = [
   'Quanto gastei por categoria neste mês?',
@@ -64,58 +63,23 @@ export function CustomerQuickActions({
 
 export function CustomerInsights({
   summary,
-  upcoming,
-  timeZone,
   hidden,
-  onAgenda,
 }: {
   summary: CustomerFinanceSummary;
-  upcoming: CustomerAgendaItem[] | undefined;
-  timeZone: string;
   hidden: boolean;
-  onAgenda: () => void;
 }) {
   const projected = summary.result + summary.pendingIncome - summary.pendingExpenses;
-  const next = upcoming?.[0];
   const category = summary.categories.find((item) => item.total > 0);
   return (
-    <section className="ac-day-overview" aria-label="Visão do seu dia">
+    <section className="ac-day-overview" aria-label="Leitura do seu período">
       <div className="ac-day-overview-head">
         <div>
-          <p className="ac-eyebrow">SEU PANORAMA</p>
-          <h2>O que importa agora</h2>
+          <p className="ac-eyebrow">SEU PERÍODO EM PERSPECTIVA</p>
+          <h2>Um olhar sobre suas finanças</h2>
         </div>
         <Lightbulb aria-hidden="true" />
       </div>
       <div className="ac-day-overview-grid">
-        {upcoming && (
-          <div className="ac-day-observation">
-            <span className="ac-day-icon">
-              <Clock aria-hidden="true" />
-            </span>
-            <span className="ac-day-observation-text">
-              <strong>Seu próximo compromisso</strong>
-              <span>{next ? next.title : 'Sem compromissos nos próximos dias'}</span>
-              {next ? (
-                <small>
-                  {next.startAt
-                    ? dateTimeLabel(next.startAt, timeZone)
-                    : next.dueDate
-                      ? dateLabel(next.dueDate)
-                      : 'Sem data definida'}
-                </small>
-              ) : null}
-            </span>
-            <button
-              type="button"
-              className="ac-icon-button"
-              aria-label="Abrir agenda"
-              onClick={onAgenda}
-            >
-              <ChevronRight aria-hidden="true" />
-            </button>
-          </div>
-        )}
         <div className="ac-day-observation">
           <span className="ac-day-icon">
             <Target aria-hidden="true" />
@@ -127,7 +91,7 @@ export function CustomerInsights({
           </span>
         </div>
         {category ? (
-          <div className="ac-day-observation ac-day-observation--wide">
+          <div className="ac-day-observation">
             <span className="ac-day-icon">
               <Lightbulb aria-hidden="true" />
             </span>
@@ -142,8 +106,7 @@ export function CustomerInsights({
         ) : null}
       </div>
       <p className="ac-day-disclaimer">
-        Projeção ilustrativa com pendências já cadastradas, sem garantia de recebimento ou
-        pagamento.
+        Estimativa com os valores a receber e a pagar que você já registrou.
       </p>
     </section>
   );
