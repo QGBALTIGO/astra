@@ -352,7 +352,18 @@ try {
         first,
         incoming(first, 'Acabei de gastar 1 real com café', `${path}-expense`)
       );
-      assert.match(expenseReply, /Despesa registrada/);
+      if (/gasto parecido/.test(expenseReply)) {
+        // The previous bus/direct path saved this same one-real coffee expense.
+        // A distinct inbound ID is not consent for a second identical ledger row.
+        const confirmed = await invoke(
+          path,
+          first,
+          incoming(first, 'Outro', path + '-expense-clarified')
+        );
+        assert.match(confirmed, /Despesa registrada/);
+      } else {
+        assert.match(expenseReply, /Despesa registrada/);
+      }
       const expenses = await first.finance.listTransactions({ type: 'expense', status: 'settled' });
       assert.ok(
         expenses.transactions.some((entry) => entry.amount === 1 && entry.description === 'café')

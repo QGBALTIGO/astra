@@ -492,7 +492,7 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
   if (message.platform === 'whatsapp') {
     agent.updateSystemPrompt(
       withContactStyleContext(
-        agent.getConversation().systemPrompt,
+        agent.getConversation().systemPrompt ?? '',
         message.sender.displayName,
         typeof message.metadata?.astraRepeatGreetingCount === 'number'
           ? message.metadata.astraRepeatGreetingCount : 0

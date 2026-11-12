@@ -210,7 +210,7 @@ export async function tryExpenseRecordChannelReply(
         .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
       const nowMs = Date.now();
       const possiblySame = candidates.some((candidate) => {
-        const createdAt = new Date(candidate.createdAt).getTime();
+        const createdAt = candidate.createdAt.getTime();
         const description = candidate.description.normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
         return candidate.source === 'channel' &&
