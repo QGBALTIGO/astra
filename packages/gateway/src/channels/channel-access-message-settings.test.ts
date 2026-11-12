@@ -33,7 +33,7 @@ beforeEach(() => {
 describe('WhatsApp access message settings', () => {
   it('uses the real Astra site and no fabricated renewal link by default', async () => {
     expect(await getWhatsAppAccessMessageSettings()).toEqual({
-      siteUrl: 'https://astraacessor.vercel.app',
+      siteUrl: 'https://astraacessor.pro',
       renewalUrl: null,
       timeZone: 'America/Campo_Grande',
     });
@@ -66,6 +66,61 @@ describe('WhatsApp access message settings', () => {
     expect(await getWhatsAppAccessMessageSettings()).toEqual(defaults);
   });
 
+  it('publishes the new site when a stored setting points to the previous official home', async () => {
+    const legacy = {
+      ...defaults,
+      siteUrl: 'https://astraacessor.vercel.app/',
+      renewalUrl: 'https://custom.example/renew',
+      timeZone: 'America/Cuiaba',
+    };
+    const data = JSON.stringify(legacy);
+    stored.set('channel_access_messages:whatsapp:default', data);
+    expect(await getWhatsAppAccessMessageSettings()).toEqual({
+      ...legacy,
+      siteUrl: 'https://astraacessor.pro',
+    });
+    expect(stored.get('channel_access_messages:whatsapp:default')).toBe(data);
+  });
+  it.each([
+    [
+      'https://astraacessor.vercel.app/privacidade?lang=pt#contato',
+      'https://astraacessor.pro/privacidade?lang=pt#contato',
+    ],
+    [
+      'https://astra-landing-production.up.railway.app/?plano=pessoal#precos',
+      'https://astraacessor.pro/?plano=pessoal#precos',
+    ],
+    [
+      'https://astraacessor.vercel.app/cliente/entrar?plano=pessoal#voltar',
+      'https://app.astraacessor.pro/cliente/entrar?plano=pessoal#voltar',
+    ],
+    [
+      'https://astra-gateway-production.up.railway.app/cliente/planejamento?q=revista',
+      'https://app.astraacessor.pro/cliente/planejamento?q=revista',
+    ],
+    ['https://pay.cakto.com.br/CubL455', 'https://pay.cakto.com.br/CubL455'],
+    [
+      'https://renovar.example/oferta?referencia=teste',
+      'https://renovar.example/oferta?referencia=teste',
+    ],
+    [
+      'https://astraacessor.vercel.app.example.org/cliente/entrar',
+      'https://astraacessor.vercel.app.example.org/cliente/entrar',
+    ],
+    [
+      'https://astraacessor.vercel.app:8443/privacidade',
+      'https://astraacessor.vercel.app:8443/privacidade',
+    ],
+  ])(
+    'publishes the intended site and renewal paths for %s without rewriting saved settings',
+    async (before, after) => {
+      const value = JSON.stringify({ ...defaults, siteUrl: before, renewalUrl: before });
+      stored.set('channel_access_messages:whatsapp:default', value);
+      const settings = await getWhatsAppAccessMessageSettings();
+      expect([settings.siteUrl, settings.renewalUrl]).toEqual([after, after]);
+      expect(stored.get('channel_access_messages:whatsapp:default')).toBe(value);
+    }
+  );
   it.each([
     'not-json',
     'null',

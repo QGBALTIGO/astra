@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateWAMessageFromContent, proto } from '@whiskeysockets/baileys';
 import { buildWhatsAppUrlCtaPayload } from './whatsapp-url-cta.js';
 
-const URL = 'https://astra-gateway-production.up.railway.app/cliente/transacoes';
+const URL = 'https://app.astraacessor.pro/cliente/transacoes';
 const label = 'Acompanhar no painel';
 const text = '✅ *Entrada registrada*\n\n• *Valor:* R$ 1,00\n• *Data:* 12/11/2026';
 

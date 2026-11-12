@@ -61,6 +61,23 @@ describe('TelegramChannelAPI voice attachments', () => {
     });
   });
 
+  it('renders text and a structured dashboard URL with the new origins when an agent used historical links', async () => {
+    const api = new TelegramChannelAPI({ bot_token: 'token' }, 'telegram');
+    const bot = attachBot(api);
+    await api.sendMessage({
+      platformChatId: '123',
+      text: 'Veja https://astraacessor.vercel.app/privacidade. Checkout https://pay.cakto.com.br/CubL455',
+      urlButton: {
+        label: 'Painel',
+        url: 'https://astra-gateway-production.up.railway.app/cliente/entrar?utm=aviso#hoje',
+      },
+    });
+    const sent = bot.api.sendMessage.mock.calls[0]![1];
+    expect(sent).toContain('https://astraacessor.pro/privacidade.');
+    expect(sent).toContain('https://app.astraacessor.pro/cliente/entrar?utm=aviso#hoje');
+    expect(sent).toContain('https://pay.cakto.com.br/CubL455');
+    expect(sent).not.toMatch(/railway\.app|vercel\.app/);
+  });
   it('converts forced voice audio to OGG/Opus before sending it as a Telegram voice message', async () => {
     const api = new TelegramChannelAPI({ bot_token: 'token' }, 'telegram');
     const bot = attachBot(api);

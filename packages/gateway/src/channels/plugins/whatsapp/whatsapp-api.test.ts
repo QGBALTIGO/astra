@@ -189,8 +189,9 @@ describe('WhatsAppChannelAPI', () => {
 
 describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
   const body = '✅ *Entrada registrada*\n\n• *Valor:* R$ 1,00';
-  const url = 'https://astra-gateway-production.up.railway.app/cliente/transacoes';
+  const url = 'https://app.astraacessor.pro/cliente/transacoes';
   function prepare() {
+    mockGenerateNative.mockClear();
     const api = new WhatsAppChannelAPI({ my_phone: '5511888888888' }, 'channel.whatsapp');
     const socket = {
       user: { id: '5511888888888:1@s.whatsapp.net' },
@@ -212,6 +213,49 @@ describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
     return { api, socket };
   }
 
+  const oldLogin = 'https://astra-gateway-production.up.railway.app/cliente/entrar';
+  const newLogin = 'https://app.astraacessor.pro/cliente/entrar';
+  it('delivers the readable public login and matching native button together after historical model output', async () => {
+    const { api, socket } = prepare();
+    await api.sendMessage({
+      platformChatId: '5511999999999',
+      text: 'Abra seu painel: ' + oldLogin,
+      urlButton: { label: 'Abrir meu painel', url: oldLogin },
+    });
+    const proto = mockGenerateNative.mock.calls[0]![1];
+    expect(proto.interactiveMessage.body.text).toBe('Abra seu painel: ' + newLogin);
+    expect(
+      JSON.parse(proto.interactiveMessage.nativeFlowMessage.buttons[0].buttonParamsJson).url
+    ).toBe(newLogin);
+    expect(socket.relayMessage).toHaveBeenCalledTimes(1);
+    expect(socket.sendMessage).not.toHaveBeenCalled();
+  });
+  it('uses the readable login once when the socket lacks the native relay capability', async () => {
+    const { api, socket } = prepare();
+    Object.assign(socket, { relayMessage: undefined });
+    await api.sendMessage({
+      platformChatId: '5511999999999',
+      text: 'Entre pelo painel.',
+      urlButton: { label: 'Abrir meu painel', url: oldLogin },
+    });
+    expect(socket.sendMessage).toHaveBeenCalledTimes(1);
+    expect(socket.sendMessage.mock.calls[0]![1].text).toContain(newLogin);
+    expect(mockGenerateNative).not.toHaveBeenCalled();
+  });
+  it('uses one text message for a login response beyond the native body limit without resending or doubling its link', async () => {
+    const { api, socket } = prepare();
+    const long = 'Orientação. '.repeat(100) + 'Abra ' + oldLogin + '.';
+    await api.sendMessage({
+      platformChatId: '5511999999999',
+      text: long,
+      urlButton: { label: 'Abrir meu painel', url: oldLogin },
+    });
+    expect(socket.relayMessage).not.toHaveBeenCalled();
+    expect(mockGenerateNative).not.toHaveBeenCalled();
+    expect(socket.sendMessage).toHaveBeenCalledTimes(1);
+    const output = socket.sendMessage.mock.calls[0]![1].text;
+    expect(output).toBe(long.replace(oldLogin, newLogin));
+  });
   it('relays one native-flow CTA and never sends the dashboard URL as plain text', async () => {
     const { api, socket } = prepare();
     const messageId = await api.sendMessage({

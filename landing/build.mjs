@@ -67,7 +67,7 @@ const schema = {
   operatingSystem: 'Web, WhatsApp',
   description:
     'Assistente pessoal com inteligência artificial para organizar registros pelo WhatsApp.',
-  url: 'https://astra-landing-production.up.railway.app/',
+  url: 'https://astraacessor.pro/',
   offers: {
     '@type': 'Offer',
     price: '19.90',
@@ -91,10 +91,7 @@ for (const [path, page] of Object.entries(pages)) {
       /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/,
       `<meta name="description" content="${page.description}">`
     )
-    .replaceAll(
-      'https://astra-landing-production.up.railway.app/"',
-      `https://astra-landing-production.up.railway.app${page.path}"`
-    )
+    .replaceAll('https://astraacessor.pro/"', `https://astraacessor.pro${page.path}"`)
     .replace(
       /<meta\s+property="og:title"\s+content="[^"]*"\s*\/?>/,
       `<meta property="og:title" content="${page.title}">`

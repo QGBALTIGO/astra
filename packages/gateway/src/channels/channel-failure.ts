@@ -1,4 +1,6 @@
 import { getLog } from '../services/log.js';
+import { currentAstraLinksInText } from '../config/astra-public-urls.js';
+import { ASTRA_ACCESS_REPLY, isAstraAccessAnswerRequested } from './astra-access.js';
 import { channelOperations } from './receipt-state.js';
 import {
   CHANNEL_UNVERIFIED_REPLY,
@@ -235,6 +237,7 @@ export function channelFailureReply(
   }
   if (reason === 'agent_busy')
     return 'Sua mensagem anterior ainda está em processamento. Aguarde a resposta dela antes de enviar outro pedido.';
+  if (!operations.length && isAstraAccessAnswerRequested(request)) return ASTRA_ACCESS_REPLY;
   const { domain, query, write, capability, conversion, normalized } = classifyRequest(request);
   // An actual write invocation outweighs a read-like sentence or a question mark,
   // including partial tool failures where the final reply never arrived.
@@ -297,5 +300,5 @@ export function presentChannelReply(
     'O serviço de IA atingiu temporariamente o limite de uso. Aguarde alguns instantes. Se a mensagem era para registrar algo, confira seus registros antes de repetir para evitar duplicidade.'
   )
     return channelFailureReply(request, 'rate_limited', receipts, timeZone);
-  return answer;
+  return currentAstraLinksInText(answer);
 }

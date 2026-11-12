@@ -11,6 +11,8 @@ import { Bot, InputFile } from 'grammy';
 import type { Message } from 'grammy/types';
 import { TelegramApprovalHandler } from './approval-handler.js';
 import { TelegramProgressManager } from './progress-manager.js';
+import { publishChannelMessage, renderUrlButtonAsText } from '../../utils/url-button.js';
+import { currentAstraLinksInText } from '../../../config/astra-public-urls.js';
 import { downloadTelegramAttachments } from './file-handler.js';
 import { channelAssetStore } from '../../../services/channel-asset-store.js';
 import {
@@ -659,6 +661,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
   }
 
   async sendMessage(message: ChannelOutgoingMessage): Promise<string> {
+    message = publishChannelMessage(message);
     if (!this.bot) {
       throw new Error('Telegram bot is not connected');
     }
@@ -668,9 +671,9 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
     const voiceOptions = (message.options?.telegram as { asVoice?: boolean } | undefined) ?? {};
 
     // Convert Markdown → Telegram HTML when parse_mode is HTML
-    let textToSend = message.text;
+    let textToSend = renderUrlButtonAsText(message);
     if (this.config.parse_mode === 'HTML') {
-      textToSend = markdownToTelegramHtml(message.text);
+      textToSend = markdownToTelegramHtml(textToSend);
     }
 
     if (voiceOptions.asVoice && message.text.trim()) {
@@ -893,7 +896,12 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
     }
     const options: Record<string, unknown> = {};
     if (this.config.parse_mode) options.parse_mode = this.config.parse_mode;
-    await this.bot.api.editMessageText(chatId, Number(platformMessageId), newText, options);
+    await this.bot.api.editMessageText(
+      chatId,
+      Number(platformMessageId),
+      currentAstraLinksInText(newText),
+      options
+    );
   }
 
   async deleteMessage(platformMessageId: string): Promise<void> {

@@ -15,6 +15,7 @@ if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
 
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
+import { customerEntryPath } from './customer-entry';
 import { installCustomerInputModality } from './pages/customer/interaction';
 import './index.css';
 import './pages/customer/interaction.css';
@@ -24,8 +25,12 @@ if (import.meta.hot) import.meta.hot.dispose(disposeCustomerInput);
 
 // Customer pages never mount or import the owner authentication, chat or socket
 // providers. Their dedicated HttpOnly cookie is the only portal credential.
+const customerPath = customerEntryPath(window.location);
+if (customerPath && customerPath !== window.location.pathname) {
+  window.history.replaceState(window.history.state, '', customerPath);
+}
 const Application = lazy(() =>
-  /^\/cliente(?:\/|$)/.test(window.location.pathname)
+  customerPath
     ? import('./pages/customer/CustomerApp').then((module) => ({ default: module.CustomerApp }))
     : import('./AdminApp').then((module) => ({ default: module.AdminApp }))
 );

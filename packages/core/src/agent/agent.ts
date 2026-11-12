@@ -17,13 +17,32 @@ import type {
   StreamChunk,
   ToolDefinition,
   ToolCall,
-  ModelConfig,
 } from './types.js';
 import { type IProvider, createProvider } from './provider.js';
 import { ToolRegistry, registerCoreTools } from './tools.js';
 import type { ConversationMemory } from './memory.js';
 import { createMemory } from './memory.js';
 import { getErrorMessage } from '../services/error-utils.js';
+
+interface AgentChatOptions {
+  /** Omit tool schemas and reject unsolicited tool calls for a text-only turn. */
+  toolChoice?: 'none';
+  stream?: boolean;
+  onChunk?: (chunk: StreamChunk) => void;
+  /** Callback to approve/reject tool calls before execution */
+  onBeforeToolCall?: (toolCall: ToolCall) => Promise<{ approved: boolean; reason?: string }>;
+  /** Callback when a tool execution starts */
+  onToolStart?: (toolCall: ToolCall) => void;
+  /** Callback when a tool execution completes */
+  onToolEnd?: (
+    toolCall: ToolCall,
+    result: { content: string; isError: boolean; durationMs: number }
+  ) => void;
+  /** Callback for progress updates */
+  onProgress?: (message: string, data?: Record<string, unknown>) => void;
+  /** Extended thinking configuration (Anthropic) */
+  thinking?: CompletionRequest['thinking'];
+}
 
 /**
  * Providers using OpenAI-compatible tool calling reject requests containing more
@@ -224,23 +243,7 @@ export class Agent {
    */
   async chat(
     message: string | readonly ContentPart[],
-    options?: {
-      stream?: boolean;
-      onChunk?: (chunk: StreamChunk) => void;
-      /** Callback to approve/reject tool calls before execution */
-      onBeforeToolCall?: (toolCall: ToolCall) => Promise<{ approved: boolean; reason?: string }>;
-      /** Callback when a tool execution starts */
-      onToolStart?: (toolCall: ToolCall) => void;
-      /** Callback when a tool execution completes */
-      onToolEnd?: (
-        toolCall: ToolCall,
-        result: { content: string; isError: boolean; durationMs: number }
-      ) => void;
-      /** Callback for progress updates */
-      onProgress?: (message: string, data?: Record<string, unknown>) => void;
-      /** Extended thinking configuration (Anthropic) */
-      thinking?: CompletionRequest['thinking'];
-    }
+    options?: AgentChatOptions
   ): Promise<Result<CompletionResponse, InternalError | ValidationError | TimeoutError>> {
     if (this.state.isProcessing) {
       return err(new ValidationError('Agent is already processing a request'));
@@ -265,15 +268,7 @@ export class Agent {
       this.memory.addUserMessage(this.state.conversation.id, message);
 
       // Process with potential tool calls
-      return await this.processConversation({
-        stream: options?.stream,
-        onChunk: options?.onChunk,
-        onBeforeToolCall: options?.onBeforeToolCall,
-        onToolStart: options?.onToolStart,
-        onToolEnd: options?.onToolEnd,
-        onProgress: options?.onProgress,
-        thinking: options?.thinking,
-      });
+      return await this.processConversation(options);
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       this.state = { ...this.state, lastError: errorMessage };
@@ -286,18 +281,9 @@ export class Agent {
   /**
    * Process conversation with tool call loop
    */
-  private async processConversation(options?: {
-    stream?: boolean;
-    onChunk?: (chunk: StreamChunk) => void;
-    onBeforeToolCall?: (toolCall: ToolCall) => Promise<{ approved: boolean; reason?: string }>;
-    onToolStart?: (toolCall: ToolCall) => void;
-    onToolEnd?: (
-      toolCall: ToolCall,
-      result: { content: string; isError: boolean; durationMs: number }
-    ) => void;
-    onProgress?: (message: string, data?: Record<string, unknown>) => void;
-    thinking?: CompletionRequest['thinking'];
-  }): Promise<Result<CompletionResponse, InternalError | ValidationError | TimeoutError>> {
+  private async processConversation(
+    options?: AgentChatOptions
+  ): Promise<Result<CompletionResponse, InternalError | ValidationError | TimeoutError>> {
     // Per-turn AbortController: cancel() aborts it; the signal is plumbed
     // into every tool call so a tool that is currently running (or about to
     // start) can short-circuit when the user cancels mid-turn.
@@ -311,18 +297,7 @@ export class Agent {
 
   private async runConversationLoop(
     signal: AbortSignal,
-    options?: {
-      stream?: boolean;
-      onChunk?: (chunk: StreamChunk) => void;
-      onBeforeToolCall?: (toolCall: ToolCall) => Promise<{ approved: boolean; reason?: string }>;
-      onToolStart?: (toolCall: ToolCall) => void;
-      onToolEnd?: (
-        toolCall: ToolCall,
-        result: { content: string; isError: boolean; durationMs: number }
-      ) => void;
-      onProgress?: (message: string, data?: Record<string, unknown>) => void;
-      thinking?: CompletionRequest['thinking'];
-    }
+    options?: AgentChatOptions
   ): Promise<Result<CompletionResponse, InternalError | ValidationError | TimeoutError>> {
     let turnCount = 0;
     const maxTurns = this.config.maxTurns ?? 10;
@@ -359,8 +334,9 @@ export class Agent {
       const request = {
         messages,
         model: this.config.model,
-        tools: this.getTools(),
-        toolChoice: 'auto' as const,
+        ...(options?.toolChoice === 'none'
+          ? {}
+          : { tools: this.getTools(), toolChoice: 'auto' as const }),
         stream: options?.stream ?? false,
         thinking: options?.thinking,
         metadata: {
@@ -396,6 +372,10 @@ export class Agent {
           return result;
         }
         response = result.value;
+      }
+
+      if (options?.toolChoice === 'none' && response.toolCalls?.length) {
+        return err(new ValidationError('Unexpected tool call during a text-only turn'));
       }
 
       // Store bridge conversation ID for session resume across bridge restarts
@@ -545,14 +525,7 @@ export class Agent {
    * Stream completion and collect final response
    */
   private async streamCompletion(
-    request: {
-      messages: readonly Message[];
-      model: ModelConfig;
-      tools: readonly ToolDefinition[];
-      toolChoice: 'auto';
-      stream: boolean;
-      thinking?: CompletionRequest['thinking'];
-    },
+    request: CompletionRequest,
     onChunk: (chunk: StreamChunk) => void
   ): Promise<Result<CompletionResponse, InternalError | TimeoutError>> {
     let content = '';

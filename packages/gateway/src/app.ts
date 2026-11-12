@@ -52,13 +52,15 @@ import {
 // creates from the other direction.
 export { sanitizeCorsOriginsFromEnv } from './utils/cors-origin.js';
 import { sanitizeCorsOriginsFromEnv as _sanitizeCorsOriginsFromEnv } from './utils/cors-origin.js';
-import { isSecureRequest } from './utils/trusted-proxy.js';
+import { getRequestOrigin, isSecureRequest } from './utils/trusted-proxy.js';
+import { ASTRA_CUSTOMER_LOGIN_URL } from './config/astra-public-urls.js';
 
 // Resolve UI dist path relative to this file (works in both dev and Docker)
 const __appDirname = dirname(fileURLToPath(import.meta.url));
 const UI_DIST_PATH = resolve(__appDirname, '../../ui/dist');
 const UI_AVAILABLE = existsSync(resolve(UI_DIST_PATH, 'index.html'));
 const INDEX_HTML = UI_AVAILABLE ? readFileSync(resolve(UI_DIST_PATH, 'index.html'), 'utf-8') : '';
+const customerLogin = new URL(ASTRA_CUSTOMER_LOGIN_URL);
 
 /**
  * Default configuration
@@ -331,6 +333,15 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
   // the generator's app.routes walk picks everything up — Hono fires handlers
   // lazily, so registration order here is fine).
   registerOpenApiRoutes(app);
+
+  // At the public customer hostname, the bare URL enters the same isolated
+  // portal as a login link. Keep the owner UI and API roots on their existing hosts.
+  app.get('/', async (c, next) => {
+    const origin = getRequestOrigin(c.req);
+    if (origin !== customerLogin.origin && origin !== 'http://' + customerLogin.host) return next();
+    c.header('Cache-Control', 'no-store');
+    return c.redirect(customerLogin.pathname, 302);
+  });
 
   // Root route (API-only mode, when UI is not bundled)
   if (!UI_AVAILABLE) {

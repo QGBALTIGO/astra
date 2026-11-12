@@ -203,9 +203,7 @@ describe('customer financial workspace', () => {
     expect(dom.button('Editar preferências').disabled).toBe(false);
     expect(dom.button('Exportar CSV').disabled).toBe(false);
     expect(dom.container.textContent).toContain('Acesso vencido');
-    expect(
-      dom.container.querySelector('a[href="https://astraacessor.vercel.app/"]')
-    ).not.toBeNull();
+    expect(dom.container.querySelector('a[href="https://astraacessor.pro/"]')).not.toBeNull();
   });
   it('shows actual read failures with retry, not a fabricated empty dashboard', async () => {
     api.summary.mockRejectedValueOnce(new Error('Não foi possível carregar seu resumo.'));

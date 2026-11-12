@@ -1369,10 +1369,8 @@ describe('getOrCreateChatAgent', () => {
     );
 
     const config = mockCreateAgent.mock.calls.at(-1)?.[0] as ChatAgentTestConfig;
-    expect(config.systemPrompt).toContain(
-      'https://astra-gateway-production.up.railway.app/cliente/entrar'
-    );
-    expect(config.systemPrompt).toContain('https://astraacessor.vercel.app');
+    expect(config.systemPrompt).toContain('https://app.astraacessor.pro/cliente/entrar');
+    expect(config.systemPrompt).toContain('https://astraacessor.pro');
     expect(config.systemPrompt).toContain('número de WhatsApp autorizado');
     expect(config.systemPrompt).toContain('código de 6 dígitos');
     expect(config.systemPrompt).toContain('Não ofereça login por e-mail/senha');
@@ -1405,6 +1403,37 @@ describe('getOrCreateChatAgent', () => {
     expect(config?.provider.timeout).toBe(52_000);
     expect(config?.model.maxTokens).toBe(1536);
     expect(config?.memory.maxTokens).toBe(3072);
+  });
+
+  it('bounds Ollama latency on channels with a configured and usable backup', async () => {
+    mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+    mockGetProviderApiKey.mockResolvedValue('test-key');
+    mockLoadProviderConfig.mockReturnValue({ baseUrl: 'https://test.invalid/v1' });
+    await mod.getOrCreateChatAgent(
+      'ollama-local',
+      'qwen3:4b-instruct',
+      {
+        provider: 'groq',
+        model: 'openai/gpt-oss-20b',
+      },
+      null,
+      'channel:whatsapp:local-backup',
+      undefined,
+      true
+    );
+    const core = await import('@ownpilot/core');
+    expect(core.createFallbackProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        primary: expect.objectContaining({ id: 'ollama-local', timeout: 6000, maxRetries: 0 }),
+        fallbacks: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'groq',
+            timeout: 20000,
+            defaultModel: { model: 'openai/gpt-oss-20b', maxTokens: 768 },
+          }),
+        ]),
+      })
+    );
   });
 
   it('uses a compact Portuguese prompt and 768 output tokens for Groq channels', async () => {

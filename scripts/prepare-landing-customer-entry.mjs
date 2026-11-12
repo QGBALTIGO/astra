@@ -10,7 +10,7 @@ if (!inputPath || !outputPath)
   );
 const files = JSON.parse(readFileSync(inputPath, 'utf8'));
 const oldLink = 'href="https://astra-gateway-production.up.railway.app/"';
-const newLink = 'href="https://astra-gateway-production.up.railway.app/cliente/entrar"';
+const newLink = 'href="https://app.astraacessor.pro/cliente/entrar"';
 if (Object.keys(files).length !== 12 || typeof files['/index.html'] !== 'string')
   throw new Error('Unexpected landing bundle; review the current release first.');
 const count = files['/index.html'].split(oldLink).length - 1;

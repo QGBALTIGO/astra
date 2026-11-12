@@ -16,7 +16,7 @@ const original = await readFile(
 );
 const runtime = await readFile(new URL('../runtime.ts', import.meta.url), 'utf8');
 const compiled = await readFile(new URL('../dist/railway-function.ts', import.meta.url), 'utf8');
-const origin = 'https://astra-landing-production.up.railway.app';
+const origin = 'https://astraacessor.pro';
 const mockImport = `import { SQL } from '${new URL('./sql-double.mjs', import.meta.url).href}';\nconst server={};const Bun={env:{LANDING_PG_HOST:'test.invalid',LANDING_PG_PASSWORD:'test-only-password',LANDING_PG_USER:'test',LANDING_PG_DATABASE:'test'},serve(config){server.config=config;}};`;
 const moduleSource =
   compiled.replace(/import\s*\{\s*SQL\s*\}\s*from\s*['"]bun['"];?/, mockImport) +
@@ -49,14 +49,19 @@ test('the deployed form and HTTP handler code is preserved under source formatti
     assert.ok(forms && handler, 'Expected form logic and an HTTP handler');
     return [forms[0], handler[0]];
   }
-  // The only intentional operational change logs a constant if optional metrics fail.
+  // Keep the complete historical form logic and handler apart from the reviewed
+  // metrics log and exact allowlist of first-party landing origins.
   const priorMetrics =
     "await count(row.intent==='contato'?'contact_saved':'interest_saved').catch(()=>{});";
   assert.ok(original.includes(priorMetrics), 'Expected the captured metrics statement');
-  const expected = original.replace(
-    priorMetrics,
-    "await count(row.intent==='contato'?'contact_saved':'interest_saved').catch(()=>console.warn('Landing metric write failed'));"
-  );
+  const previousOriginCheck = "req.headers.get('origin')!==publicOrigin";
+  assert.ok(original.includes(previousOriginCheck));
+  const expected = original
+    .replace(previousOriginCheck, "!formOrigins.has(req.headers.get('origin'))")
+    .replace(
+      priorMetrics,
+      "await count(row.intent==='contato'?'contact_saved':'interest_saved').catch(()=>console.warn('Landing metric write failed'));"
+    );
   assert.deepEqual(await protectedCode(runtime), await protectedCode(expected));
 });
 
@@ -67,6 +72,39 @@ test('legal pages retain their own description and social metadata', () => {
     assert.ok(html.includes(`<meta property="og:title" content="${page.title}">`));
     assert.ok(html.includes(`<meta property="og:description" content="${page.description}">`));
   }
+});
+
+test('canonical, social images, JSON-LD, login links and sitemap publish the new official domains', async () => {
+  const home = bundle['/index.html'];
+  for (const [file, path] of [
+    ['/index.html', '/'],
+    ...Object.entries(pages).map(([file, page]) => [file, page.path]),
+  ]) {
+    const html = bundle[file];
+    assert.ok(html.includes(`rel="canonical" href="${origin}${path}"`), file);
+    assert.ok(html.includes(`property="og:url" content="${origin}${path}"`), file);
+    for (const property of ['og:image', 'twitter:image']) {
+      const image = html.match(new RegExp(`(?:property|name)="${property}"\\s+content="([^"]+)"`));
+      assert.ok(image, file);
+      const url = new URL(image[1]);
+      assert.equal(url.origin, origin);
+      assert.ok(bundle[url.pathname], 'Missing social image');
+    }
+  }
+  assert.equal(
+    JSON.parse(home.match(/<script type="application\/ld\+json">([\s\S]+?)<\/script>/)[1]).url,
+    origin + '/'
+  );
+  assert.equal(home.match(/href="https:\/\/app\.astraacessor\.pro\/cliente\/entrar"/g)?.length, 4);
+  assert.match(
+    await (await send('/robots.txt')).text(),
+    /Sitemap: https:\/\/astraacessor\.pro\/sitemap\.xml/
+  );
+  const sitemap = await (await send('/sitemap.xml')).text();
+  assert.deepEqual(
+    [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]),
+    ['/', '/privacidade', '/condicoes'].map((path) => origin + path)
+  );
 });
 
 test('a failed metric preserves the saved receipt and logs only a constant', async (t) => {
@@ -108,7 +146,7 @@ test('all locally referenced page assets are present', () => {
   for (const [path, text] of Object.entries(bundle)) {
     if (String(text).startsWith('BASE64:')) continue;
     for (const match of String(text).matchAll(
-      /(?:["'(]|https:\/\/astra-landing-production\.up\.railway\.app)(\/assets\/[^"')\s#]+)/g
+      /(?:["'(]|https:\/\/astraacessor\.pro)(\/assets\/[^"')\s#]+)/g
     ))
       assert.ok(bundle[match[1]], `${path} references missing ${match[1]}`);
   }
@@ -208,6 +246,49 @@ test('unknown APIs and write-through-GET are rejected', async () => {
   assert.equal((await send('/api/interesse')).status, 405);
   assert.equal((await send('/api/remover')).status, 405);
   assert.equal((await send('/api/form-token', { method: 'POST' })).status, 405);
+});
+test('only the four official production landing origins reach the CSRF check', async () => {
+  const oldHome = 'https://astraacessor.vercel.app';
+  const railway = 'https://astra-landing-production.up.railway.app';
+  const allowed = [origin, 'https://www.astraacessor.pro', oldHome, railway];
+  for (const value of [
+    ...allowed,
+    'https://astraacessor.pro.example.org',
+    'https://attacker.vercel.app',
+    'https://app.astraacessor.pro',
+    'null',
+  ]) {
+    const response = await jsonPost('/api/interesse', {}, '', {
+      'x-real-ip': 'qa-origin-' + value,
+      origin: value,
+    });
+    assert.equal(response.status, 403);
+    const { error } = await response.json();
+    assert.match(error, allowed.includes(value) ? /expirou/ : /Origem/);
+  }
+  const preview = 'https://synthetic-preview.example.org';
+  const previewSource = moduleSource.replace(
+    "LANDING_PG_HOST:'test.invalid'",
+    "LANDING_PREVIEW:'true',RAILWAY_PUBLIC_DOMAIN:'synthetic-preview.example.org',LANDING_PG_HOST:'test.invalid'"
+  );
+  const previewModule = await import(
+    `data:text/javascript;base64,${Buffer.from(previewSource).toString('base64')}`
+  );
+  for (const value of [origin, oldHome, preview]) {
+    const response = await previewModule.server.config.fetch(
+      new Request(preview + '/api/interesse', {
+        method: 'POST',
+        headers: { origin: value, 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+    );
+    assert.equal(response.status, 403);
+    assert.match((await response.json()).error, value === preview ? /expirou/ : /Origem/);
+  }
+  assert.match(
+    await (await previewModule.server.config.fetch(new Request(preview + '/robots.txt'))).text(),
+    /Disallow: \/\n/
+  );
 });
 test('CSRF, cross-origin requests and oversized JSON are rejected', async () => {
   const csrf = await token();

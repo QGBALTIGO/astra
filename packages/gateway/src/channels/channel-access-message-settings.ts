@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { LOCAL_OWNER_ID } from '../config/defaults.js';
 import { getSystemSettingsRepository } from '../db/repositories/settings/system.js';
+import { ASTRA_SITE_URL, currentAstraPublicUrl } from '../config/astra-public-urls.js';
 
 export interface WhatsAppAccessMessageSettings {
   siteUrl: string;
@@ -10,7 +11,7 @@ export interface WhatsAppAccessMessageSettings {
 
 export const DEFAULT_WHATSAPP_ACCESS_MESSAGE_SETTINGS: Readonly<WhatsAppAccessMessageSettings> =
   Object.freeze({
-    siteUrl: 'https://astraacessor.vercel.app',
+    siteUrl: ASTRA_SITE_URL,
     renewalUrl: null,
     timeZone: 'America/Campo_Grande',
   });
@@ -53,7 +54,7 @@ const messageUrlSchema = z
     isSafeHttpsUrl,
     'Use um endereço HTTPS válido, sem credenciais ou caracteres de controle.'
   )
-  .transform((value) => value.trim());
+  .transform((value) => currentAstraPublicUrl(value.trim()));
 
 export const whatsAppAccessMessageSettingsSchema = z
   .object({

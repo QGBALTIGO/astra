@@ -10,7 +10,18 @@ const preview = Bun.env.LANDING_PREVIEW === 'true';
 const schema = preview ? 'astra_landing_preview' : 'astra_landing';
 const publicOrigin = preview
   ? 'https://' + Bun.env.RAILWAY_PUBLIC_DOMAIN
-  : 'https://astra-landing-production.up.railway.app';
+  : 'https://astraacessor.pro';
+// Only these first-party landing pages can submit forms; previews accept their own origin.
+const formOrigins = new Set(
+  preview
+    ? [publicOrigin]
+    : [
+        publicOrigin,
+        'https://www.astraacessor.pro',
+        'https://astraacessor.vercel.app',
+        'https://astra-landing-production.up.railway.app',
+      ]
+);
 const secret = createHash('sha256')
   .update(String(Bun.env.LANDING_PG_PASSWORD) + '|astra-landing-private-form-v1')
   .digest();
@@ -264,7 +275,7 @@ async function handle(req) {
     }
     if (method !== 'POST') return json({ error: 'Método não permitido' }, 405, { allow: 'POST' });
     if (
-      req.headers.get('origin') !== publicOrigin ||
+      !formOrigins.has(req.headers.get('origin')) ||
       !req.headers.get('content-type')?.toLowerCase().startsWith('application/json')
     )
       return error('Origem ou formato não permitido', 403);

@@ -1,7 +1,6 @@
 /** Public Astra access facts. Keep this module pure: no settings, DB or provider calls. */
-export const ASTRA_SITE_URL = 'https://astraacessor.vercel.app';
-export const ASTRA_CUSTOMER_LOGIN_URL =
-  'https://astra-gateway-production.up.railway.app/cliente/entrar';
+import { ASTRA_SITE_URL, ASTRA_CUSTOMER_LOGIN_URL } from '../config/astra-public-urls.js';
+export { ASTRA_SITE_URL, ASTRA_CUSTOMER_LOGIN_URL };
 
 export const ASTRA_ACCESS_REPLY = `Acesse seu painel do Astra:
 ${ASTRA_CUSTOMER_LOGIN_URL}
@@ -50,4 +49,9 @@ export function tryAstraAccessReply(text: string): string | null {
     .trim()
     .replace(/\s+/g, ' ');
   return ACCESS_REQUESTS.some((request) => request.test(normalized)) ? ASTRA_ACCESS_REPLY : null;
+}
+
+/** Only the final answer uses this more tolerant check. The model still interprets a typo. */
+export function isAstraAccessAnswerRequested(text: string): boolean {
+  return tryAstraAccessReply(text.replace(/\bcpmp\b/giu, 'como')) !== null;
 }

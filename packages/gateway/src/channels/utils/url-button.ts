@@ -1,4 +1,9 @@
 import type { ChannelOutgoingMessage } from '@ownpilot/core/channels';
+import {
+  containsCustomerLoginLink,
+  currentAstraLinksInText,
+  currentAstraPublicUrl,
+} from '../../config/astra-public-urls.js';
 
 /** Only absolute web links without credentials or invisible/control characters are usable CTAs. */
 export function normalizeChannelUrl(value: string | null | undefined): string | undefined {
@@ -15,10 +20,19 @@ export function normalizeChannelUrl(value: string | null | undefined): string | 
     ) {
       return undefined;
     }
-    return url.href;
+    return new URL(currentAstraPublicUrl(trimmed)).href;
   } catch {
     return undefined;
   }
+}
+
+export function publishChannelMessage(message: ChannelOutgoingMessage): ChannelOutgoingMessage {
+  const text = currentAstraLinksInText(message.text);
+  const action = message.urlButton;
+  const url = action && currentAstraPublicUrl(action.url);
+  if (action && url && url !== action.url)
+    return { ...message, text, urlButton: { ...action, url } };
+  return text === message.text ? message : { ...message, text };
 }
 
 /**
@@ -31,6 +45,8 @@ export function renderUrlButtonAsText(
 ): string {
   const url = normalizeChannelUrl(message.urlButton?.url);
   if (!url) return message.text;
+  if (containsCustomerLoginLink(url) && containsCustomerLoginLink(message.text))
+    return message.text;
   if (message.text.split(/\s+/u).some((token) => normalizeChannelUrl(token) === url)) {
     return message.text;
   }

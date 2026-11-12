@@ -192,6 +192,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
       }
 
       if (conversationOnly) {
+        chatOptions.toolChoice = 'none';
         // An opinion containing "Pix" or "reais" is not authorization to
         // move money or change records. Reject even discovery/meta-tool calls.
         chatOptions.onBeforeToolCall = async () => ({
@@ -289,6 +290,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
           // A single tool-free second chance, never another financial attempt.
           try {
             const second = await agent.chat(CHANNEL_CONVERSATIONAL_RETRY_PROMPT, {
+              toolChoice: 'none',
               onBeforeToolCall: async () => ({
                 approved: false,
                 reason: 'Apenas resposta conversacional, sem ações.',

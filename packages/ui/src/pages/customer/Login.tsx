@@ -121,7 +121,7 @@ export function CustomerLogin() {
           </ul>
           <a
             className="ac-text-link"
-            href="https://astraacessor.vercel.app"
+            href="https://astraacessor.pro"
             target="_blank"
             rel="noopener noreferrer"
           >

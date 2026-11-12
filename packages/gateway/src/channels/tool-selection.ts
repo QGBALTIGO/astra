@@ -1,3 +1,5 @@
+import { isAstraAccessAnswerRequested } from './astra-access.js';
+
 /** Only clear, non-action opinion questions bypass financial tool discovery. */
 export function isConversationalOnlyChannelQuestion(text: string): boolean {
   const normalized = text
@@ -23,7 +25,7 @@ export function isConversationalOnlyChannelQuestion(text: string): boolean {
 
 /** Ask the model to write or advise, never to execute a payment or write data. */
 export function isConversationalOnlyChannelRequest(text: string): boolean {
-  if (isConversationalOnlyChannelQuestion(text)) return true;
+  if (isAstraAccessAnswerRequested(text) || isConversationalOnlyChannelQuestion(text)) return true;
   const input = text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')

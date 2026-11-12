@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { channelToolsForMessage, recentChannelText } from './tool-selection.js';
+import {
+  channelToolsForMessage,
+  isConversationalOnlyChannelRequest,
+  recentChannelText,
+} from './tool-selection.js';
 
 const financeTools = [
   'core.record_transaction',
@@ -10,6 +14,16 @@ const financeTools = [
 ];
 
 describe('channel finance tool selection', () => {
+  it('keeps a standalone misspelled access question tool-free but not a compound write', () => {
+    expect(isConversationalOnlyChannelRequest('cpmp acesso o dashboard')).toBe(true);
+    expect(channelToolsForMessage('cpmp acesso o dashboard', 'paguei 5 reais no café')).toEqual([]);
+    expect(
+      isConversationalOnlyChannelRequest('cpmp acesso o dashboard e registre um gasto de 5 reais')
+    ).toBe(false);
+    expect(isConversationalOnlyChannelRequest('como acesso o dashboard de outro serviço')).toBe(
+      false
+    );
+  });
   it('distinguishes a calendar exercise and follow-up from a real calendar command', () => {
     for (const message of [
       'Agora, um exercício de agenda, sem agendar de verdade. A dentista e a reunião do Rafa estão na terça. Se ele disser só «muda a de terça», o que você ainda precisa perguntar?',

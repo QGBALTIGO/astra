@@ -150,6 +150,39 @@ describe('createApp', () => {
   });
 
   describe('basic setup', () => {
+    it.each(['GET', 'HEAD'])(
+      'opens the customer login for %s on the exact public app root',
+      async (method) => {
+        const app = createApp();
+        const response = await app.request(
+          'https://app.astraacessor.pro/?next=https://example.org',
+          { method }
+        );
+        expect(response.status).toBe(302);
+        expect(response.headers.get('location')).toBe('/cliente/entrar');
+        expect(response.headers.get('cache-control')).toBe('no-store');
+        expect(response.headers.has('set-cookie')).toBe(false);
+        expect(mockCustomerAuthenticate).not.toHaveBeenCalled();
+      }
+    );
+    it('leaves customer deep links, admin URLs and the original Railway root in place', async () => {
+      const app = createApp();
+      for (const url of [
+        'https://app.astraacessor.pro/cliente/entrar',
+        'https://app.astraacessor.pro/login',
+        'https://app.astraacessor.pro/cliente/transacoes',
+        'https://astra-gateway-production.up.railway.app/',
+        'https://app.astraacessor.pro.example.org/',
+      ]) {
+        const response = await app.request(url);
+        expect(response.headers.get('location'), url).not.toBe('/cliente/entrar');
+      }
+      const protectedSession = await app.request(
+        'https://app.astraacessor.pro/api/v1/customer/auth/session'
+      );
+      expect(protectedSession.status).toBe(401);
+      expect(protectedSession.headers.get('set-cookie')).toMatch(/Max-Age=0/i);
+    });
     it('returns a Hono app instance', () => {
       const app = createApp();
       expect(app).toBeDefined();
