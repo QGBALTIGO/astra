@@ -1522,6 +1522,28 @@ describe('ChannelServiceImpl', () => {
         );
       });
 
+      it('avoids a second onboarding message after paid Cakto welcome delivery', async () => {
+        customer = {
+          ...customer,
+          isVerified: true,
+          status: 'active',
+          accessSource: 'cakto',
+          firstInteraction: true,
+          metadata: {
+            hasInteracted: true,
+            caktoManaged: true,
+            caktoWelcomeDelivered: true,
+          },
+        };
+        message.text = 'Anote minha ideia para um projeto';
+        await service.processIncomingMessage(message);
+        expect(mockAccessNoticeClaim).not.toHaveBeenCalled();
+        expect(mockGetOrCreateChatAgent).toHaveBeenCalled();
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: 'Pedido processado' })
+        );
+      });
       it('preserves the first welcome for the next message when configuration fails before claim', async () => {
         customer = {
           ...customer,
