@@ -1,0 +1,45 @@
+name: Astra landing verification
+on:
+  push:
+    paths: ['landing/**', '.github/workflows/astra-landing.yml']
+  pull_request:
+    paths: ['landing/**', '.github/workflows/astra-landing.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: landing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build && npm test
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - name: Generate first visual references when absent
+        run: |
+          if [ -d tests/browser/screenshots ]; then
+            npm run test:browser
+          else
+            npm run test:browser -- --update-snapshots
+            npm run test:browser
+          fi
+      - name: Measure before and after under the same lab conditions
+        run: node tests/performance.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: astra-landing-evidence
+          path: |
+            landing/artifacts
+            landing/playwright-report
+            landing/test-results
+            landing/tests/browser/screenshots
+          retention-days: 14
