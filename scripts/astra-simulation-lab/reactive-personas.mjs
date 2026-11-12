@@ -121,7 +121,7 @@ export function actorObserve(actor, observation) {
   const flags = {
     technicalLeak: LEAK.test(reply),
     claimedSuccess: CLAIM.test(reply),
-    verifiedOperation: evidence.operationVerified === true,
+    verifiedOperation: evidence.operationVerified === true && evidence.ownerId === actor.id,
     toolFailure: evidence.toolFailed === true,
     duplicatedWrite: evidence.duplicateWrite === true,
     wrongAmount:

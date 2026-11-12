@@ -19,11 +19,10 @@ test('1,000 imaginary users react to errors with bounded corrective messages',()
       if(result.status==='repair_requested'){
         stats.repairs++;
         assert.equal(result.retryAllowed,true);
-        assert.ok(actorNextMessage(actor).text.includes('Você') ||
-          actorNextMessage(actor).text.includes('Eu') ||
-          actorNextMessage(actor).text.includes('A resposta') ||
-          actorNextMessage(actor).text.includes('Não') ||
-          actorNextMessage(actor).text.includes('Pode'));
+        const repair = actorNextMessage(actor);
+        assert.ok(repair.text.length > 20);
+        assert.notEqual(repair.text, input.text,
+          'A reactive user must ask for a concrete correction instead of repeating input');
       }
       if(result.status==='blocked'){stats.blocked++;break;}
       if(result.status==='complete'){stats.complete++;break;}
