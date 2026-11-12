@@ -153,6 +153,51 @@ describe('createAgentExecutionMiddleware', () => {
     expect((await options.onBeforeToolCall()).approved).toBe(false);
   });
 
+  it('keeps a hypothetical agenda follow-up tool-free and accepts its explicit no-write disclaimer', async () => {
+    const text =
+      'No exemplo, a reunião do Rafa continuaria na terça. A dentista ficaria na quinta às 9h de Cuiabá. Nenhum lembrete foi agendado de verdade.';
+    const agent = createAgent({
+      chat: vi.fn().mockResolvedValue({ ok: true, value: { id: 'example', content: text } }),
+    });
+    const ctx = createContext({ store: { agent, userId: 'synthetic' } });
+    const msg = createMessage({
+      content:
+        'Ele quis dizer a dentista, na quinta às 9h de Cuiabá. Como ficaria a agenda desse exemplo, mantendo a reunião no dia original?',
+      metadata: { source: 'channel', platform: 'whatsapp' },
+    });
+    const result = await middleware(msg, ctx, vi.fn());
+    expect(result.response.content).toBe(text);
+    expect(agent.chat).toHaveBeenCalledTimes(1);
+    const options = agent.chat.mock.calls[0][1] as {
+      onBeforeToolCall: () => Promise<{ approved: boolean }>;
+    };
+    expect((await options.onBeforeToolCall()).approved).toBe(false);
+    expect(agent.setAdditionalTools).not.toHaveBeenCalled();
+  });
+
+  it('retries an unverified calendar claim as a hypothetical reply without authorizing either call', async () => {
+    const hypothetical =
+      'No exemplo, a reunião continuaria na terça e a dentista ficaria na quinta às 9h de Cuiabá.';
+    const agent = createAgent({
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, value: { content: 'Reagendei sua consulta.' } })
+        .mockResolvedValueOnce({ ok: true, value: { content: hypothetical } }),
+    });
+    const ctx = createContext({ store: { agent, userId: 'synthetic' } });
+    const msg = createMessage({
+      content: 'Como ficaria a agenda desse exemplo?',
+      metadata: { source: 'channel', platform: 'whatsapp' },
+    });
+    const result = await middleware(msg, ctx, vi.fn());
+    expect(result.response.content).toBe(hypothetical);
+    expect(agent.chat).toHaveBeenCalledTimes(2);
+    for (const call of agent.chat.mock.calls) {
+      const options = call[1] as { onBeforeToolCall: () => Promise<{ approved: boolean }> };
+      expect((await options.onBeforeToolCall()).approved).toBe(false);
+    }
+  });
+
   it('regenerates conversationally when the model repeats an old error banner', async () => {
     const agent = createAgent({
       chat: vi
