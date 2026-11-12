@@ -4,17 +4,10 @@
  * No database writes, model tokens, socket or external API calls.
  */
 import { describe, expect, it } from 'vitest';
-import {
-  parseBrlCents,
-  parseChannelExpense,
-  parseFinancingIntent,
-} from './finance-routing.js';
+import { parseBrlCents, parseChannelExpense, parseFinancingIntent } from './finance-routing.js';
 import { parseChannelFinanceRecord } from './customer-finance-routing.js';
 import { parseDailyGreetingCommand } from './daily-greeting.js';
-import {
-  channelToolsForMessage,
-  isConversationalOnlyChannelRequest,
-} from './tool-selection.js';
+import { channelToolsForMessage, isConversationalOnlyChannelRequest } from './tool-selection.js';
 
 describe('Astra lab — real financial parsing across exact cents', () => {
   it('accepts 500 distinct positive cent values as food expenses', () => {
@@ -86,10 +79,13 @@ describe('Astra lab — real financial parsing across exact cents', () => {
 
 describe('Astra lab — native recurring routes and goal discovery', () => {
   it('recognizes a daily 6 AM greeting with curiosity without using an LLM', () => {
-    expect(parseDailyGreetingCommand('Todo dia às 6h me dá bom dia com uma curiosidade.'))
-      .toEqual({ kind: 'enable', hour: 6, minute: 0, withCuriosity: true });
-    expect(parseDailyGreetingCommand('Cancele meu bom dia diário'))
-      .toEqual({ kind: 'disable' });
+    expect(parseDailyGreetingCommand('Todo dia às 6h me dá bom dia com uma curiosidade.')).toEqual({
+      kind: 'enable',
+      hour: 6,
+      minute: 0,
+      withCuriosity: true,
+    });
+    expect(parseDailyGreetingCommand('Cancele meu bom dia diário')).toEqual({ kind: 'disable' });
   });
 
   it('keeps explicit savings goals discoverable in the real channel tool registry', () => {
@@ -111,8 +107,10 @@ describe('Astra lab — native recurring routes and goal discovery', () => {
       expect(channelToolsForMessage(request), request).toEqual([]);
     }
     // A compound explicit write is not a purely conversational request.
-    expect(isConversationalOnlyChannelRequest(
-      'Pede para meu namorado fazer um Pix e registra uma despesa'
-    )).toBe(false);
+    expect(
+      isConversationalOnlyChannelRequest(
+        'Pede para meu namorado fazer um Pix e registra uma despesa'
+      )
+    ).toBe(false);
   });
 });

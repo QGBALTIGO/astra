@@ -5,15 +5,15 @@ Maintainer target: Node.js 22, PostgreSQL 16, Astra / OwnPilot. All profiles are
 
 ## Non-negotiable separation of evidence
 
-| Mode | What it executes | Does it prove Astra works? |
-| --- | --- | --- |
-| synthetic_oracle | 100,000 procedural human-scenario records plus local schema/ledger invariants | NO; it does not call the Astra model, channels or database |
-| synthetic_properties | 18,000 fast-check properties over numeric parsing, dates and isolation | NO; validates test contracts, not live integration |
+| Mode                                             | What it executes                                                                                                          | Does it prove Astra works?                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| synthetic_oracle                                 | 100,000 procedural human-scenario records plus local schema/ledger invariants                                             | NO; it does not call the Astra model, channels or database                                       |
+| synthetic_properties                             | 18,000 fast-check properties over numeric parsing, dates and isolation                                                    | NO; validates test contracts, not live integration                                               |
 | actual_astra_entrypoints_with_ephemeral_postgres | Existing real channel ingress/finance/reminder logic with synthetic accounts and a fresh PostgreSQL pgvector test service | PARTIALLY; validates those named entry points and database writes, not real LLM or live WhatsApp |
-| isolated_adapter | Opt-in Promptfoo to an explicitly isolated loopback test adapter | NOT RUN until such adapter is configured and provenance verified |
-| human_agent_simulator | MiroFish/OASIS behavioral agents with tool-running Astra | NOT INSTALLED; requires separate license, cost, quality and isolation review |
-| multimodal_real | Audio/image/document decoding and interpretation | NOT RUN by procedural media text fixtures |
-| load_real | Concurrent Astra gateway inferencing against isolated resources | NOT RUN; synthetic records do not establish 500 user throughput |
+| isolated_adapter                                 | Opt-in Promptfoo to an explicitly isolated loopback test adapter                                                          | NOT RUN until such adapter is configured and provenance verified                                 |
+| human_agent_simulator                            | MiroFish/OASIS behavioral agents with tool-running Astra                                                                  | NOT INSTALLED; requires separate license, cost, quality and isolation review                     |
+| multimodal_real                                  | Audio/image/document decoding and interpretation                                                                          | NOT RUN by procedural media text fixtures                                                        |
+| load_real                                        | Concurrent Astra gateway inferencing against isolated resources                                                           | NOT RUN; synthetic records do not establish 500 user throughput                                  |
 
 A scenario containing an expected action is never evidence of a saved database row. The procedural oracle must not be confused with an Astra tool executor or a language model. Generated scenarios have a persistent, seeded script/persona identity but no factual relation to real people. These boundaries are printed in all generated reports.
 
@@ -39,18 +39,18 @@ Existing code and tests to reuse:
 
 ## Third-party compatibility and license matrix
 
-| Project | License at audit | Fit | Decision |
-| --- | --- | --- | --- |
-| 666ghj/MiroFish | AGPL-3.0 | Swarm/social-behavior simulator, not a WhatsApp transaction verifier | independent dev-only experiment; no code copied or service embedded |
-| nikmcfly/MiroFish-Offline | AGPL-3.0 | Offline Ollama + Neo4j 5 + frontend | postpone; documented 16 GB minimum RAM, 32 GB recommended, high VRAM expectations |
-| promptfoo/promptfoo | MIT | Prompt and agent eval runner | optional isolated adapter config under scripts/astra-simulation-lab |
-| sierra-research/tau2-bench | MIT | Long-running user/tool/state evaluation | τ-style fixtures and action/state schema first; no Python benchmark run claimed |
-| dubzzz/fast-check | MIT | Shrinkable property generation | pinned 4.10.2 in a CI-only temporary npm prefix; no production dependencies |
-| comet-ml/opik | Apache-2.0 | Tracing, tools, experiments | chosen future platform, NOT deployed to Railway now |
-| langfuse/langfuse | MIT core; ee exceptions | Similar telemetry | don't install a second redundant platform |
-| camel-ai/oasis | Apache-2.0 | Agent populations | defer; heavyweight, possible MiroFish underpinning |
-| actualbudget/actual | MIT | Financial accounting inspiration | reference only, no component copied |
-| firefly-iii/firefly-iii | AGPL-3.0 | Financial workflows | reference only, no component copied |
+| Project                    | License at audit        | Fit                                                                  | Decision                                                                          |
+| -------------------------- | ----------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| 666ghj/MiroFish            | AGPL-3.0                | Swarm/social-behavior simulator, not a WhatsApp transaction verifier | independent dev-only experiment; no code copied or service embedded               |
+| nikmcfly/MiroFish-Offline  | AGPL-3.0                | Offline Ollama + Neo4j 5 + frontend                                  | postpone; documented 16 GB minimum RAM, 32 GB recommended, high VRAM expectations |
+| promptfoo/promptfoo        | MIT                     | Prompt and agent eval runner                                         | optional isolated adapter config under scripts/astra-simulation-lab               |
+| sierra-research/tau2-bench | MIT                     | Long-running user/tool/state evaluation                              | τ-style fixtures and action/state schema first; no Python benchmark run claimed   |
+| dubzzz/fast-check          | MIT                     | Shrinkable property generation                                       | pinned 4.10.2 in a CI-only temporary npm prefix; no production dependencies       |
+| comet-ml/opik              | Apache-2.0              | Tracing, tools, experiments                                          | chosen future platform, NOT deployed to Railway now                               |
+| langfuse/langfuse          | MIT core; ee exceptions | Similar telemetry                                                    | don't install a second redundant platform                                         |
+| camel-ai/oasis             | Apache-2.0              | Agent populations                                                    | defer; heavyweight, possible MiroFish underpinning                                |
+| actualbudget/actual        | MIT                     | Financial accounting inspiration                                     | reference only, no component copied                                               |
+| firefly-iii/firefly-iii    | AGPL-3.0                | Financial workflows                                                  | reference only, no component copied                                               |
 
 License classifications follow upstream as checked 2026-11-12. Legal compliance in a commercial deployment still requires review of all transitive dependencies and deployment terms. Upstream source and README are at github.com/org/project for each named project. No third-party AGPL code has been vendored into Astra.
 

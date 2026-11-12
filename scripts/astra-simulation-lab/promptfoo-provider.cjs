@@ -27,9 +27,13 @@ class AstraIsolatedProvider {
       if (
         url.protocol !== 'http:' ||
         !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
-        url.username || url.password || url.search || url.hash ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash ||
         url.pathname !== '/astra-lab/eval'
-      ) throw new Error('unsupported URL');
+      )
+        throw new Error('unsupported URL');
     } catch {
       return { error: 'ASTRA_LAB_ADAPTER_MUST_BE_LOOPBACK_ONLY' };
     }
@@ -46,8 +50,12 @@ class AstraIsolatedProvider {
       });
       if (!response.ok) return { error: 'ASTRA_LAB_ADAPTER_HTTP_FAILURE' };
       const data = await response.json();
-      if (data?.synthetic !== true || data?.realUsers === true ||
-          typeof data?.reply !== 'string' || data.reply.length > 4000) {
+      if (
+        data?.synthetic !== true ||
+        data?.realUsers === true ||
+        typeof data?.reply !== 'string' ||
+        data.reply.length > 4000
+      ) {
         return { error: 'ASTRA_LAB_ADAPTER_UNVERIFIED_RESPONSE' };
       }
       return {
