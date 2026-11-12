@@ -4,6 +4,7 @@
  * Actions are derived from labeled scenario fixtures, not from NLP inference.
  */
 // No API, model, database, filesystem or WhatsApp dependency.
+import { nextVirtualWeekdayAt, virtualLocalDayAt } from './virtual-clock.mjs';
 
 const DAY = 86_400_000;
 function assertSyntheticId(id) {
@@ -68,7 +69,9 @@ export class SyntheticWorldOracle {
           item.cancelled = true;
           break;
         }
-        item.nextAt += item.recurringMs;
+        item.nextAt = item.weeklyLocal
+          ? nextVirtualWeekdayAt(new Date(item.nextAt + 1000), item.timeZone, 5, 6).getTime()
+          : item.nextAt + item.recurringMs;
       }
       if (delivered === 64 && item.nextAt <= now) throw new Error('Virtual recurrence runaway');
     }
@@ -161,13 +164,19 @@ export class SyntheticWorldOracle {
         this.stats.clarificationTurns++;
       }
     } else if (caseId === 'schedule') {
-      if ([0, 2, 4, 5].includes(op)) {
-        const recurringMs = op === 4 ? DAY : op === 5 ? 14 * DAY : 0;
-        const dueMs = op === 2 ? 20_000 : DAY;
+      if ([0, 2, 4].includes(op)) {
+        const weeklyLocal = op === 4;
+        const recurringMs = weeklyLocal ? 7 * DAY : 0;
+        const dueAt = op === 0
+          ? virtualLocalDayAt(new Date(timestamp), scenario.timeZone, 1, 18)
+          : op === 2
+            ? new Date(timestamp + 20_000)
+            : nextVirtualWeekdayAt(new Date(timestamp), scenario.timeZone, 5, 6);
         this.reminders.set(actionId, {
           id: actionId,
-          nextAt: timestamp + dueMs,
+          nextAt: dueAt.getTime(),
           recurringMs,
+          weeklyLocal,
           cancelled: false,
           timeZone: scenario.timeZone,
         });
@@ -175,7 +184,7 @@ export class SyntheticWorldOracle {
       } else if (op === 9) {
         for (const r of this.reminders.values()) if (r.recurringMs === DAY) r.cancelled = true;
         decision = 'cancel_recurring';
-      } else if ([1, 3, 8].includes(op)) {
+      } else if ([1, 3, 5, 8].includes(op)) {
         decision = 'request_clarification';
         this.stats.clarificationTurns++;
       }
