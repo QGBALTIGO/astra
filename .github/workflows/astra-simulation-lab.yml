@@ -40,6 +40,10 @@ jobs:
           node scripts/astra-simulation-lab/tau-fixtures.mjs
           "${RUNNER_TEMP}/astra-sim-lab/tau-fixtures.jsonl"
           1000
+      - name: Reactive synthetic users with deliberately fake assistant
+        run: |
+          node --test scripts/astra-simulation-lab/reactive-personas.test.mjs
+          node scripts/astra-simulation-lab/reactive-runner.mjs --actors=1000 --seed=20261112 --output="${RUNNER_TEMP}/astra-sim-lab"
       - name: Upload only reproducible synthetic artifacts
         uses: actions/upload-artifact@v4
         with:

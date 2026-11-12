@@ -59,6 +59,8 @@ License classifications follow upstream as checked 2026-11-12. Legal compliance 
 Entry points:
 
     node --test scripts/astra-simulation-lab/core.test.mjs scripts/astra-simulation-lab/world-oracle.test.mjs scripts/astra-simulation-lab/virtual-clock.test.mjs
+    node --test scripts/astra-simulation-lab/reactive-personas.test.mjs
+    node scripts/astra-simulation-lab/reactive-runner.mjs --actors=1000 --seed=20261112 --output=/tmp/astra-reactive-test
     node scripts/astra-simulation-lab/run.mjs --limit=100000 --seed=20261112 --output=/tmp/astra-lab-my-run
     node scripts/astra-simulation-lab/tau-fixtures.mjs /tmp/astra-lab-fixtures.jsonl 100
     ASTRA_LAB_FAST_CHECK_PREFIX=/tmp/fast-check-install node scripts/astra-simulation-lab/properties.fast-check.mjs
@@ -103,3 +105,9 @@ Target gates (NOT results): 100% passing isolation criticals, no leaked internal
 9. Failure triage, fix in branch, regression then controlled production deploy — only after P0/P1 are cleared and all gates pass.
 
 Do not delete test data, rotate real credentials, change business records, run load tests against Railway production, or alter the user's Ollama PC as part of this stage.
+
+## Reactive fictional users (scripted/fake responses)
+
+The optional `reactive-personas.mjs` is a lightweight behavior-driven simulator, **not MiroFish and not a real LLM**. A fictional client follows a ten-turn history and can react to an observed, scoped response with follow-ups (unverified success, incorrect money, leaked internal markup, timeout, clarification). After two repair requests per event, the actor stops instead of looping forever. No phones, production credentials, model providers or external sends are used.
+
+`reactive-runner.mjs` runs 1,000 agents against deliberately scripted _fake_ assistant outputs and writes `reactive-persona-baseline.json`. Its observed P1/P2 flags refer exclusively to injected synthetic faults, **never to real Astra incidents**. Those reactions can later seed an external human-behavior engine or a properly isolated Astra model adapter. They do not demonstrate real intent precision, tool success or naturalness.
