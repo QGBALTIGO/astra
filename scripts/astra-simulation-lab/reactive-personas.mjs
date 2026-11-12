@@ -8,7 +8,8 @@ import { scriptAt, PERSONA_COUNT, hash32 } from './core.mjs';
 
 const MAX_OBSERVATIONS = 40;
 const MAX_REPAIRS_PER_STEP = 2;
-const LEAK = /<(?:tool_call|thinking|\/thinking)\b|(?:\bat\s+\w+.*\.(?:ts|js):\d+)|\b(?:password|secret|api[_-]?key)\s*[:=]|(?:SELECT|INSERT|DELETE)\s+.+\s+(?:FROM|INTO)\s+\w+/iu;
+const LEAK =
+  /<(?:tool_call|thinking|\/thinking)\b|(?:\bat\s+\w+.*\.(?:ts|js):\d+)|\b(?:password|secret|api[_-]?key)\s*[:=]|(?:SELECT|INSERT|DELETE)\s+.+\s+(?:FROM|INTO)\s+\w+/iu;
 const CLAIM = /\b(?:registrad[ao]|salv[ao]|confirmad[ao]|agendad[ao]|conclu[ií]d[ao])\b/iu;
 
 function identity(s) {
@@ -44,27 +45,32 @@ function writeAmount(scenario) {
   const cents = scenario.context.expectedActionAmountCents;
   return Number.isSafeInteger(cents) && cents > 0
     ? (cents / 100).toLocaleString('pt-BR', {
-        style: 'currency', currency: 'BRL',
+        style: 'currency',
+        currency: 'BRL',
       })
     : null;
 }
 
 function correction(scenario, reason) {
   const amount = writeAmount(scenario);
-  const identityText = scenario.category === 'goals'
-    ? 'Estou falando da meta que já mencionei.'
-    : scenario.category === 'schedule'
-      ? 'Use o fuso da minha conta, e confirme o horário antes de agendar.'
-      : scenario.category === 'finance'
-        ? 'É sobre aquele registro do meu próprio financeiro.'
-        : 'Use o histórico desta conversa, não os dados de outra pessoa.';
+  const identityText =
+    scenario.category === 'goals'
+      ? 'Estou falando da meta que já mencionei.'
+      : scenario.category === 'schedule'
+        ? 'Use o fuso da minha conta, e confirme o horário antes de agendar.'
+        : scenario.category === 'finance'
+          ? 'É sobre aquele registro do meu próprio financeiro.'
+          : 'Use o histórico desta conversa, não os dados de outra pessoa.';
   if (reason === 'duplicate')
     return 'Você lançou isso duas vezes? Confira o histórico antes de fazer qualquer novo lançamento.';
   if (reason === 'unverified_success')
     return 'Você disse que concluiu, mas o registro não foi confirmado. Verifique primeiro, sem fazer tudo outra vez.';
   if (reason === 'wrong_amount')
-    return 'Eu informei ' + (amount ?? 'um valor diferente') +
-      ', não o valor que você repetiu. Confira no histórico antes de corrigir.';
+    return (
+      'Eu informei ' +
+      (amount ?? 'um valor diferente') +
+      ', não o valor que você repetiu. Confira no histórico antes de corrigir.'
+    );
   if (reason === 'technical_leak')
     return 'Não quero mensagens técnicas. Confirme o que aconteceu sem mostrar códigos ou dados internos.';
   if (reason === 'slow_or_error')
@@ -105,13 +111,16 @@ export function actorObserve(actor, observation) {
     actor.blocked = true;
     return { status: 'blocked', issue: 'max_observations' };
   }
-  if (!observation || observation.synthetic !== true ||
-      observation.personaId !== actor.id || observation.scenarioId !== input.scenarioId)
+  if (
+    !observation ||
+    observation.synthetic !== true ||
+    observation.personaId !== actor.id ||
+    observation.scenarioId !== input.scenarioId
+  )
     throw new Error('P0 rejected non-synthetic or cross-user observation');
   if (typeof observation.reply !== 'string' || observation.reply.length > 4000)
     throw new Error('Invalid synthetic observation text');
-  if (observation.evidence?.ownerId &&
-      observation.evidence.ownerId !== actor.id)
+  if (observation.evidence?.ownerId && observation.evidence.ownerId !== actor.id)
     throw new Error('P0 observation belongs to another synthetic user');
 
   actor.observations++;
@@ -129,20 +138,38 @@ export function actorObserve(actor, observation) {
       scenario.context.expectedActionAmountCents != null &&
       evidence.persistedAmountCents !== scenario.context.expectedActionAmountCents,
   };
-  const issue = flags.duplicatedWrite ? 'duplicate'
-    : flags.technicalLeak ? 'technical_leak'
-      : flags.wrongAmount ? 'wrong_amount'
-        : flags.claimedSuccess && !flags.verifiedOperation ? 'unverified_success'
-          : flags.toolFailure || evidence.timedOut === true ? 'slow_or_error'
-            : !reply ? 'missing_information'
-              : evidence.needsClarification === true ? 'missing_information'
+  const issue = flags.duplicatedWrite
+    ? 'duplicate'
+    : flags.technicalLeak
+      ? 'technical_leak'
+      : flags.wrongAmount
+        ? 'wrong_amount'
+        : flags.claimedSuccess && !flags.verifiedOperation
+          ? 'unverified_success'
+          : flags.toolFailure || evidence.timedOut === true
+            ? 'slow_or_error'
+            : !reply
+              ? 'missing_information'
+              : evidence.needsClarification === true
+                ? 'missing_information'
                 : null;
-  const severity = issue === 'duplicate' || issue === 'wrong_amount' ||
-    issue === 'unverified_success' || issue === 'technical_leak' ? 'P1' :
-    issue ? 'P2' : null;
+  const severity =
+    issue === 'duplicate' ||
+    issue === 'wrong_amount' ||
+    issue === 'unverified_success' ||
+    issue === 'technical_leak'
+      ? 'P1'
+      : issue
+        ? 'P2'
+        : null;
   actor.history.push({
-    synthetic: true, scenarioId: scenario.id, virtualAt: scenario.virtualAt,
-    attempt: actor.repairAttempts, reply, issue, severity,
+    synthetic: true,
+    scenarioId: scenario.id,
+    virtualAt: scenario.virtualAt,
+    attempt: actor.repairAttempts,
+    reply,
+    issue,
+    severity,
     evidenceVerified: evidence.operationVerified === true,
   });
   if (issue) {
@@ -160,7 +187,9 @@ export function actorObserve(actor, observation) {
   actor.pendingRepair = null;
   return {
     status: actor.step >= actor.script.turns.length ? 'complete' : 'advanced',
-    issue: null, severity: null, retryAllowed: false,
+    issue: null,
+    severity: null,
+    retryAllowed: false,
   };
 }
 
@@ -171,12 +200,17 @@ export function fakeAssistantObservation(actor) {
   const scenario = actor.script.turns[actor.step];
   const h = hash32(actor.seed + ':' + actor.id + ':' + actor.step);
   const fault = actor.repairAttempts > 0 ? 0 : h % 19;
-  const evidence = { ownerId: actor.id, operationVerified: true,
+  const evidence = {
+    ownerId: actor.id,
+    operationVerified: true,
     persistedAmountCents: scenario.context.expectedActionAmountCents,
   };
   let reply = 'Entendi. Consultei os dados sintéticos deste cenário.';
-  if (scenario.expected.intent === 'evaluate_for_write' ||
-      scenario.expected.intent === 'goal_or_debt') reply = '✅ Registro confirmado no ambiente sintético.';
+  if (
+    scenario.expected.intent === 'evaluate_for_write' ||
+    scenario.expected.intent === 'goal_or_debt'
+  )
+    reply = '✅ Registro confirmado no ambiente sintético.';
   if (fault === 1) {
     reply = '✅ Registro confirmado no ambiente sintético.';
     evidence.operationVerified = false;
@@ -192,6 +226,5 @@ export function fakeAssistantObservation(actor) {
     reply = 'Não tenho certeza do horário; qual informação está faltando?';
     evidence.needsClarification = true;
   }
-  return { synthetic:true,personaId:actor.id,scenarioId:next.scenarioId,
-    reply, evidence };
+  return { synthetic: true, personaId: actor.id, scenarioId: next.scenarioId, reply, evidence };
 }
