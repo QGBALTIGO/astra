@@ -76,6 +76,13 @@ function ineligibleReason(
   if (!isChannelUserAccessActive(user, now)) return 'access_inactive';
   if (!hasChannelUserInteracted(user) && !isProactivePaidCaktoNotice(user, entry.kind))
     return 'no_interaction';
+  // Do not surprise buyers with a second welcome if they already wrote first.
+  const inbound = user.metadata.astraAccessNotices;
+  if (
+    entry.kind === 'approved' && isProactivePaidCaktoNotice(user, entry.kind) &&
+    inbound != null && typeof inbound === 'object' && !Array.isArray(inbound) &&
+    (inbound as Record<string, unknown>).firstAuthorized === true
+  ) return 'already_welcomed';
   if (!isSameAccessNotificationCycle(entry, user)) return 'access_cycle_changed';
   if (entry.kind === 'expiring') {
     const expiry = user.accessExpiresAt?.getTime();
