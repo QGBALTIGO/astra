@@ -58,7 +58,7 @@ License classifications follow upstream as checked 2026-11-12. Legal compliance 
 
 Entry points:
 
-    node --test scripts/astra-simulation-lab/core.test.mjs
+    node --test scripts/astra-simulation-lab/core.test.mjs scripts/astra-simulation-lab/world-oracle.test.mjs
     node scripts/astra-simulation-lab/run.mjs --limit=100000 --seed=20261112 --output=/tmp/astra-lab-my-run
     node scripts/astra-simulation-lab/tau-fixtures.mjs /tmp/astra-lab-fixtures.jsonl 100
     ASTRA_LAB_FAST_CHECK_PREFIX=/tmp/fast-check-install node scripts/astra-simulation-lab/properties.fast-check.mjs

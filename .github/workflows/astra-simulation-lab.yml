@@ -27,14 +27,19 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 22
-      - name: Test narratives and financial ledger oracle
-        run: node --test scripts/astra-simulation-lab/core.test.mjs
+      - name: Test narratives, stateful finances, privacy and virtual time
+        run: node --test scripts/astra-simulation-lab/core.test.mjs scripts/astra-simulation-lab/world-oracle.test.mjs
       - name: Generate 100k corpus and HTML evidence dashboard
         run: >-
           node scripts/astra-simulation-lab/run.mjs
           --limit=100000
           --seed=20261112
           --output="${RUNNER_TEMP}/astra-sim-lab"
+      - name: Export τ-style action/state scripts without executing tau2-bench
+        run: >-
+          node scripts/astra-simulation-lab/tau-fixtures.mjs
+          "${RUNNER_TEMP}/astra-sim-lab/tau-fixtures.jsonl"
+          1000
       - name: Upload only reproducible synthetic artifacts
         uses: actions/upload-artifact@v4
         with:
