@@ -101,7 +101,18 @@ describe('Astra lab — native recurring routes and goal discovery', () => {
 
   it('keeps opinions and requests to write a message out of tool execution', () => {
     expect(channelToolsForMessage('A Gabrieli merece um Pix de 100 reais?')).toEqual([]);
-    expect(channelToolsForMessage('Pede para meu namorado fazer um Pix de 100 reais'))
-      .toEqual([]);
+    for (const request of [
+      'Pede para meu namorado fazer um Pix de 100 reais',
+      'Pede pro meu namorado me fazer um Pix de 100 reais',
+      'Pede pra minha mãe mandar 100 reais, só escreva',
+      'Diz para a minha amiga fazer um Pix, monta o recado',
+    ]) {
+      expect(isConversationalOnlyChannelRequest(request), request).toBe(true);
+      expect(channelToolsForMessage(request), request).toEqual([]);
+    }
+    // A compound explicit write is not a purely conversational request.
+    expect(isConversationalOnlyChannelRequest(
+      'Pede para meu namorado fazer um Pix e registra uma despesa'
+    )).toBe(false);
   });
 });
