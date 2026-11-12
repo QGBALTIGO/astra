@@ -132,9 +132,21 @@ describe('Consulta financeira direta e read-only pelo canal', () => {
     const response = await tryExpenseSummaryChannelReply(message, 'default');
 
     expect(response).toBe(
-      'Não consegui consultar seus gastos agora. Nenhum registro foi alterado.'
+      'Fiquei sem os dados dos seus lançamentos. Para conferir os valores agora, abra Transações no painel.'
     );
     expect(response).not.toContain('password');
+  });
+
+  it('keeps rejected queries and incomplete summaries from becoming a zero total', async () => {
+    mockExpense
+      .mockRejectedValueOnce(new Error('password in a SQL error'))
+      .mockResolvedValueOnce({ success: true, result: {} })
+      .mockResolvedValueOnce({ success: true, result: { count: 3 } });
+    for (let i = 0; i < 3; i++) {
+      const reply = await tryExpenseSummaryChannelReply(message, 'default');
+      expect(reply).toContain('Transações');
+      expect(reply).not.toMatch(/password|R\$|não tem gastos|registro foi alterado/i);
+    }
   });
 
   it.each(['channel.whatsapp', 'channel.telegram'])(

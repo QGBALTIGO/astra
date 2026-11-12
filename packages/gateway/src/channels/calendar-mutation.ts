@@ -26,7 +26,7 @@ const formatHint =
   'Informe a data, o início, o término, o fuso e o título. Use “Marque na minha agenda para DD/MM/AAAA, das 15h às 15h30 de Cuiabá: Revisão do orçamento”.';
 const two = (n: number) => String(n).padStart(2, '0');
 
-function requestedDay(description: string, today: string): string | null {
+export function parseChannelCalendarDay(description: string, today: string): string | null {
   let date = description.toLocaleLowerCase('pt-BR').trim();
   const relative = /^(hoje|amanhã)(?:,\s*|$)/u.exec(date);
   const expected = relative ? addCalendarDays(today, relative[1] === 'hoje' ? 0 : 1) : null;
@@ -50,7 +50,7 @@ function requestedDay(description: string, today: string): string | null {
   return day;
 }
 
-function clock(value: string): string | null {
+export function parseChannelClock(value: string): string | null {
   const m = /^(\d{1,2})(?:h(\d{2})?|:(\d{2}))$/iu.exec(value);
   if (!m) return null;
   const hour = Number(m[1]),
@@ -114,7 +114,7 @@ export function parseChannelCalendarEvent(
       reply: 'Informe o fuso por cidade, como Cuiabá, ou pelo nome completo, como America/Cuiaba.',
     };
   if (!receivedAt || !Number.isFinite(receivedAt.getTime())) return { reply: hint };
-  const day = requestedDay(parts.day!, customerLocalDay(receivedAt, timezone));
+  const day = parseChannelCalendarDay(parts.day!, customerLocalDay(receivedAt, timezone));
   if (!day)
     return {
       reply: 'Confira a data e o dia da semana. Use dia/mês/ano para definir o compromisso.',
@@ -123,8 +123,8 @@ export function parseChannelCalendarEvent(
     return /\d{4}$/.test(parts.day!.trim())
       ? { action: 'delete', title, day, timezone }
       : { reply: deleteHint };
-  const from = clock(parts.from!),
-    to = clock(parts.to!);
+  const from = parseChannelClock(parts.from!),
+    to = parseChannelClock(parts.to!);
   if (!from || !to || from >= to)
     return {
       reply: 'Informe um início e um término válidos no mesmo dia, com o término depois do início.',

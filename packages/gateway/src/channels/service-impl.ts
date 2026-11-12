@@ -73,6 +73,7 @@ import { isChannelUserAccessActive } from './channel-access-service.js';
 import { emitConnectionEvent } from './connection-events.js';
 import { wsGateway } from '../ws/server.js';
 import { recordOutboundQuality } from '../services/outbound-quality.js';
+import { channelFailureKind, channelFailureReply, presentChannelReply } from './channel-failure.js';
 import { getErrorMessage } from '../utils/common.js';
 import { getLog } from '../services/log.js';
 import { claimOwnership, getOwnerUserId, autoClaimOwnership } from '../services/pairing-service.js';
@@ -1161,9 +1162,7 @@ export class ChannelServiceImpl implements IChannelService {
       }
 
       // 8. Send response (guard against empty text — Telegram rejects it)
-      if (!responseText || !responseText.trim()) {
-        responseText = '(No response generated)';
-      }
+      responseText = presentChannelReply(responseText || '', message.text);
 
       // Public navigation only; the customer portal still requires its own login.
       const dashboardAction = dashboardActionForConfirmedReply(
@@ -1243,16 +1242,9 @@ export class ChannelServiceImpl implements IChannelService {
         platform: message.platform,
       });
     } catch (error) {
-      log.error('Error processing message', { error });
-
-      // Build a helpful error message
-      const errMsg = getErrorMessage(error);
-      const isProviderError = /provider|model|api.?key|unauthorized|401|no.*configured/i.test(
-        errMsg
-      );
-      const userMessage = isProviderError
-        ? 'No AI provider configured. Please set up an API key (e.g. OpenAI, Anthropic) in OwnPilot Settings or Config Center.'
-        : 'Sorry, I encountered an internal error. Please try again.';
+      const reason = channelFailureKind(getErrorMessage(error));
+      log.error('Error processing message', { reason, platform: message.platform });
+      const userMessage = channelFailureReply(message.text, reason);
 
       // Surface the error to the user. If a progress ("Thinking...") placeholder
       // is pending, replace it in place — otherwise it is orphaned in the chat

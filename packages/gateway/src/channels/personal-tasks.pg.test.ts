@@ -104,6 +104,28 @@ describe.skipIf(!port)('personal task commands against disposable PostgreSQL', (
       expect(tasks[0]).toMatchObject({ userId: user, title, status: 'completed' });
     }
   );
+  it.each(['whatsapp', 'telegram'] as const)(
+    'keeps a failed read informational on %s',
+    async (platform) => {
+      const failed = vi
+        .spyOn(CustomerAgendaRepository.prototype, 'findChannelTask')
+        .mockRejectedValue(new Error('timeout DSN_PRIVATE'));
+      try {
+        for (const path of [true, false]) {
+          const answer = await turn(
+            message('synthetic', 'Consulte a tarefa Regar', 'read', platform),
+            'synthetic',
+            path
+          );
+          expect(answer).toContain('lista de tarefas');
+          expect(answer).not.toMatch(/confirmação|repetir|DSN_PRIVATE/i);
+        }
+      } finally {
+        failed.mockRestore();
+      }
+    }
+  );
+
   it('leaves both candidates intact and rejects a code belonging to another account', async () => {
     const owner = 'duplicate';
     const repo = new TasksRepository(owner);

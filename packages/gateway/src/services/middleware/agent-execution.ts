@@ -24,33 +24,26 @@ import {
   recentChannelText,
 } from '../../channels/tool-selection.js';
 
+import {
+  channelFailureKind,
+  channelFailureReply,
+  presentChannelReply,
+} from '../../channels/channel-failure.js';
+
 const log = getLog('Middleware:AgentExecution');
 
 /**
  * Never send provider errors, API response bodies or tool schemas to channel
  * users. Retain the original error in internal context and diagnostics.
  */
-export function userFacingAgentError(message: NormalizedMessage, details: string): string {
-  if (message.metadata?.source !== 'channel') return `Error: ${details}`;
-  if (agentFailureKind(details) === 'agent_busy') {
-    return 'Sua mensagem anterior ainda está em processamento. Aguarde a resposta antes de reenviar.';
-  }
-  if (agentFailureKind(details) === 'rate_limited') {
-    return 'O serviço de IA atingiu temporariamente o limite de uso. Aguarde alguns instantes. Se a mensagem era para registrar algo, confira seus registros antes de repetir para evitar duplicidade.';
-  }
-  return 'Não consegui processar sua mensagem agora. Tente novamente em instantes.';
-}
-
-/** Log a useful category without copying provider bodies, prompts or secrets. */
-function agentFailureKind(details: string): 'agent_busy' | 'rate_limited' | 'agent_error' {
-  if (/agent is already processing a request/i.test(details)) return 'agent_busy';
-  if (
-    /(?:api|stream) error:\s*429\b|\bhttp\s*429\b|rate limit (?:reached|exceeded)|tokens per minute|too many requests/i.test(
-      details
-    )
-  )
-    return 'rate_limited';
-  return 'agent_error';
+export function userFacingAgentError(
+  message: NormalizedMessage,
+  details: string,
+  receipts: ChannelToolReceipt[] = [],
+  timeZone?: string
+): string {
+  if (message.metadata?.source !== 'channel') return 'Error: ' + details;
+  return channelFailureReply(message.content, channelFailureKind(details), receipts, timeZone);
 }
 
 /** Minimal agent interface needed by this middleware */
@@ -256,7 +249,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
       if (!result.ok) {
         ctx.set('error', result.error);
         log.warn('Agent returned a processing error', {
-          reason: agentFailureKind(result.error?.message ?? ''),
+          reason: channelFailureKind(result.error?.message ?? ''),
           provider,
           model,
           durationMs,
@@ -267,7 +260,12 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
             id: randomUUID(),
             sessionId: message.sessionId,
             role: 'assistant' as const,
-            content: userFacingAgentError(message, result.error?.message ?? 'Unknown error'),
+            content: userFacingAgentError(
+              message,
+              result.error?.message ?? 'Unknown error',
+              channelReceipts,
+              ctx.get<string>('channelTimeZone')
+            ),
             metadata: {
               ...message.metadata,
               provider,
@@ -336,11 +334,16 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         role: 'assistant',
         content:
           message.metadata.source === 'channel'
-            ? (safeOpinionReply ??
-              safeChannelResponse(result.value?.content ?? '', channelReceipts, {
-                timeZone: ctx.get<string>('channelTimeZone'),
-                requestText: message.content,
-              }))
+            ? presentChannelReply(
+                safeOpinionReply ??
+                  safeChannelResponse(result.value?.content ?? '', channelReceipts, {
+                    timeZone: ctx.get<string>('channelTimeZone'),
+                    requestText: message.content,
+                  }),
+                message.content,
+                channelReceipts,
+                ctx.get<string>('channelTimeZone')
+              )
             : (result.value?.content ?? ''),
         metadata: {
           source: message.metadata.source,
@@ -404,7 +407,12 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
       }
 
       const err = error instanceof Error ? error : new Error(String(error));
-      log.error('Agent execution failed', { error: err.message, stack: err.stack });
+      log.error(
+        'Agent execution failed',
+        message.metadata.source === 'channel'
+          ? { reason: channelFailureKind(err.message), provider, model }
+          : { error: err.message, stack: err.stack }
+      );
 
       // Notify stream of error
       if (stream?.onError) {
@@ -416,7 +424,12 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
           id: randomUUID(),
           sessionId: message.sessionId,
           role: 'assistant' as const,
-          content: userFacingAgentError(message, err.message),
+          content: userFacingAgentError(
+            message,
+            err.message,
+            channelReceipts,
+            ctx.get<string>('channelTimeZone')
+          ),
           metadata: { ...message.metadata, error: err.message },
           timestamp: new Date(),
         },

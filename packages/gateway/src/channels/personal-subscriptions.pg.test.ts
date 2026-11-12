@@ -147,6 +147,28 @@ describe.skipIf(!port)(
       }
     );
 
+    it.each(['whatsapp', 'telegram'] as const)(
+      'keeps a failed read informational on %s',
+      async (platform) => {
+        const failed = vi
+          .spyOn(CustomerPlanningRepository.prototype, 'subscriptions')
+          .mockRejectedValue(new Error('timeout DSN_PRIVATE'));
+        try {
+          for (const path of [true, false]) {
+            const answer = await turn(
+              incoming('Minhas assinaturas', platform, 'synthetic'),
+              'synthetic',
+              path
+            );
+            expect(answer).toContain('Meu planejamento');
+            expect(answer).not.toMatch(/confirmação|repetir|DSN_PRIVATE/i);
+          }
+        } finally {
+          failed.mockRestore();
+        }
+      }
+    );
+
     it('requires an explicit single tracking request and a valid renewal date', async () => {
       const key = 'planejamento-sem-efeito';
       const msg = (text: string) => incoming(text, 'whatsapp', key);
@@ -310,7 +332,7 @@ describe.skipIf(!port)(
         'retry'
       );
       try {
-        expect(await turn(msg, 'retry')).toContain('Não consegui confirmar');
+        expect(await turn(msg, 'retry')).toContain('A confirmação da assinatura não chegou');
       } finally {
         await db.exec('DROP TRIGGER lab_fail_plan ON customer_plans');
       }

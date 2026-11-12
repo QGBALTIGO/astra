@@ -354,7 +354,7 @@ describe('createAgentExecutionMiddleware', () => {
       expect(result.response.content).toBe(
         saved
           ? 'Lembrete agendado.'
-          : 'Ainda não tenho uma alteração confirmada para mostrar. Se era só uma pergunta, podemos continuar nossa conversa normalmente.'
+          : 'A confirmação do aviso não chegou. Confira o horário e o status em Agenda no painel antes de criar outro.'
       );
       expect(agent.setAdditionalTools).toHaveBeenCalledWith(
         expect.arrayContaining(['core.schedule_channel_reminder'])
@@ -529,8 +529,9 @@ describe('createAgentExecutionMiddleware', () => {
 
       const msg = createMessage({ metadata: { source: 'channel', platform: 'telegram' } });
       const result = await middleware(msg, ctx, next);
-      expect(result.response.content).toBe(
-        'Não consegui processar sua mensagem agora. Tente novamente em instantes.'
+      expect(result.response.content).toContain('confira no painel como ele ficou');
+      expect(result.response.content).not.toMatch(
+        /tente novamente|envie de novo|secret provider error/i
       );
       expect(result.response.content).not.toContain('OpenAI');
       expect(result.response.content).not.toContain('128');
@@ -550,7 +551,7 @@ describe('createAgentExecutionMiddleware', () => {
         vi.fn()
       );
 
-      expect(result.response.content).toContain('serviço de IA');
+      expect(result.response.content).toContain('limite de respostas');
       expect(result.response.content).not.toContain('Groq');
       expect(result.response.content).toContain('limite');
       expect(result.response.content).not.toContain('org_secret');
@@ -650,8 +651,9 @@ describe('createAgentExecutionMiddleware', () => {
       const msg = createMessage({ metadata: { source: 'channel', platform: 'telegram' } });
       const result = await middleware(msg, ctx, vi.fn());
 
-      expect(result.response.content).toBe(
-        'Não consegui processar sua mensagem agora. Tente novamente em instantes.'
+      expect(result.response.content).toContain('confira no painel como ele ficou');
+      expect(result.response.content).not.toMatch(
+        /tente novamente|envie de novo|secret provider error/i
       );
       expect(result.response.metadata.error).toBe('Authorization: secret provider error');
     });

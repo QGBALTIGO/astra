@@ -8,7 +8,7 @@ import {
   type SubscriptionChange,
   type SubscriptionResult,
 } from '../db/repositories/customer-planning.js';
-import { getLog } from '../services/log.js';
+import { channelDataFailure } from './channel-failure.js';
 
 const HELP =
   'Para acompanhar uma assinatura, envie “Cadastre a assinatura Música por R$ 24,90 com renovação em 15/12/2026”. Depois, use “Minhas assinaturas”, “Atualize a assinatura Música para R$ 29,90” ou “Remova a assinatura Música”.';
@@ -305,9 +305,6 @@ export async function tryPersonalSubscriptionReply(
       .digest('hex');
     return formatResult(await repo.changeSubscription(key, intent, canWrite));
   } catch (error) {
-    getLog('ChannelPersonalSubscriptions').error('Falha ao acessar assinaturas pessoais', {
-      category: error instanceof Error ? error.name : 'unknown',
-    });
-    return 'Não consegui confirmar o registro agora. Consulte “Minhas assinaturas” antes de repetir o pedido.';
+    return channelDataFailure('subscription', intent.action === 'list' ? 'read' : 'write', error);
   }
 }

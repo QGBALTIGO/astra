@@ -284,6 +284,30 @@ function taskConfirmation(receipt: ChannelToolReceipt, ids: Set<string>): string
   return formatAstraMessage(labels[name]!, title ? [{ label: 'Tarefa', value: title }] : []);
 }
 
+/** Only persisted evidence may survive a failed model finalization. */
+export function verifiedWriteDetails(receipts: ChannelToolReceipt[], timeZone?: string): string[] {
+  const ids = internalIds(receipts);
+  const details: string[] = [];
+  for (const receipt of channelOperations(receipts)) {
+    if (isFailedChannelReceipt(receipt)) continue;
+    const envelope = object(json(receipt.content));
+    const result = object(envelope?.result) ?? envelope;
+    const saved =
+      object(result?.transaction) ?? object(result?.expense) ?? object(result?.task) ?? result;
+    const line =
+      calendarConfirmation(receipt, ids, timeZone) ??
+      (typeof saved?.id === 'string' && saved.id.trim()
+        ? (transactionConfirmation(receipt, ids) ??
+          reminderConfirmation([receipt]) ??
+          (typeof saved.title === 'string' && saved.title.trim()
+            ? taskConfirmation(receipt, ids)
+            : null))
+        : null);
+    if (line) details.push(line);
+  }
+  return details;
+}
+
 /** Resolve native and meta-tool receipts, including partial batch failures. */
 export function successfulChannelTools(receipts: ChannelToolReceipt[]): Set<string> {
   const names = new Set<string>();
