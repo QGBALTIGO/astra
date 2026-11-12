@@ -50,11 +50,15 @@ test('10,000 multistep scripts have linked context and advancing virtual dates',
     const story = scriptAt(i);
     assert.equal(story.turns.length, 10);
     assert.equal(story.turns[0].personaId, story.turns[9].personaId);
+    const domain = story.turns[0].category;
+    assert.ok(story.turns.every((turn) => turn.category === domain),
+      'Each ten-turn script must stay in the same causal domain');
     const dates = story.turns.map((x) => Date.parse(x.virtualAt));
     for (let j = 1; j < dates.length; j++) assert.ok(dates[j] > dates[j - 1]);
     for (let j = 0; j < 10; j++) {
       const turn = story.turns[j];
       assert.equal(turn.step, j);
+      assert.equal(turn.semanticFamily, domain + ':' + j);
       assert.equal(turn.context.priorTurnIds.length, j);
       assert.equal(turn.context.stableCarPriceCents, story.persona.carCostCents);
       assert.equal(turn.expected.prohibitFalseSuccess, true);
@@ -90,4 +94,29 @@ test('synthetic ledger is idempotent under retry and segregates accounts', () =>
   assert.equal(ledger.get(b.userId).appliedIds.length, 1);
   assert.throws(() => effectiveNoDuplicateState([{ ...a, userId: 'whatsapp:real-phone' }]));
   assert.throws(() => effectiveNoDuplicateState([{ ...a, amountCents: -100 }]));
+});
+
+test('financial amounts in scenarios are the oracle values, never random ledger placeholders', () => {
+  let finance = 0, goals = 0;
+  for (let story = 0; story < PERSONA_COUNT; story++) {
+    const turns = scriptAt(story).turns;
+    if (turns[0].category === 'finance') {
+      finance++;
+      const t = turns[0];
+      const cents = t.context.expectedActionAmountCents;
+      assert.ok(Number.isSafeInteger(cents));
+      assert.ok(t.message.includes(toBrl(cents).replace(/\u00a0/gu, ' ')) ||
+        t.message.includes(toBrl(cents)), 'The expense amount must occur in its visible prompt');
+      const installment = turns[2];
+      assert.equal(installment.context.expectedActionAmountCents, 47000);
+    }
+    if (turns[0].category === 'goals') {
+      goals++;
+      const contribution = turns[3];
+      assert.ok(contribution.message.includes(toBrl(contribution.context.expectedActionAmountCents)) ||
+        contribution.message.includes(toBrl(contribution.context.expectedActionAmountCents).replace(/\u00a0/gu, ' ')));
+    }
+  }
+  assert.equal(finance, 2000);
+  assert.equal(goals, 1500);
 });

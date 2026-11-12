@@ -45,3 +45,18 @@ test('financial arithmetic explicitly excludes unknown contractual interest', ()
   w.loan.alreadyPaidCents += 47_000;
   assert.equal(w.snapshot().loan.arithmeticDifferenceCents, 7_060_000);
 });
+
+test('synthetic financial ledger uses the actual labeled source amount, not a random value', () => {
+  let index = 0;
+  while (index < PERSONA_COUNT && categoryOf(index) !== 'finance') index++;
+  assert.ok(index < PERSONA_COUNT);
+  const w = new SyntheticWorldOracle(personaAt(index));
+  const first = scenarioAt(index * 10);
+  const outcome = w.apply(first);
+  assert.equal(outcome.decision, 'write_expense');
+  assert.equal(w.expenseCents(), first.context.expectedActionAmountCents);
+  assert.ok(first.message.includes('farmácia'));
+});
+function categoryOf(personaIndex) {
+  return scenarioAt(personaIndex * 10).category;
+}
