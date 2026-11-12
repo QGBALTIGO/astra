@@ -10,6 +10,19 @@ const financeTools = [
 ];
 
 describe('channel finance tool selection', () => {
+  it('distinguishes a calendar exercise and follow-up from a real calendar command', () => {
+    for (const message of [
+      'Agora, um exercício de agenda, sem agendar de verdade. A dentista e a reunião do Rafa estão na terça. Se ele disser só «muda a de terça», o que você ainda precisa perguntar?',
+      'Ele quis dizer a dentista, na quinta às 9h de Cuiabá. Como ficaria a agenda desse exemplo, mantendo a reunião no dia original?',
+    ])
+      expect(channelToolsForMessage(message)).toEqual([]);
+    for (const message of [
+      'Reagende a consulta da dentista para quinta.',
+      'Como ficaria a agenda desse exemplo? Agora reagende de verdade a consulta da dentista.',
+    ]) {
+      expect(channelToolsForMessage(message)).toContain('core.add_calendar_event');
+    }
+  });
   it.each([
     'Excluir e registar dnv como entrada',
     'Troque esse gasto para receita',

@@ -26,6 +26,7 @@ import {
   type ChannelToolReceipt,
 } from './response-safety.js';
 import {
+  CHANNEL_CONVERSATIONAL_RETRY_PROMPT,
   channelToolsForMessage,
   isConversationalOnlyChannelRequest,
   needsConversationalRewrite,
@@ -771,7 +772,7 @@ async function processDirectAgentInSession(
         ? agent.chat(interpreted.text, {
             onBeforeToolCall: async () => ({
               approved: false,
-              reason: 'Pergunta de opinião; nenhuma operação solicitada.',
+              reason: 'Conversa sem operação solicitada.',
             }),
           })
         : agent.chat(interpreted.text)
@@ -789,15 +790,12 @@ async function processDirectAgentInSession(
     )
       return response;
     try {
-      const second = await agent.chat(
-        'Releia o pedido original. Dê sua opinião ou escreva a mensagem pronta para copiar, conforme a intenção, em português natural. Não use ferramentas, não afirme ter feito pagamentos ou registros nem mostre mensagens técnicas.',
-        {
-          onBeforeToolCall: async () => ({
-            approved: false,
-            reason: 'Apenas conversa, sem ações.',
-          }),
-        }
-      );
+      const second = await agent.chat(CHANNEL_CONVERSATIONAL_RETRY_PROMPT, {
+        onBeforeToolCall: async () => ({
+          approved: false,
+          reason: 'Apenas conversa, sem ações.',
+        }),
+      });
       if (second.ok) {
         const checked = safeChannelResponse(second.value.content, []);
         if (checked !== CHANNEL_UNVERIFIED_REPLY && !needsConversationalRewrite(checked))

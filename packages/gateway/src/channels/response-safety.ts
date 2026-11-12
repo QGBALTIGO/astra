@@ -233,7 +233,7 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     .map((sentence) =>
       sentence
         .replace(
-          /\b(?:nao|nunca)\s+(?:(?:re)?agendei|salvei|guardei|memorizei|criei|registrei|lancei|corrigi|alterei|atualizei|exclui|removi|vou\s+(?:te\s+)?(?:avisar|lembrar))\b/g,
+          /\b(?:nao|nunca)\s+(?:(?:re)?agendei|remarquei|mudei|salvei|guardei|memorizei|criei|registrei|lancei|corrigi|alterei|atualizei|exclui|removi|vou\s+(?:te\s+)?(?:avisar|lembrar))\b/g,
           ''
         )
         .replace(
@@ -243,6 +243,20 @@ export function safeChannelResponse(text: string, receipts: ChannelToolReceipt[]
     );
   let unsupported = false;
   for (const sentence of statements) {
+    // Only a complete denial is exempt; any other sentence still needs its own receipt.
+    if (
+      /^\s*nenhum lembrete foi (?:agendado|reagendado|criado|salvo)(?: de verdade)?\s*$/.test(
+        sentence
+      )
+    )
+      continue;
+    if (
+      /\b(?:remarquei|mudei|alterei|atualizei)\s+(?:(?:[oa]s?|suas?|seus?|minha|meu|essa|esse)\s+)*(?:(?:horario|data|dia)\s+d[ao]\s+)?(?:consultas?|dentista|reunioes|reuniao|compromissos?|eventos?|agenda)\b/.test(
+        sentence
+      ) &&
+      !has('update_calendar_event')
+    )
+      unsupported = true;
     if (
       /\b(?:lembretes?\s+(?:(?:e\s+tarefas?|foi|foram|esta|estao)\s+)*(?:(?:re)?agendad[oa]s?|criad[oa]s?|salv[oa]s?)|(?:re)?agendei|voce sera avisado|vou (?:te )?(?:avisar|lembrar))\b/.test(
         sentence
