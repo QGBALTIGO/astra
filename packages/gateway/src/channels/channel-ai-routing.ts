@@ -39,6 +39,7 @@ import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
 import { tryCancelNamedReminder } from './cancel-named-reminder.js';
 import { tryVerifyCalendarSlot } from './calendar-lookup.js';
+import { tryChannelCalendarMutation } from './calendar-mutation.js';
 import { tryListTodaysReminders } from './today-reminders.js';
 import { expenseConfirmationKey, expenseDuplicateGuard } from './expense-duplicate-guard.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
@@ -337,6 +338,9 @@ function tryAuthorizedChannelShortcut(
       (await tryListTodaysReminders(message, userId)) ??
       (await tryCancelNamedReminder(message, userId)) ??
       (await tryVerifyCalendarSlot(message, userId)) ??
+      (await tryChannelCalendarMutation(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
       (await tryCustomerTimezoneChannelReply(message, userId)) ??
       (await tryClockChannelReply(message.text, userId)) ??
       (await tryFinancingChannelReply(message, userId)) ??
