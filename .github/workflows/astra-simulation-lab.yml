@@ -107,6 +107,8 @@ jobs:
           pnpm --filter @ownpilot/gateway exec node --import tsx scripts/whatsapp-screenshot-smoke.ts | tee "${RUNNER_TEMP}/astra-pipeline.log"
           mkdir -p "${RUNNER_TEMP}/astra-lab-integration"
           node scripts/astra-simulation-lab/summarize-smoke.mjs "${RUNNER_TEMP}/astra-pipeline.log" "${RUNNER_TEMP}/astra-lab-integration"
+      - name: Validate 500+ real Astra financial parsing and intent cases
+        run: pnpm --filter @ownpilot/gateway exec vitest run src/channels/astra-lab-regression.test.ts
       - uses: actions/upload-artifact@v4
         with:
           name: astra-lab-real-pipeline-synthetic-data
