@@ -12,6 +12,18 @@ interface SettingRow {
 }
 
 class SystemSettingsRepository extends BaseRepository {
+  /** Serialize changes to related settings, including keys not yet present. */
+  async withLockedSettings<T>(keys: string[], fn: () => Promise<T>): Promise<T> {
+    return this.transaction(async () => {
+      for (const key of [...new Set(keys)].sort()) {
+        await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [
+          'astra:system-settings:' + key,
+        ]);
+      }
+      return fn();
+    });
+  }
+
   async get(key: string): Promise<string | null> {
     const row = await this.queryOne<SettingRow>(
       'SELECT key, value FROM system_settings WHERE key = $1',

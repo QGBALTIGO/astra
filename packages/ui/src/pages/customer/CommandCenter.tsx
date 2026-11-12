@@ -70,13 +70,13 @@ export function CustomerInsights({
   onAgenda,
 }: {
   summary: CustomerFinanceSummary;
-  upcoming: CustomerAgendaItem[];
+  upcoming: CustomerAgendaItem[] | undefined;
   timeZone: string;
   hidden: boolean;
   onAgenda: () => void;
 }) {
   const projected = summary.result + summary.pendingIncome - summary.pendingExpenses;
-  const next = upcoming.find((item) => !item.completed);
+  const next = upcoming?.[0];
   const category = summary.categories.find((item) => item.total > 0);
   return (
     <section className="ac-day-overview" aria-label="Visão do seu dia">
@@ -88,32 +88,34 @@ export function CustomerInsights({
         <Lightbulb aria-hidden="true" />
       </div>
       <div className="ac-day-overview-grid">
-        <div className="ac-day-observation">
-          <span className="ac-day-icon">
-            <Clock aria-hidden="true" />
-          </span>
-          <span className="ac-day-observation-text">
-            <strong>Seu próximo compromisso</strong>
-            <span>{next ? next.title : 'Sem compromissos nos próximos dias'}</span>
-            {next ? (
-              <small>
-                {next.startAt
-                  ? dateTimeLabel(next.startAt, timeZone)
-                  : next.dueDate
-                    ? dateLabel(next.dueDate)
-                    : 'Sem data definida'}
-              </small>
-            ) : null}
-          </span>
-          <button
-            type="button"
-            className="ac-icon-button"
-            aria-label="Abrir agenda"
-            onClick={onAgenda}
-          >
-            <ChevronRight aria-hidden="true" />
-          </button>
-        </div>
+        {upcoming && (
+          <div className="ac-day-observation">
+            <span className="ac-day-icon">
+              <Clock aria-hidden="true" />
+            </span>
+            <span className="ac-day-observation-text">
+              <strong>Seu próximo compromisso</strong>
+              <span>{next ? next.title : 'Sem compromissos nos próximos dias'}</span>
+              {next ? (
+                <small>
+                  {next.startAt
+                    ? dateTimeLabel(next.startAt, timeZone)
+                    : next.dueDate
+                      ? dateLabel(next.dueDate)
+                      : 'Sem data definida'}
+                </small>
+              ) : null}
+            </span>
+            <button
+              type="button"
+              className="ac-icon-button"
+              aria-label="Abrir agenda"
+              onClick={onAgenda}
+            >
+              <ChevronRight aria-hidden="true" />
+            </button>
+          </div>
+        )}
         <div className="ac-day-observation">
           <span className="ac-day-icon">
             <Target aria-hidden="true" />

@@ -35,13 +35,14 @@ export function planPercentage(value: number, target: number): number {
 export function planProgress(
   plan: CustomerPlan,
   summary: CustomerFinanceSummary | null | undefined
-): { current: number; maximum: number; label: string } {
+): { current: number; maximum: number; label: string } | null {
   if (plan.kind === 'goal') {
     return { current: plan.progress, maximum: plan.amount, label: 'Guardado manualmente' };
   }
   if (plan.kind === 'budget') {
+    if (!summary) return null;
     return {
-      current: summary?.categories.find((entry) => entry.id === plan.categoryId)?.total ?? 0,
+      current: summary.categories.find((entry) => entry.id === plan.categoryId)?.total ?? 0,
       maximum: plan.amount,
       label: 'Gasto realizado no período',
     };
@@ -69,6 +70,7 @@ function planDescription(
     return `${remaining} de ${plan.installmentsTotal ?? 0} parcelas restantes · ${money(remaining * plan.amount, hidden)} previsto`;
   }
   const progress = planProgress(plan, summary);
+  if (!progress) return 'Gasto do período indisponível';
   return `${money(progress.current, hidden)} de ${money(progress.maximum, hidden)}`;
 }
 
@@ -267,9 +269,11 @@ export function CustomerPlanning({
                     <strong>{plan.title}</strong>
                     <ChevronRight aria-hidden="true" />
                   </span>
-                  <span className="ac-plan-preview-progress">
-                    <span style={{ width: planPercentage(value.current, value.maximum) + '%' }} />
-                  </span>
+                  {value && (
+                    <span className="ac-plan-preview-progress">
+                      <span style={{ width: planPercentage(value.current, value.maximum) + '%' }} />
+                    </span>
+                  )}
                   <small>
                     {hidden ? 'Valores ocultos' : planDescription(plan, summary, false)}
                   </small>
@@ -334,7 +338,7 @@ export function CustomerPlanning({
             <div className="ac-plan-list">
               {selected.map((plan) => {
                 const value = planProgress(plan, summary);
-                const percent = planPercentage(value.current, value.maximum);
+                const percent = value ? planPercentage(value.current, value.maximum) : undefined;
                 return (
                   <div key={plan.id} className="ac-plan-row">
                     <div className="ac-plan-row-heading">
@@ -352,7 +356,7 @@ export function CustomerPlanning({
                       </span>
                     </div>
                     <p>{hidden ? 'Valores ocultos' : planDescription(plan, summary, false)}</p>
-                    {plan.kind !== 'subscription' ? (
+                    {value && plan.kind !== 'subscription' ? (
                       <div
                         className="ac-plan-progress"
                         role="progressbar"

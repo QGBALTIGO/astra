@@ -158,6 +158,18 @@ healthRoutes.get('/', async (c) => {
   const allPassing = checks.every((check) => check.status === 'pass');
   const hasWarnings = checks.some((check) => check.status === 'warn');
   const hasFails = checks.some((check) => check.status === 'fail');
+  const status = hasFails
+    ? 'degraded'
+    : allPassing
+      ? 'healthy'
+      : hasWarnings
+        ? 'degraded'
+        : 'unhealthy';
+  // Probes only need the aggregate state. Keep topology, execution mode and
+  // session inventory on the authenticated API mounts.
+  if (!c.get('sessionAuthenticated') && !c.get('userId')) {
+    return apiResponse(c, { status });
+  }
 
   // Claw stats
   let clawStats: { total: number; running: number; paused: number; waiting: number } | null = null;
@@ -175,7 +187,7 @@ healthRoutes.get('/', async (c) => {
   }
 
   return apiResponse(c, {
-    status: hasFails ? 'degraded' : allPassing ? 'healthy' : hasWarnings ? 'degraded' : 'unhealthy',
+    status,
     version: VERSION,
     uptime,
     checks,
@@ -211,6 +223,9 @@ healthRoutes.get('/ready', async (c) => {
   try {
     const database = await checkDatabaseReadiness();
     const ready = database.status === 'pass';
+    if (!c.get('sessionAuthenticated') && !c.get('userId')) {
+      return apiResponse(c, { status: ready ? 'ready' : 'not_ready' }, ready ? 200 : 503);
+    }
     return apiResponse(
       c,
       {
@@ -224,7 +239,10 @@ healthRoutes.get('/ready', async (c) => {
       c,
       {
         code: ERROR_CODES.SYSTEM_STATUS_ERROR,
-        message: getErrorMessage(error, 'Failed to check readiness'),
+        message:
+          c.get('sessionAuthenticated') || c.get('userId')
+            ? getErrorMessage(error, 'Failed to check readiness')
+            : 'Failed to check readiness',
       },
       503
     );

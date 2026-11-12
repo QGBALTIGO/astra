@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { copyFile, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   DEFAULT_SEED,
   PERSONA_COUNT,
@@ -14,6 +18,33 @@ import {
   effectiveNoDuplicateState,
   inspectScenario,
 } from './core.mjs';
+
+test('both offline CLIs produce evidence when their checkout path contains spaces', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'astra lab ç '));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  for (const file of [
+    'core.mjs',
+    'virtual-clock.mjs',
+    'world-oracle.mjs',
+    'run.mjs',
+    'reactive-runner.mjs',
+    'reactive-personas.mjs',
+  ]) {
+    await copyFile(new URL(file, import.meta.url), join(dir, file));
+  }
+  const run = (file, args) =>
+    execFileSync(process.execPath, [join(dir, file), ...args, '--output=' + dir], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+  run('run.mjs', ['--limit=10']);
+  const corpus = JSON.parse(await readFile(join(dir, 'report.json'), 'utf8'));
+  assert.equal(corpus.metrics.generated, 10);
+  assert.equal(corpus.metrics.failedSynthetic, 0);
+  run('reactive-runner.mjs', ['--actors=1']);
+  const report = JSON.parse(await readFile(join(dir, 'reactive-persona-baseline.json'), 'utf8'));
+  assert.equal(report.metrics.actorsCompleted, 1);
+});
 
 test('generates 10,000 distinct fictional identities with stable histories', () => {
   const ids = new Set();

@@ -481,6 +481,25 @@ try {
     assert.match(missing, /Não encontrei financiamento/);
   });
 
+  await check('negated, questioned and corrected payments never change the ledger', async () => {
+    const before = await financingRows(first);
+    const balance = await firstCar.find('carro');
+    for (const [i, text] of [
+      'Não paguei 470 do carro.',
+      'Paguei 470 do carro?',
+      'Paguei 470 do carro, quer dizer, foram 370.',
+    ].entries()) {
+      const reply = await invoke(
+        i % 2 ? 'direct' : 'bus',
+        first,
+        incoming(first, text, `unconfirmed-${i}`)
+      );
+      assert.match(reply, /Nenhuma alteração/);
+    }
+    assert.deepEqual(await financingRows(first), before);
+    assert.deepEqual(await firstCar.find('carro'), balance);
+  });
+
   await check(
     'finance payment commits exactly once under concurrent replay and restart',
     async () => {

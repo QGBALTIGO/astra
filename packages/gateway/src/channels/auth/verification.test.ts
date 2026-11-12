@@ -17,6 +17,7 @@ vi.mock('../../db/repositories/channels/verification.js', () => ({
 }));
 
 vi.mock('../../db/repositories/channels/users.js', () => ({
+  ChannelVerificationConflict: class extends Error {},
   ChannelUsersRepository: vi.fn(),
   channelUsersRepo: {},
 }));
@@ -32,6 +33,7 @@ import type { ChannelUsersRepository } from '../../db/repositories/channels/user
 
 function createMockVerificationRepo() {
   return {
+    transaction: vi.fn((fn: () => Promise<unknown>) => fn()),
     generateToken: vi.fn(),
     claimValidToken: vi.fn(),
     assignClaimedTokenToUser: vi.fn(),

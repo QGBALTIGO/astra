@@ -53,6 +53,27 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
   });
   afterEach(() => vi.useRealTimers());
 
+  it('lists saved deadlines in the customer timezone, including the preceding local day', async () => {
+    fixtures.ctx.channelPluginId = 'channel.whatsapp';
+    fixtures.listForChat.mockResolvedValue([
+      { id: 'one', title: 'Teste', remindAt: new Date('2026-11-12T15:46:00Z'), status: 'pending' },
+      { id: 'two', title: 'Virada', remindAt: new Date('2026-11-12T02:05:20Z'), status: 'pending' },
+    ]);
+    const response = await executeChannelReminderTool(
+      'list_channel_reminders',
+      {},
+      'whatsapp:test'
+    );
+    expect(response.result).toEqual([
+      expect.objectContaining({
+        quando: '2026-11-12T15:46:00.000Z',
+        horarioLocal: '12/11/2026, 11:46',
+        timeZone: 'America/Campo_Grande',
+      }),
+      expect.objectContaining({ horarioLocal: '11/11/2026, 22:05:20' }),
+    ]);
+  });
+
   it('registers discoverable, typed channel reminder tools', () => {
     expect(CHANNEL_REMINDER_TOOLS.map((t) => t.name)).toEqual([
       'schedule_channel_reminder',

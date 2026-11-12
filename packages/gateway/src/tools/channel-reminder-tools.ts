@@ -55,7 +55,8 @@ const listReminderDef: ToolDefinition = {
   name: 'list_channel_reminders',
   category: 'Automation',
   brief: 'Listar lembretes agendados e seu estado real de entrega',
-  description: 'Consulta os lembretes desta conversa, incluindo pendente, entregue e falhou.',
+  description:
+    'Consulta os lembretes desta conversa, incluindo pendente, entregue e falhou. Apresente horarioLocal e use sua data para hoje/amanhã. O campo quando é UTC.',
   parameters: { type: 'object', properties: {} },
 };
 
@@ -124,6 +125,13 @@ function storedReminderResult(saved: ChannelReminder, timeZone: string, secondsR
   };
 }
 
+async function reminderTimeZone(userId: string): Promise<string> {
+  const account = userId.startsWith('whatsapp:')
+    ? await customerAccountsRepo.getByDataUserId(userId)
+    : null;
+  return account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
+}
+
 export async function executeChannelReminderTool(
   toolName: string,
   args: Record<string, unknown>,
@@ -138,17 +146,18 @@ export async function executeChannelReminderTool(
   }
 
   if (toolName === 'list_channel_reminders') {
-    const entries = await channelRemindersRepo.listForChat(
-      userId,
-      ctx.channelPluginId,
-      ctx.platformChatId
-    );
+    const [entries, timeZone] = await Promise.all([
+      channelRemindersRepo.listForChat(userId, ctx.channelPluginId, ctx.platformChatId),
+      reminderTimeZone(userId),
+    ]);
     return {
       success: true,
       result: entries.map(({ id, title, remindAt, status }) => ({
         id,
         title,
         quando: remindAt.toISOString(),
+        horarioLocal: formatReminderLocalTime(remindAt, timeZone, false),
+        timeZone,
         status,
       })),
     };
@@ -194,10 +203,7 @@ export async function executeChannelReminderTool(
   if (rescheduling && (typeof args.reminder_id !== 'string' || !args.reminder_id.trim())) {
     return { success: false, error: 'Consulte o ID do lembrete que será reagendado.' };
   }
-  const account = userId.startsWith('whatsapp:')
-    ? await customerAccountsRepo.getByDataUserId(userId)
-    : null;
-  const timeZone = account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
+  const timeZone = await reminderTimeZone(userId);
   let remindAt: Date;
   if (hasSeconds || hasMinutes) {
     const duration = hasSeconds ? args.delay_seconds : args.delay_minutes;

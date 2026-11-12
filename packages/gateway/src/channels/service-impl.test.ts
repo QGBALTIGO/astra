@@ -2123,36 +2123,43 @@ describe('ChannelServiceImpl', () => {
         expect(reply.text).toMatch(/not been activated|console|web UI/i);
       });
 
-      it('auto-claims WhatsApp owner when sender matches bot phone (self-chat)', async () => {
-        mockGetOwnerUserId.mockResolvedValue('user-456').mockResolvedValueOnce(null);
-        const waPlugin = createChannelPlugin({
-          platform: 'whatsapp',
-          connectionStatus: 'connected',
-          botPhone: 'user-456', // matches sender.platformUserId in createIncomingMessage
-        });
-        const waRegistry = createMockPluginRegistry([waPlugin]);
-        const waMessage = createIncomingMessage({
-          platform: 'whatsapp',
-          metadata: { isSelfChat: true, fromMe: true },
-        });
-        const waService = new ChannelServiceImpl(waRegistry as never, {
-          usersRepo: mockUsersRepo as never,
-          sessionsRepo: mockSessionsRepo as never,
-          verificationService: mockVerificationService as never,
-        });
-        mockGetOrCreateChatAgent.mockResolvedValue(createMockAgent());
+      it.each([
+        ['user-456', true],
+        ['competing-owner', false],
+      ] as const)(
+        'opens a self-chat only when its sender won the owner claim (%s)',
+        async (winner, accepted) => {
+          mockGetOwnerUserId.mockResolvedValue(winner).mockResolvedValueOnce(null);
+          const waPlugin = createChannelPlugin({
+            platform: 'whatsapp',
+            connectionStatus: 'connected',
+            botPhone: 'user-456', // matches sender.platformUserId in createIncomingMessage
+          });
+          const waRegistry = createMockPluginRegistry([waPlugin]);
+          const waMessage = createIncomingMessage({
+            platform: 'whatsapp',
+            metadata: { isSelfChat: true, fromMe: true },
+          });
+          const waService = new ChannelServiceImpl(waRegistry as never, {
+            usersRepo: mockUsersRepo as never,
+            sessionsRepo: mockSessionsRepo as never,
+            verificationService: mockVerificationService as never,
+          });
+          mockGetOrCreateChatAgent.mockResolvedValue(createMockAgent());
 
-        await waService.processIncomingMessage(waMessage);
-        waService.dispose();
+          await waService.processIncomingMessage(waMessage);
+          waService.dispose();
 
-        expect(mockAutoClaimOwnership).toHaveBeenCalledWith(
-          'test-plugin',
-          'whatsapp',
-          'user-456',
-          expect.any(String)
-        );
-        expect(mockSessionsRepo.findActive).toHaveBeenCalled();
-      });
+          expect(mockAutoClaimOwnership).toHaveBeenCalledWith(
+            'test-plugin',
+            'whatsapp',
+            'user-456',
+            expect.any(String)
+          );
+          if (accepted) expect(mockSessionsRepo.findActive).toHaveBeenCalled();
+          else expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+        }
+      );
 
       it('drops WhatsApp message silently when sender does not match bot phone', async () => {
         mockGetOwnerUserId.mockResolvedValue(null);

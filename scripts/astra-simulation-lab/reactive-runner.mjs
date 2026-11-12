@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   newReactiveActor,
   actorNextMessage,
@@ -118,7 +119,7 @@ export async function run() {
   console.log('ASTRA_LAB_REACTIVE=' + JSON.stringify(metrics));
   if (metrics.actorsBlocked) process.exitCode = 1;
 }
-if (process.argv[1] && new URL(import.meta.url).pathname === resolve(process.argv[1])) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   run().catch((e) => {
     console.error('ASTRA_LAB_REACTIVE_FAILED: ' + e.message);
     process.exitCode = 1;

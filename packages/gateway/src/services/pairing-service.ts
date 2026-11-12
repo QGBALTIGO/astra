@@ -50,12 +50,10 @@ async function rotatePairingKey(pluginId: string): Promise<string> {
  */
 export async function getPairingKey(pluginId: string): Promise<string> {
   const repo = getSystemSettingsRepository();
-  const stored = await repo.get(pairingKey(pluginId));
-  if (stored) return stored;
-
-  const key = generateKey();
-  await repo.set(pairingKey(pluginId), key);
-  return key;
+  return repo.withLockedSettings([pairingKey(pluginId)], async () => {
+    const stored = await repo.get(pairingKey(pluginId));
+    return stored || rotatePairingKey(pluginId);
+  });
 }
 
 /**
@@ -113,46 +111,50 @@ export async function claimOwnership(
   submittedKey: string
 ): Promise<ClaimResult> {
   const repo = getSystemSettingsRepository();
+  const result = await repo.withLockedSettings(
+    [ownerKey(platform), pairingKey(pluginId)],
+    async () => {
+      // Already claimed on this platform?
+      const existing = await repo.get(ownerKey(platform));
+      if (existing) {
+        return {
+          success: false,
+          alreadyClaimed: true,
+          message: 'This channel already has an owner. Use /revoke to reset ownership.',
+        };
+      }
 
-  // Already claimed on this platform?
-  const existing = await repo.get(ownerKey(platform));
-  if (existing) {
-    return {
-      success: false,
-      alreadyClaimed: true,
-      message: 'This channel already has an owner. Use /revoke to reset ownership.',
-    };
-  }
+      // Fetch stored key for this specific channel
+      const storedKey = await repo.get(pairingKey(pluginId));
+      if (!storedKey) {
+        return { success: false, alreadyClaimed: false, message: 'No pairing key found.' };
+      }
 
-  // Fetch stored key for this specific channel
-  const storedKey = await repo.get(pairingKey(pluginId));
-  if (!storedKey) {
-    return { success: false, alreadyClaimed: false, message: 'No pairing key found.' };
-  }
+      // Timing-safe comparison
+      const a = Buffer.from(submittedKey.trim().toUpperCase());
+      const b = Buffer.from(storedKey.trim().toUpperCase());
+      const valid = a.length === b.length && timingSafeEqual(a, b);
 
-  // Timing-safe comparison
-  const a = Buffer.from(submittedKey.trim().toUpperCase());
-  const b = Buffer.from(storedKey.trim().toUpperCase());
-  const valid = a.length === b.length && timingSafeEqual(a, b);
+      if (!valid) {
+        log.warn('Invalid pairing key attempt', { pluginId, platform, platformUserId });
+        return { success: false, alreadyClaimed: false, message: 'Invalid pairing key.' };
+      }
 
-  if (!valid) {
-    log.warn('Invalid pairing key attempt', { pluginId, platform, platformUserId });
-    return { success: false, alreadyClaimed: false, message: 'Invalid pairing key.' };
-  }
+      // Persist ownership
+      await repo.set(ownerKey(platform), platformUserId);
+      await repo.set(ownerChatKey(platform), platformChatId);
 
-  // Persist ownership
-  await repo.set(ownerKey(platform), platformUserId);
-  await repo.set(ownerChatKey(platform), platformChatId);
-
-  // Rotate the key immediately — old key is now invalid
-  await rotatePairingKey(pluginId);
-
-  log.info(`Ownership claimed on ${platform} via channel ${pluginId}`, {
-    platformUserId,
-    platformChatId,
-  });
-
-  return { success: true, alreadyClaimed: false, message: 'Ownership claimed.' };
+      // Rotate the key immediately — old key is now invalid
+      await rotatePairingKey(pluginId);
+      return { success: true, alreadyClaimed: false, message: 'Ownership claimed.' };
+    }
+  );
+  if (result.success)
+    log.info(`Ownership claimed on ${platform} via channel ${pluginId}`, {
+      platformUserId,
+      platformChatId,
+    });
+  return result;
 }
 
 /**
@@ -168,14 +170,21 @@ export async function autoClaimOwnership(
   platformChatId: string
 ): Promise<void> {
   const repo = getSystemSettingsRepository();
-  const existing = await repo.get(ownerKey(platform));
-  if (existing) return; // already claimed — don't overwrite
+  const claimed = await repo.withLockedSettings(
+    [ownerKey(platform), pairingKey(pluginId)],
+    async () => {
+      const existing = await repo.get(ownerKey(platform));
+      if (existing) return false;
 
-  await repo.set(ownerKey(platform), platformUserId);
-  await repo.set(ownerChatKey(platform), platformChatId);
-  // Rotate key so the startup-banner key can't be used after auto-claim
-  await rotatePairingKey(pluginId);
-  log.info(`Auto-claimed ownership on ${platform} via channel ${pluginId}`, { platformUserId });
+      await repo.set(ownerKey(platform), platformUserId);
+      await repo.set(ownerChatKey(platform), platformChatId);
+      // Rotate key so the startup-banner key can't be used after auto-claim
+      await rotatePairingKey(pluginId);
+      return true;
+    }
+  );
+  if (claimed)
+    log.info(`Auto-claimed ownership on ${platform} via channel ${pluginId}`, { platformUserId });
 }
 
 /**
@@ -184,9 +193,11 @@ export async function autoClaimOwnership(
  */
 export async function revokeOwnership(pluginId: string, platform: string): Promise<void> {
   const repo = getSystemSettingsRepository();
-  await repo.delete(ownerKey(platform));
-  await repo.delete(ownerChatKey(platform));
-  await rotatePairingKey(pluginId);
+  await repo.withLockedSettings([ownerKey(platform), pairingKey(pluginId)], async () => {
+    await repo.delete(ownerKey(platform));
+    await repo.delete(ownerChatKey(platform));
+    await rotatePairingKey(pluginId);
+  });
   log.info(`Ownership revoked for ${platform} via channel ${pluginId}`);
 }
 

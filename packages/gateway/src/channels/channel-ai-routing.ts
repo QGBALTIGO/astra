@@ -35,6 +35,7 @@ import { restoreChannelHistory } from './restore-history.js';
 import { formatAstraMessage, formatReminderConfirmation } from './response-presentation.js';
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
+import { tryListTodaysReminders } from './today-reminders.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 import { withContactStyleContext } from './channel-personalization.js';
 
@@ -123,29 +124,28 @@ function normalizeChannelIntent(text: string): string {
  * the fragile nested `use_tool({ tool_name, arguments })` shape.
  */
 export function expenseSummaryPeriodForChannel(text: string): ExpenseSummaryPeriod | null {
-  const normalized = normalizeChannelIntent(text);
-  const asksForTotal =
-    /\bquanto\b[^?!.]*\b(?:gastei|gasto|gastamos|gastos?|despesas?)\b/u.test(normalized) ||
-    /\b(?:total|resumo)\b[^?!.]*\b(?:de|dos?|das?)?\s*(?:meus?\s+)?(?:gastos?|despesas?)\b/u.test(
+  // This shortcut can express exactly one period and no other filters. Both
+  // the request and the period must match in full, or the whole turn goes on
+  // to the normal pipeline (e.g. "hoje no mercado" or "hoje e ontem").
+  const normalized = normalizeChannelIntent(text)
+    .replace(/\s+/gu, ' ')
+    .replace(/^(?:astra[,!:]?\s+)?(?:por favor,?\s+)?/u, '')
+    .replace(/[?!.]+$/u, '')
+    .trim();
+  const request =
+    /^(?:quanto (?:eu |nos )?(?:ja )?(?:gastei|gastamos|gasto)|(?:qual (?:e |foi )?o |me (?:mostre|diga) o |mostre o |o )?(?:total|resumo) (?:de |dos |das )?(?:meus |minhas )?(?:gastos|despesas)) (.+)$/u.exec(
       normalized
-    ) ||
-    /\b(?:gastos?|despesas?)\b[^?!.]*\b(?:total|resumo)\b/u.test(normalized);
-  if (!asksForTotal) return null;
-
-  if (/\b(?:mes|mês)\s+passado\b/u.test(normalized)) return 'last_month';
-  if (/\b(?:hoje|do\s+dia)\b/u.test(normalized)) return 'today';
-  if (/\b(?:esta|essa|nesta|nessa)\s+semana\b|\bsemana\s+atual\b/u.test(normalized)) {
+    );
+  if (!request) return null;
+  const period = request[1]!;
+  if (/^(?:(?:no|do) )?mes passado$/u.test(period)) return 'last_month';
+  if (/^(?:hoje|de hoje|do dia)$/u.test(period)) return 'today';
+  if (/^(?:(?:esta|essa|nesta|nessa) semana|(?:na )?semana atual)$/u.test(period))
     return 'this_week';
-  }
-  if (/\b(?:este|esse|neste|nesse)\s+mes\b|\bmes\s+atual\b|\bdo\s+mes\b/u.test(normalized)) {
+  if (/^(?:(?:este|esse|neste|nesse) mes|(?:no )?mes atual|do mes)$/u.test(period))
     return 'this_month';
-  }
-  if (/\b(?:este|esse|neste|nesse)\s+ano\b|\bano\s+atual\b/u.test(normalized)) {
-    return 'this_year';
-  }
-  if (/\b(?:desde\s+sempre|todo\s+o\s+periodo|no\s+total)\b/u.test(normalized)) {
-    return 'all_time';
-  }
+  if (/^(?:(?:este|esse|neste|nesse) ano|(?:no )?ano atual)$/u.test(period)) return 'this_year';
+  if (/^(?:desde sempre|(?:em )?todo o periodo|no total)$/u.test(period)) return 'all_time';
   return null;
 }
 
@@ -333,6 +333,8 @@ export async function processViaBus(
   }
   const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
   if (accessReply) return accessReply;
+  const todaysReminders = await tryListTodaysReminders(message, channelUser.ownpilotUserId);
+  if (todaysReminders) return todaysReminders;
   const timezoneReply = message.attachments?.length
     ? null
     : await tryCustomerTimezoneChannelReply(message, channelUser.ownpilotUserId);
@@ -628,6 +630,8 @@ export async function processDirectAgent(
   }
   const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
   if (accessReply) return accessReply;
+  const todaysReminders = await tryListTodaysReminders(message, userId);
+  if (todaysReminders) return todaysReminders;
   const timezoneReply = message.attachments?.length
     ? null
     : await tryCustomerTimezoneChannelReply(message, userId);

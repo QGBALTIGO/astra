@@ -147,6 +147,19 @@ describe.each(['bus', 'direct'] as const)(
     });
 
     it.each([
+      'Quanto gastei no mercado esse mês?',
+      'Quanto gastei hoje? E registre 30 reais no almoço.',
+    ])('passes the complete qualified expense request to the normal route: %s', async (text) => {
+      expect(await route(incoming({ text }))).toBe('Provider response');
+      expect(mocks.expenseTool).not.toHaveBeenCalled();
+      if (path === 'bus') {
+        expect(bus.process.mock.calls[0]?.[0]).toMatchObject({ content: text });
+      } else {
+        expect(agent.chat.mock.calls[0]?.[0]).toBe(text);
+      }
+    });
+
+    it.each([
       incoming({ text: 'Astra, onde acesso o dashboard da Vercel?' }),
       incoming({ text: 'Crie um dashboard das minhas despesas' }),
       incoming({

@@ -10,6 +10,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { once } from 'node:events';
 import { createGzip } from 'node:zlib';
+import { pathToFileURL } from 'node:url';
 import {
   LAB_VERSION,
   DEFAULT_SEED,
@@ -398,7 +399,7 @@ export async function runSynthetic(argv = process.argv.slice(2)) {
   if (failedSynthetic !== 0) process.exitCode = 1;
   return report;
 }
-if (process.argv[1] && new URL(import.meta.url).pathname === resolve(process.argv[1])) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runSynthetic().catch((err) => {
     console.error('ASTRA_LAB_FAILED: ' + err.message);
     process.exitCode = 1;
