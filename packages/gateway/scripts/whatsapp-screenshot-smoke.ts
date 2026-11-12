@@ -43,6 +43,7 @@ const { initializeAdapter, closeAdapter } = await import('../src/db/adapters/ind
 const { channelUsersRepo } = await import('../src/db/repositories/channels/users.js');
 const { customerAccountsRepo } = await import('../src/db/repositories/customer-accounts.js');
 const { CustomerFinanceRepository } = await import('../src/db/repositories/customer-finance.js');
+const { FinanceObligationsRepository } = await import('../src/db/repositories/finance-obligations.js');
 const { channelRemindersRepo } = await import('../src/db/repositories/channel-reminders.js');
 const { dailyGreetingsRepo } = await import('../src/db/repositories/daily-greetings.js');
 const { dispatchDueDailyGreetings } = await import('../src/services/daily-greeting-worker.js');
@@ -264,15 +265,22 @@ try {
     reminders: number;
     greetings: number;
     transactions: number;
+    financing: number;
+    payments: number;
   }>(`SELECT
     (SELECT COUNT(*)::integer FROM channel_users) AS recipients,
     (SELECT COUNT(*)::integer FROM customer_accounts) AS accounts,
     (SELECT COUNT(*)::integer FROM channel_reminders) AS reminders,
     (SELECT COUNT(*)::integer FROM channel_daily_greetings) AS greetings,
-    (SELECT COUNT(*)::integer FROM expenses) AS transactions`);
+    (SELECT COUNT(*)::integer FROM expenses) AS transactions,
+    (SELECT COUNT(*)::integer FROM finance_obligations) AS financing,
+    (SELECT COUNT(*)::integer FROM finance_obligation_payments) AS payments`);
   assert.deepEqual(
     existing,
-    { recipients: 0, accounts: 0, reminders: 0, greetings: 0, transactions: 0 },
+    {
+      recipients: 0, accounts: 0, reminders: 0, greetings: 0,
+      transactions: 0, financing: 0, payments: 0,
+    },
     'Refusing to seed or dispatch in a database containing existing customer data'
   );
   await assert.rejects(
@@ -370,6 +378,141 @@ try {
       );
     });
   }
+
+  // Real PostgreSQL integration for the 72k car/930 opening-balance narrative.
+  // The engine routes each synthetic turn through the same channel entry points
+  // as production, but uses a disposable test-only database and NO model/WhatsApp.
+  const firstCar = new FinanceObligationsRepository(first.userId);
+  const secondCar = new FinanceObligationsRepository(second.userId);
+  async function financingRows(customer: Customer) {
+    const payments = await adapter.queryOne<{ total: number; cents: string }>(
+      `SELECT COUNT(*)::integer AS total,
+         COALESCE(SUM(amount_cents), 0)::text AS cents
+       FROM finance_obligation_payments
+       WHERE user_id = $1`,
+      [customer.userId]
+    );
+    const expenses = await adapter.queryOne<{ total: number; amount: string }>(
+      `SELECT COUNT(*)::integer AS total,
+         COALESCE(SUM(amount), 0)::text AS amount
+       FROM expenses WHERE user_id = $1 AND source = 'financing'`,
+      [customer.userId]
+    );
+    assert.ok(payments && expenses);
+    return { payments, expenses };
+  }
+
+  await check('financing narrative saves independent balances, not an opening expense', async () => {
+    const [firstBefore, secondBefore] = await Promise.all([
+      first.finance.listTransactions(),
+      second.finance.listTransactions(),
+    ]);
+    const firstMessage = incoming(
+      first, 'O valor do carro é 72 mil, já foi pago 930, acompanha mensalmente',
+      'financing-create-first'
+    );
+    const secondMessage = incoming(
+      second, 'O valor do carro é 45 mil, já foi pago 1100, acompanha mensalmente',
+      'financing-create-second'
+    );
+    const [a, b] = await Promise.all([
+      invoke('bus', first, firstMessage),
+      invoke('direct', second, secondMessage),
+    ]);
+    assert.match(a, /Financiamento registrado/);
+    assert.match(a, /Falta pagar/);
+    assert.match(b, /Financiamento registrado/);
+    const firstSaved = await firstCar.find('carro');
+    const secondSaved = await secondCar.find('carro');
+    assert.ok(firstSaved && secondSaved);
+    assert.notEqual(firstSaved.id, secondSaved.id);
+    assert.equal(firstSaved.principalCents, 7_200_000);
+    assert.equal(firstSaved.paidCents, 93_000);
+    assert.equal(firstSaved.remainingCents, 7_107_000);
+    assert.equal(secondSaved.principalCents, 4_500_000);
+    assert.equal(secondSaved.paidCents, 110_000);
+    assert.equal(secondSaved.remainingCents, 4_390_000);
+    assert.equal((await first.finance.listTransactions()).total, firstBefore.total);
+    assert.equal((await second.finance.listTransactions()).total, secondBefore.total);
+    assert.deepEqual(await financingRows(first), {
+      payments: { total: 0, cents: '0' },
+      expenses: { total: 0, amount: '0' },
+    });
+    assert.deepEqual(await financingRows(second), {
+      payments: { total: 0, cents: '0' },
+      expenses: { total: 0, amount: '0' },
+    });
+    const repeated = await invoke('bus', first, firstMessage);
+    assert.match(repeated, /Financiamento já registrado/);
+    assert.equal((await firstCar.find('carro'))?.paidCents, 93_000);
+  });
+
+  await check('a financing query sees only the authenticated account balance', async () => {
+    const a = await invoke('direct', first, incoming(
+      first, 'Quanto falta pagar do carro?', 'finance-query-first'
+    ));
+    const b = await invoke('bus', second, incoming(
+      second, 'Quanto falta pagar do carro?', 'finance-query-second'
+    ));
+    assert.match(a, /71\\.070,00/);
+    assert.match(b, /43\\.900,00/);
+    assert.doesNotMatch(a, /43\\.900,00/);
+    assert.doesNotMatch(b, /71\\.070,00/);
+    const missing = await invoke('bus', first, incoming(
+      first, 'Quanto falta pagar do caminhão?', 'finance-query-missing'
+    ));
+    assert.match(missing, /Não encontrei financiamento/);
+  });
+
+  await check('finance payment commits exactly once under concurrent replay and restart', async () => {
+    const payment = incoming(first, 'Paguei mais R$ 470 do carro', 'financing-payment-one');
+    const replies = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        invoke(index % 2 === 0 ? 'bus' : 'direct', first, payment)
+      )
+    );
+    for (const response of replies) {
+      assert.match(response, /Pagamento (?:já )?registrado/);
+      assert.doesNotMatch(response, /Não consegui|Nenhum novo pagamento foi confirmado/);
+    }
+    const reloaded = await new FinanceObligationsRepository(first.userId).find('carro');
+    assert.ok(reloaded);
+    assert.equal(reloaded.paidCents, 140_000);
+    assert.equal(reloaded.remainingCents, 7_060_000);
+    const persisted = await financingRows(first);
+    assert.equal(persisted.payments.total, 1);
+    assert.equal(Number(persisted.payments.cents), 47_000);
+    assert.equal(persisted.expenses.total, 1);
+    assert.equal(Number(persisted.expenses.amount), 470);
+    assert.equal((await financingRows(second)).payments.total, 0);
+
+    const replay = await invoke('bus', first, payment);
+    assert.match(replay, /Pagamento já registrado/);
+    assert.equal((await financingRows(first)).payments.total, 1);
+  });
+
+  await check('financing rejects overpayment without modifying the ledger', async () => {
+    const before = await financingRows(first);
+    const response = await invoke('direct', first, incoming(
+      first, 'Paguei 71000 do carro', 'financing-exceeds-balance'
+    ));
+    assert.match(response, /Nenhum valor foi alterado/);
+    assert.deepEqual(await financingRows(first), before);
+    assert.equal((await firstCar.find('carro'))?.remainingCents, 7_060_000);
+
+    // A new customer can use the same provider event ID: source keys are scoped.
+    const sameIdAnotherOwner = await invoke('direct', second, incoming(
+      second, 'Paguei 200 reais do carro', 'financing-payment-one'
+    ));
+    assert.match(sameIdAnotherOwner, /Pagamento registrado/);
+    assert.equal((await secondCar.find('carro'))?.remainingCents, 4_370_000);
+    const secondState = await financingRows(second);
+    assert.equal(secondState.payments.total, 1);
+    assert.equal(Number(secondState.payments.cents), 20_000);
+    assert.equal(secondState.expenses.total, 1);
+    assert.equal(Number(secondState.expenses.amount), 200);
+    assert.equal((await financingRows(first)).payments.total, 1);
+  });
 
   await check(
     'inactive access rejects financial writes and reminder scheduling in both channel entries',
