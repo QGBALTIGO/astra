@@ -90,6 +90,8 @@ describe('ChannelAccessNotificationWorker', () => {
     beginSend: vi.fn<ChannelAccessNotificationsRepository['beginSend']>(),
     deferBeforeSend: vi.fn<ChannelAccessNotificationsRepository['deferBeforeSend']>(),
     finish: vi.fn<ChannelAccessNotificationsRepository['finish']>(),
+    markCaktoWelcomeDelivered:
+      vi.fn<ChannelAccessNotificationsRepository['markCaktoWelcomeDelivered']>(),
   };
   const api = {
     connect: vi.fn<ChannelPluginAPI['connect']>(),
@@ -118,6 +120,7 @@ describe('ChannelAccessNotificationWorker', () => {
     notifications.beginSend.mockResolvedValue(true);
     notifications.deferBeforeSend.mockResolvedValue(undefined);
     notifications.finish.mockResolvedValue(undefined);
+    notifications.markCaktoWelcomeDelivered.mockResolvedValue(true);
     api.getPlatform.mockReturnValue('whatsapp');
     api.getStatus.mockReturnValue('connected');
     api.getBotInfo.mockReturnValue({ username: botPhone });
@@ -193,6 +196,42 @@ describe('ChannelAccessNotificationWorker', () => {
     expect(channels.send).toHaveBeenCalledOnce();
   });
 
+  it.each(['approved', 'renewed'] as const)(
+    'sends a verified Cakto %s notice before any inbound WhatsApp message',
+    async (kind) => {
+      user.accessSource = 'cakto';
+      user.metadata = { hasInteracted: false, caktoManaged: true };
+      entry.kind = kind;
+      const result = await worker.dispatch();
+      expect(result.delivered).toBe(1);
+      expect(result.cancelled).toBe(0);
+      expect(channels.send).toHaveBeenCalledExactlyOnceWith('channel.whatsapp', {
+        platformChatId: user.platformUserId,
+        text: 'Aviso sintético de acesso.',
+        urlButton: { label: 'Conhecer o Astra', url: settings.siteUrl },
+      });
+      expect(notifications.markCaktoWelcomeDelivered).toHaveBeenCalledOnce();
+      expect(notifications.markCaktoWelcomeDelivered).toHaveBeenCalledWith(entry.id, user.id);
+    }
+  );
+
+  it('keeps the paid notice single-send when post-send metadata persistence fails', async () => {
+    user.accessSource = 'cakto';
+    user.metadata = { hasInteracted: false, caktoManaged: true };
+    notifications.markCaktoWelcomeDelivered.mockRejectedValueOnce(new Error('db offline'));
+    expect((await worker.dispatch()).delivered).toBe(1);
+    await worker.dispatch();
+    expect(channels.send).toHaveBeenCalledOnce();
+    expect(notifications.deferBeforeSend).not.toHaveBeenCalled();
+  });
+
+  it('does not proactively notify a Cakto-labeled customer without a verified payment marker', async () => {
+    user.accessSource = 'cakto';
+    user.metadata = { hasInteracted: false };
+    expect((await worker.dispatch()).cancelled).toBe(1);
+    expect(channels.send).not.toHaveBeenCalled();
+    expect(notifications.markCaktoWelcomeDelivered).not.toHaveBeenCalled();
+  });
   it.each([
     { offset: -1, sends: false },
     { offset: 0, sends: false },
