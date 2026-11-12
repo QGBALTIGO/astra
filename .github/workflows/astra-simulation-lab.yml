@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 22
       - name: Test narratives, stateful finances, privacy and virtual time
-        run: node --test scripts/astra-simulation-lab/core.test.mjs scripts/astra-simulation-lab/world-oracle.test.mjs
+        run: node --test scripts/astra-simulation-lab/core.test.mjs scripts/astra-simulation-lab/world-oracle.test.mjs scripts/astra-simulation-lab/virtual-clock.test.mjs
       - name: Generate 100k corpus and HTML evidence dashboard
         run: >-
           node scripts/astra-simulation-lab/run.mjs

@@ -177,21 +177,30 @@ export function personaAt(index, seed = DEFAULT_SEED) {
   };
 }
 
-/** A full-cycle permutation ensures exactly the configured 100k category counts. */
+/**
+ * Allocate one coherent narrative domain to all ten turns of a character.
+ * A full-cycle permutation of 10k story IDs preserves exactly the original
+ * quotas (each category's scenario count is a multiple of ten).
+ * Individual turns must NEVER randomly jump between unrelated story arcs.
+ */
 export function categoryFor(index) {
   if (!Number.isSafeInteger(index) || index < 0 || index >= SCENARIO_COUNT)
     throw new RangeError('Invalid scenario index');
-  const slot = (index * 7919 + 12347) % SCENARIO_COUNT;
+  const storyIndex = Math.floor(index / 10);
+  const slot = (storyIndex * 7919 + 2347) % PERSONA_COUNT;
   let sum = 0;
   for (const category of CATEGORIES) {
-    sum += category.count;
+    sum += category.count / 10;
     if (slot < sum) return category.key;
   }
   throw new Error('Category permutation error');
 }
 function cleanStyle(raw, style) {
   if (style === 'caixa_alta') return raw.toLocaleUpperCase('pt-BR');
-  if (style === 'sem_pontuacao') return raw.replace(/[!?.,]/gu, '');
+  if (style === 'sem_pontuacao')
+    // Never strip the thousands/cent separators from currency amounts:
+    // R$ 930,50 -> R$ 93050 would change a user's financial intent.
+    return raw.replace(/[!?]/gu, '').replace(/(?<!\d)[.,]|[.,](?!\d)/gu, '');
   if (style === 'informal') return 'mano, ' + raw.replace(/Você/gu, 'vc');
   if (style === 'abreviado')
     return raw
@@ -377,7 +386,25 @@ function phrase(category, persona, step, variant) {
     ],
   };
   const options = base[category][0];
-  return options[(step + variant) % options.length];
+  // An episode progresses chronologically through its ten stages. Changing
+  // numeric values or language style must not reorder cause and consequence.
+  return options[step];
+}
+/**
+ * Expected amounts belong to labeled test data, never inferred from an LLM.
+ * This is the independent synthetic ledger oracle's reference value.
+ */
+export function scenarioReferenceCents(category, step, variant) {
+  if (category === 'finance') {
+    if (step === 0) return 100 + variant * 75;
+    if (step === 1) return 2000 + variant * 330;
+    if (step === 2) return 47000;
+    if (step === 5) return 120000 + variant * 500;
+  }
+  if (category === 'goals' && step === 3) return 30000 + variant * 50;
+  if (category === 'memory' && step === 3) return 13000;
+  if (category === 'failure' && (step === 3 || step === 7)) return 100;
+  return null;
 }
 export function scenarioAt(index, seed = DEFAULT_SEED) {
   if (!Number.isSafeInteger(index) || index < 0 || index >= SCENARIO_COUNT)
@@ -416,7 +443,7 @@ export function scenarioAt(index, seed = DEFAULT_SEED) {
     step,
     personaId: persona.id,
     category,
-    semanticFamily: category + ':' + ((step + variant) % 10),
+    semanticFamily: category + ':' + step,
     style: persona.style,
     virtualAt: virtualTime.toISOString(),
     timeZone: persona.timeZone,
@@ -440,6 +467,7 @@ export function scenarioAt(index, seed = DEFAULT_SEED) {
       ),
       stableCarPriceCents: persona.carCostCents,
       stableCarPaidCents: persona.carPaidCents,
+      expectedActionAmountCents: scenarioReferenceCents(category, step, variant),
       petName: persona.pet,
       goalName: persona.goalName,
     },

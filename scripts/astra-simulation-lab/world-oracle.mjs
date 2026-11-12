@@ -3,7 +3,8 @@
  * This is NOT Astra's tool executor. It never opens sockets, files or databases.
  * Actions are derived from labeled scenario fixtures, not from NLP inference.
  */
-import { hash32 } from './core.mjs';
+// No API, model, database, filesystem or WhatsApp dependency.
+import { nextVirtualWeekdayAt, virtualLocalDayAt } from './virtual-clock.mjs';
 
 const DAY = 86_400_000;
 function assertSyntheticId(id) {
@@ -68,7 +69,9 @@ export class SyntheticWorldOracle {
           item.cancelled = true;
           break;
         }
-        item.nextAt += item.recurringMs;
+        item.nextAt = item.weeklyLocal
+          ? nextVirtualWeekdayAt(new Date(item.nextAt + 1000), item.timeZone, 5, 6).getTime()
+          : item.nextAt + item.recurringMs;
       }
       if (delivered === 64 && item.nextAt <= now) throw new Error('Virtual recurrence runaway');
     }
@@ -101,27 +104,34 @@ export class SyntheticWorldOracle {
     if (!Number.isFinite(timestamp) || timestamp <= this.lastTimestamp)
       throw new Error('Non-monotonic virtual clock');
     this.dispatch(timestamp);
-    const op = Number(scenario.semanticFamily.split(':').at(-1));
+    // Never credit a random amount or action unrelated to the actual fixture.
+    // A mislabeled event is a FAILED oracle, not a successful Astra test.
+    const op = scenario.step;
     const actionId = scenario.id;
+    if (scenario.semanticFamily !== scenario.category + ':' + op)
+      throw new Error('P1 synthetic narrative/action mismatch');
+    const referenceCents = scenario.context.expectedActionAmountCents;
+    if (referenceCents !== null && (!Number.isSafeInteger(referenceCents) || referenceCents <= 0))
+      throw new Error('P1 synthetic invalid reference amount');
     const before = this.transactions.size;
     let decision = 'read';
     const caseId = scenario.category;
     if (caseId === 'finance') {
       if (op === 0) {
-        this.write(actionId, 'expense', 100 + (hash32(actionId) % 4000));
+        this.write(actionId, 'expense', referenceCents);
         decision = 'write_expense';
       } else if (op === 1) {
-        this.write(actionId, 'income', 1500 + (hash32(actionId) % 70000));
+        this.write(actionId, 'income', referenceCents);
         decision = 'write_income';
       } else if (op === 2) {
         // Price difference is not contractual debt after interest.
         this.loan.alreadyPaidCents = Math.min(
           this.loan.originalCents,
-          this.loan.alreadyPaidCents + 47000
+          this.loan.alreadyPaidCents + referenceCents
         );
         decision = 'update_paid_history';
       } else if (op === 5) {
-        this.write(actionId, 'expense', 120000 + (hash32(actionId) % 30000));
+        this.write(actionId, 'expense', referenceCents);
         decision = 'write_expense';
       } else if ([3, 6, 7, 8].includes(op)) {
         decision = 'request_clarification';
@@ -133,7 +143,7 @@ export class SyntheticWorldOracle {
         this.stats.goalUpdates++;
         decision = 'track_goal';
       } else if (op === 3) {
-        this.goal.currentCents += 30000;
+        this.goal.currentCents += referenceCents;
         this.stats.goalUpdates++;
         decision = 'contribute';
       } else if (op === 4) {
@@ -153,13 +163,20 @@ export class SyntheticWorldOracle {
         this.stats.clarificationTurns++;
       }
     } else if (caseId === 'schedule') {
-      if ([0, 2, 4, 5].includes(op)) {
-        const recurringMs = op === 4 ? DAY : op === 5 ? 14 * DAY : 0;
-        const dueMs = op === 2 ? 20_000 : DAY;
+      if ([0, 2, 4].includes(op)) {
+        const weeklyLocal = op === 4;
+        const recurringMs = weeklyLocal ? 7 * DAY : 0;
+        const dueAt =
+          op === 0
+            ? virtualLocalDayAt(new Date(timestamp), scenario.timeZone, 1, 18)
+            : op === 2
+              ? new Date(timestamp + 20_000)
+              : nextVirtualWeekdayAt(new Date(timestamp), scenario.timeZone, 5, 6);
         this.reminders.set(actionId, {
           id: actionId,
-          nextAt: timestamp + dueMs,
+          nextAt: dueAt.getTime(),
           recurringMs,
+          weeklyLocal,
           cancelled: false,
           timeZone: scenario.timeZone,
         });
@@ -167,7 +184,7 @@ export class SyntheticWorldOracle {
       } else if (op === 9) {
         for (const r of this.reminders.values()) if (r.recurringMs === DAY) r.cancelled = true;
         decision = 'cancel_recurring';
-      } else if ([1, 3, 8].includes(op)) {
+      } else if ([1, 3, 5, 8].includes(op)) {
         decision = 'request_clarification';
         this.stats.clarificationTurns++;
       }
@@ -179,7 +196,7 @@ export class SyntheticWorldOracle {
         this.memories.delete('petName');
         decision = 'forget_memory';
       } else if (op === 3) {
-        this.write(actionId, 'expense', 13000);
+        this.write(actionId, 'expense', referenceCents);
         decision = 'write_expense';
       }
     } else if (caseId === 'security') {
@@ -190,8 +207,8 @@ export class SyntheticWorldOracle {
     } else if (caseId === 'failure') {
       if (op === 3 || op === 7) {
         const writeId = 'SIM-E-RETRY-' + actionId;
-        this.write(writeId, 'expense', 100);
-        this.write(writeId, 'expense', 100);
+        this.write(writeId, 'expense', referenceCents);
+        this.write(writeId, 'expense', referenceCents);
         decision = 'post_commit_retry_deduplicated';
       } else {
         decision = 'inject_fault_fixture_only';
@@ -217,6 +234,11 @@ export class SyntheticWorldOracle {
       throw new Error('P1 synthetic financial invariant');
     for (const x of this.transactions.values())
       if (x.userId !== this.userId) throw new Error('P0 synthetic cross-user ledger');
+    const saved = this.transactions.get(this.userId + '\0' + actionId);
+    if (saved && saved.amountCents !== referenceCents)
+      throw new Error('P1 synthetic recorded amount does not match scenario');
+    if (decision === 'contribute' && !Number.isSafeInteger(referenceCents))
+      throw new Error('P1 synthetic goal contribution amount is invalid');
     if (decision === 'read' || decision === 'no_action' || decision === 'deny_cross_user')
       this.stats.readOnlyTurns++;
     this.nextStep++;
