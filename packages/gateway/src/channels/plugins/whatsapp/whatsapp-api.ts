@@ -43,6 +43,7 @@ import { getErrorMessage } from '../../../utils/common.js';
 import { MAX_MESSAGE_CHAT_MAP_SIZE } from '../../../config/defaults.js';
 import { splitMessage } from '../../utils/message-utils.js';
 import { renderUrlButtonAsText } from '../../utils/url-button.js';
+import { buildWhatsAppUrlCtaPayload } from './whatsapp-url-cta.js';
 import { getSessionDir, clearSession } from './session-store.js';
 import { buildWhatsAppCopyCodePayload } from './whatsapp-copy-code.js';
 import { fetchWhatsAppProfilePicture } from './whatsapp-profile-picture.js';
@@ -646,9 +647,16 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     if (message.copyCode && (message.urlButton || message.attachments?.length)) {
       throw new Error('WhatsApp copy-code messages cannot contain other actions or attachments');
     }
+    if (message.urlButton && message.attachments?.length) {
+      throw new Error('WhatsApp URL CTA cannot contain attachments');
+    }
     const copyPayload = message.copyCode
       ? buildWhatsAppCopyCodePayload(message.text, message.copyCode)
       : undefined;
+    const urlPayload = message.urlButton
+      ? buildWhatsAppUrlCtaPayload(message.text, message.urlButton)
+      : undefined;
+    const interactivePayload = copyPayload ?? urlPayload;
     // Replies already being prepared may outlive a temporary transport outage.
     // Wait only before sending, for the same authenticated account, and never
     // retry sendMessage itself: a failed send may already have been delivered.
@@ -663,13 +671,19 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
 
     const jid = this.toJid(message.platformChatId);
-    if (copyPayload && !/^\d{7,15}@s\.whatsapp\.net$/.test(jid)) {
-      throw new Error('WhatsApp copy-code messages require an individual phone number');
+    if (interactivePayload && !/^\d{7,15}@s\.whatsapp\.net$/.test(jid)) {
+      throw new Error(
+        copyPayload
+          ? 'WhatsApp copy-code messages require an individual phone number'
+          : 'WhatsApp URL CTA messages require an individual phone number'
+      );
     }
     const isSelf = this.isSelfChat(jid);
-    // URL actions retain their text-link path. Copy-code messages use the
-    // native-flow relay below; neither path retries a possibly delivered CTA.
-    const parts = splitMessage(renderUrlButtonAsText(message), WHATSAPP_MAX_LENGTH);
+    // URL and copy actions use one native-flow message. Never append an exposed
+    // link, retry with plain text, or split an interactive button into two sends.
+    const parts = interactivePayload
+      ? [urlPayload?.body ?? message.text]
+      : splitMessage(renderUrlButtonAsText(message), WHATSAPP_MAX_LENGTH);
     let lastMessageId = '';
 
     for (let i = 0; i < parts.length; i++) {
@@ -703,36 +717,31 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       }
       assertSendDeadline(message.sendBefore);
 
-      if (copyPayload) {
+      if (interactivePayload) {
         const userJid = sock.user?.id;
         if (!userJid) throw new Error('WhatsApp account unavailable before sending');
-        const generated = generateWAMessageFromContent(jid, copyPayload.content, {
+        const generated = generateWAMessageFromContent(jid, interactivePayload.content, {
           ...options,
           userJid,
           messageId: generateMessageIDV2(userJid),
         });
         const messageId = generated.key.id;
         if (!messageId || !generated.message) {
-          throw new Error('WhatsApp copy-code message could not be prepared');
+          throw new Error('WhatsApp interactive CTA could not be prepared');
         }
         // Remember before relay: a self-chat echo may arrive before its receipt.
-        // Cache the exact protocol for same-ID decryption retries, never resend
-        // a possibly delivered OTP as a new text message after a relay failure.
+        // Cache the exact protocol for same-ID decryption retries. Never resend
+        // a possibly delivered native CTA as plain text after a relay failure.
         this.rememberSentMessage(messageId);
         this.cacheMessage(messageId, generated.message);
         assertSendDeadline(message.sendBefore);
         await sock.relayMessage(jid, generated.message, {
-          ...copyPayload.relayOptions,
+          ...interactivePayload.relayOptions,
           messageId,
         });
         lastMessageId = messageId;
       } else {
-        const result = await sock.sendMessage(
-          jid,
-          // CTA URLs are already usable as links; avoid an unnecessary preview fetch.
-          message.urlButton ? { text: parts[i]!, linkPreview: null } : { text: parts[i]! },
-          options
-        );
+        const result = await sock.sendMessage(jid, { text: parts[i]! }, options);
         lastMessageId = result?.key?.id ?? '';
       }
 

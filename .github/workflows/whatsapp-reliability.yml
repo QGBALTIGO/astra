@@ -50,6 +50,10 @@ jobs:
           src/channels/channel-ai-routing-quick.test.ts
           src/channels/tool-selection.test.ts
           src/channels/plugins/whatsapp/index.test.ts
+          src/channels/plugins/whatsapp/whatsapp-api.test.ts
+          src/channels/plugins/whatsapp/whatsapp-url-cta.test.ts
+          src/channels/plugins/whatsapp/whatsapp-copy-code.test.ts
+          src/channels/utils/url-button.test.ts
           src/channels/plugins/whatsapp/whatsapp-lifecycle.test.ts
           src/channels/plugins/whatsapp/libsignal-logging.test.ts
           src/services/channel-reminder-worker.test.ts
