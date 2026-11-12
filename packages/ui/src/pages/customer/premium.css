@@ -53,6 +53,8 @@ html .astra-customer .ac-button {
 }
 html .astra-customer .ac-sidebar {
   padding: 28px 18px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 html .astra-customer .ac-navigation a {
   border-radius: 9px;

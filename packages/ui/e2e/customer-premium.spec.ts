@@ -123,6 +123,7 @@ for (const theme of ['light', 'dark'] as const) {
       const nav = page.getByRole('navigation', { name: 'Navegação do cliente' });
       for (const name of ['Transações', 'Categorias', 'Agenda', 'Início']) {
         await nav.getByRole('link', { name, exact: true }).click();
+        await expect(nav.getByRole('link', { name, exact: true })).toBeInViewport({ ratio: 1 });
         await expect(active.getByRole('heading', { level: 1 })).toBeVisible();
         await geometry(page);
         await image(page, info, `${prefix}-${name}`, false);
