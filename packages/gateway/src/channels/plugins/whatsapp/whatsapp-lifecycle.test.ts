@@ -701,11 +701,13 @@ describe('WhatsApp connection lifecycle', () => {
     sockets[0]!.emit('connection.update', { connection: 'open' });
     const socket = sockets[0]!.socket;
     const body = 'Olá! Conheça o Astra. 💙';
-    await expect(api.sendMessage({
-      platformChatId: nextPhone,
-      text: body,
-      urlButton: { label: 'Conhecer o Astra', url: 'https://astra.example/' },
-    })).resolves.toBe('native-copy-id');
+    await expect(
+      api.sendMessage({
+        platformChatId: nextPhone,
+        text: body,
+        urlButton: { label: 'Conhecer o Astra', url: 'https://astra.example/' },
+      })
+    ).resolves.toBe('native-copy-id');
     expect(socket.sendMessage).not.toHaveBeenCalled();
     expect(socket.relayMessage).toHaveBeenCalledOnce();
     const [jid, content, options] = socket.relayMessage.mock.calls[0]!;

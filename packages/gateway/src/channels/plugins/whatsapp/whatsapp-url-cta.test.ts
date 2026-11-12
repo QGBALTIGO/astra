@@ -30,27 +30,31 @@ describe('Native WhatsApp CTA URL with pinned Baileys SDK', () => {
     expect(buttons).toHaveLength(1);
     expect(buttons?.[0]?.name).toBe('cta_url');
     expect(JSON.parse(buttons![0]!.buttonParamsJson!)).toEqual({
-      display_text: label, url: URL, merchant_url: URL,
+      display_text: label,
+      url: URL,
+      merchant_url: URL,
     });
     expect(payload.relayOptions.additionalNodes).toEqual([
       {
         tag: 'biz',
         attrs: {},
-        content: [{
-          tag: 'interactive',
-          attrs: { type: 'native_flow', v: '1' },
-          content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }],
-        }],
+        content: [
+          {
+            tag: 'interactive',
+            attrs: { type: 'native_flow', v: '1' },
+            content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }],
+          },
+        ],
       },
     ]);
     expect(JSON.stringify(payload.relayOptions)).not.toContain(URL);
   });
 
   it('removes a duplicate raw CTA URL from the displayed message before encoding', () => {
-    const payload = buildWhatsAppUrlCtaPayload(
-      text + '\n\n' + label + '\n' + URL,
-      { label, url: URL }
-    );
+    const payload = buildWhatsAppUrlCtaPayload(text + '\n\n' + label + '\n' + URL, {
+      label,
+      url: URL,
+    });
     expect(payload.body).toContain('Entrada registrada');
     expect(payload.body).not.toContain(URL);
     expect(JSON.stringify(payload.content.interactiveMessage?.nativeFlowMessage)).toContain(URL);
@@ -64,20 +68,29 @@ describe('Native WhatsApp CTA URL with pinned Baileys SDK', () => {
     'https://example.com/\nsecret',
     'https://example.com/\u202eevil',
   ])('rejects unsafe CTA destinations before sending: %j', (url) => {
-    expect(() => buildWhatsAppUrlCtaPayload(text, { label, url }))
-      .toThrow('Invalid WhatsApp URL CTA');
+    expect(() => buildWhatsAppUrlCtaPayload(text, { label, url })).toThrow(
+      'Invalid WhatsApp URL CTA'
+    );
   });
 
-  it.each(['', ' '.repeat(4), 'More than twenty characters', 'Botão\nmalicioso', '*Acessar*', 'Botão\u202E'])(
-    'rejects invalid labels: %j', (value) => {
-      expect(() => buildWhatsAppUrlCtaPayload(text, { label: value, url: URL }))
-        .toThrow('Invalid WhatsApp URL CTA');
-    }
-  );
+  it.each([
+    '',
+    ' '.repeat(4),
+    'More than twenty characters',
+    'Botão\nmalicioso',
+    '*Acessar*',
+    'Botão\u202E',
+  ])('rejects invalid labels: %j', (value) => {
+    expect(() => buildWhatsAppUrlCtaPayload(text, { label: value, url: URL })).toThrow(
+      'Invalid WhatsApp URL CTA'
+    );
+  });
   it('refuses an empty or oversized body (never silently switches to an exposed link)', () => {
-    expect(() => buildWhatsAppUrlCtaPayload('', { label, url: URL }))
-      .toThrow('Invalid WhatsApp URL CTA body');
-    expect(() => buildWhatsAppUrlCtaPayload('x'.repeat(1025), { label, url: URL }))
-      .toThrow('Invalid WhatsApp URL CTA body');
+    expect(() => buildWhatsAppUrlCtaPayload('', { label, url: URL })).toThrow(
+      'Invalid WhatsApp URL CTA body'
+    );
+    expect(() => buildWhatsAppUrlCtaPayload('x'.repeat(1025), { label, url: URL })).toThrow(
+      'Invalid WhatsApp URL CTA body'
+    );
   });
 });

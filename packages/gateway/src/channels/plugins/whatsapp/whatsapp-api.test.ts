@@ -166,7 +166,6 @@ describe('WhatsAppChannelAPI', () => {
   });
 });
 
-
 describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
   const body = '✅ *Entrada registrada*\n\n• *Valor:* R$ 1,00';
   const url = 'https://astra-gateway-production.up.railway.app/cliente/transacoes';
@@ -214,11 +213,15 @@ describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
     const button = content.interactiveMessage?.nativeFlowMessage?.buttons?.[0];
     expect(button.name).toBe('cta_url');
     expect(JSON.parse(button.buttonParamsJson)).toMatchObject({
-      display_text: 'Acompanhar no painel', url, merchant_url: url,
+      display_text: 'Acompanhar no painel',
+      url,
+      merchant_url: url,
     });
     expect(opts.userJid).toBe(socket.user.id);
     expect(mockRecordOutboundQuality).toHaveBeenCalledWith(
-      'channel.whatsapp', 'native-cta-id', body
+      'channel.whatsapp',
+      'native-cta-id',
+      body
     );
     expect(mockRecordOutboundQuality.mock.calls[0]?.[2]).not.toContain(url);
   });
@@ -226,22 +229,26 @@ describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
   it('never retries an ambiguous native CTA failure as an exposed link', async () => {
     const { api, socket } = prepare();
     socket.relayMessage.mockRejectedValueOnce(new Error('ambiguous socket failure'));
-    await expect(api.sendMessage({
-      platformChatId: '5511999999999',
-      text: body,
-      urlButton: { label: 'Acompanhar no painel', url },
-    })).rejects.toThrow('ambiguous socket failure');
+    await expect(
+      api.sendMessage({
+        platformChatId: '5511999999999',
+        text: body,
+        urlButton: { label: 'Acompanhar no painel', url },
+      })
+    ).rejects.toThrow('ambiguous socket failure');
     expect(socket.relayMessage).toHaveBeenCalledTimes(1);
     expect(socket.sendMessage).not.toHaveBeenCalled();
   });
 
   it('does not downgrade unsafe CTA parameters into ordinary text', async () => {
     const { api, socket } = prepare();
-    await expect(api.sendMessage({
-      platformChatId: '5511999999999',
-      text: body,
-      urlButton: { label: 'Acompanhar no painel', url: 'javascript:alert(1)' },
-    })).rejects.toThrow('Invalid WhatsApp URL CTA');
+    await expect(
+      api.sendMessage({
+        platformChatId: '5511999999999',
+        text: body,
+        urlButton: { label: 'Acompanhar no painel', url: 'javascript:alert(1)' },
+      })
+    ).rejects.toThrow('Invalid WhatsApp URL CTA');
     expect(socket.relayMessage).not.toHaveBeenCalled();
     expect(socket.sendMessage).not.toHaveBeenCalled();
   });
