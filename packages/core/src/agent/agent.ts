@@ -17,7 +17,6 @@ import type {
   StreamChunk,
   ToolDefinition,
   ToolCall,
-  ModelConfig,
 } from './types.js';
 import { type IProvider, createProvider } from './provider.js';
 import { ToolRegistry, registerCoreTools } from './tools.js';
@@ -526,14 +525,7 @@ export class Agent {
    * Stream completion and collect final response
    */
   private async streamCompletion(
-    request: {
-      messages: readonly Message[];
-      model: ModelConfig;
-      tools: readonly ToolDefinition[];
-      toolChoice: 'auto';
-      stream: boolean;
-      thinking?: CompletionRequest['thinking'];
-    },
+    request: CompletionRequest,
     onChunk: (chunk: StreamChunk) => void
   ): Promise<Result<CompletionResponse, InternalError | TimeoutError>> {
     let content = '';
