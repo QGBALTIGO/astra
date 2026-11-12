@@ -379,6 +379,7 @@ describe('beginSend', () => {
       "u.ownpilot_user_id = 'whatsapp:' || u.platform_user_id",
       "u.is_verified = TRUE AND u.is_blocked = FALSE AND u.status = 'active'",
       "u.metadata->'hasInteracted' IS NULL OR u.metadata->'hasInteracted' = 'true'::jsonb",
+      "u.metadata->'astraAccessNotices'->>'firstAuthorized' IS DISTINCT FROM 'true'",
       'u.access_granted_at IS NOT DISTINCT FROM notice.access_granted_at',
       'u.access_expires_at IS NOT DISTINCT FROM notice.access_expires_at',
       'u.access_expires_at IS NULL OR u.access_expires_at > $4::timestamptz',
