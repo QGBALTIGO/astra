@@ -12,6 +12,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { InboundFloodGuard } from './flood-guard.js';
 import { GreetingBurstGuard } from './greeting-burst-guard.js';
 import { dashboardActionForConfirmedReply } from './channel-dashboard-action.js';
+import { maybePersonalizeConfirmedReply } from './confirmed-reply-personality.js';
 import {
   type IChannelService,
   type ChannelOutgoingMessage,
@@ -1167,6 +1168,16 @@ export class ChannelServiceImpl implements IChannelService {
       const dashboardAction = dashboardActionForConfirmedReply(
         responseText, dataUserId, message.platform
       );
+      if (dashboardAction && message.platform === 'whatsapp') {
+        // The verified, structured receipt is immutable. The AI may only add a
+        // short, safe sentence and never delays delivery beyond 1.8 seconds.
+        responseText = await maybePersonalizeConfirmedReply({
+          responseText,
+          channelPluginId: message.channelPluginId,
+          dataUserId,
+          displayName: message.sender.displayName,
+        });
+      }
       let sentMessageId: string;
       if (progress && !replyWithVoice) {
         // Replace progress message with final response
