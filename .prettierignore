@@ -19,3 +19,5 @@ packages/ui/playwright/.auth/
 # Captured before the landing redesign for exact rollback and visual comparison
 landing/rollback/production-before-redesign.ts
 landing/tests/baseline/bundle.json
+# Playwright and performance reports written by the local landing verification
+landing/artifacts/
