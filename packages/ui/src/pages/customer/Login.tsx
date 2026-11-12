@@ -97,11 +97,11 @@ export function CustomerLogin() {
         <section className="ac-login-story">
           <CustomerBrand />
           <span className="ac-eyebrow">SEU ASSISTENTE PESSOAL</span>
-          <h1>
+          <h2 className="ac-login-tagline">
             Sua rotina,
             <br />
             mais <em>leve.</em>
-          </h1>
+          </h2>
           <p>
             Seu dinheiro, seus planos e seus compromissos. Tudo o que você organiza com o Astra, em
             um espaço só seu.
@@ -136,7 +136,7 @@ export function CustomerLogin() {
           <p className="ac-eyebrow ac-login-form-eyebrow">
             <Lock aria-hidden="true" /> SEU ESPAÇO PESSOAL
           </p>
-          <h2>{challenge ? 'Digite seu código de acesso' : 'Entre no seu Astra'}</h2>
+          <h1>{challenge ? 'Digite seu código de acesso' : 'Entre no seu Astra'}</h1>
           <p className="ac-login-subtitle">
             {challenge
               ? `Confira o ${maskedPhone(confirmedPhone).toLowerCase()}.`

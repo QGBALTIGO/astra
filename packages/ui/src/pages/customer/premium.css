@@ -54,7 +54,7 @@ html .astra-customer .ac-button {
 html .astra-customer .ac-sidebar {
   padding: 28px 18px 20px;
 }
-html .astra-customer .ac-nav a {
+html .astra-customer .ac-navigation a {
   border-radius: 9px;
 }
 html .astra-customer .ac-content {
@@ -279,14 +279,14 @@ html .astra-customer .ac-login-story > .ac-brand {
   width: 150px;
   margin-bottom: 52px;
 }
-html .astra-customer .ac-login-story > h1 {
+html .astra-customer .ac-login-story > .ac-login-tagline {
   font-size: clamp(42px, 5vw, 66px);
   font-weight: 500;
   letter-spacing: -2.7px;
   line-height: 1.08;
   margin: 16px 0 24px;
 }
-html .astra-customer .ac-login-story h1 em {
+html .astra-customer .ac-login-story .ac-login-tagline em {
   font-style: normal;
   color: var(--ac-link);
 }
@@ -319,7 +319,7 @@ html .astra-customer .ac-login-form-eyebrow svg {
   height: 14px;
   color: var(--ac-link);
 }
-html .astra-customer .ac-login-card h2 {
+html .astra-customer .ac-login-card h1 {
   font-size: 26px;
   line-height: 1.25;
   letter-spacing: -0.8px;
@@ -494,7 +494,7 @@ html .astra-customer .ac-login-security {
   html .astra-customer .ac-login-mobile-brand .ac-brand {
     width: 132px;
   }
-  html .astra-customer .ac-login-card h2 {
+  html .astra-customer .ac-login-card h1 {
     font-size: 25px;
   }
 }

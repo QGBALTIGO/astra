@@ -106,8 +106,7 @@ export function CustomerInsights({
         ) : null}
       </div>
       <p className="ac-day-disclaimer">
-        Projeção ilustrativa com pendências já cadastradas, sem garantia de recebimento ou
-        pagamento.
+        Estimativa com os valores a receber e a pagar que você já registrou.
       </p>
     </section>
   );

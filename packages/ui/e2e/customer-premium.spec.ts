@@ -41,9 +41,7 @@ async function accessibility(page: Page) {
     const axe = (
       window as unknown as {
         axe: {
-          run: (
-            options: unknown
-          ) => Promise<{
+          run: (options: unknown) => Promise<{
             violations: { id: string; nodes: { target: string[]; failureSummary: string }[] }[];
           }>;
         };
@@ -118,6 +116,10 @@ for (const theme of ['light', 'dark'] as const) {
       await geometry(page);
       await image(page, info, `${prefix}-profile`, reference);
       if (reference) await accessibility(page);
+      await active.getByRole('region', { name: 'Validade do plano' }).screenshot({
+        path: info.outputPath(`${prefix}-plan-expiry.png`),
+        animations: 'disabled',
+      });
       const nav = page.getByRole('navigation', { name: 'Navegação do cliente' });
       for (const name of ['Transações', 'Categorias', 'Agenda', 'Início']) {
         await nav.getByRole('link', { name, exact: true }).click();

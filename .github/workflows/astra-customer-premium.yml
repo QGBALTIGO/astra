@@ -48,4 +48,5 @@ jobs:
             packages/ui/customer-premium-report
             packages/ui/test-results
             packages/ui/e2e/customer-premium-snapshots
+            packages/ui/dist
           retention-days: 14
