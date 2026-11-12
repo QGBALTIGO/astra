@@ -36,6 +36,7 @@ import { formatAstraMessage, formatReminderConfirmation } from './response-prese
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
 import { tryListTodaysReminders } from './today-reminders.js';
+import { expenseConfirmationKey, expenseDuplicateGuard } from './expense-duplicate-guard.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 import { withContactStyleContext } from './channel-personalization.js';
 
@@ -308,6 +309,33 @@ async function canProcessChannelMessage(
   return message.platform !== 'whatsapp';
 }
 
+/** Queue before the first await so both entry points observe consecutive turns in arrival order. */
+function tryAuthorizedChannelShortcut(
+  message: ChannelIncomingMessage,
+  userId: string,
+  isAccessAllowed?: ChannelAccessCheck
+): Promise<string | null> {
+  const key = expenseConfirmationKey(userId, message);
+  return runInSessionLane('channel-finance:' + key, async () => {
+    if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
+      expenseDuplicateGuard.observe(key, '');
+      return INACTIVE_CHANNEL_ACCESS_REPLY;
+    }
+    // Media captions cannot confirm a previous financial operation.
+    const hasMedia = Boolean(message.attachments?.length);
+    expenseDuplicateGuard.observe(key, hasMedia ? '' : message.text);
+    if (hasMedia) return null;
+    return (
+      tryAstraAccessReply(message.text) ??
+      (await tryListTodaysReminders(message, userId)) ??
+      (await tryCustomerTimezoneChannelReply(message, userId)) ??
+      (await tryClockChannelReply(message.text, userId)) ??
+      (await tryFinancingChannelReply(message, userId)) ??
+      (await tryExpenseRecordChannelReply(message, userId))
+    );
+  });
+}
+
 /**
  * Process a channel message through the MessageBus pipeline.
  * Returns the assistant's response text.
@@ -328,39 +356,12 @@ export async function processViaBus(
   },
   progress?: { update(text: string): void }
 ): Promise<string> {
-  if (!(await canProcessChannelMessage(message, deps.isAccessAllowed))) {
-    return INACTIVE_CHANNEL_ACCESS_REPLY;
-  }
-  const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
-  if (accessReply) return accessReply;
-  const todaysReminders = await tryListTodaysReminders(message, channelUser.ownpilotUserId);
-  if (todaysReminders) return todaysReminders;
-  const timezoneReply = message.attachments?.length
-    ? null
-    : await tryCustomerTimezoneChannelReply(message, channelUser.ownpilotUserId);
-  if (timezoneReply) return timezoneReply;
-  const clockReply = message.attachments?.length
-    ? null
-    : await tryClockChannelReply(message.text, channelUser.ownpilotUserId);
-  if (clockReply) return clockReply;
-
-  const financingReply = message.attachments?.length
-    ? null
-    : await tryFinancingChannelReply(message, channelUser.ownpilotUserId);
-  if (financingReply) return financingReply;
-
-  const expenseRecordReply = message.attachments?.length
-    ? null
-    : await runInSessionLane(
-        JSON.stringify([
-          'channel-finance',
-          message.channelPluginId,
-          message.platformChatId,
-          channelUser.ownpilotUserId,
-        ]),
-        () => tryExpenseRecordChannelReply(message, channelUser.ownpilotUserId)
-      );
-  if (expenseRecordReply) return expenseRecordReply;
+  const earlyReply = await tryAuthorizedChannelShortcut(
+    message,
+    channelUser.ownpilotUserId,
+    deps.isAccessAllowed
+  );
+  if (earlyReply) return earlyReply;
 
   const greetingReply = message.attachments?.length
     ? null
@@ -625,39 +626,8 @@ export async function processDirectAgent(
   userId = 'default',
   isAccessAllowed?: ChannelAccessCheck
 ): Promise<string> {
-  if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
-    return INACTIVE_CHANNEL_ACCESS_REPLY;
-  }
-  const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
-  if (accessReply) return accessReply;
-  const todaysReminders = await tryListTodaysReminders(message, userId);
-  if (todaysReminders) return todaysReminders;
-  const timezoneReply = message.attachments?.length
-    ? null
-    : await tryCustomerTimezoneChannelReply(message, userId);
-  if (timezoneReply) return timezoneReply;
-  const clockReply = message.attachments?.length
-    ? null
-    : await tryClockChannelReply(message.text, userId);
-  if (clockReply) return clockReply;
-
-  const financingReply = message.attachments?.length
-    ? null
-    : await tryFinancingChannelReply(message, userId);
-  if (financingReply) return financingReply;
-
-  const expenseRecordReply = message.attachments?.length
-    ? null
-    : await runInSessionLane(
-        JSON.stringify([
-          'channel-finance',
-          message.channelPluginId,
-          message.platformChatId,
-          userId,
-        ]),
-        () => tryExpenseRecordChannelReply(message, userId)
-      );
-  if (expenseRecordReply) return expenseRecordReply;
+  const earlyReply = await tryAuthorizedChannelShortcut(message, userId, isAccessAllowed);
+  if (earlyReply) return earlyReply;
 
   const greetingReply = message.attachments?.length
     ? null

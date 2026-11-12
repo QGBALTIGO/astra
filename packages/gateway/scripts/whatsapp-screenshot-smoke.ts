@@ -915,6 +915,36 @@ try {
     );
   });
 
+  for (const [index, path] of (['bus', 'direct'] as const).entries()) {
+    await check(
+      `${path}: a topic change invalidates the duplicate-expense prompt in arrival order`,
+      async () => {
+        const original = (await first.finance.listTransactions()).total;
+        const text = `Gastei ${81 + index} reais na farmácia`;
+        const turn = (body: string, id: string) =>
+          invoke(path, first, incoming(first, body, `topic-${path}-${id}`));
+        assert.match(await turn(text, 'first'), /Despesa registrada/);
+        const [prompt, topic, stale] = await Promise.all([
+          turn(text, 'second'),
+          turn('Quanto falta pagar do carro?', 'financing'),
+          turn('Outro', 'interrupted'),
+        ]);
+        assert.match(prompt, /mesmo gasto ou outro/);
+        assert.match(topic, /Saldo do financiamento/);
+        assert.match(stale, /confirmação anterior já foi encerrada/);
+        assert.equal((await first.finance.listTransactions()).total, original + 1);
+
+        // A new prompt followed immediately by an explicit confirmation must still work.
+        const [nextPrompt, confirmed] = await Promise.all([
+          turn(text, 'third'),
+          turn('Outro', 'confirmed'),
+        ]);
+        assert.match(nextPrompt, /mesmo gasto ou outro/);
+        assert.match(confirmed, /Despesa registrada/);
+        assert.equal((await first.finance.listTransactions()).total, original + 2);
+      }
+    );
+  }
   assert.equal(llmFallbacks, 0, 'Screenshot requests escaped to an LLM fallback');
   assert.equal(networkCalls, 0, 'Screenshot requests attempted external HTTP');
   console.log(`PASS ${checks} PostgreSQL screenshot scenarios; zero LLM or external HTTP calls`);
