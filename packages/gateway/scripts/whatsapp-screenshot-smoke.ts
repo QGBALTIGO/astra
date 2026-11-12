@@ -454,10 +454,10 @@ try {
     const b = await invoke('bus', second, incoming(
       second, 'Quanto falta pagar do carro?', 'finance-query-second'
     ));
-    assert.match(a, /71\\.070,00/);
-    assert.match(b, /43\\.900,00/);
-    assert.doesNotMatch(a, /43\\.900,00/);
-    assert.doesNotMatch(b, /71\\.070,00/);
+    assert.match(a, /71\.070,00/);
+    assert.match(b, /43\.900,00/);
+    assert.doesNotMatch(a, /43\.900,00/);
+    assert.doesNotMatch(b, /71\.070,00/);
     const missing = await invoke('bus', first, incoming(
       first, 'Quanto falta pagar do caminhão?', 'finance-query-missing'
     ));
