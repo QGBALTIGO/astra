@@ -20,6 +20,7 @@ import { runInSessionLane } from '../services/agent/session-lane.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { withCustomerClock } from '../services/customer-date.js';
 import { tryAstraAccessReply } from './astra-access.js';
+import { tryPersonalSubscriptionReply } from './personal-subscriptions.js';
 import {
   CHANNEL_UNVERIFIED_REPLY,
   safeChannelResponse,
@@ -333,6 +334,12 @@ export async function processViaBus(
   }
   const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
   if (accessReply) return accessReply;
+  const subscriptionReply = await tryPersonalSubscriptionReply(
+    message,
+    channelUser.ownpilotUserId,
+    () => canProcessChannelMessage(message, deps.isAccessAllowed)
+  );
+  if (subscriptionReply) return subscriptionReply;
   const todaysReminders = await tryListTodaysReminders(message, channelUser.ownpilotUserId);
   if (todaysReminders) return todaysReminders;
   const timezoneReply = message.attachments?.length
@@ -630,6 +637,10 @@ export async function processDirectAgent(
   }
   const accessReply = message.attachments?.length ? null : tryAstraAccessReply(message.text);
   if (accessReply) return accessReply;
+  const subscriptionReply = await tryPersonalSubscriptionReply(message, userId, () =>
+    canProcessChannelMessage(message, isAccessAllowed)
+  );
+  if (subscriptionReply) return subscriptionReply;
   const todaysReminders = await tryListTodaysReminders(message, userId);
   if (todaysReminders) return todaysReminders;
   const timezoneReply = message.attachments?.length
