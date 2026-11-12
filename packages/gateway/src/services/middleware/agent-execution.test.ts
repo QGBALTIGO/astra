@@ -529,8 +529,9 @@ describe('createAgentExecutionMiddleware', () => {
 
       const msg = createMessage({ metadata: { source: 'channel', platform: 'telegram' } });
       const result = await middleware(msg, ctx, next);
-      expect(result.response.content).toBe(
-        'Não consegui terminar minha resposta agora. Se você pediu para mudar algum registro, vale conferir o painel antes de repetir.'
+      expect(result.response.content).toContain('confira no painel como ele ficou');
+      expect(result.response.content).not.toMatch(
+        /tente novamente|envie de novo|secret provider error/i
       );
       expect(result.response.content).not.toContain('OpenAI');
       expect(result.response.content).not.toContain('128');
@@ -650,8 +651,9 @@ describe('createAgentExecutionMiddleware', () => {
       const msg = createMessage({ metadata: { source: 'channel', platform: 'telegram' } });
       const result = await middleware(msg, ctx, vi.fn());
 
-      expect(result.response.content).toBe(
-        'Não consegui terminar minha resposta agora. Se você pediu para mudar algum registro, vale conferir o painel antes de repetir.'
+      expect(result.response.content).toContain('confira no painel como ele ficou');
+      expect(result.response.content).not.toMatch(
+        /tente novamente|envie de novo|secret provider error/i
       );
       expect(result.response.metadata.error).toBe('Authorization: secret provider error');
     });
