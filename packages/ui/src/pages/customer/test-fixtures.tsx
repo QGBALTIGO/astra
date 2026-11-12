@@ -117,7 +117,7 @@ export function mockCustomerApi(customer: Customer = structuredClone(customerFix
         message: 'Esta integração ainda não está disponível.',
       },
       whatsapp: { available: true, connected: true, status: 'connected' },
-      siteUrl: 'https://astraacessor.vercel.app',
+      siteUrl: 'https://astraacessor.pro',
       renewalUrl: null,
       supportUrl: null,
     }),

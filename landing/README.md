@@ -27,7 +27,9 @@ The first workflow run generates candidate screenshot references and immediately
 - Railway project: `e2e1a32c-425e-46bc-8b70-25db268f9b78`
 - Production environment: `96a29635-81c6-4eef-aee2-11575514ff2a`
 - Landing service only: `860efe48-d6f6-41ed-bb1b-815dfccbd54c`
-- Public URL: https://astra-landing-production.up.railway.app/
+- Public site: https://astraacessor.pro/
+- Railway origin: https://astra-landing-production.up.railway.app/
+- Customer login: https://app.astraacessor.pro/cliente/entrar
 - Checkout: https://pay.cakto.com.br/CubL455
 
 Read the current Function source and release immediately before an update. Deploy the tested generated Function only to the landing service; poll its deployment until `SUCCESS`, then verify the public HTML, assets, links, security headers and `/health`. The Function includes the new public bundle, avoiding separate variable updates. Keep the existing environment variables, origin checks, rate limits, consent, form idempotency and deletion contract intact.

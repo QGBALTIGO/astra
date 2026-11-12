@@ -1,7 +1,7 @@
 /** Public Astra access facts. Keep this module pure: no settings, DB or provider calls. */
-export const ASTRA_SITE_URL = 'https://astraacessor.vercel.app';
-export const ASTRA_CUSTOMER_LOGIN_URL =
-  'https://astra-gateway-production.up.railway.app/cliente/entrar';
+export const ASTRA_SITE_URL = 'https://astraacessor.pro';
+export const ASTRA_CUSTOMER_ORIGIN = 'https://app.astraacessor.pro';
+export const ASTRA_CUSTOMER_LOGIN_URL = ASTRA_CUSTOMER_ORIGIN + '/cliente/entrar';
 
 export const ASTRA_ACCESS_REPLY = `Acesse seu painel do Astra:
 ${ASTRA_CUSTOMER_LOGIN_URL}

@@ -75,10 +75,8 @@ describe('Astra access intent', () => {
   });
 
   it('provides the deployed customer route and authorized-phone OTP flow', () => {
-    expect(ASTRA_CUSTOMER_LOGIN_URL).toBe(
-      'https://astra-gateway-production.up.railway.app/cliente/entrar'
-    );
-    expect(ASTRA_SITE_URL).toBe('https://astraacessor.vercel.app');
+    expect(ASTRA_CUSTOMER_LOGIN_URL).toBe('https://app.astraacessor.pro/cliente/entrar');
+    expect(ASTRA_SITE_URL).toBe('https://astraacessor.pro');
     expect(ASTRA_ACCESS_REPLY.match(/https:\/\/\S+/g)).toEqual([
       ASTRA_CUSTOMER_LOGIN_URL,
       ASTRA_SITE_URL,

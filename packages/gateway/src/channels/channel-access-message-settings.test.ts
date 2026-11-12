@@ -33,7 +33,7 @@ beforeEach(() => {
 describe('WhatsApp access message settings', () => {
   it('uses the real Astra site and no fabricated renewal link by default', async () => {
     expect(await getWhatsAppAccessMessageSettings()).toEqual({
-      siteUrl: 'https://astraacessor.vercel.app',
+      siteUrl: 'https://astraacessor.pro',
       renewalUrl: null,
       timeZone: 'America/Campo_Grande',
     });
@@ -66,6 +66,21 @@ describe('WhatsApp access message settings', () => {
     expect(await getWhatsAppAccessMessageSettings()).toEqual(defaults);
   });
 
+  it('publishes the new site when a stored setting points to the previous official home', async () => {
+    const legacy = {
+      ...defaults,
+      siteUrl: 'https://astraacessor.vercel.app/',
+      renewalUrl: 'https://custom.example/renew',
+      timeZone: 'America/Cuiaba',
+    };
+    const data = JSON.stringify(legacy);
+    stored.set('channel_access_messages:whatsapp:default', data);
+    expect(await getWhatsAppAccessMessageSettings()).toEqual({
+      ...legacy,
+      siteUrl: 'https://astraacessor.pro',
+    });
+    expect(stored.get('channel_access_messages:whatsapp:default')).toBe(data);
+  });
   it.each([
     'not-json',
     'null',

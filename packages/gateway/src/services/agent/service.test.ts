@@ -1369,10 +1369,8 @@ describe('getOrCreateChatAgent', () => {
     );
 
     const config = mockCreateAgent.mock.calls.at(-1)?.[0] as ChatAgentTestConfig;
-    expect(config.systemPrompt).toContain(
-      'https://astra-gateway-production.up.railway.app/cliente/entrar'
-    );
-    expect(config.systemPrompt).toContain('https://astraacessor.vercel.app');
+    expect(config.systemPrompt).toContain('https://app.astraacessor.pro/cliente/entrar');
+    expect(config.systemPrompt).toContain('https://astraacessor.pro');
     expect(config.systemPrompt).toContain('número de WhatsApp autorizado');
     expect(config.systemPrompt).toContain('código de 6 dígitos');
     expect(config.systemPrompt).toContain('Não ofereça login por e-mail/senha');

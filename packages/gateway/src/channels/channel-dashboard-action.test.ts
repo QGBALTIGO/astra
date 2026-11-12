@@ -5,7 +5,7 @@ describe('Portal links after verified confirmations', () => {
   it('links confirmed financial records and reminders to the relevant customer tab', () => {
     expect(action('✅ *Despesa registrada*\n\n• *Valor:* R$ 1,00', id, 'whatsapp')).toEqual({
       label: 'Acompanhar no painel',
-      url: 'https://astra-gateway-production.up.railway.app/cliente/transacoes',
+      url: 'https://app.astraacessor.pro/cliente/transacoes',
     });
     expect(action('✅ *Lembrete agendado*\n\n• *Assunto:* Consulta', id, 'whatsapp')?.url).toMatch(
       /\/cliente\/agenda$/
@@ -30,8 +30,11 @@ describe('Portal links after verified confirmations', () => {
     expect(action(msg, id, 'whatsapp', 'https://astra.example/private')?.url).toBe(
       'https://astra.example/cliente/transacoes'
     );
+    expect(
+      action(msg, id, 'whatsapp', 'https://astra-gateway-production.up.railway.app')?.url
+    ).toBe('https://app.astraacessor.pro/cliente/transacoes');
     expect(action(msg, id, 'whatsapp', 'https://user:pass@evil.example/?token=1')?.url).toBe(
-      'https://astra-gateway-production.up.railway.app/cliente/transacoes'
+      'https://app.astraacessor.pro/cliente/transacoes'
     );
   });
 });
