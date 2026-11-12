@@ -72,6 +72,9 @@ describe('Consulta financeira direta e read-only pelo canal', () => {
     ['Qual o total dos meus gastos nesta semana?', 'this_week'],
     ['Resumo de despesas do mês passado', 'last_month'],
     ['Quanto gastamos neste ano?', 'this_year'],
+    ['Astra, quanto eu já gastei no mês passado?', 'last_month'],
+    ['Por favor, qual é o total das minhas despesas de hoje?', 'today'],
+    ['Quanto gastei no total?', 'all_time'],
   ])('reconhece o período em %s', (text, period) => {
     expect(expenseSummaryPeriodForChannel(text)).toBe(period);
   });
@@ -79,6 +82,22 @@ describe('Consulta financeira direta e read-only pelo canal', () => {
   it('não intercepta uma frase que não pede um total inequívoco', () => {
     expect(expenseSummaryPeriodForChannel('Anote que gastei 50 reais hoje')).toBeNull();
     expect(expenseSummaryPeriodForChannel('Mostre minhas compras recentes')).toBeNull();
+  });
+
+  it.each([
+    'Quanto gastei no mercado esse mês?',
+    'Quanto gastei esse mês só com transporte?',
+    'Quanto gastei hoje e ontem?',
+    'Quanto gastei esse mês em comparação ao mês passado?',
+    'Quanto gastei hoje? E registre 30 reais no almoço.',
+    'Quanto gastei hoje em dólares?',
+    'Qual o total das despesas da minha empresa neste ano?',
+    'Não quero saber quanto gastei hoje.',
+  ])('preserva filtros e pedidos compostos sem consultar um total diferente: %s', async (text) => {
+    expect(
+      await tryExpenseSummaryChannelReply({ ...message, text }, 'whatsapp:fixture')
+    ).toBeNull();
+    expect(mockExpense).not.toHaveBeenCalled();
   });
 
   it('consulta o resumo mensal no banco e formata em pt-BR', async () => {

@@ -203,7 +203,9 @@ export function CustomerHome({
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
   const hidden = customer.hideAmounts;
   const biggest = summary.data?.categories[0];
-  const nextItems = upcoming.data?.items.filter((item) => !item.completed).slice(0, 4) ?? [];
+  const nextItems = upcoming.error
+    ? undefined
+    : upcoming.data?.items.filter((item) => !item.completed).slice(0, 4);
   return (
     <div className="ac-page ac-command-center">
       <header className="ac-page-heading">
@@ -363,7 +365,7 @@ export function CustomerHome({
       ) : null}
       <CustomerPlanning
         plans={plans.data?.plans ?? []}
-        summary={summary.data}
+        summary={summary.error ? undefined : summary.data}
         categories={categories}
         hidden={hidden}
         canWrite={customer.access.canWrite}
@@ -389,7 +391,7 @@ export function CustomerHome({
             <CustomerError error={upcoming.error} onRetry={upcoming.retry} />
           ) : upcoming.loading && !upcoming.data ? (
             <CustomerSkeleton />
-          ) : nextItems.length ? (
+          ) : nextItems?.length ? (
             <ul className="ac-upcoming">
               {nextItems.map((item) => (
                 <li key={item.kind + ':' + item.id}>

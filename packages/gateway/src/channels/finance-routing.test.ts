@@ -128,6 +128,26 @@ describe('Finance requests without Groq token usage', () => {
   });
 
   it.each([
+    'Não paguei 470 do carro.',
+    'Você sabe se eu paguei 470 do carro?',
+    'Paguei 470 do carro?',
+    'Paguei 470 do carro, quer dizer, foram 370.',
+    'Paguei 470 do carro e não registre nada',
+    'Minha irmã disse: “paguei 470 do carro”.',
+    'Paguei 470 do carro. Não registre ainda.',
+    'Se o valor do carro é 72 mil, já foi pago 930, qual seria o saldo?',
+    'O valor do carro é 72 mil, já foi pago 930, mas isso é só um exemplo.',
+  ])(
+    'handles an unconfirmed financing statement without writing or handing it to a model: %s',
+    async (text) => {
+      const reply = await tryFinancingChannelReply({ ...message, text }, 'whatsapp:fixture');
+      expect(mockCreate).not.toHaveBeenCalled();
+      expect(mockRecordPayment).not.toHaveBeenCalled();
+      expect(reply).toContain('Nenhuma alteração');
+    }
+  );
+
+  it.each([
     ['Paguei 1 real do carro', 100],
     ['Paguei 20 reais do carro', 2000],
   ])(

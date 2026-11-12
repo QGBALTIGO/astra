@@ -37,6 +37,49 @@ function visiblePanel() {
 }
 
 describe('customer financial workspace', () => {
+  it('only claims the agenda is empty after a successful read of the schedule', async () => {
+    const request = deferred<{ items: [] }>();
+    api.agenda.mockReturnValueOnce(request.promise).mockResolvedValue({ items: [] });
+    await mount();
+    expect(visiblePanel().textContent).not.toContain('Sem compromissos nos próximos dias');
+    await act(async () => request.reject(new Error('Agenda fora do ar')));
+    expect(visiblePanel().textContent).toContain('Agenda fora do ar');
+    expect(visiblePanel().textContent).not.toContain('Sem compromissos nos próximos dias');
+    await dom.click(dom.button('Tentar novamente'));
+    expect(visiblePanel().textContent).toContain('Sem compromissos nos próximos dias');
+  });
+  it('shows unknown budget spending without inventing a zero, then shows the verified zero on retry', async () => {
+    api.plans.mockResolvedValue({
+      plans: [
+        {
+          id: 'budget',
+          kind: 'budget',
+          title: 'Mercado',
+          amount: 500,
+          progress: 0,
+          categoryId: 'groceries',
+          installmentsTotal: null,
+          installmentsPaid: null,
+          nextDueDate: null,
+          notes: null,
+          createdAt: '2026-11-01',
+          updatedAt: '2026-11-01',
+        },
+      ],
+    });
+    api.summary.mockRejectedValueOnce(new Error('Resumo fora do ar'));
+    await mount();
+    const preview = dom.container.querySelector<HTMLButtonElement>('.ac-plan-preview-item')!;
+    expect(preview.textContent).toContain('Gasto do período indisponível');
+    expect(preview.querySelector('.ac-plan-preview-progress')).toBeNull();
+    await dom.click(preview);
+    const dialog = dom.container.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('Gasto do período indisponível');
+    expect(dialog.querySelector('[role="progressbar"]')).toBeNull();
+    await dom.click(dom.button('Fechar'));
+    await dom.click(dom.button('Tentar novamente'));
+    expect(preview.textContent?.replaceAll('\u00a0', ' ')).toContain('R$ 0,00 de R$ 500,00');
+  });
   it('shows realized totals separately from pending values and hides amounts in summary, chart and recent list', async () => {
     await mount();
     expect(visiblePanel().textContent).toContain('4.963,61');

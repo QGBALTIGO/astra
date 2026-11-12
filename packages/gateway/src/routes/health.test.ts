@@ -617,5 +617,21 @@ describe('Health Routes — public mount auth gating (HEALTH-AUTH)', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.success).toBe(true);
+    expect(json.data).toEqual({ status: 'degraded' });
+  });
+
+  it('publishes only readiness and preserves the status code on failure', async () => {
+    mockIsConnected.mockReturnValue(true);
+    const ready = await publicApp.request('/health/ready');
+    expect(ready.status).toBe(200);
+    expect((await ready.json()).data).toEqual({ status: 'ready' });
+    mockQueryOne.mockResolvedValue({ exists: null });
+    const missing = await publicApp.request('/health/ready');
+    expect(missing.status).toBe(503);
+    expect((await missing.json()).data).toEqual({ status: 'not_ready' });
+    mockQueryOne.mockRejectedValue(new Error('private database error detail'));
+    const failed = await publicApp.request('/health/ready');
+    expect(failed.status).toBe(503);
+    expect(await failed.text()).not.toContain('private database error detail');
   });
 });

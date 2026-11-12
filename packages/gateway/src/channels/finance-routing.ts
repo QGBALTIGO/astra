@@ -18,6 +18,7 @@ import { customerLocalDay } from '../services/customer-date.js';
 const log = getLog('ChannelFinancing');
 
 type ParsedIntent =
+  | { kind: 'unconfirmed' }
   | { kind: 'create'; name: string; principalCents: number; openingCents: number }
   | { kind: 'query'; name: string }
   | { kind: 'payment'; name: string; amountCents: number };
@@ -283,6 +284,7 @@ export async function tryExpenseRecordChannelReply(
 
 export function parseFinancingIntent(input: string): ParsedIntent | null {
   const text = normalize(input);
+  const prefix = /^(?:astra[,!:]?\s+)?(?:(?:registr[ae]|anot[ae])\s+que\s+)?$/u;
 
   // "O valor do carro é 72 mil, já foi pago 930, vai registrando..."
   // Requires BOTH the total and opening amount; never guesses missing data.
@@ -290,6 +292,16 @@ export function parseFinancingIntent(input: string): ParsedIntent | null {
     /\bvalor\s+(?:total\s+)?(?:do|da)\s+([a-z0-9 -]{2,60}?)\s+(?:e|de|foi)\s+(?:r\$\s*)?(\d[\d.,]*)\s*(mil|k)?\s*[,;]?\s*(?:ja\s+(?:foi\s+)?pago|ja\s+paguei|ja\s+pagamos|ja\s+(?:foi\s+)?quitado)\s*(?:r\$\s*)?(\d[\d.,]*)\s*(mil|k)?/u
   );
   if (setup) {
+    const before = text.slice(0, setup.index).replace(/\bo\s+$/u, '');
+    const after = text.slice(setup.index! + setup[0].length).trim();
+    if (
+      !prefix.test(before) ||
+      !/^(?:[,;]?\s*(?:acompanha(?: mensalmente)?|vai registrando(?: e dando baixa todo mes)?))?[.!]?$/u.test(
+        after
+      )
+    ) {
+      return { kind: 'unconfirmed' };
+    }
     const name = safeName(setup[1] ?? '');
     const principalCents = parseBrlCents(setup[2] ?? '', setup[3]);
     const openingCents = parseBrlCents(setup[4] ?? '', setup[5]);
@@ -312,11 +324,22 @@ export function parseFinancingIntent(input: string): ParsedIntent | null {
   // Only unambiguous, completed payments. A scheduled/expected installment
   // or "vou pagar" must never be automatically deducted.
   const paid = text.match(
-    /\b(?:paguei|abati|dei\s+baixa\s+em)\s+(?:mais\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(mil|k)?\s*(?:real|reais)?\s+(?:do|da)\s+([a-z0-9 -]{2,60}?)(?:[.!?,;]|$)/u
+    /\b(?:paguei|abati|dei\s+baixa\s+em)\s+(?:mais\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(mil|k)?\s*(?:real|reais)?\s+(?:do|da)\s+([a-z0-9 -]{2,60})(?![a-z0-9 -])/u
   );
   if (paid) {
+    const before = text.slice(0, paid.index).replace(/\beu\s+$/u, '');
+    const after = text.slice(paid.index! + paid[0].length).trim();
     const amountCents = parseBrlCents(paid[1] ?? '', paid[2]);
     const name = safeName(paid[3] ?? '');
+    // A payment clause inside a question, quotation, correction or compound
+    // request does not authorize a ledger write, including through AI fallback.
+    if (
+      !prefix.test(before) ||
+      !/^[.!]?$/u.test(after) ||
+      /\b(?:nao|nunca|nem|mas|porem|se|talvez|acho|mentira|brincadeira|ou|e)\b/u.test(paid[3]!)
+    ) {
+      return { kind: 'unconfirmed' };
+    }
     if (name && amountCents) return { kind: 'payment', name, amountCents };
   }
   return null;
@@ -335,6 +358,9 @@ export async function tryFinancingChannelReply(
 ): Promise<string | null> {
   const intent = parseFinancingIntent(message.text);
   if (!intent) return null;
+  if (intent.kind === 'unconfirmed') {
+    return 'Nenhuma alteração foi feita no financiamento. Para consultar, pergunte pelo saldo. Para registrar um pagamento já feito, envie uma mensagem separada com o valor e o nome do financiamento.';
+  }
   // The fast path cannot invent an identity if the channel did not resolve it.
   if (!userId || !message.id || !message.channelPluginId || !message.platformChatId) {
     return 'Não consegui confirmar sua identidade para consultar o financiamento.';
