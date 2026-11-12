@@ -19,6 +19,11 @@ import { customerEntryPath } from './customer-entry';
 import { installCustomerInputModality } from './pages/customer/interaction';
 import './index.css';
 import './pages/customer/interaction.css';
+// Keep the customer shell styled before its lazy JavaScript mounts. The
+// production bundler can combine the conditional import preload lists and omit
+// a lazy chunk's CSS; these scoped styles belong to the document entry instead.
+import './pages/customer/customer.css';
+import './pages/customer/premium.css';
 
 const disposeCustomerInput = installCustomerInputModality(document);
 if (import.meta.hot) import.meta.hot.dispose(disposeCustomerInput);

@@ -30,7 +30,7 @@ jobs:
         run: |
           pnpm --filter @ownpilot/ui exec playwright install chromium firefox webkit --with-deps
           npm ci --prefix landing --ignore-scripts --no-audit --no-fund
-      - name: Exercise login, records, plans, expiry, responsive layout and accessibility
+      - name: Exercise production build, login, records, expiry, layout and accessibility
         env:
           ASTRA_AXE_SCRIPT: ${{ github.workspace }}/landing/node_modules/axe-core/axe.min.js
         run: |

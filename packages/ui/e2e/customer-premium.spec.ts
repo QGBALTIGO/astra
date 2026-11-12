@@ -69,6 +69,25 @@ async function image(page: Page, info: TestInfo, name: string, reference: boolea
     });
 }
 
+test('production entry loads the customer layout styles with the login', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await mockCustomerApi(page);
+  await page.goto('/cliente/entrar');
+  await expect(page.getByRole('heading', { name: 'Entre no seu Astra' })).toBeVisible();
+  const shell = await page.locator('.ac-login-layout').evaluate((element) => ({
+    display: getComputedStyle(element).display,
+    width: element.getBoundingClientRect().width,
+  }));
+  expect(shell.display).toBe('grid');
+  expect(shell.width).toBeGreaterThan(800);
+  expect(shell.width).toBeLessThan(1300);
+  const logo = await page.locator('.ac-login-story .ac-brand').boundingBox();
+  expect(logo?.height).toBeLessThan(60);
+  await expect(page.locator('.ac-login-story .ac-brand-on-dark')).not.toBeVisible();
+  await geometry(page);
+});
+
 for (const theme of ['light', 'dark'] as const) {
   for (const screen of screens) {
     test(`premium journey ${screen.width}x${screen.height} ${theme}`, async ({ page }, info) => {

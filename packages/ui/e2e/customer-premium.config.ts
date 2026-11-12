@@ -36,9 +36,9 @@ export default defineConfig({
   ],
   webServer: {
     cwd: fileURLToPath(new URL('..', import.meta.url)),
-    command: 'npx vite --port 8199 --strictPort',
+    command: 'npx vite preview --port 8199 --strictPort',
     url: 'http://localhost:8199/cliente/entrar',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 30000,
   },
 });
