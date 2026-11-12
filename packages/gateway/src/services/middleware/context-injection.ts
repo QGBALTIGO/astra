@@ -124,6 +124,8 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
       const customerAccount = userId.startsWith('whatsapp:')
         ? await customerAccountsRepo.getByDataUserId(userId)
         : null;
+      const timeZone = customerAccount?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
+      if (message.metadata.source === 'channel') ctx.set('channelTimeZone', timeZone);
       const currentSystemPrompt =
         agent.getConversation().systemPrompt || 'You are a helpful AI assistant.';
 
@@ -286,12 +288,7 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
 
       const freshPrompt =
         message.metadata.source === 'channel'
-          ? withCustomerClock(
-              finalPrompt,
-              customerAccount?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande',
-              new Date(),
-              message.timestamp
-            )
+          ? withCustomerClock(finalPrompt, timeZone, new Date(), message.timestamp)
           : finalPrompt;
       if (freshPrompt !== currentSystemPrompt) {
         agent.updateSystemPrompt(freshPrompt);
