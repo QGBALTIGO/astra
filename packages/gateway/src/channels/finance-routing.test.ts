@@ -485,7 +485,7 @@ describe('Repeated expense confirmation before adding a separate row', () => {
     mockRecentExpenses.mockResolvedValueOnce([stored]);
     const result = await tryExpenseRecordChannelReply(message, customer);
     expect(result).toContain('mesmo gasto ou outro');
-    expect(result).toContain('R$ 1,00');
+    expect(result).toMatch(/R\$\s1,00/);
     expect(mockRecordExpense).not.toHaveBeenCalled();
   });
 
