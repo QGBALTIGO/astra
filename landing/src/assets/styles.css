@@ -3399,6 +3399,11 @@ body.modal-open {
   .button-dark:hover {
     background: #d5e5ff;
   }
+  .scenario-picker button[aria-pressed='true'] {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
   .hero-chat,
   .chat-header,
   .chat-input,

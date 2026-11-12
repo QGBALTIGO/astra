@@ -15,7 +15,10 @@ async function accessible(page, include) {
   if (include) audit = audit.include(include);
   const result = await audit.analyze();
   expect(
-    result.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))
+    result.violations.map(({ id, nodes }) => ({
+      id,
+      nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
+    }))
   ).toEqual([]);
 }
 
