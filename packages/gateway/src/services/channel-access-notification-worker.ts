@@ -3,6 +3,7 @@ import { getChannelService, type IChannelService } from '@ownpilot/core/channels
 import {
   channelAccessNotificationsRepo,
   hasChannelUserInteracted,
+  isProactivePaidCaktoNotice,
   isSameAccessNotificationCycle,
   type ChannelAccessNotification,
   type ChannelAccessNotificationsRepository,
@@ -20,7 +21,7 @@ const RETRY_DELAY_MS = 60_000;
 interface WorkerDependencies {
   notifications: Pick<
     ChannelAccessNotificationsRepository,
-    'queueExpiringWithin24Hours' | 'claimDue' | 'beginSend' | 'deferBeforeSend' | 'finish'
+    'queueExpiringWithin24Hours' | 'claimDue' | 'beginSend' | 'deferBeforeSend' | 'finish' | 'markCaktoWelcomeDelivered'
   >;
   users: Pick<typeof channelUsersRepo, 'getById'>;
   channels: () => Pick<IChannelService, 'getChannel' | 'listChannels' | 'send'>;
@@ -73,7 +74,8 @@ function ineligibleReason(
     return 'not_customer';
   if (entry.platformUserId === ownerPhone || entry.platformUserId === botPhone) return 'owner';
   if (!isChannelUserAccessActive(user, now)) return 'access_inactive';
-  if (!hasChannelUserInteracted(user)) return 'no_interaction';
+  if (!hasChannelUserInteracted(user) && !isProactivePaidCaktoNotice(user, entry.kind))
+    return 'no_interaction';
   if (!isSameAccessNotificationCycle(entry, user)) return 'access_cycle_changed';
   if (entry.kind === 'expiring') {
     const expiry = user.accessExpiresAt?.getTime();
@@ -231,6 +233,17 @@ export class ChannelAccessNotificationWorker {
             ...message,
           });
           await d.notifications.finish(entry.id, token, 'delivered', { deliveryId }, d.now());
+          if (isProactivePaidCaktoNotice(freshUser!, entry.kind)) {
+            try {
+              await d.notifications.markCaktoWelcomeDelivered(entry.id, freshUser!.id);
+            } catch (error) {
+              // The transport already accepted the message. Do not resend it.
+              log.warn('Cakto notice sent, but welcome state was not saved', {
+                notificationId: entry.id,
+                category: error instanceof Error ? error.name : 'unknown',
+              });
+            }
+          }
           result.delivered++;
         } catch (error) {
           // Any error after send() was invoked has an ambiguous delivery outcome.
