@@ -61,6 +61,7 @@ const packed = brotliCompressSync(raw, { params: { [constants.BROTLI_PARAM_QUALI
 const loader = `const rawBundle=brotliDecompressSync(Buffer.from('${packed}','base64'));\nif(createHash('sha256').update(rawBundle).digest('hex')!=='${sha}')throw Error('Asset integrity check failed');\nconst files=JSON.parse(rawBundle.toString('utf8'));`;
 const readableRuntime = (await readFile(join(root, 'runtime.ts'), 'utf8')).replace('/* PUBLIC_ASSET_BUNDLE */', loader);
 const { code: runtime } = await minify(readableRuntime, { module: true, compress: false, mangle: { toplevel: false, reserved: ['SQL'] }, format: { comments: false } });
+if (Buffer.byteLength(Buffer.from(runtime).toString('base64')) > 130800) throw Error('Function source exceeds the verified single-argument release budget. Review asset sizes before deploying.');
 await writeFile(join(dist, 'railway-function.ts'), runtime);
 await writeFile(join(dist, 'bundle.json'), raw);
 await writeFile(join(dist, 'build.json'), JSON.stringify({ release: 'premium-20261112', sha256: sha, files: Object.keys(files), paths, rawBytes: raw.length, packedBytes: packed.length, htmlBytes: Buffer.byteLength(index), htmlGzipBytes: gzipSync(index).length }, null, 2));

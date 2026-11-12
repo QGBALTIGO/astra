@@ -18,7 +18,7 @@ try {
   for (const device of [{ name: 'mobile-390', width: 390, height: 844 }, { name: 'desktop-1440', width: 1440, height: 1000 }]) {
     for (const version of ['before', 'after']) {
       for (let sample = 1; sample <= 3; sample++) {
-        const context = await browser.newContext({ viewport: device, locale: 'pt-BR', reducedMotion: 'reduce' });
+        const context = await browser.newContext({ viewport: { width: device.width, height: device.height }, locale: 'pt-BR', reducedMotion: 'reduce' });
         const page = await context.newPage();
         const client = await context.newCDPSession(page);
         await client.send('Network.enable');
