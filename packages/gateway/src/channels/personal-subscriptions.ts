@@ -15,7 +15,10 @@ const HELP =
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const pageSize = 8;
 type Intent =
-  SubscriptionChange | { action: 'list'; page: number; title?: string } | { action: 'clarify' };
+  | SubscriptionChange
+  | { action: 'list'; page: number; title?: string }
+  | { action: 'clarify' }
+  | { action: 'explainRenewalReminder' };
 const clarify = { action: 'clarify' } as const;
 const fieldConnectors =
   /(?:\s|,)+(?=(?:(?:por|de|para|com|no|valor|novo|a|pr[oó]xima|nova|e|renova[çc][aã]o|em|dia|vencimento|vence|renova)\s+)*(?:r\$|\d{1,2}\/|\d{4}-))/iu;
@@ -31,13 +34,76 @@ function addressableTitle(title: string): boolean {
   );
 }
 
+const months = [
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
+];
+
+function planningRequest(text: string): string | null {
+  if (text.length > 350 || /[\r\n;]/u.test(text)) return text;
+  const create =
+    /^(?:coloca|coloque|adiciona|adicione|inclua|inclui)\s+(?:a |o )?(.{1,120}?)\s+nas minhas assinaturas\s*[:,]\s*(r\$\s*[\d.,]+)\s*(?:por m[êe]s|mensais|ao m[êe]s)\s*,\s*(?:pr[oó]xima )?renova[çc][aã]o (?:dia |em )?(\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2} de [a-zç]{3,9} de \d{4})[.!]?(?: ainda n[aã]o paguei nada\.)?(?: quero acompanhar no meu planejamento[.!]?)?$/iu.exec(
+      text
+    );
+  if (create && addressableTitle(create[1]!)) {
+    let due = create[3]!;
+    const fullDate = /^(\d+) de (\S+) de (\d+)$/iu.exec(due);
+    if (fullDate) {
+      const month = months.indexOf(fullDate[2]!.toLowerCase().replace('marco', 'março')) + 1;
+      if (!month) return null;
+      due = [fullDate[1], month, fullDate[3]].join('/');
+    }
+    return 'Cadastre a assinatura ' + create[1] + ' por ' + create[2] + ' em ' + due;
+  }
+  const detail =
+    /^qual (?:o )?valor mensal e qual (?:a )?pr[oó]xima renova[çc][aã]o (?:aparecem|constam) em assinaturas para (?:a |o )?([^?!]{1,120})\?(?: consult[ae] meu planejamento (?:pra|para) conferir[.!]?)?$/iu.exec(
+      text
+    );
+  if (detail && addressableTitle(detail[1]!)) return 'Quando vence a assinatura ' + detail[1] + '?';
+  const monthlyCost =
+    /^quanto (?:eu )?pago (?:por m[êe]s )?(?:na|pela) (?:minha )?assinatura (?:da |do |de )?(.{1,120}?)(?: e quando (?:ela )?renova)?\?$/iu.exec(
+      text
+    );
+  if (monthlyCost && addressableTitle(monthlyCost[1]!))
+    return 'Quando vence a assinatura ' + monthlyCost[1] + '?';
+  const remove =
+    /^(?:remova|remove|tira|tire) do meu planejamento (?:s[oó] |apenas )?a assinatura (.{1,120}?)(?:, se ela estiver cadastrada)?[.!]?(?: n[aã]o cancele nada no fornecedor[.!]?)?$/iu.exec(
+      text
+    );
+  if (remove && addressableTitle(remove[1]!)) return 'Remova a assinatura ' + remove[1];
+  return text;
+}
+
 function parseIntent(input: string): Intent | null {
-  const text = input
+  const raw = input
     .trim()
     .replace(/^astra[,!]?\s+/iu, '')
     .replace(/,?\s+por favor[.!?]?$/iu, '')
     .trim();
-  if (!/\bassinaturas?\b/iu.test(text)) return null;
+  if (!/\bassinaturas?\b/iu.test(raw)) return null;
+  // A question about how renewal notices work should never create a plan or reminder.
+  if (
+    raw.length <= 350 &&
+    /^(?:para o astra me avisar|o astra (?:me )?avisa|voc[êe] (?:me )?avisa|se eu cadastrar|preciso (?:pedir|criar|agendar) um lembrete|basta (?:eu )?cadastrar)\b/iu.test(
+      raw
+    ) &&
+    /\b(?:renova[çc][aã]o|vence|vencer)\b/iu.test(raw) &&
+    /\b(?:lembrete|automaticamente|avisa)\b/iu.test(raw) &&
+    /\?(?:\s*s[oó] (?:quero entender como funciona|me explica)[.!]?)?$/iu.test(raw)
+  )
+    return { action: 'explainRenewalReminder' };
+  const text = planningRequest(raw);
+  if (text === null) return clarify;
   // A completed payment, reminder request, or question about the Astra access plan
   // belongs to its existing route.
   if (
@@ -56,7 +122,7 @@ function parseIntent(input: string): Intent | null {
     );
   if (detail) return { action: 'list', title: detail[1]!.trim(), page: 1 };
   const command =
-    /^(?:(?:quero|pode)\s+)?(cadastre?|cadastra|cadastrar|crie|criar|adicione|adicionar|registre|registrar|anote|anotar|acompanhe|atualize|atualizar|altere|alterar|mude|mudar|renove|renovar|cancele|cancelar|remova|remover|exclua|excluir|apague)\s+(?:(?:o\s+valor|a\s+(?:pr[oó]xima\s+)?renova[çc][aã]o)\s+da\s+|(?:a\s+|uma\s+)?(?:minha\s+)?)assinatura\b\s*(?:(?:do|da|de)\s+)?(.*)$/iu.exec(
+    /^(?:(?:quero|pode)\s+)?(cadastre?|cadastra|cadastrar|crie|cria|criar|adicione|adiciona|adicionar|registre|registra|registrar|anote|anota|anotar|acompanhe|acompanha|atualize|atualiza|atualizar|altere|altera|alterar|mude|muda|mudar|renove|renova|renovar|cancele|cancela|cancelar|remova|remove|remover|exclua|exclui|excluir|apague|apaga)\s+(?:(?:o\s+valor|a\s+(?:pr[oó]xima\s+)?renova[çc][aã]o)\s+da\s+|(?:a\s+|uma\s+)?(?:minha\s+)?)assinatura\b\s*(?:(?:do|da|de)\s+)?(.*)$/iu.exec(
       text
     );
   if (!command) return null;
@@ -69,7 +135,7 @@ function parseIntent(input: string): Intent | null {
   )
     return clarify;
   const verb = command[1]!;
-  const action = /^(?:cancel|remov|exclu|apagu)/iu.test(verb)
+  const action = /^(?:cancel|remov|exclu|apag)/iu.test(verb)
     ? 'remove'
     : /^(?:atualiz|alter|mud|renov)/iu.test(verb)
       ? 'update'
@@ -186,6 +252,8 @@ export async function tryPersonalSubscriptionReply(
     return 'Abra uma conversa privada com o Astra para consultar suas assinaturas.';
   }
   if (intent.action === 'clarify') return HELP;
+  if (intent.action === 'explainRenewalReminder')
+    return 'Peça um lembrete separado para receber o aviso. A data de renovação fica no seu planejamento de assinaturas. Ao pedir o lembrete, diga o dia, o horário e o nome da assinatura.';
   try {
     const repo = new CustomerPlanningRepository(userId);
     if (intent.action === 'list') {

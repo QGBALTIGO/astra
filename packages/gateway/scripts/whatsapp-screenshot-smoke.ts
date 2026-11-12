@@ -951,11 +951,17 @@ try {
       async () => {
         const topics = [
           ['Minhas assinaturas', /assinaturas cadastradas/],
+          ['Consulte a tarefa Evento sintético.', /não consta na sua lista/],
+          ['Posso mandar minha senha do banco aqui?', /gerenciador de senhas/],
           [
             'Confere na minha agenda se o Evento sintético ficou marcado para sexta.',
             /Não encontrei um compromisso/,
           ],
           ['Cancela o lembrete "Evento sintético"', /Não encontrei um lembrete/],
+          [
+            'Exclua da minha agenda o compromisso de 13/11/2026 no fuso de Cuiabá: Evento sintético.',
+            /Não encontrei/,
+          ],
         ] as const;
         const initial = (await first.finance.listTransactions()).total;
         for (const [position, [topic, expected]] of topics.entries()) {

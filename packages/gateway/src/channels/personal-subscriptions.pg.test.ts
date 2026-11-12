@@ -86,6 +86,85 @@ describe.skipIf(!port)(
       }
     });
 
+    it.each(['whatsapp', 'telegram'] as const)(
+      'handles monthly subscription requests as spoken in the %s conversation',
+      async (platform) => {
+        const key = 'planejamento-' + platform;
+        const repo = new CustomerPlanningRepository(key);
+        const msg = (text: string) => incoming(text, platform, key);
+        expect(
+          await turn(
+            msg(
+              'Para o Astra me avisar um dia antes de uma assinatura vencer, basta eu cadastrar a data de renovação ou preciso pedir um lembrete separado? Só quero entender como funciona.'
+            ),
+            key,
+            false
+          )
+        ).toContain('Peça um lembrete separado');
+        expect(await repo.list()).toEqual([]);
+        const create = msg(
+          'Coloca a Revista Limoeiro nas minhas assinaturas: R$ 19,90 por mês, próxima renovação dia 20 de novembro de 2026. Ainda não paguei nada. Quero acompanhar no meu planejamento.'
+        );
+        expect(await turn(create, key)).toContain('adicionada');
+        expect(await turn(create, key, false)).toContain('já foi processada');
+        expect(await repo.list()).toMatchObject([
+          {
+            title: 'Revista Limoeiro',
+            kind: 'subscription',
+            amount: 19.9,
+            nextDueDate: '2026-11-20',
+          },
+        ]);
+        const result = await turn(
+          msg(
+            'Qual valor mensal e qual próxima renovação aparecem em Assinaturas para a Revista Limoeiro? Consulta meu planejamento pra conferir.'
+          ),
+          key,
+          false
+        );
+        expect(result).toContain('19,90');
+        expect(result).toContain('20/11/2026');
+        expect(
+          await turn(msg('Muda o valor da assinatura Revista Limoeiro para R$ 21,90'), key)
+        ).toContain('atualizada');
+        expect(
+          await turn(
+            msg(
+              'Quanto eu pago por mês na minha assinatura da Revista Limoeiro e quando ela renova?'
+            ),
+            key
+          )
+        ).toContain('21,90');
+        expect(
+          await turn(
+            msg(
+              'Remova do meu planejamento só a assinatura Revista Limoeiro, se ela estiver cadastrada. Não cancele nada no fornecedor.'
+            ),
+            key
+          )
+        ).toContain('Removi Revista Limoeiro');
+        expect(await repo.list()).toEqual([]);
+      }
+    );
+
+    it('requires an explicit single tracking request and a valid renewal date', async () => {
+      const key = 'planejamento-sem-efeito';
+      const msg = (text: string) => incoming(text, 'whatsapp', key);
+      const prefix = 'Coloca o Jornal nas minhas assinaturas: R$ 15 por mês, renovação em ';
+      for (const text of [prefix + '31 de fevereiro de 2026', prefix + '20 de novembo de 2026']) {
+        expect(await turn(msg(text), key)).toContain('Para acompanhar');
+      }
+      for (const text of [
+        'Se eu disser “' + prefix + '20/11/2026”, o que acontece?',
+        'Não ' + prefix + '20/11/2026.',
+        prefix + '20/11/2026. Pague agora.',
+        'Remova do meu planejamento só a assinatura Jornal e cancele no fornecedor?',
+      ]) {
+        expect(await tryPersonalSubscriptionReply(msg(text), key, async () => true)).toBeNull();
+      }
+      expect(await new CustomerPlanningRepository(key).list()).toEqual([]);
+    });
+
     it('clarifies same-name legacy subscriptions; an explicit code changes only that owner and kind', async () => {
       const repo = new CustomerPlanningRepository('legacy');
       const input = {
@@ -264,7 +343,17 @@ describe.skipIf(!port)(
         const send = (text: string, id: string) =>
           turn(incoming(text, platform, key, id), key, i % 4 < 2);
         const create =
-          'Cadastre a assinatura ' + title + ' por R$ ' + price + ' com renovação em 12/12/2026';
+          i % 3 === 0
+            ? 'Coloca ' +
+              title +
+              ' nas minhas assinaturas: R$ ' +
+              price +
+              ' por mês, renovação dia 12 de dezembro de 2026.'
+            : 'Cadastre a assinatura ' +
+              title +
+              ' por R$ ' +
+              price +
+              ' com renovação em 12/12/2026';
         expect(await send(create, 'create')).toContain('adicionada');
         expect(await send('Minhas assinaturas', 'list')).toContain('12/12/2026');
         expect(

@@ -20,7 +20,9 @@ import { runInSessionLane } from '../services/agent/session-lane.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { withCustomerClock } from '../services/customer-date.js';
 import { tryPersonalSubscriptionReply } from './personal-subscriptions.js';
+import { tryPersonalTaskReply } from './personal-tasks.js';
 import { tryAstraAccessReply } from './astra-access.js';
+import { channelPasswordAdvice } from './password-advice.js';
 import {
   CHANNEL_UNVERIFIED_REPLY,
   safeChannelResponse,
@@ -39,6 +41,7 @@ import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
 import { tryCancelNamedReminder } from './cancel-named-reminder.js';
 import { tryVerifyCalendarSlot } from './calendar-lookup.js';
+import { tryChannelCalendarMutation } from './calendar-mutation.js';
 import { tryListTodaysReminders } from './today-reminders.js';
 import { expenseConfirmationKey, expenseDuplicateGuard } from './expense-duplicate-guard.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
@@ -329,14 +332,22 @@ function tryAuthorizedChannelShortcut(
     const hasMedia = Boolean(message.attachments?.length);
     expenseDuplicateGuard.observe(key, hasMedia ? '' : message.text);
     if (hasMedia) return null;
+    const passwordAdvice = channelPasswordAdvice(message.platform, message.text);
+    if (passwordAdvice) return passwordAdvice;
     return (
       tryAstraAccessReply(message.text) ??
+      (await tryPersonalTaskReply(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
       (await tryPersonalSubscriptionReply(message, userId, () =>
         canProcessChannelMessage(message, isAccessAllowed)
       )) ??
       (await tryListTodaysReminders(message, userId)) ??
       (await tryCancelNamedReminder(message, userId)) ??
       (await tryVerifyCalendarSlot(message, userId)) ??
+      (await tryChannelCalendarMutation(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
       (await tryCustomerTimezoneChannelReply(message, userId)) ??
       (await tryClockChannelReply(message.text, userId)) ??
       (await tryFinancingChannelReply(message, userId)) ??

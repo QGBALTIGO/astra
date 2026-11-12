@@ -108,6 +108,64 @@ describe.each(['bus', 'direct'] as const)(
       getById.mockResolvedValue(null);
     });
 
+    it.each([
+      'Posso te enviar a minha senha?',
+      'Você pode guardar minha senha?',
+      'Consigo mandar essa senha para você aqui?',
+    ])('recognizes different ways to ask about sharing a password: %s', async (text) => {
+      const reply = await route(incoming({ text }));
+      expect(reply).toContain('podem ficar registradas no histórico do Astra');
+      expect(mocks.getAgent).not.toHaveBeenCalled();
+      expect(mocks.reminderTool).not.toHaveBeenCalled();
+    });
+
+    it.each(['whatsapp', 'telegram'] as const)(
+      'answers a password-retention question accurately on %s without invoking a model or saving a reminder',
+      async (platform) => {
+        const question =
+          'Tenho medo de esquecer a senha do banco. É uma boa ideia pedir para você guardar essa senha no WhatsApp e me lembrar depois? Não vou enviar a senha.';
+        const text = platform === 'telegram' ? question.replace('WhatsApp', 'Telegram') : question;
+        const reply = await route(
+          incoming({ platform, channelPluginId: 'channel.' + platform, text })
+        );
+        expect(reply).toContain('Evite enviar sua senha');
+        expect(reply).toContain('podem ficar registradas no histórico do Astra');
+        expect(reply).not.toMatch(/não fica comigo|não (?:armazen|guard)/iu);
+        expect(isAccessAllowed).toHaveBeenCalled();
+        expect(mocks.reminderTool).not.toHaveBeenCalled();
+        expect(mocks.getAgent).not.toHaveBeenCalled();
+        expect(bus.process).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(['whatsapp', 'telegram'] as const)(
+      'still schedules an ordinary password-rotation reminder on %s',
+      async (platform) => {
+        mocks.reminderTool.mockResolvedValue({
+          success: true,
+          result: {
+            status: 'pending',
+            title: 'trocar a senha do banco',
+            horarioLocal: '12/11/2026, 09:10:00',
+          },
+        });
+        const reply = await route(
+          incoming({
+            platform,
+            channelPluginId: 'channel.' + platform,
+            text: 'Me lembre em 10 minutos de trocar a senha do banco',
+          })
+        );
+        expect(mocks.reminderTool).toHaveBeenCalledWith(
+          'schedule_channel_reminder',
+          { title: 'trocar a senha do banco', delay_seconds: 600 },
+          'whatsapp:sender-access'
+        );
+        expect(reply).not.toContain('Evite enviar');
+        expect(bus.process).not.toHaveBeenCalled();
+      }
+    );
+
     it.each(['whatsapp', 'telegram'] as const)(
       'answers %s without AI, finance, reminders or session work after checking access',
       async (platform) => {
@@ -161,6 +219,7 @@ describe.each(['bus', 'direct'] as const)(
 
     it.each([
       incoming({ text: 'Astra, onde acesso o dashboard da Vercel?' }),
+      incoming({ text: 'Como posso guardar a senha no meu gerenciador de senhas?' }),
       incoming({ text: 'Crie um dashboard das minhas despesas' }),
       incoming({
         attachments: [
