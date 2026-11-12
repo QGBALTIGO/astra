@@ -62,18 +62,23 @@ function categoryOf(personaIndex) {
 }
 
 test('simulated recurring Friday reminders fire weekly at 06:00 local, not daily', () => {
-  const find = Array.from({length:10000},(_,i)=>i).find(i=>scenarioAt(i*10).category==='schedule');
-  assert.ok(find!==undefined);
-  const w=new SyntheticWorldOracle(personaAt(find));
-  for(let step=0;step<=5;step++)w.apply(scenarioAt(find*10+step));
-  const friday=[...w.reminders.values()].find(r=>r.weeklyLocal);
+  const find = Array.from({ length: 10000 }, (_, i) => i).find(
+    (i) => scenarioAt(i * 10).category === 'schedule'
+  );
+  assert.ok(find !== undefined);
+  const w = new SyntheticWorldOracle(personaAt(find));
+  for (let step = 0; step <= 5; step++) w.apply(scenarioAt(find * 10 + step));
+  const friday = [...w.reminders.values()].find((r) => r.weeklyLocal);
   assert.ok(friday);
-  assert.equal(friday.recurringMs,7*86_400_000);
-  const noticesBefore=w.reminders.size;
-  assert.ok(w.stats.clarificationTurns>=2, 'Every-15-days request without a time must ask for a time');
-  assert.equal(w.reminders.size,noticesBefore);
-  const initial=friday.nextAt;
+  assert.equal(friday.recurringMs, 7 * 86_400_000);
+  const noticesBefore = w.reminders.size;
+  assert.ok(
+    w.stats.clarificationTurns >= 2,
+    'Every-15-days request without a time must ask for a time'
+  );
+  assert.equal(w.reminders.size, noticesBefore);
+  const initial = friday.nextAt;
   w.dispatch(initial);
-  assert.ok(friday.nextAt>initial);
-  assert.equal(friday.nextAt-initial,7*86_400_000);
+  assert.ok(friday.nextAt > initial);
+  assert.equal(friday.nextAt - initial, 7 * 86_400_000);
 });

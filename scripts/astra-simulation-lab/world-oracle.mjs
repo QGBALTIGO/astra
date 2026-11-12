@@ -111,8 +111,7 @@ export class SyntheticWorldOracle {
     if (scenario.semanticFamily !== scenario.category + ':' + op)
       throw new Error('P1 synthetic narrative/action mismatch');
     const referenceCents = scenario.context.expectedActionAmountCents;
-    if (referenceCents !== null &&
-      (!Number.isSafeInteger(referenceCents) || referenceCents <= 0))
+    if (referenceCents !== null && (!Number.isSafeInteger(referenceCents) || referenceCents <= 0))
       throw new Error('P1 synthetic invalid reference amount');
     const before = this.transactions.size;
     let decision = 'read';
@@ -167,11 +166,12 @@ export class SyntheticWorldOracle {
       if ([0, 2, 4].includes(op)) {
         const weeklyLocal = op === 4;
         const recurringMs = weeklyLocal ? 7 * DAY : 0;
-        const dueAt = op === 0
-          ? virtualLocalDayAt(new Date(timestamp), scenario.timeZone, 1, 18)
-          : op === 2
-            ? new Date(timestamp + 20_000)
-            : nextVirtualWeekdayAt(new Date(timestamp), scenario.timeZone, 5, 6);
+        const dueAt =
+          op === 0
+            ? virtualLocalDayAt(new Date(timestamp), scenario.timeZone, 1, 18)
+            : op === 2
+              ? new Date(timestamp + 20_000)
+              : nextVirtualWeekdayAt(new Date(timestamp), scenario.timeZone, 5, 6);
         this.reminders.set(actionId, {
           id: actionId,
           nextAt: dueAt.getTime(),
