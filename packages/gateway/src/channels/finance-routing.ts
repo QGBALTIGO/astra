@@ -10,7 +10,11 @@ import { FinanceObligationsRepository } from '../db/repositories/finance-obligat
 import { ExpensesRepository, type ExpenseCategory } from '../db/repositories/expenses.js';
 import { getLog } from '../services/log.js';
 import { tryCustomerFinancialChannelReply } from './customer-finance-routing.js';
-import { expenseDuplicateGuard, type PendingExpenseDraft } from './expense-duplicate-guard.js';
+import {
+  expenseConfirmationKey,
+  expenseDuplicateGuard,
+  type PendingExpenseDraft,
+} from './expense-duplicate-guard.js';
 import { formatAstraMessage, formatTransactionConfirmation } from './response-presentation.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDay } from '../services/customer-date.js';
@@ -143,8 +147,11 @@ export async function tryExpenseRecordChannelReply(
   >,
   userId: string
 ): Promise<string | null> {
-  const pendingKey = JSON.stringify([userId, message.channelPluginId, message.platformChatId]);
+  const pendingKey = expenseConfirmationKey(userId, message);
   const answer = expenseDuplicateGuard.consume(pendingKey, message.text);
+  if (answer?.kind === 'stale') {
+    return 'A confirmação anterior já foi encerrada. Para registrar outro gasto, envie o valor e a descrição.';
+  }
   if (answer?.kind === 'same') {
     return 'Entendi, era o mesmo gasto. Mantive apenas o lançamento original, sem criar outro.';
   }
