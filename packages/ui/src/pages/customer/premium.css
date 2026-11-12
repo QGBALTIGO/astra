@@ -57,6 +57,15 @@ html .astra-customer .ac-sidebar {
 html .astra-customer .ac-navigation a {
   border-radius: 9px;
 }
+html .astra-customer .ac-sidebar-account-name > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html .astra-customer .ac-sidebar-account-name small {
+  white-space: nowrap;
+}
 html .astra-customer .ac-content {
   padding: 32px clamp(24px, 3vw, 48px) 24px;
 }
