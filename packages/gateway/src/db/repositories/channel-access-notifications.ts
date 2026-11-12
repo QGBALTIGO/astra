@@ -80,6 +80,17 @@ export function hasChannelUserInteracted(user: ChannelUserEntity): boolean {
   return user.metadata.hasInteracted === undefined || user.metadata.hasInteracted === true;
 }
 
+/** Paid Cakto confirmations may reach buyers who have never messaged the bot. */
+export function isProactivePaidCaktoNotice(
+  user: ChannelUserEntity,
+  kind: ChannelAccessNotificationKind
+): boolean {
+  return (
+    (kind === 'approved' || kind === 'renewed') &&
+    user.accessSource === 'cakto' &&
+    user.metadata.caktoManaged === true
+  );
+}
 export class ChannelAccessNotificationsRepository extends BaseRepository {
   /**
    * Call within the grant transaction when possible. Duplicate enqueue is a
@@ -94,7 +105,7 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
       user.platform !== 'whatsapp' ||
       !/^[1-9]\d{9,14}$/.test(user.platformUserId) ||
       user.ownpilotUserId !== `whatsapp:${user.platformUserId}` ||
-      !hasChannelUserInteracted(user)
+      (!hasChannelUserInteracted(user) && !isProactivePaidCaktoNotice(user, kind))
     )
       return null;
     const grantedAt = timestampOrNull(user.accessGrantedAt);
@@ -118,7 +129,9 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
          AND u.ownpilot_user_id = $7 AND u.platform_user_id = $8
          AND u.ownpilot_user_id = 'whatsapp:' || u.platform_user_id
          AND u.is_verified = TRUE AND u.is_blocked = FALSE AND u.status = 'active'
-         AND (u.metadata->'hasInteracted' IS NULL OR u.metadata->'hasInteracted' = 'true'::jsonb)
+         AND ((u.metadata->'hasInteracted' IS NULL OR u.metadata->'hasInteracted' = 'true'::jsonb)
+           OR (u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'
+             AND $2::text IN ('approved','renewed')))
          AND u.access_granted_at IS NOT DISTINCT FROM $9::timestamptz
          AND u.access_expires_at IS NOT DISTINCT FROM $10::timestamptz
          AND (u.access_expires_at IS NULL OR u.access_expires_at > $5::timestamptz)
@@ -274,7 +287,9 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
            AND u.ownpilot_user_id = notice.ownpilot_user_id
            AND u.ownpilot_user_id = 'whatsapp:' || u.platform_user_id
            AND u.is_verified = TRUE AND u.is_blocked = FALSE AND u.status = 'active'
-           AND (u.metadata->'hasInteracted' IS NULL OR u.metadata->'hasInteracted' = 'true'::jsonb)
+           AND ((u.metadata->'hasInteracted' IS NULL OR u.metadata->'hasInteracted' = 'true'::jsonb)
+             OR (u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'
+               AND notice.kind IN ('approved','renewed')))
            AND u.access_granted_at IS NOT DISTINCT FROM notice.access_granted_at
            AND u.access_expires_at IS NOT DISTINCT FROM notice.access_expires_at
            AND (u.access_expires_at IS NULL OR u.access_expires_at > $4::timestamptz)
@@ -290,6 +305,29 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
     });
   }
 
+  /**
+   * Suppress a second onboarding greeting after an accepted paid notification.
+   * Never set hasInteracted from outbound activity.
+   */
+  async markCaktoWelcomeDelivered(notificationId: string, userId: string): Promise<boolean> {
+    const result = await this.execute(
+      `UPDATE channel_users AS u SET
+         metadata = COALESCE(u.metadata, '{}'::jsonb)
+           || '{"caktoWelcomeDelivered":true,"accessWelcomePending":false}'::jsonb
+       FROM channel_access_notifications AS notice
+       WHERE notice.id = $1 AND notice.status = 'delivered'
+         AND notice.kind IN ('approved','renewed')
+         AND notice.channel_user_id = u.id AND u.id = $2
+         AND u.platform='whatsapp'
+         AND u.ownpilot_user_id = 'whatsapp:' || u.platform_user_id
+         AND u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'
+         AND u.is_verified=true AND u.is_blocked=false AND u.status='active'
+         AND u.access_granted_at IS NOT DISTINCT FROM notice.access_granted_at
+         AND u.access_expires_at IS NOT DISTINCT FROM notice.access_expires_at`,
+      [notificationId, userId]
+    );
+    return result.changes === 1;
+  }
   /** Only call when this worker knows it has not invoked the transport. */
   async deferBeforeSend(
     id: string,
