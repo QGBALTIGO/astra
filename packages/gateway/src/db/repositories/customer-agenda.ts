@@ -38,6 +38,25 @@ export interface CustomerAgendaInput {
   reminderAt?: string | null;
   completed?: boolean;
 }
+export type ChannelCalendarMutation =
+  | { action: 'create'; title: string; startTime: string; endTime: string; timezone: string }
+  | { action: 'delete'; title: string; day: string; timezone: string };
+type CalendarOutcome =
+  | { status: 'created' | 'existing'; event: CalendarEvent }
+  | {
+      status:
+        | 'denied'
+        | 'changed'
+        | 'gone'
+        | 'expired'
+        | 'removed'
+        | 'alreadyRemoved'
+        | 'missing'
+        | 'ambiguous';
+    };
+type StoredCalendarReceipt =
+  { status: 'created'; id: string } | { status: 'removed' | 'missing' | 'ambiguous' };
+
 export class CustomerAgendaError extends Error {
   constructor(
     message: string,
@@ -522,39 +541,103 @@ export class CustomerAgendaRepository extends BaseRepository {
     });
   }
 
+  /** Keep terminal outcomes so redelivery cannot recreate a deleted event or delete a new namesake. */
+  async changeChannelEvent(
+    input: ChannelCalendarMutation,
+    delivery: readonly [string, string, string, string],
+    canWrite: () => Promise<boolean>
+  ): Promise<CalendarOutcome> {
+    const digest = (value: unknown) =>
+      createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    const key = 'channel-event:' + digest(delivery);
+    const fingerprint = digest(input);
+    return this.transaction(async () => {
+      await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [
+        this.userId + ':' + key,
+      ]);
+      if (!(await canWrite())) return { status: 'denied' };
+      const previous = await this.queryOne<{
+        fingerprint: string;
+        response: StoredCalendarReceipt;
+      }>(
+        'SELECT fingerprint, response FROM customer_agenda_requests WHERE user_id=$1 AND request_key=$2',
+        [this.userId, key]
+      );
+      if (previous) {
+        if (previous.fingerprint !== fingerprint) return { status: 'changed' };
+        const receipt = previous.response;
+        if (receipt.status !== 'created')
+          return { status: receipt.status === 'removed' ? 'alreadyRemoved' : receipt.status };
+        const event = await this.calendar.get(receipt.id);
+        return event ? { status: 'existing', event } : { status: 'gone' };
+      }
+      let result: CalendarOutcome;
+      let receipt: StoredCalendarReceipt;
+      if (input.action === 'create') {
+        if (Date.parse(input.startTime) <= Date.now()) return { status: 'expired' };
+        const event = await this.calendar.create({ ...input, externalSource: delivery[0] });
+        result = { status: 'created', event };
+        receipt = { status: 'created', id: event.id };
+      } else {
+        const matches = await this.calendar.findSlotsByTitle(
+          [input.title],
+          customerDayStart(input.day, input.timezone),
+          customerDayStart(addCalendarDays(input.day, 1), input.timezone),
+          true
+        );
+        if (!(await canWrite())) return { status: 'denied' };
+        let status: 'missing' | 'ambiguous' | 'removed' = 'missing';
+        if (matches.length > 1) status = 'ambiguous';
+        else if (matches[0] && (await this.deleteInTransaction('event', matches[0].id)))
+          status = 'removed';
+        result = { status };
+        receipt = { status };
+      }
+      await this.execute(
+        'INSERT INTO customer_agenda_requests(user_id,request_key,fingerprint,response) VALUES($1,$2,$3,$4::jsonb)',
+        [this.userId, key, fingerprint, JSON.stringify(receipt)]
+      );
+      return result;
+    });
+  }
+
   async delete(kind: CustomerAgendaKind, id: string): Promise<boolean> {
     if (kind === 'bill') throw new CustomerAgendaError('Exclua a conta na página Transações.');
-    return this.transaction(async () => {
-      if (kind === 'reminder') {
-        const linked = await this.queryOne(
-          'SELECT item_id FROM customer_agenda_links WHERE user_id = $1 AND reminder_id = $2',
-          [this.userId, id]
-        );
-        if (linked)
-          throw new CustomerAgendaError('Remova o lembrete pelo compromisso ou pela tarefa.', 409);
-        const result = await this.execute(
-          "UPDATE channel_reminders SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND user_id = $2 AND status = 'pending'",
-          [id, this.userId]
-        );
-        if (!result.changes)
-          throw new CustomerAgendaError('Lembrete inexistente ou envio já iniciado.', 409);
-        return true;
-      }
-      const table = kind === 'event' ? 'calendar_events' : 'tasks';
-      const exists = await this.queryOne(
-        `SELECT id FROM ${table} WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+    return this.transaction(() => this.deleteInTransaction(kind, id));
+  }
+
+  private async deleteInTransaction(
+    kind: Exclude<CustomerAgendaKind, 'bill'>,
+    id: string
+  ): Promise<boolean> {
+    if (kind === 'reminder') {
+      const linked = await this.queryOne(
+        'SELECT item_id FROM customer_agenda_links WHERE user_id = $1 AND reminder_id = $2',
+        [this.userId, id]
+      );
+      if (linked)
+        throw new CustomerAgendaError('Remova o lembrete pelo compromisso ou pela tarefa.', 409);
+      const result = await this.execute(
+        "UPDATE channel_reminders SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND user_id = $2 AND status = 'pending'",
         [id, this.userId]
       );
-      if (!exists) return false;
-      await this.replaceReminder(kind, id, '', null, null);
-      const removed =
-        kind === 'event' ? await this.calendar.delete(id) : await this.tasks.delete(id);
-      await this.execute(
-        'DELETE FROM customer_agenda_links WHERE user_id = $1 AND kind = $2 AND item_id = $3',
-        [this.userId, kind, id]
-      );
-      return removed;
-    });
+      if (!result.changes)
+        throw new CustomerAgendaError('Lembrete inexistente ou envio já iniciado.', 409);
+      return true;
+    }
+    const table = kind === 'event' ? 'calendar_events' : 'tasks';
+    const exists = await this.queryOne(
+      `SELECT id FROM ${table} WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      [id, this.userId]
+    );
+    if (!exists) return false;
+    await this.replaceReminder(kind, id, '', null, null);
+    const removed = kind === 'event' ? await this.calendar.delete(id) : await this.tasks.delete(id);
+    await this.execute(
+      'DELETE FROM customer_agenda_links WHERE user_id = $1 AND kind = $2 AND item_id = $3',
+      [this.userId, kind, id]
+    );
+    return removed;
   }
 
   /** Export uses explicit account scope and does not silently stop at a UI page. */

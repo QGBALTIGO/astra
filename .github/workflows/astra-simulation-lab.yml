@@ -147,7 +147,7 @@ jobs:
           CREATE DATABASE astratest_expense_burst OWNER astratest;
           SQL
           pnpm --filter @ownpilot/gateway exec vitest run src/channels/auth/verification-postgres.test.ts src/db/repositories/channel-reminders-range.pg.test.ts
-          TZ=Asia/Tokyo pnpm --filter @ownpilot/gateway exec vitest run src/channels/personal-subscriptions.pg.test.ts
+          TZ=Asia/Tokyo pnpm --filter @ownpilot/gateway exec vitest run src/channels/personal-subscriptions.pg.test.ts src/channels/calendar-mutation.pg.test.ts
           pnpm --filter @ownpilot/gateway exec node --import tsx scripts/channel-expense-burst.ts "${RUNNER_TEMP}/astra-lab-integration/postgres-burst.json"
       - uses: actions/upload-artifact@v4
         with:
