@@ -1,0 +1,122 @@
+name: Astra Simulation & Reliability Lab
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/astra-simulation-lab/**'
+      - 'docs/ASTRA_SIMULATION_RELIABILITY_LAB.md'
+      - '.github/workflows/astra-simulation-lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: astra-sim-lab-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-corpus:
+    name: Generate and validate 100k synthetic scenarios
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+      - name: Test narratives, stateful finances, privacy and virtual time
+        run: node --test scripts/astra-simulation-lab/core.test.mjs scripts/astra-simulation-lab/world-oracle.test.mjs
+      - name: Generate 100k corpus and HTML evidence dashboard
+        run: >-
+          node scripts/astra-simulation-lab/run.mjs
+          --limit=100000
+          --seed=20261112
+          --output="${RUNNER_TEMP}/astra-sim-lab"
+      - name: Export τ-style action/state scripts without executing tau2-bench
+        run: >-
+          node scripts/astra-simulation-lab/tau-fixtures.mjs
+          "${RUNNER_TEMP}/astra-sim-lab/tau-fixtures.jsonl"
+          1000
+      - name: Upload only reproducible synthetic artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-lab-100k-synthetic
+          path: ${{ runner.temp }}/astra-sim-lab
+          retention-days: 7
+          if-no-files-found: error
+
+  property-based:
+    name: 18k fast-check properties (CI-only dependency)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+      - name: Install pinned fast-check outside the Astra monorepo
+        run: npm install --prefix "${RUNNER_TEMP}/astra-fast-check" --no-save --no-package-lock --ignore-scripts fast-check@4.10.2
+      - name: Property-based monetary, time, scope, and retry tests
+        env:
+          ASTRA_LAB_FAST_CHECK_PREFIX: ${{ runner.temp }}/astra-fast-check
+        run: node scripts/astra-simulation-lab/properties.fast-check.mjs
+
+  isolated-astra-pipeline:
+    name: Astra channel entry points with isolated PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: astra_screenshot_ci_only
+          POSTGRES_DB: astratest_screenshots
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astratest -d astratest_screenshots"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ownpilot/core build
+      - name: Execute actual Astra channel + real ephemeral PostgreSQL smoke
+        env:
+          ASTRA_WHATSAPP_SCREENSHOT_SMOKE: '1'
+          NODE_ENV: test
+          DATABASE_URL: ''
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: '5432'
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: astra_screenshot_ci_only
+          POSTGRES_DB: astratest_screenshots
+          OWNPILOT_DATA_DIR: ${{ runner.temp }}/astra-sim-gateway
+          LOG_LEVEL: error
+        run: |
+          set -o pipefail
+          pnpm --filter @ownpilot/gateway exec node --import tsx scripts/whatsapp-screenshot-smoke.ts | tee "${RUNNER_TEMP}/astra-pipeline.log"
+          mkdir -p "${RUNNER_TEMP}/astra-lab-integration"
+          node scripts/astra-simulation-lab/summarize-smoke.mjs "${RUNNER_TEMP}/astra-pipeline.log" "${RUNNER_TEMP}/astra-lab-integration"
+      - name: Validate 500+ real Astra financial parsing and intent cases
+        run: pnpm --filter @ownpilot/gateway exec vitest run src/channels/astra-lab-regression.test.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: astra-lab-real-pipeline-synthetic-data
+          path: ${{ runner.temp }}/astra-lab-integration
+          retention-days: 7
+          if-no-files-found: error

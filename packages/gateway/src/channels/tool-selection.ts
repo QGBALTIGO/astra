@@ -39,7 +39,7 @@ export function isConversationalOnlyChannelRequest(text: string): boolean {
     return false;
   }
   return (
-    /^(?:pede|peca|fala|diz|diga)\s+(?:pro|pra|para\s+(?:o|a)|ao|a)\s+(?:(?:meu|minha|o|a)\s+)?(?:namorad[oa]|marido|esposa|mae|pai|amig[oa]|client[ea]|chefe|irma[oa])\b/.test(
+    /^(?:pede|peca|fala|diz|diga)\s+(?:pro|pra|para(?:\s+(?:o|a))?|ao|a)\s+(?:(?:meu|minha|o|a)\s+)?(?:namorad[oa]|marido|esposa|mae|pai|amig[oa]|client[ea]|chefe|irma[oa])\b/.test(
       input
     ) ||
     /^(?:(?:pode|poderia|consegue)\s+)?(?:escrev(?:a|e|er)|redig(?:a|e|ir)|mont(?:a|e|ar)|cri(?:a|e|ar)|faz|faca|fazer|ger(?:a|e|ar))\s+(?:(?:uma|um)\s+)?(?:mensagem|texto|recado|pedido|convite|resposta)\b/.test(
