@@ -19,7 +19,7 @@ const placePattern = new RegExp(
 const datePattern =
   /(?<![\d/.-])(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2}\s+de\s+[a-z]+\s+de\s+\d{4})(?![\d/.-]\d)/gu;
 const timePattern =
-  /\b(?:(\d{1,2})(?:\s*h(?:oras?)?(\d{2})?|:(\d{2}))|(\d{1,2})(?=\s*(?:am|pm|da (?:manha|tarde|noite))\b)|meio[- ]dia|meia[- ]noite)(?:\s*(am|pm|da manha|da tarde|da noite))?(?![\w:])/gu;
+  /\b(?:(\d{1,2})(?:\s*h(?:oras?)?(\d{2})?|:(\d{2}))|(\d{1,2})(?=\s*(?:e meia|am|pm|da (?:manha|tarde|noite))\b)|meio[- ]dia|meia[- ]noite)(?: e (meia))?(?:\s*(am|pm|da manha|da tarde|da noite))?(?![\w:])/gu;
 const query =
   /\b(?:que horas?|que horario|qual (?:o |e o |seria o )?horario|a que horas?|equivale|equivalem|corresponde|correspondem|quanto fica)\b/u;
 const convert = /\b(?:converta|converte|converter|conversao)\b/u;
@@ -27,7 +27,8 @@ const askZones =
   'Qual é o fuso de origem e para qual fuso você quer converter? Pode informar as cidades ou os nomes IANA.';
 const askDate =
   'Qual é a data na cidade de origem? Informe dia, mês e ano e confira o dia da semana.';
-const askTime = 'Qual é o horário de origem? Informe uma única hora entre 00:00 e 23:59.';
+const askTime =
+  'Qual é o horário de origem? Informe uma única hora no formato HH:MM, entre 00:00 e 23:59.';
 
 function calendarDay(text: string, today: string): string | null {
   const dates = [...text.matchAll(datePattern)];
@@ -49,17 +50,31 @@ function calendarDay(text: string, today: string): string | null {
   return parseChannelCalendarDay([dayWord, weekday, date].filter(Boolean).join(', '), today);
 }
 
-function sourceTime(match: RegExpMatchArray): string | null {
-  const [raw, clockHour, hMinutes, colonMinutes, dayPartHour, period] = match;
-  if (raw.startsWith('meia')) return period ? null : '00:00';
-  if (raw.startsWith('meio')) return period ? null : '12:00';
+function sourceTime(match: RegExpMatchArray, text: string): string | null {
+  const [raw, clockHour, hMinutes, colonMinutes, dayPartHour, half, period] = match;
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index! + raw.length);
+  // An unsupported minute expression must not be silently rounded to a whole hour.
+  if (
+    /(?:\d:|\b(?:minutos?|quarto|\d{1,2}|cinco|dez|quinze|vinte|vinte e cinco)\s+(?:para|pras?|antes d[ae])\s+(?:as?\s+)?)$/u.test(
+      before
+    ) ||
+    /^\s*(?:[+−-]\s*\d|(?:menos|mais|passad[ao]s?)\b|e\s+(?!que\b|qual\b|quanto\b|gostaria\b|quero\b|preciso\b)\S)/u.test(
+      after
+    ) ||
+    (half && (hMinutes !== undefined || colonMinutes !== undefined))
+  )
+    return null;
+  const minutes = half ? '30' : (hMinutes ?? colonMinutes ?? '00');
+  if (raw.startsWith('meia')) return period ? null : '00:' + minutes;
+  if (raw.startsWith('meio')) return period ? null : '12:' + minutes;
   let hour = Number(clockHour ?? dayPartHour);
   if (period) {
     if (hour < 1 || hour > 12 || (period === 'da noite' && hour < 6)) return null;
     hour = (hour % 12) + (['pm', 'da tarde', 'da noite'].includes(period) ? 12 : 0);
     if (period === 'da noite' && hour === 12) hour = 0;
   }
-  return parseChannelClock(String(hour) + ':' + (hMinutes ?? colonMinutes ?? '00'));
+  return parseChannelClock(String(hour) + ':' + minutes);
 }
 
 /** Interpret the stated direction, including “Que horas em X quando em Y são 14h?”. */
@@ -138,10 +153,10 @@ export function tryChannelTimeConversion(raw: string, receivedAt: Date): string 
   if (clocks.length !== 1) return askTime;
   if (/\b(?:ou|talvez)\b/u.test(text))
     return 'Informe uma única data, um horário e os dois fusos para a conversão.';
-  const hour = sourceTime(clocks[0]!);
+  const hour = sourceTime(clocks[0]!, text);
   if (!hour) return askTime;
   let placeIndex = 0;
-  const pattern = text.replace(placePattern, () => '@' + placeIndex++).replace(timePattern, '~');
+  const pattern = text.replace(timePattern, '~').replace(placePattern, () => '@' + placeIndex++);
   const roles = direction(pattern);
   if (!roles) return askZones;
   const resolve = (place: string) => resolveCustomerTimeZone(cityZones[place] ?? place);

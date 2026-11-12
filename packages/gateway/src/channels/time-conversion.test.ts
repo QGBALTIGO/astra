@@ -54,6 +54,11 @@ describe('private channel wall-clock conversions', () => {
     ['Converta 2 da tarde de São Paulo para Mato Grosso do Sul em 17/11/2026.', '13:00'],
     ['Converta meio-dia de Brasília para Campo Grande em 2026-11-17.', '11:00'],
     ['Converta meia-noite de Brasília para Cuiabá em 2026-11-17.', '23:00 de 16/11/2026.'],
+    ['Converta 3 e meia da tarde de Brasília para Cuiabá em 18/11/2026.', '14:30'],
+    [
+      'No dia 18/11/2026, meia-noite e meia em Brasília dá que horas em Cuiabá?',
+      '23:30 de 17/11/2026.',
+    ],
     ['Quanto fica 14:30 (Brasília) em Cuiabá em 17/11/2026?', '13:30'],
     ['Converta 2026-11-17T14:00 de UTC para Asia/Kathmandu.', '19:45'],
     ['Converta 12h de America/New_York para UTC em 15/07/2026.', '16:00'],
@@ -82,6 +87,13 @@ describe('private channel wall-clock conversions', () => {
     ['Converta 25h de Brasília para Cuiabá em 17/11/2026.', 'horário'],
     ['Converta 14:75 de Brasília para Cuiabá em 17/11/2026.', 'horário'],
     ['Converta 14h e 15h de Brasília para Cuiabá em 17/11/2026.', 'horário'],
+    ['Converta 14h15 e meia de Brasília para Cuiabá em 17/11/2026.', 'HH:MM'],
+    ['No dia 18/11/2026, em Brasília é meio-dia e quinze. Que horas são em Cuiabá?', 'HH:MM'],
+    [
+      'No dia 18/11/2026, em Brasília é um quarto para meia-noite. Que horas são em Cuiabá?',
+      'HH:MM',
+    ],
+    ['No dia 18/11/2026, em Brasília são 14:15:45. Que horas são em Cuiabá?', 'HH:MM'],
     ['Converta 01:30 de America/New_York para UTC em 01/11/2026.', 'ocorre duas vezes'],
     ['Converta 02:30 de America/New_York para UTC em 08/03/2026.', 'inexistente'],
   ])('clarifies %s', (text, part) =>
@@ -103,37 +115,51 @@ describe('private channel wall-clock conversions', () => {
   );
 
   describe.each(['whatsapp', 'telegram'] as const)('%s', (platform) => {
-    it.each(['bus', 'direct'])(
-      'answers B06 in %s without a model, stored state or agenda mutations',
-      async (path) => {
-        const message: ChannelIncomingMessage = {
-          id: 'fixture',
-          platform,
-          channelPluginId: 'channel.' + platform,
-          platformChatId: 'fixture',
-          sender: { platform, platformUserId: 'fixture', displayName: 'Pessoa de teste' },
-          text: example,
-          timestamp: received,
-          metadata: platform === 'telegram' ? { chatType: 'private' } : { isGroup: false },
-        };
-        const access = vi.fn(async () => true);
-        const reply =
-          path === 'bus'
-            ? await processViaBus(
-                { process: fail } as never,
-                message,
-                { sessionId: 'fixture', conversationId: null },
-                { ownpilotUserId: 'fixture' },
-                {
-                  sessionsRepo: { getById: fail } as never,
-                  getChannel: fail,
-                  isAccessAllowed: access,
-                }
-              )
-            : await processDirectAgent(message, 'fixture', access);
-        expect(reply).toBe('13:00');
-        expect(access).toHaveBeenCalledTimes(1);
-        expect(fail).not.toHaveBeenCalled();
+    describe.each(['bus', 'direct'])(
+      '%s without a model, stored state or agenda mutations',
+      (path) => {
+        it.each([
+          [example, '13:00'],
+          [
+            'No dia 18/11/2026, em Brasília é meia-noite e meia. Que horas são em Cuiabá?',
+            '23:30 de 17/11/2026.',
+          ],
+          ['No dia 18/11/2026, em Brasília é meio-dia e meia. Que horas são em Cuiabá?', '11:30'],
+          [
+            'No dia 18/11/2026, em Brasília é meio-dia menos dez. Que horas são em Cuiabá?',
+            'HH:MM',
+          ],
+        ])('preserves or clarifies the requested time: %s', async (text, expected) => {
+          const message: ChannelIncomingMessage = {
+            id: 'fixture',
+            platform,
+            channelPluginId: 'channel.' + platform,
+            platformChatId: 'fixture',
+            sender: { platform, platformUserId: 'fixture', displayName: 'Pessoa de teste' },
+            text,
+            timestamp: received,
+            metadata: platform === 'telegram' ? { chatType: 'private' } : { isGroup: false },
+          };
+          const access = vi.fn(async () => true);
+          const reply =
+            path === 'bus'
+              ? await processViaBus(
+                  { process: fail } as never,
+                  message,
+                  { sessionId: 'fixture', conversationId: null },
+                  { ownpilotUserId: 'fixture' },
+                  {
+                    sessionsRepo: { getById: fail } as never,
+                    getChannel: fail,
+                    isAccessAllowed: access,
+                  }
+                )
+              : await processDirectAgent(message, 'fixture', access);
+          if (expected === 'HH:MM') expect(reply).toContain(expected);
+          else expect(reply).toBe(expected);
+          expect(access).toHaveBeenCalledTimes(1);
+          expect(fail).not.toHaveBeenCalled();
+        });
       }
     );
   });

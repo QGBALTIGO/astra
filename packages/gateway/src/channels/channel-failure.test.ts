@@ -71,6 +71,61 @@ describe('channel failure replies', () => {
       /foi (?:salv|criad|exclu)|não (?:salvei|criei)|nada mudou|tente novamente|pode me (?:chamar|perguntar)/i
     );
   });
+  it.each([
+    ['Não quero cancelar a assinatura. Só quero saber quando vence.', 'Meu planejamento'],
+    ['Não apague o aviso! Quero ver a que horas ele toca.', 'lista de avisos'],
+    ['Paguei ontem ou foi hoje? É só consulta do gasto.', 'Transações'],
+    [
+      'Você consegue cancelar assinaturas com o fornecedor ou só acompanha os vencimentos?',
+      'cancelamento é com o fornecedor',
+    ],
+    [
+      'Pode registrar gasto em dólar ou precisa ser em reais? Estou perguntando como funciona.',
+      'separados por moeda',
+    ],
+    [
+      'Deixa minha tarefa como está. Explica a diferença entre pendente e concluída.',
+      'marcada como feita',
+    ],
+    ['Se eu pedir, você consegue me mostrar só as tarefas concluídas?', 'só as concluídas'],
+    ['O aviso chega aqui mesmo no Telegram ou preciso abrir o painel?', 'aqui mesmo na conversa'],
+    ['Como funciona o reagendamento de um compromisso?', 'escolha Editar'],
+  ])('handles a request for information without implying a write: %s', (input, expected) => {
+    const r = channelFailureReply(input, 'provider_unavailable');
+    expect(r).toContain(expected);
+    expect(r).not.toMatch(
+      /confirmação|mudança já aparece|antes de criar|antes de (?:anotar|repetir)/i
+    );
+  });
+
+  it.each([
+    ['Me dá um toque pra pegar a marmita na hora de sair, lá pelas seis?', 'status em Agenda'],
+    ['Muda a minha reunião de amanhã pras dez?', 'Antes de pedir outra alteração'],
+    ['Em vez das sete, me avisa às oito de levar o casaco?', 'status em Agenda'],
+    ['Opa, pode corrigir o lançamento de 12 pra 10 reais?', 'confirmação do lançamento'],
+    ['Troca a mensalidade de 10 para 16 reais?', 'confirmação da assinatura'],
+    [
+      'A tarefa de devolver o livro ainda não acabou. Deixa ela pendente de novo?',
+      'confirmação da tarefa',
+    ],
+    ['Passa pro meu controle os 9 reais do ônibus?', 'confirmação do lançamento'],
+    ['Bota na lista de tarefas a devolução do livro?', 'confirmação da tarefa'],
+    ['Não vou à reunião. Pode tirar ela da agenda?', 'Antes de pedir outra alteração'],
+    [
+      'A partir de hoje deixa de acompanhar minha assinatura, pode ser?',
+      'confirmação da assinatura',
+    ],
+    ['Não apague o aviso, mas me lembre de ligar amanhã.', 'status em Agenda'],
+    [
+      'Como funciona a agenda? Pode criar um compromisso para amanhã?',
+      'Antes de pedir outra alteração',
+    ],
+  ])('keeps a colloquial or compound action safe: %s', (input, expected) => {
+    const r = channelFailureReply(input, 'timeout');
+    expect(r).toContain(expected);
+    expect(r).not.toMatch(/tente novamente|pode me chamar|pergunt\w* de novo|foi criad/i);
+  });
+
   it('a real write invocation outweighs read wording; a failed write never becomes confirmation', () => {
     const r = channelFailureReply('Qual é o meu próximo compromisso?', 'timeout', [
       receipt('core.add_calendar_event', { success: false }, true),

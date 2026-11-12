@@ -1,4 +1,4 @@
-import { channelReadFailure } from './channel-failure.js';
+import { channelDataFailure } from './channel-failure.js';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 import {
   channelRemindersRepo,
@@ -74,6 +74,6 @@ export async function tryListTodaysReminders(
       reminders.length > PAGE_SIZE ? `Mostrando os primeiros ${PAGE_SIZE} lembretes.` : undefined
     );
   } catch (error) {
-    return channelReadFailure('reminder', error);
+    return channelDataFailure('reminder', 'read', error);
   }
 }

@@ -4,7 +4,7 @@ import {
   CustomerAgendaRepository,
   type ChannelTaskResult,
 } from '../db/repositories/customer-agenda.js';
-import { getLog } from '../services/log.js';
+import { channelDataFailure } from './channel-failure.js';
 
 const createTask =
   /^(?:adicione|adiciona|inclua|inclui|coloque|coloca|anote|anota|crie|cria|cadastre|cadastra)\s+(?:(?:à|a|na|em)\s+(?:minha\s+)?lista\s+de\s+tarefas|(?:uma\s+|a\s+)?tarefa(?:\s+na\s+minha\s+lista)?)\s*[:–-]?\s+(.+)$/iu;
@@ -148,9 +148,6 @@ export async function tryPersonalTaskReply(
     );
   } catch (error) {
     if (error instanceof CustomerAgendaError && error.status === 409) return error.message;
-    getLog('ChannelTasks').error('Falha ao consultar ou alterar tarefa pessoal', {
-      category: error instanceof Error ? error.name : 'unknown',
-    });
-    return 'Não consegui confirmar o estado da tarefa. Consulte sua lista antes de repetir o pedido.';
+    return channelDataFailure('task', request.action === 'lookup' ? 'read' : 'write', error);
   }
 }

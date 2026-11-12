@@ -24,7 +24,7 @@ import { tryPersonalTaskReply } from './personal-tasks.js';
 import {
   channelFailureKind,
   channelFailureReply,
-  channelReadFailure,
+  channelDataFailure,
   presentChannelReply,
 } from './channel-failure.js';
 import { getLog } from '../services/log.js';
@@ -196,7 +196,7 @@ export async function tryExpenseSummaryChannelReply(
     async () => {
       const result = await executeExpenseTool('expense_summary', { period }, userId);
       if (!result.success || !result.result) {
-        return channelReadFailure('finance', result.error ?? 'missing_result');
+        return channelDataFailure('finance', 'read', result.error ?? 'missing_result');
       }
 
       const summary = result.result as {
@@ -206,7 +206,7 @@ export async function tryExpenseSummaryChannelReply(
       };
       const count = summary.count;
       if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0)
-        return channelReadFailure('finance', 'invalid_summary');
+        return channelDataFailure('finance', 'read', 'invalid_summary');
       const periodLabel = EXPENSE_PERIOD_LABELS[period];
       if (count === 0) {
         return formatAstraMessage(
@@ -218,7 +218,7 @@ export async function tryExpenseSummaryChannelReply(
 
       const currencyTotals = Object.entries(summary.byCurrency ?? {});
       if (currencyTotals.some(([, value]) => !Number.isFinite(value)))
-        return channelReadFailure('finance', 'invalid_summary');
+        return channelDataFailure('finance', 'read', 'invalid_summary');
       if (currencyTotals.length > 1) {
         return formatAstraMessage(
           '📊 Resumo de gastos',
@@ -237,14 +237,14 @@ export async function tryExpenseSummaryChannelReply(
       const [currency = 'BRL', currencyAmount] = currencyTotals[0] ?? [];
       const amount = currencyAmount ?? summary.totalAmount;
       if (typeof amount !== 'number' || !Number.isFinite(amount))
-        return channelReadFailure('finance', 'invalid_summary');
+        return channelDataFailure('finance', 'read', 'invalid_summary');
       return formatAstraMessage('📊 Resumo de gastos', [
         { label: 'Período', value: periodLabel },
         { label: 'Total', value: formatExpenseAmount(amount, currency) },
         { label: 'Lançamentos', value: String(count) },
       ]);
     }
-  ).catch((error: unknown) => channelReadFailure('finance', error));
+  ).catch((error: unknown) => channelDataFailure('finance', 'read', error));
 }
 
 /**
