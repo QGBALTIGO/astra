@@ -88,6 +88,28 @@ describe('ComposioService', () => {
   // ========================================================================
 
   describe('getAvailableApps', () => {
+    it('retrieves selected apps directly instead of depending on a truncated catalog page', async () => {
+      mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
+      mockComposioInstance.toolkits.get.mockImplementation(async (slug?: string) =>
+        slug ? { slug, name: slug } : [{ slug: 'unrelated', name: 'Unrelated' }]
+      );
+      const slugs = [
+        'googlecalendar',
+        'gmail',
+        'googledrive',
+        'googlesheets',
+        'todoist',
+        'notion',
+        'trello',
+      ];
+      expect((await composioService.getAvailableApps(slugs)).map((app) => app.slug)).toEqual(slugs);
+      expect(mockComposioInstance.toolkits.get).toHaveBeenCalledTimes(7);
+      await composioService.getAvailableApps(slugs);
+      expect(mockComposioInstance.toolkits.get).toHaveBeenCalledTimes(7);
+      expect((await composioService.getAvailableApps()).map((app) => app.slug)).toEqual([
+        'unrelated',
+      ]);
+    });
     it('returns mapped apps from SDK', async () => {
       mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
       // SDK returns a flat array (not { items: [...] })
@@ -380,18 +402,37 @@ describe('ComposioService', () => {
   // ========================================================================
 
   describe('initiateConnection', () => {
-    it('calls toolkits.authorize and returns result', async () => {
+    it.each([
+      'javascript:alert(1)',
+      'https://composio.dev.evil.example/link',
+      'https://user:pass@connect.composio.dev/link',
+      'https://connect.composio.dev:8443/link',
+    ])('rejects unsafe hosted links: %s', async (redirectUrl) => {
       mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
-      mockComposioInstance.toolkits.authorize.mockResolvedValue({
+      mockComposioInstance.create.mockResolvedValue({
+        authorize: vi.fn().mockResolvedValue({ redirectUrl }),
+      });
+      await expect(composioService.initiateConnection('user1', 'gmail')).rejects.toThrow();
+    });
+    it('creates a managed auth session and returns an unconfirmed connection request', async () => {
+      mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
+      const authorize = vi.fn().mockResolvedValue({
         redirectUrl: 'https://composio.dev/auth/github',
-        connectedAccountId: 'ca_123',
+        id: 'ca_123',
         connectionStatus: 'INITIATED',
       });
+      mockComposioInstance.create.mockResolvedValue({ authorize });
 
       const result = await composioService.initiateConnection('user1', 'github');
       expect(result.redirectUrl).toBe('https://composio.dev/auth/github');
       expect(result.connectedAccountId).toBe('ca_123');
-      expect(mockComposioInstance.toolkits.authorize).toHaveBeenCalledWith('user1', 'github');
+      expect(mockComposioInstance.create).toHaveBeenCalledWith('user1', { toolkits: ['github'] });
+      expect(authorize).toHaveBeenCalledWith('github', {
+        callbackUrl:
+          'https://app.astraacessor.pro/settings/connected-apps?tab=apps&connected=github',
+      });
+      expect(result.connectionStatus).toBe('INITIATED');
+      expect(mockComposioInstance.toolkits.authorize).not.toHaveBeenCalled();
     });
   });
 

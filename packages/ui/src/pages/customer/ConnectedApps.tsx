@@ -77,8 +77,8 @@ export function CustomerConnectedApps({
       ) : null}
       {!apps.data?.configured ? (
         <p className="ac-muted">
-          Gmail e Google Agenda ainda estão em configuração. Cada pessoa poderá conectar sua própria
-          conta quando a autorização segura estiver habilitada.
+          As conexões ainda estão em configuração. Você poderá autorizar suas contas de agenda,
+          e-mail, documentos e tarefas assim que o serviço estiver pronto.
         </p>
       ) : null}
       {apps.data?.apps.map((app) => {
@@ -99,11 +99,7 @@ export function CustomerConnectedApps({
                       ? 'Aguardando ativação'
                       : 'Não conectado'}
               </span>
-              <p>
-                {isCalendar
-                  ? 'Autorize sua conta Google para os recursos de agenda.'
-                  : 'Autorize sua conta Gmail para os recursos de e-mail.'}
-              </p>
+              <p>{app.description ?? 'Conecte sua conta para os recursos deste aplicativo.'}</p>
               {isConnected && app.connectionId ? (
                 <button
                   className="ac-text-button"

@@ -55,7 +55,7 @@ describe('customer Google connections', () => {
     expect(res.status).toBe(200);
     const payload = await res.json();
     expect(payload.data.configured).toBe(false);
-    expect(payload.data.apps).toHaveLength(2);
+    expect(payload.data.apps).toHaveLength(7);
     expect(payload.data.apps.every((app: { status: string }) => app.status === 'unavailable')).toBe(
       true
     );
@@ -79,15 +79,23 @@ describe('customer Google connections', () => {
     const res = await createApp().request('/connected-apps');
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data.apps).toEqual([
-      { slug: 'gmail', name: 'Gmail', status: 'connected', connectionId: 'ca_gmail' },
-      {
-        slug: 'googlecalendar',
-        name: 'Google Agenda',
-        status: 'needs_attention',
-        connectionId: 'ca_cal',
-      },
-    ]);
+    expect(body.data.apps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slug: 'gmail',
+          name: 'Gmail',
+          status: 'connected',
+          connectionId: 'ca_gmail',
+        }),
+        expect.objectContaining({
+          slug: 'googlecalendar',
+          name: 'Google Agenda',
+          status: 'needs_attention',
+          connectionId: 'ca_cal',
+        }),
+      ])
+    );
+    expect(body.data.apps).toHaveLength(7);
     expect(svc.getCustomerConnections).toHaveBeenCalledExactlyOnceWith('astra-customer:account-a');
   });
 
@@ -98,7 +106,24 @@ describe('customer Google connections', () => {
     expect(svc.authorizeCustomerToolkit).not.toHaveBeenCalled();
   });
 
-  it('allows only Gmail or Google Calendar, never custom redirects or user IDs', async () => {
+  it.each([
+    'googlecalendar',
+    'gmail',
+    'googledrive',
+    'googlesheets',
+    'todoist',
+    'notion',
+    'trello',
+  ])('authorizes only the current customer for %s', async (slug) => {
+    expect((await post(createApp(), '/connected-apps/connect', { app: slug })).status).toBe(200);
+    expect(svc.authorizeCustomerToolkit).toHaveBeenCalledExactlyOnceWith(
+      'astra-customer:account-a',
+      slug,
+      'https://app.astraacessor.pro/cliente/perfil?integracoes=1'
+    );
+  });
+
+  it('allows only the selected apps, never custom redirects or user IDs', async () => {
     const app = createApp();
     expect((await post(app, '/connected-apps/connect', { app: 'github' })).status).toBe(400);
     expect(

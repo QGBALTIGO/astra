@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
 import { useDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/ToastProvider';
@@ -22,181 +22,22 @@ import { useSkipHome } from '../hooks/useSkipHome';
 import { safeExternalHref } from '../utils/safe-url';
 
 // =============================================================================
-// Popular apps catalog — shown as fallback when dynamic list is empty
-// =============================================================================
-
-const POPULAR_APPS: ComposioApp[] = [
-  {
-    slug: 'gmail',
-    name: 'Gmail',
-    description: 'Send, read, and manage emails',
-    categories: ['productivity'],
-  },
-  {
-    slug: 'googlecalendar',
-    name: 'Google Calendar',
-    description: 'Criar e gerenciar compromissos na agenda',
-    categories: ['productivity'],
-  },
-  {
-    slug: 'googledrive',
-    name: 'Google Drive',
-    description: 'File storage and sharing',
-    categories: ['storage'],
-  },
-  {
-    slug: 'github',
-    name: 'GitHub',
-    description: 'Code hosting, issues, pull requests, actions',
-    categories: ['developer'],
-  },
-  {
-    slug: 'slack',
-    name: 'Slack',
-    description: 'Team messaging and communication',
-    categories: ['communication'],
-  },
-  {
-    slug: 'notion',
-    name: 'Notion',
-    description: 'Notes, docs, wikis, and project management',
-    categories: ['productivity'],
-  },
-  {
-    slug: 'discord',
-    name: 'Discord',
-    description: 'Community chat and voice communication',
-    categories: ['communication'],
-  },
-  {
-    slug: 'trello',
-    name: 'Trello',
-    description: 'Visual project management boards',
-    categories: ['productivity'],
-  },
-  {
-    slug: 'linear',
-    name: 'Linear',
-    description: 'Issue tracking and project management',
-    categories: ['developer'],
-  },
-  {
-    slug: 'spotify',
-    name: 'Spotify',
-    description: 'Music streaming and playlists',
-    categories: ['media'],
-  },
-  {
-    slug: 'twitter',
-    name: 'Twitter',
-    description: 'Social media posts and engagement',
-    categories: ['social'],
-  },
-  {
-    slug: 'dropbox',
-    name: 'Dropbox',
-    description: 'Cloud file storage and sharing',
-    categories: ['storage'],
-  },
-  {
-    slug: 'jira',
-    name: 'Jira',
-    description: 'Agile project management and issue tracking',
-    categories: ['developer'],
-  },
-  {
-    slug: 'asana',
-    name: 'Asana',
-    description: 'Work management and team coordination',
-    categories: ['productivity'],
-  },
-  {
-    slug: 'hubspot',
-    name: 'HubSpot',
-    description: 'CRM, marketing, and sales automation',
-    categories: ['crm'],
-  },
-  {
-    slug: 'salesforce',
-    name: 'Salesforce',
-    description: 'Enterprise CRM platform',
-    categories: ['crm'],
-  },
-  {
-    slug: 'shopify',
-    name: 'Shopify',
-    description: 'E-commerce platform and store management',
-    categories: ['commerce'],
-  },
-  {
-    slug: 'stripe',
-    name: 'Stripe',
-    description: 'Payment processing and billing',
-    categories: ['finance'],
-  },
-  {
-    slug: 'figma',
-    name: 'Figma',
-    description: 'Collaborative design and prototyping',
-    categories: ['design'],
-  },
-  {
-    slug: 'youtube',
-    name: 'YouTube',
-    description: 'Video platform — upload, manage, analytics',
-    categories: ['media'],
-  },
-  {
-    slug: 'todoist',
-    name: 'Todoist',
-    description: 'Personal and team task management',
-    categories: ['productivity'],
-  },
-  {
-    slug: 'airtable',
-    name: 'Airtable',
-    description: 'Spreadsheet-database hybrid for teams',
-    categories: ['productivity'],
-  },
-  {
-    slug: 'zoom',
-    name: 'Zoom',
-    description: 'Video conferencing and meetings',
-    categories: ['communication'],
-  },
-  {
-    slug: 'microsoft-teams',
-    name: 'Microsoft Teams',
-    description: 'Team collaboration and meetings',
-    categories: ['communication'],
-  },
-  {
-    slug: 'clickup',
-    name: 'ClickUp',
-    description: 'All-in-one project management',
-    categories: ['productivity'],
-  },
-  {
-    slug: 'intercom',
-    name: 'Intercom',
-    description: 'Customer messaging and support',
-    categories: ['support'],
-  },
-];
-
-// =============================================================================
 // Status helpers
 // =============================================================================
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  ACTIVE: { bg: 'bg-success/10', text: 'text-success', label: 'Active' },
-  INITIATED: { bg: 'bg-warning/10', text: 'text-warning', label: 'Connecting...' },
-  EXPIRED: { bg: 'bg-warning/10', text: 'text-warning', label: 'Expired' },
-  FAILED: { bg: 'bg-error/10', text: 'text-error', label: 'Failed' },
-  INACTIVE: { bg: 'bg-text-muted/10', text: 'text-text-muted', label: 'Inactive' },
+  ACTIVE: { bg: 'bg-success/10', text: 'text-success', label: 'Conectado' },
+  INITIATED: { bg: 'bg-warning/10', text: 'text-warning', label: 'Em autorização' },
+  EXPIRED: { bg: 'bg-warning/10', text: 'text-warning', label: 'Reconectar' },
+  FAILED: { bg: 'bg-error/10', text: 'text-error', label: 'Falha na conexão' },
+  INACTIVE: { bg: 'bg-text-muted/10', text: 'text-text-muted', label: 'Pausado' },
 };
 
-const FALLBACK_STATUS = { bg: 'bg-text-muted/10', text: 'text-text-muted', label: 'Unknown' };
+const FALLBACK_STATUS = {
+  bg: 'bg-text-muted/10',
+  text: 'text-text-muted',
+  label: 'Não confirmado',
+};
 
 function StatusBadge({ status }: { status: string }) {
   const style = STATUS_STYLES[status] ?? FALLBACK_STATUS;
@@ -245,7 +86,7 @@ function ConnectedAppCard({
             onClick={onRefresh}
             disabled={isRefreshing}
             className="p-2 text-text-muted dark:text-dark-text-muted hover:text-primary transition-colors"
-            title="Refresh connection"
+            title="Reconectar conta"
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
@@ -253,7 +94,7 @@ function ConnectedAppCard({
         <button
           onClick={onDisconnect}
           className="p-2 text-text-muted dark:text-dark-text-muted hover:text-error transition-colors"
-          title="Disconnect"
+          title="Desconectar"
         >
           <Unlink className="w-4 h-4" />
         </button>
@@ -302,7 +143,7 @@ function AvailableAppCard({
         ) : (
           <Link className="w-3 h-3" />
         )}
-        Connect
+        {disabled ? 'Configuração pendente' : isConnecting ? 'Conectando…' : 'Conectar conta'}
       </button>
     </div>
   );
@@ -315,8 +156,8 @@ function AvailableAppCard({
 type TabId = 'home' | 'apps';
 
 const TAB_LABELS: Record<TabId, string> = {
-  home: 'Home',
-  apps: 'Apps',
+  home: 'Início',
+  apps: 'Aplicativos',
 };
 
 // =============================================================================
@@ -349,34 +190,42 @@ export function ConnectedAppsPage() {
   const [connectingApp, setConnectingApp] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const pollTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  // Clear poll timers on unmount to prevent state updates on unmounted component
-  useEffect(() => {
-    return () => {
-      pollTimersRef.current.forEach(clearTimeout);
-    };
-  }, []);
+  const [catalogReady, setCatalogReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // =========================================================================
   // Data loading — connections and apps load independently
   // =========================================================================
 
   const loadData = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    setCatalogReady(false);
     try {
       const status = await composioApi.status();
       setComposioConfigured(status.configured);
+      setApps(status.recommendedApps ?? []);
+      if (!status.configured) setConnections([]);
       if (status.configured) {
         const results = await Promise.allSettled([composioApi.connections(), composioApi.apps()]);
         if (results[0].status === 'fulfilled') {
           setConnections(results[0].value.connections);
+        } else {
+          setConnections([]);
+          setLoadError('Não consegui verificar suas contas conectadas. Tente atualizar.');
         }
         if (results[1].status === 'fulfilled') {
           setApps(results[1].value.apps);
+          setCatalogReady(results[0].status === 'fulfilled');
+        } else {
+          setLoadError('Não consegui consultar os aplicativos disponíveis. Tente atualizar.');
         }
       }
     } catch {
-      // Status endpoint failed — page still renders with static catalog
+      setLoadError('Não consegui verificar suas conexões. Tente atualizar.');
+      setComposioConfigured(null);
+      setApps([]);
+      setConnections([]);
     } finally {
       setIsLoading(false);
     }
@@ -386,22 +235,13 @@ export function ConnectedAppsPage() {
     loadData();
   }, [loadData]);
 
-  // Handle OAuth callback redirect
-  useEffect(() => {
-    const connected = searchParams.get('connected');
-    if (connected) {
-      toast.success(`Successfully connected ${connected}`);
-      loadData();
-    }
-  }, [searchParams, toast, loadData]);
-
   // =========================================================================
   // Handlers
   // =========================================================================
 
   const handleConnect = async (appSlug: string) => {
-    if (!composioConfigured) {
-      toast.error('Configure your Composio API key in Config Center first.');
+    if (!composioConfigured || !catalogReady) {
+      toast.error('Configure o serviço de conexões antes de conectar uma conta.');
       return;
     }
     setConnectingApp(appSlug);
@@ -413,16 +253,12 @@ export function ConnectedAppsPage() {
           toast.error(`Refused unsafe OAuth redirect URL for ${appSlug}.`);
           return;
         }
-        window.open(redirectUrl, '_blank', 'noopener,noreferrer,width=600,height=700');
-        toast.success(`OAuth window opened for ${appSlug}. Complete authorization to connect.`);
-        pollTimersRef.current.push(setTimeout(() => loadData(), 5000));
-        pollTimersRef.current.push(setTimeout(() => loadData(), 15000));
+        window.location.assign(redirectUrl);
       } else {
-        toast.success(`${appSlug} connected (status: ${result.status})`);
-        await loadData();
+        throw new Error('A autorização não foi iniciada. Atualize e tente novamente.');
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to connect');
+      toast.error(err instanceof Error ? err.message : 'Não foi possível conectar.');
     } finally {
       setConnectingApp(null);
     }
@@ -431,7 +267,7 @@ export function ConnectedAppsPage() {
   const handleDisconnect = async (connectionId: string, appName: string) => {
     if (
       !(await confirm({
-        message: `Disconnect ${appName}? You will need to re-authorize to use it again.`,
+        message: `Desconectar ${appName}? Para usar novamente, será necessário autorizar a conta.`,
         variant: 'danger',
       }))
     ) {
@@ -440,20 +276,20 @@ export function ConnectedAppsPage() {
     try {
       await composioApi.disconnect(connectionId);
       setConnections((prev) => prev.filter((c) => c.id !== connectionId));
-      toast.success(`${appName} disconnected`);
+      toast.success(`${appName} desconectado.`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to disconnect');
+      toast.error(err instanceof Error ? err.message : 'Não foi possível desconectar.');
     }
   };
 
   const handleRefresh = async (connectionId: string) => {
     setRefreshingId(connectionId);
     try {
-      await composioApi.refresh(connectionId);
-      toast.success('Connection refreshed');
-      await loadData();
+      const connection = connections.find((item) => item.id === connectionId);
+      if (!connection) throw new Error('Conexão não encontrada.');
+      await handleConnect(connection.appName);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to refresh connection');
+      toast.error(err instanceof Error ? err.message : 'Não foi possível reconectar.');
     } finally {
       setRefreshingId(null);
     }
@@ -463,22 +299,11 @@ export function ConnectedAppsPage() {
   // Derived state — merge dynamic + static catalogs, dedupe by slug
   // =========================================================================
 
-  const connectedSlugs = new Set(connections.map((c) => c.appName.toLowerCase()));
+  const connectedSlugs = new Set(
+    connections.filter((c) => c.status === 'ACTIVE').map((c) => c.appName.toLowerCase())
+  );
 
-  // Use dynamic apps if loaded, otherwise fall back to static catalog
-  const allApps = apps.length > 0 ? apps : POPULAR_APPS;
-
-  // Dedupe: if dynamic list loaded, merge any static apps not already present
-  const mergedApps =
-    apps.length > 0
-      ? (() => {
-          const dynamicSlugs = new Set(apps.map((a) => a.slug.toLowerCase()));
-          const extras = POPULAR_APPS.filter((p) => !dynamicSlugs.has(p.slug.toLowerCase()));
-          return [...apps, ...extras];
-        })()
-      : allApps;
-
-  const filteredApps = mergedApps.filter((app) => {
+  const filteredApps = apps.filter((app) => {
     if (connectedSlugs.has(app.slug.toLowerCase())) return false;
     if (!search) return true;
     const q = search.toLowerCase();
@@ -502,15 +327,15 @@ export function ConnectedAppsPage() {
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
             {composioConfigured
-              ? 'Gerencie os aplicativos conectados via Composio'
-              : 'Catálogo demonstrativo · aguarda configuração do Composio'}
+              ? 'Suas contas, conectadas à sua rotina'
+              : 'Aplicativos úteis com plano gratuito · configuração pendente'}
           </p>
         </div>
         <button
           onClick={loadData}
           disabled={isLoading}
           className="p-2 text-text-muted dark:text-dark-text-muted hover:text-primary transition-colors"
-          title="Refresh"
+          title="Atualizar"
         >
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
         </button>
@@ -543,71 +368,67 @@ export function ConnectedAppsPage() {
               { icon: Globe, color: 'text-emerald-500 bg-emerald-500/10' },
               { icon: Shield, color: 'text-violet-500 bg-violet-500/10' },
             ]}
-            title="Connect Your Favorite Apps"
-            subtitle="Integrate third-party services with your AI — Google, GitHub, Slack, and more. OAuth-based secure connections."
+            title="Sua rotina, com os aplicativos que você usa"
+            subtitle="Conecte agenda, e-mail, documentos e tarefas com sua própria conta."
             cta={{
-              label: 'View Connected Apps',
+              label: 'Ver aplicativos',
               icon: Link,
               onClick: () => setTab('apps'),
             }}
             skipHomeChecked={skipHome}
             onSkipHomeChange={onSkipHomeChange}
-            skipHomeLabel="Skip this screen and go directly to Apps"
+            skipHomeLabel="Ir direto para os aplicativos"
             features={[
               {
                 icon: Lock,
                 color: 'text-blue-500 bg-blue-500/10',
-                title: 'OAuth Integration',
+                title: 'Você autoriza',
                 description:
-                  'Securely connect apps using industry-standard OAuth flows. No passwords stored — just tokens.',
+                  'Entre no aplicativo e escolha as permissões. O Astra não pede sua senha.',
               },
               {
                 icon: Search,
                 color: 'text-emerald-500 bg-emerald-500/10',
-                title: 'Service Discovery',
+                title: 'Escolha o que é útil',
                 description: 'Explore os aplicativos disponíveis após a configuração do Composio.',
               },
               {
                 icon: Shield,
                 color: 'text-violet-500 bg-violet-500/10',
-                title: 'Secure Tokens',
-                description:
-                  'Access tokens are encrypted and managed automatically. Revoke access at any time.',
+                title: 'Controle das conexões',
+                description: 'Veja quais contas estão conectadas e desconecte quando quiser.',
               },
               {
                 icon: RefreshCw,
                 color: 'text-amber-500 bg-amber-500/10',
-                title: 'Auto-Refresh',
-                description:
-                  'Expired tokens are automatically refreshed. Your integrations stay connected without manual intervention.',
+                title: 'Reconexão simples',
+                description: 'Se uma permissão expirar, autorize novamente a sua conta.',
               },
             ]}
             steps={[
               {
-                title: 'Choose a service',
+                title: 'Escolha um aplicativo',
                 detail: 'Selecione um serviço disponível e autorize com segurança.',
               },
               {
-                title: 'Authorize via OAuth',
+                title: 'Autorize sua conta',
                 detail:
-                  'A secure authorization window opens. Grant access with your existing account.',
+                  'Confira as permissões na página oficial do serviço e autorize a conta que você usa.',
               },
               {
-                title: 'AI gets access to the app',
-                detail:
-                  'Once authorized, your AI can read and write data through the connected service.',
+                title: 'Confira a conexão',
+                detail: 'O status só aparece como conectado depois da confirmação do serviço.',
               },
               {
-                title: 'Manage connections',
-                detail:
-                  'View active connections, refresh expired tokens, or disconnect apps at any time.',
+                title: 'Gerencie suas contas',
+                detail: 'Veja as conexões ativas, reconecte uma conta ou remova o vínculo.',
               },
             ]}
             quickActions={[
               {
                 icon: Link,
-                label: 'Manage Apps',
-                description: 'View connected apps and browse available integrations',
+                label: 'Ver minhas conexões',
+                description: 'Confira suas contas e os aplicativos selecionados.',
                 onClick: () => setTab('apps'),
               },
             ]}
@@ -627,22 +448,33 @@ export function ConnectedAppsPage() {
 
           {!isLoading && (
             <section>
+              {loadError && (
+                <p role="alert" className="mb-4 text-sm text-warning">
+                  {loadError}
+                </p>
+              )}
+              <p className="mb-4 text-sm text-text-muted dark:text-dark-text-muted">
+                Agenda, mensagens, arquivos e tarefas: conecte apenas o que você usa. Os planos
+                gratuitos têm limites próprios. Cada conta exige sua autorização e pode ser
+                desconectada por aqui.
+              </p>
               {/* Not configured warning */}
               {composioConfigured === false && (
                 <div className="flex items-start gap-3 p-4 bg-warning/10 border border-warning/20 rounded-xl mb-4">
                   <AlertCircle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
                   <div>
                     <div className="font-medium text-text-primary dark:text-dark-text-primary text-sm">
-                      Composio ainda não configurado
+                      Prepare as conexões gratuitas
                     </div>
                     <p className="text-xs text-text-muted dark:text-dark-text-muted mt-1">
-                      Set your Composio API key in{' '}
+                      Cadastre a chave do plano gratuito em{' '}
                       <a href="/settings/config-center" className="text-primary hover:underline">
-                        Config Center
+                        Configurar conexões
                       </a>{' '}
-                      to connect these apps. Get a free key at{' '}
+                      para liberar a autorização das contas. O plano gratuito e seus limites estão
+                      em{' '}
                       <a
-                        href="https://composio.dev"
+                        href="https://composio.dev/pricing/platform"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-primary hover:underline inline-flex items-center gap-0.5"
@@ -658,7 +490,7 @@ export function ConnectedAppsPage() {
               {connections.length > 0 && (
                 <div className="mb-4">
                   <div className="text-xs font-medium text-text-muted dark:text-dark-text-muted mb-2">
-                    Connected ({connections.length})
+                    Suas conexões ({connections.length})
                   </div>
                   <div className="space-y-2">
                     {connections.map((conn) => (
@@ -677,12 +509,15 @@ export function ConnectedAppsPage() {
               {/* Available Apps — always shown */}
               <div className="flex items-center justify-between mb-3">
                 <div className="text-xs font-medium text-text-muted dark:text-dark-text-muted">
-                  {composioConfigured ? 'Aplicativos disponíveis' : 'Aplicativos de exemplo'}{' '}
+                  {catalogReady
+                    ? 'Escolha o que faz parte da sua rotina'
+                    : 'Conexões selecionadas para o Astra'}{' '}
                   {apps.length > 0 && `(${filteredApps.length})`}
                 </div>
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted dark:text-dark-text-muted" />
                   <input
+                    aria-label="Buscar aplicativos"
                     type="text"
                     placeholder="Buscar aplicativos..."
                     value={search}
@@ -693,16 +528,18 @@ export function ConnectedAppsPage() {
               </div>
               {filteredApps.length === 0 ? (
                 <p className="text-sm text-text-muted dark:text-dark-text-muted text-center py-8">
-                  {search ? `No apps matching "${search}"` : 'No apps available'}
+                  {search
+                    ? `Nenhum aplicativo encontrado para “${search}”.`
+                    : 'Nenhum novo aplicativo disponível agora.'}
                 </p>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                   {filteredApps.slice(0, 50).map((app) => (
                     <AvailableAppCard
                       key={app.slug}
                       app={app}
                       isConnecting={connectingApp === app.slug}
-                      disabled={!composioConfigured}
+                      disabled={!composioConfigured || !catalogReady || connectingApp !== null}
                       onConnect={() => handleConnect(app.slug)}
                     />
                   ))}
