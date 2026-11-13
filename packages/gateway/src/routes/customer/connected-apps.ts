@@ -18,8 +18,7 @@ const enabled = () =>
 
 // Never accept arbitrary user IDs, callback URLs or permissions from the browser.
 // The authenticated Astra customer account is the only owner of these grants.
-const userId = (c: { get: (key: 'customer') => CustomerSessionContext }) =>
-  'astra-customer:' + c.get('customer').accountId;
+const userId = (customer: CustomerSessionContext) => 'astra-customer:' + customer.accountId;
 
 customerConnectedAppsRoutes.get('/', async (c) => {
   c.header('Cache-Control', 'private, no-store');
@@ -30,7 +29,7 @@ customerConnectedAppsRoutes.get('/', async (c) => {
     });
   }
   try {
-    const connections = await composioService.getCustomerConnections(userId(c));
+    const connections = await composioService.getCustomerConnections(userId(c.get('customer')));
     return apiResponse(c, {
       configured: true,
       apps: supported.map((app) => {
@@ -76,7 +75,7 @@ customerConnectedAppsRoutes.post('/connect', async (c) => {
     // Fixed first-party HTTPS return URL; never reflect a caller-controlled URL.
     const callbackUrl = 'https://app.astraacessor.pro/cliente/perfil?integracoes=1';
     const redirectUrl = await composioService.authorizeCustomerToolkit(
-      userId(c),
+      userId(c.get('customer')),
       parsed.data.app,
       callbackUrl
     );
@@ -103,7 +102,7 @@ customerConnectedAppsRoutes.delete('/:id', async (c) => {
     );
   }
   try {
-    const removed = await composioService.disconnectCustomerToolkit(userId(c), id);
+    const removed = await composioService.disconnectCustomerToolkit(userId(c.get('customer')), id);
     if (!removed) {
       return apiError(
         c,
