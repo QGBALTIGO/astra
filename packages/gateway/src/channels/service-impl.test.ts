@@ -3258,7 +3258,8 @@ describe('ChannelServiceImpl', () => {
         });
         const sent = channelPlugin.api.sendMessage.mock.calls.at(-1)?.[0]?.text;
         expect(sent).toContain('Transações');
-        expect(sent).toContain('limite de respostas');
+        expect(sent).toContain('dados dos seus lançamentos');
+        expect(sent).not.toContain('limite de respostas');
         expect(sent).not.toMatch(/org_secret|API|429|em dobro|tente novamente/);
       });
 

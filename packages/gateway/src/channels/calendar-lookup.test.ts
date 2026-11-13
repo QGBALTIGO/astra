@@ -138,7 +138,7 @@ describe('verifying a named calendar appointment', () => {
     expect(await tryVerifyCalendarSlot(incoming, 'test')).toContain('Não encontrei');
     expect(await tryVerifyCalendarSlot(incoming, 'test')).toContain('mais de um');
     expect(await tryVerifyCalendarSlot(incoming, 'test')).toBe(
-      'Sua agenda não abriu por aqui agora. Dá uma olhada em Agenda no painel para conferir os horários.'
+      'Não consegui consultar sua agenda agora. Pode tentar de novo em instantes?'
     );
     expect(await tryVerifyCalendarSlot(incoming, 'test')).toContain(
       'Sem horário de término registrado'
