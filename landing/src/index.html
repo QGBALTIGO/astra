@@ -6,7 +6,7 @@
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f8f9fb" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b1220" />
-    <title>Astra — Sua rotina, mais leve. Assistente com IA no WhatsApp</title>
+    <title>Astra — Seu assistente pessoal com IA no WhatsApp</title>
     <meta
       name="description"
       content="Organize finanças, tarefas, metas e lembretes pelo WhatsApp com o Astra. Explore a demonstração e conheça o plano de R$ 19,90/mês."
@@ -17,7 +17,7 @@
     <link rel="apple-touch-icon" href="/assets/brand-ac0b1367fee7.png" />
     <link
       rel="preload"
-      href="/assets/dm-sans-latin.woff2"
+      href="/assets/poppins-latin-400.woff2"
       as="font"
       type="font/woff2"
       crossorigin
@@ -26,7 +26,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="pt_BR" />
     <meta property="og:site_name" content="Astra" />
-    <meta property="og:title" content="Sua rotina, mais leve. Conheça o Astra." />
+    <meta property="og:title" content="Mais espaço no seu dia. Conheça o Astra." />
     <meta
       property="og:description"
       content="Finanças, tarefas e lembretes organizados em uma conversa no WhatsApp."
@@ -49,30 +49,74 @@
     <a class="skip-link" href="#principal">Pular para o conteúdo</a>
     <header class="site-header">
       <div class="container header-inner">
-        <a class="brand" href="#inicio" aria-label="Astra, início"
+        <a class="brand" href="/#inicio" aria-label="Astra, início"
           ><picture
             ><source media="(prefers-color-scheme: dark)" srcset="/assets/brand-2a6daf003c28.svg" />
             <img
               src="/assets/brand-0cf450d05c3b.svg"
-              alt="Astra"
               width="176"
               height="45"
+              alt="Astra"
               fetchpriority="high" /></picture
         ></a>
         <nav class="desktop-nav" aria-label="Navegação principal">
-          <a href="#na-pratica">Na prática</a><a href="#recursos">O que faz</a
-          ><a href="#como-comecar">Como começar</a><a href="#plano">Plano</a>
+          <details class="products-menu">
+            <summary>Produtos {{icon:chevron-down}}</summary>
+            <div class="products-popover">
+              <p>Um Astra. Muitas formas de ajudar.</p>
+              <div class="products-grid">
+                <a href="/financas"
+                  ><span class="module-icon">{{icon:wallet}}</span
+                  ><span><strong>Finanças</strong><small>Seu dinheiro, com clareza.</small></span
+                  >{{icon:arrow-right}}</a
+                ><a href="/agenda"
+                  ><span class="module-icon">{{icon:calendar}}</span
+                  ><span><strong>Agenda</strong><small>Cada compromisso no seu lugar.</small></span
+                  >{{icon:arrow-right}}</a
+                ><a href="/lembretes"
+                  ><span class="module-icon">{{icon:bell}}</span
+                  ><span
+                    ><strong>Lembretes</strong
+                    ><small>O aviso que chega na hora combinada.</small></span
+                  >{{icon:arrow-right}}</a
+                ><a href="/tarefas"
+                  ><span class="module-icon">{{icon:check}}</span
+                  ><span
+                    ><strong>Tarefas</strong
+                    ><small>Do que precisa fazer ao que já resolveu.</small></span
+                  >{{icon:arrow-right}}</a
+                ><a href="/metas"
+                  ><span class="module-icon">{{icon:target}}</span
+                  ><span
+                    ><strong>Metas</strong><small>Seus planos, um passo de cada vez.</small></span
+                  >{{icon:arrow-right}}</a
+                ><a href="/notas"
+                  ><span class="module-icon">{{icon:note}}</span
+                  ><span
+                    ><strong>Notas</strong
+                    ><small>As informações que você quer guardar.</small></span
+                  >{{icon:arrow-right}}</a
+                >
+              </div>
+              <a class="popover-footer" href="/demonstracao"
+                >Explore as conversas {{icon:arrow-right}}</a
+              >
+            </div>
+          </details>
+          <a href="/como-usar">Como usar</a><a href="/demonstracao">Na prática</a
+          ><a href="/seguranca">Segurança</a><a href="/sobre">Sobre</a
+          ><a href="/suporte">Suporte</a>
         </nav>
         <div class="header-actions">
-          <a class="login-link" href="https://app.astraacessor.pro/cliente/entrar"
-            >Entrar {{icon:arrow-up-right}}</a
-          ><a class="button button-small button-dark header-cta" href="#plano">Conhecer o plano</a
+          <a class="login-link" href="https://app.astraacessor.pro/cliente/entrar">Entrar</a
+          ><a class="button button-small button-dark header-cta" href="/#plano">Assinar</a
           ><button
-            class="menu-toggle"
+            class="menu-toggle icon-button"
             type="button"
             aria-label="Abrir menu"
             aria-haspopup="dialog"
             aria-controls="mobile-menu"
+            aria-expanded="false"
           >
             {{icon:menu}}
           </button>
@@ -80,590 +124,835 @@
       </div>
     </header>
     <main id="principal">
-      <section class="hero" id="inicio" aria-labelledby="hero-title">
-        <div class="container hero-grid">
-          <div class="hero-copy">
-            <p class="eyebrow"><span class="status-dot"></span> SEU ASSISTENTE PESSOAL COM IA</p>
-            <h1 id="hero-title">Sua rotina,<br />mais <span>leve.</span></h1>
-            <p class="hero-description">
-              As contas, os compromissos, o que não pode ficar para depois.
-              <strong>Organize tudo em uma conversa no WhatsApp.</strong>
-            </p>
-            <div class="hero-actions">
-              <a class="button button-blue" href="#plano">Quero meu Astra {{icon:arrow-right}}</a
-              ><a class="text-link" href="#na-pratica">{{icon:play}} Veja na prática</a>
-            </div>
-            <p class="hero-price">R$ 19,90/mês</p>
-            <div class="hero-formats" aria-label="Converse por texto, áudio e imagem">
-              <span>{{icon:message}} Texto</span><span>{{icon:mic}} Áudio</span
-              ><span>{{icon:image}} Imagem</span><span class="format-label">Do seu jeito.</span>
-            </div>
-          </div>
-          <div
-            class="hero-product"
-            aria-label="Exemplo ilustrativo de conversa e registro no Astra"
-          >
-            <div class="product-caption">
-              <span class="caption-line"></span> UMA MENSAGEM JÁ É UM COMEÇO
-            </div>
-            <div class="hero-chat">
-              <div class="chat-header">
-                <img src="/assets/brand-bc825f0438ab.svg" alt="" width="45" height="38" />
-                <div><strong>Astra</strong><span>Seu assistente pessoal</span></div>
-                <span class="demo-label">Exemplo</span>
-              </div>
-              <div class="hero-chat-body">
-                <span class="day-label">HOJE</span>
-                <div class="message message-out">
-                  <p>Astra, gastei R$ 42 no almoço.</p>
-                  <span class="message-time">12:30 {{icon:double-check}}</span>
-                </div>
-                <div class="message message-in">
-                  <p>
-                    Anotado! <strong>R$ 42,00 em Alimentação.</strong> Mais um detalhe organizado.
-                  </p>
-                  <span class="message-time">12:30</span>
-                </div>
-                <div class="chat-record">
-                  <span class="record-icon">{{icon:wallet}}</span>
-                  <div>
-                    <small>DESPESA REGISTRADA</small><strong>Almoço</strong
-                    ><span>Alimentação · Hoje</span>
-                  </div>
-                  <b>R$ 42,00</b>
-                </div>
-              </div>
-              <div class="chat-input"><span>Mensagem para o Astra</span>{{icon:mic}}</div>
-            </div>
-            <div class="hero-result">
-              <span class="result-check">{{icon:check}}</span>
-              <div>
-                <strong>Falou. Ficou organizado.</strong><span>No WhatsApp e no seu painel.</span>
-              </div>
-              {{icon:arrow-up-right}}
-            </div>
-            <p class="illustration-note">
-              Conversa e dados ilustrativos. Explore a simulação abaixo.
-            </p>
+      <section class="hero container" id="inicio" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <h1 id="hero-title">Sua cabeça merece<br />um pouco de paz.</h1>
+          <p>
+            O Astra ajuda com o dinheiro, a agenda, as tarefas e os planos.<br />Você só precisa
+            mandar uma mensagem no WhatsApp.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-dark" href="#plano">Quero meu Astra {{icon:arrow-right}}</a
+            ><a class="text-link" href="#na-pratica">Veja o que ele resolve {{icon:arrow-right}}</a>
           </div>
         </div>
-        <div class="container promise-strip">
-          <p>Uma conversa para<br /><strong>colocar o dia em ordem.</strong></p>
-          <span>{{icon:wallet}} Seu dinheiro mais claro</span
-          ><span>{{icon:calendar}} Seus compromissos à vista</span
-          ><span>{{icon:target}} Seus planos no caminho</span>
+        <div class="hero-demo">
+          <a
+            class="guide-composer"
+            href="/demonstracao"
+            aria-label="Abrir a demonstração guiada do Astra"
+            ><span>{{icon:plus}}</span><span>O que você quer organizar hoje?</span
+            ><span>{{icon:mic}}</span><span class="composer-send">{{icon:arrow-up}}</span></a
+          >
+          <div class="guide-suggestions">
+            <a class="capability-chip" href="/demonstracao#financas"
+              >{{icon:wallet}}Anotar um gasto</a
+            ><a class="capability-chip" href="/demonstracao#lembretes"
+              >{{icon:bell}}Lembrar de algo</a
+            ><a class="capability-chip" href="/demonstracao#agenda"
+              >{{icon:calendar}}Organizar meu dia</a
+            >
+          </div>
+          <small>Escolha uma sugestão e explore uma conversa ilustrativa.</small>
+        </div>
+        <div class="input-formats">
+          <span>Mande do seu jeito:</span><span>{{icon:message}} Texto</span
+          ><span>{{icon:mic}} Áudio</span><span>{{icon:image}} Imagem</span>
+        </div>
+        <div class="hero-bottom">
+          <div class="module-row" aria-hidden="true">
+            <span class="module-icon">{{icon:wallet}}</span
+            ><span class="module-icon">{{icon:calendar}}</span
+            ><span class="module-icon">{{icon:bell}}</span
+            ><span class="module-icon">{{icon:check}}</span
+            ><span class="module-icon">{{icon:target}}</span
+            ><span class="module-icon">{{icon:note}}</span>
+          </div>
+          <div>
+            <strong>Um assistente. Várias partes do seu dia.</strong
+            ><span>Para os detalhes não ficarem todos com você.</span>
+          </div>
+          <a class="text-link" href="/sobre">Conheça o Astra {{icon:arrow-right}}</a>
         </div>
       </section>
-
-      <section class="demo-section section-pad" id="na-pratica" aria-labelledby="demo-title">
-        <div class="container">
-          <div class="section-heading demo-heading">
-            <div>
-              <p class="eyebrow">VEM VER COMO É SIMPLES</p>
-              <h2 id="demo-title">Uma mensagem.<br />Várias coisas a menos.</h2>
-            </div>
-            <div>
-              <p>Escolha um momento do seu dia.<br />Acompanhe a conversa virando organização.</p>
-              <span class="simulation-badge"
-                >{{icon:cursor}} Demonstração interativa · dados fictícios</span
-              >
-            </div>
-          </div>
+      <section class="day-section container" id="na-pratica" aria-labelledby="day-title">
+        <div class="section-heading">
+          <h2 id="day-title">Um dia cheio.<br />Uma conversa para ajudar.</h2>
+          <p>
+            Escolha uma situação da sua rotina.<br />Acompanhe o pedido e o que o Astra organiza.
+          </p>
+        </div>
+        <div class="day-experience">
           <div
-            class="scenario-picker"
-            id="scenario-picker"
-            role="group"
-            aria-label="Escolha um exemplo do seu dia"
+            class="day-choices"
+            role="tablist"
+            aria-label="Situações do seu dia"
+            aria-orientation="vertical"
           >
-            <button type="button" data-scenario="financas" aria-pressed="true">
-              {{icon:wallet}} Finanças</button
-            ><button type="button" data-scenario="agenda" aria-pressed="false">
-              {{icon:calendar}} Agenda</button
-            ><button type="button" data-scenario="lembretes" aria-pressed="false">
-              {{icon:bell}} Lembretes</button
-            ><button type="button" data-scenario="tarefas" aria-pressed="false">
-              {{icon:check}} Tarefas</button
-            ><button type="button" data-scenario="familia" aria-pressed="false">
-              {{icon:home}} Família</button
-            ><button type="button" data-scenario="trabalho" aria-pressed="false">
-              {{icon:briefcase}} Trabalho</button
-            ><button type="button" data-scenario="estudos" aria-pressed="false">
-              {{icon:book}} Estudos</button
-            ><button type="button" data-scenario="metas" aria-pressed="false">
-              {{icon:target}} Metas</button
-            ><button type="button" data-scenario="viagens" aria-pressed="false">
-              {{icon:plane}} Viagens
+            <button
+              type="button"
+              role="tab"
+              id="day-tab-rotina"
+              data-day="rotina"
+              aria-selected="true"
+              aria-controls="day-content"
+              tabindex="0"
+            >
+              <span class="day-icon">{{icon:sun}}</span
+              ><span
+                ><strong>Começar o dia com clareza</strong
+                ><small>Consulte o que está nos seus registros.</small></span
+              ><time>07:40</time>{{icon:arrow-right}}</button
+            ><button
+              type="button"
+              role="tab"
+              id="day-tab-agenda"
+              data-day="agenda"
+              aria-selected="false"
+              aria-controls="day-content"
+              tabindex="-1"
+            >
+              <span class="day-icon">{{icon:calendar}}</span
+              ><span
+                ><strong>Marcar um compromisso</strong
+                ><small>Uma conversa vira data e lembrete.</small></span
+              ><time>09:15</time>{{icon:arrow-right}}</button
+            ><button
+              type="button"
+              role="tab"
+              id="day-tab-financas"
+              data-day="financas"
+              aria-selected="false"
+              aria-controls="day-content"
+              tabindex="-1"
+            >
+              <span class="day-icon">{{icon:wallet}}</span
+              ><span
+                ><strong>Registrar aquele gasto</strong
+                ><small>Anote agora. Consulte quando precisar.</small></span
+              ><time>12:30</time>{{icon:arrow-right}}</button
+            ><button
+              type="button"
+              role="tab"
+              id="day-tab-notas"
+              data-day="notas"
+              aria-selected="false"
+              aria-controls="day-content"
+              tabindex="-1"
+            >
+              <span class="day-icon">{{icon:note}}</span
+              ><span
+                ><strong>Recuperar uma informação</strong
+                ><small>Peça a nota que você guardou.</small></span
+              ><time>15:30</time>{{icon:arrow-right}}</button
+            ><button
+              type="button"
+              role="tab"
+              id="day-tab-tarefas"
+              data-day="tarefas"
+              aria-selected="false"
+              aria-controls="day-content"
+              tabindex="-1"
+            >
+              <span class="day-icon">{{icon:check}}</span
+              ><span
+                ><strong>Preparar o dia seguinte</strong
+                ><small>Veja as pendências e siga mais leve.</small></span
+              ><time>20:00</time>{{icon:arrow-right}}
             </button>
           </div>
-          <div class="demo-workspace">
-            <div class="demo-conversation">
-              <div class="demo-conversation-top">
-                <span>01 / NO WHATSAPP</span
-                ><button type="button" id="replay" aria-label="Rever conversa">
-                  {{icon:replay}} Rever
-                </button>
-              </div>
+          <div class="day-right">
+            <div class="day-chat">
               <div class="chat-header">
-                <img src="/assets/brand-bc825f0438ab.svg" alt="" width="42" height="36" />
-                <div><strong>Astra</strong><span>Exemplo de conversa</span></div>
+                <img src="/assets/brand-bc825f0438ab.svg" width="36" height="36" alt="" />
+                <div><strong>Astra</strong><span>Exemplo de conversa no WhatsApp</span></div>
+                <span class="demo-label">Simulação</span>
               </div>
-              <div class="demo-chat-content" id="demo-chat">
-                <span class="day-label">12 DE NOVEMBRO · EXEMPLO</span>
-                <div class="message message-out">
-                  <p id="demo-user">Astra, gastei R$ 42 no almoço de hoje.</p>
-                  <span class="message-time">12:30 {{icon:double-check}}</span>
+              <div id="day-content" role="tabpanel" aria-labelledby="day-tab-rotina" tabindex="0">
+                <div class="chat-day">Hoje · dados ilustrativos</div>
+                <div id="day-messages" aria-live="polite" aria-atomic="true">
+                  <div class="message message-out">
+                    <p>Astra, o que tenho para hoje?</p>
+                    <span class="message-time">07:40 {{icon:double-check}}</span>
+                  </div>
+                  <div class="message message-in">
+                    <strong class="message-author">Astra</strong>
+                    <p>
+                      Nos seus registros de hoje: revisar a proposta às 10h e dentista às 15h. O
+                      lembrete do dentista está marcado para as 14h.
+                    </p>
+                    <span class="message-time">07:40 </span>
+                  </div>
+                  <div class="day-result white-card">
+                    <span class="mini-label">SEU DIA · EXEMPLO</span>
+                    <div><time>10:00</time><strong>Revisar a proposta</strong></div>
+                    <div><time>14:00</time><strong>Lembrete do dentista</strong></div>
+                    <div><time>15:00</time><strong>Consulta no dentista</strong></div>
+                  </div>
                 </div>
-                <div class="message message-in" id="demo-reply-bubble">
-                  <p id="demo-reply">
-                    Anotado: R$ 42,00 em Alimentação. Seu almoço já está nos registros.
-                  </p>
-                  <span class="message-time">12:30</span>
-                </div>
-                <p class="chat-helper" id="demo-tag">Uma despesa, sem planilha</p>
               </div>
-              <p class="demo-disclosure">
-                Esta é uma simulação guiada. Nenhuma mensagem é enviada e nenhum dado é salvo.
-              </p>
             </div>
-            <div class="demo-dashboard">
-              <div class="dashboard-top">
-                <div>
-                  <span class="dashboard-step">02 / NO SEU PAINEL</span
-                  ><strong>Seu espaço Astra</strong>
-                </div>
-                <span class="demo-label">Dados fictícios</span>
-              </div>
-              <div
-                class="dashboard-tabs"
-                role="tablist"
-                aria-label="Explore as áreas do painel demonstrativo"
+            <div class="day-controls">
+              <button type="button" class="text-link" id="day-replay">
+                {{icon:replay}} Rever exemplo</button
+              ><a id="day-explore" class="text-link" href="/demonstracao#agenda"
+                >Explorar demonstração {{icon:arrow-right}}</a
               >
-                <button
-                  type="button"
-                  role="tab"
-                  id="tab-inicio"
-                  aria-controls="dashboard-panel"
-                  aria-selected="false"
-                  tabindex="-1"
-                  data-view="inicio"
-                >
-                  {{icon:home}} Início</button
-                ><button
-                  type="button"
-                  role="tab"
-                  id="tab-transacoes"
-                  aria-controls="dashboard-panel"
-                  aria-selected="true"
-                  tabindex="0"
-                  data-view="transacoes"
-                >
-                  {{icon:wallet}} Transações</button
-                ><button
-                  type="button"
-                  role="tab"
-                  id="tab-categorias"
-                  aria-controls="dashboard-panel"
-                  aria-selected="false"
-                  tabindex="-1"
-                  data-view="categorias"
-                >
-                  {{icon:chart}} Categorias</button
-                ><button
-                  type="button"
-                  role="tab"
-                  id="tab-agenda"
-                  aria-controls="dashboard-panel"
-                  aria-selected="false"
-                  tabindex="-1"
-                  data-view="agenda"
-                >
-                  {{icon:calendar}} Agenda</button
-                ><button
-                  type="button"
-                  role="tab"
-                  id="tab-perfil"
-                  aria-controls="dashboard-panel"
-                  aria-selected="false"
-                  tabindex="-1"
-                  data-view="perfil"
-                >
-                  {{icon:user}} Perfil
-                </button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="feature-editorial container" id="financas">
+        <div class="editorial-copy">
+          <div class="feature-label">
+            <span class="module-icon">{{icon:wallet}}</span><span>Astra · Finanças</span>
+          </div>
+          <h2>Seu dinheiro,<br />sem ficar<br />na memória.</h2>
+          <p>
+            O almoço, o mercado, o salário que entrou. Conte ao Astra e consulte seus registros
+            depois. Entenda para onde o dinheiro foi, sem montar uma planilha.
+          </p>
+          <a class="text-link" href="#plano">Assinar meu Astra {{icon:arrow-right}}</a>
+          <div class="feature-chips">
+            <a class="capability-chip" href="/demonstracao#financas"
+              >{{icon:wallet}}Gastos por categoria</a
+            ><a class="capability-chip" href="/demonstracao#trabalho"
+              >{{icon:arrow-down-left}}Entradas e saídas</a
+            ><a class="capability-chip" href="/demonstracao#financas"
+              >{{icon:chart}}Gráficos no painel</a
+            ><a class="capability-chip demo-chip" href="/demonstracao#financas"
+              ><img src="/assets/brand-bc825f0438ab.svg" width="18" height="18" alt="" />Ver
+              demonstração</a
+            >
+          </div>
+        </div>
+        <div
+          class="product-art finance-art"
+          role="img"
+          aria-label="Exemplo ilustrativo de gastos registrados e uma consulta sobre alimentação"
+        >
+          <div class="white-card expense-summary">
+            <div>
+              <small>Despesas registradas neste mês</small
+              ><strong><span>R$</span> 1.624<small>,00</small></strong>
+            </div>
+            <span class="large-module">{{icon:wallet}}</span>
+            <p>{{icon:chart}} Seus registros, organizados por categoria.</p>
+          </div>
+          <div class="white-card spending-list">
+            <strong>Os pequenos gastos também contam.</strong
+            ><small>Alguns registros de alimentação</small>
+            <div>
+              <span class="row-symbol">{{icon:basket}}</span
+              ><span>Mercado<small>Alimentação</small></span
+              ><b>R$ 152,00</b>{{icon:check}}
+            </div>
+            <div>
+              <span class="row-symbol">{{icon:utensils}}</span
+              ><span>Almoço<small>Alimentação</small></span
+              ><b>R$ 42,00</b>{{icon:check}}
+            </div>
+            <div>
+              <span class="row-symbol">{{icon:coffee}}</span
+              ><span>Café<small>Alimentação</small></span
+              ><b>R$ 18,00</b>{{icon:check}}
+            </div>
+            <footer><span>Estes três registros</span><strong>R$ 212,00</strong></footer>
+          </div>
+          <div class="message message-out">
+            <p>Quanto anotei com alimentação neste mês?</p>
+            <span class="message-time">12:30 {{icon:double-check}}</span>
+          </div>
+          <div class="message message-in">
+            <strong class="message-author">Astra</strong>
+            <p>
+              Você registrou R$ 420,00 em Alimentação neste mês. Separei os gastos por categoria.
+            </p>
+            <span class="message-time">12:30 </span>
+          </div>
+        </div>
+      </section>
+      <section class="feature-editorial container editorial-reverse" id="agenda">
+        <div class="editorial-copy">
+          <div class="feature-label">
+            <span class="module-icon">{{icon:calendar}}</span
+            ><span>Astra · Agenda e lembretes</span>
+          </div>
+          <h2>Você combina.<br />O Astra ajuda<br />a lembrar.</h2>
+          <p>
+            Uma mensagem ou um áudio vira compromisso. Combine o lembrete e receba o aviso pelo
+            WhatsApp, para aquela data importante continuar no seu dia.
+          </p>
+          <a class="text-link" href="#plano">Assinar meu Astra {{icon:arrow-right}}</a>
+          <div class="feature-chips">
+            <a class="capability-chip" href="/demonstracao#agenda">{{icon:calendar}}Compromissos</a
+            ><a class="capability-chip" href="/demonstracao#lembretes"
+              >{{icon:bell}}Avisos no WhatsApp</a
+            ><a class="capability-chip" href="/demonstracao#estudos"
+              >{{icon:replay}}Lembretes recorrentes</a
+            ><a class="capability-chip demo-chip" href="/demonstracao#agenda"
+              ><img src="/assets/brand-bc825f0438ab.svg" width="18" height="18" alt="" />Ver
+              demonstração</a
+            >
+          </div>
+        </div>
+        <div
+          class="product-art agenda-art"
+          role="img"
+          aria-label="Exemplo ilustrativo de áudio transcrito, compromisso e lembrete no WhatsApp"
+        >
+          <div class="audio-example">
+            <span class="audio-play">{{icon:play}}</span>
+            <div>
+              <div class="waveform" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
+                ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
+                ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
               </div>
-              <div
-                id="dashboard-panel"
-                class="dashboard-panel"
-                role="tabpanel"
-                aria-labelledby="tab-transacoes"
+              <small>Áudio transcrito · 0:07</small>
+            </div>
+            {{icon:mic}}
+            <p>“Tenho dentista amanhã às 15h. Me lembra uma hora antes.”</p>
+          </div>
+          <div class="white-card appointment-card">
+            <div class="mini-label">{{icon:calendar}} AGENDA DO ASTRA</div>
+            <div class="appointment-date">
+              <strong>13</strong><span>NOV<br />SEXTA</span>
+            </div>
+            <h3>Dentista</h3>
+            <p>13 de novembro · 15:00</p>
+            <footer>{{icon:bell}} Lembrete combinado para as 14h.</footer>
+          </div>
+          <div class="message message-in">
+            <strong class="message-author">Astra</strong>
+            <p>Lembrete: seu dentista é hoje, às 15h. Falta uma hora. Pense no tempo do trajeto.</p>
+            <span class="message-time">14:00 </span>
+          </div>
+        </div>
+      </section>
+      <section class="feature-editorial container" id="tarefas">
+        <div class="editorial-copy">
+          <div class="feature-label">
+            <span class="module-icon">{{icon:check}}</span><span>Astra · Tarefas e notas</span>
+          </div>
+          <h2>O que estava<br />na cabeça.<br />Agora tem lugar.</h2>
+          <p>
+            A proposta para revisar, uma ideia no meio do caminho, o que ficou para amanhã. Guarde
+            as pendências na conversa e volte a elas quando precisar.
+          </p>
+          <a class="text-link" href="#plano">Assinar meu Astra {{icon:arrow-right}}</a>
+          <div class="feature-chips">
+            <a class="capability-chip" href="/demonstracao#tarefas"
+              >{{icon:check}}Tarefas com prazo</a
+            ><a class="capability-chip" href="/demonstracao#notas"
+              >{{icon:note}}Notas e informações</a
+            ><a class="capability-chip" href="/demonstracao#trabalho"
+              >{{icon:briefcase}}Rotina de trabalho</a
+            ><a class="capability-chip demo-chip" href="/demonstracao#tarefas"
+              ><img src="/assets/brand-bc825f0438ab.svg" width="18" height="18" alt="" />Ver
+              demonstração</a
+            >
+          </div>
+        </div>
+        <div
+          class="product-art task-art"
+          role="img"
+          aria-label="Exemplo ilustrativo de tarefa com prazo e lembrete"
+        >
+          <div class="message message-out">
+            <p>Cria a tarefa de revisar a proposta amanhã às 10h e me lembra às 9h.</p>
+            <span class="message-time">16:20 {{icon:double-check}}</span>
+          </div>
+          <div class="message message-in">
+            <strong class="message-author">Astra</strong>
+            <p>Tarefa criada: revisar a proposta, amanhã às 10h. O lembrete ficou para as 9h.</p>
+            <span class="message-time">16:20 </span>
+          </div>
+          <div class="white-card task-sheet">
+            <div>
+              <strong>O que precisa da sua atenção</strong><small>Suas tarefas · exemplo</small>
+            </div>
+            <div class="task-line">
+              <span class="task-square"></span
+              ><span>Revisar a proposta<small>Amanhã · 10h</small></span
+              ><b>Nova</b>
+            </div>
+            <div class="task-line">
+              <span class="task-square"></span
+              ><span>Separar documentos<small>Sexta-feira</small></span>
+            </div>
+            <div class="task-line done">
+              <span class="task-square">{{icon:check}}</span
+              ><span>Enviar o orçamento<small>Concluída</small></span>
+            </div>
+          </div>
+          <div class="art-caption">{{icon:bell}} O prazo anotado. O lembrete combinado.</div>
+        </div>
+      </section>
+      <section class="feature-editorial container editorial-reverse" id="metas">
+        <div class="editorial-copy">
+          <div class="feature-label">
+            <span class="module-icon">{{icon:target}}</span><span>Astra · Metas e planos</span>
+          </div>
+          <h2>Aquele plano.<br />Um pouco<br />mais perto.</h2>
+          <p>
+            A próxima viagem, sua reserva, um projeto pessoal. Defina a meta e acompanhe o progresso
+            que você registrar. Um próximo passo fica mais fácil de enxergar.
+          </p>
+          <a class="text-link" href="#plano">Assinar meu Astra {{icon:arrow-right}}</a>
+          <div class="feature-chips">
+            <a class="capability-chip" href="/demonstracao#metas">{{icon:target}}Metas pessoais</a
+            ><a class="capability-chip" href="/demonstracao#viagens"
+              >{{icon:plane}}Organizar uma viagem</a
+            ><a class="capability-chip" href="/demonstracao#metas"
+              >{{icon:chart}}Acompanhar progresso</a
+            ><a class="capability-chip demo-chip" href="/demonstracao#metas"
+              ><img src="/assets/brand-bc825f0438ab.svg" width="18" height="18" alt="" />Ver
+              demonstração</a
+            >
+          </div>
+        </div>
+        <div
+          class="product-art goal-art"
+          role="img"
+          aria-label="Exemplo ilustrativo de uma meta de viagem com 65 por cento do valor registrado"
+        >
+          <div class="message message-out">
+            <p>Quero guardar R$ 4.000 para viajar. Já tenho R$ 2.600.</p>
+            <span class="message-time">18:10 {{icon:double-check}}</span>
+          </div>
+          <div class="message message-in">
+            <strong class="message-author">Astra</strong>
+            <p>
+              Meta Viagem registrada. R$ 2.600,00 de R$ 4.000,00: você chegou a 65% do objetivo.
+            </p>
+            <span class="message-time">18:10 </span>
+          </div>
+          <div class="white-card goal-sheet">
+            <span class="mini-label">{{icon:plane}} SEU PRÓXIMO PLANO</span>
+            <h3>Uma viagem para chamar de sua.</h3>
+            <div class="goal-figure">
+              <div class="goal-ring">
+                <strong>65<span>%</span></strong>
+              </div>
+              <div>
+                <small>Valor registrado</small><strong>R$ 2.600,00</strong
+                ><small>Objetivo de R$ 4.000,00</small>
+              </div>
+            </div>
+            <footer>Mais R$ 1.400,00 para chegar lá.</footer>
+          </div>
+          <span class="art-caption"
+            >Progresso informado por você. Nenhum dinheiro é movimentado.</span
+          >
+        </div>
+      </section>
+      <section class="dashboard-section container" id="painel" aria-labelledby="dashboard-title">
+        <div class="section-heading">
+          <h2 id="dashboard-title">A conversa organiza.<br />O painel deixa claro.</h2>
+          <p>
+            No WhatsApp para registrar e consultar.<br />No navegador para enxergar seus registros
+            juntos.
+          </p>
+        </div>
+        <div class="dashboard-frame">
+          <div class="browser-chrome">
+            <span aria-hidden="true"><i></i><i></i><i></i></span
+            ><small>Seu espaço Astra · dados ilustrativos</small>
+          </div>
+          <div class="dashboard-toolbar">
+            <a class="dashboard-brand" href="/#inicio" aria-label="Astra, início"
+              ><picture
+                ><source
+                  media="(prefers-color-scheme: dark)"
+                  srcset="/assets/brand-2a6daf003c28.svg" />
+                <img
+                  src="/assets/brand-0cf450d05c3b.svg"
+                  width="176"
+                  height="45"
+                  alt="Astra"
+                  fetchpriority="high" /></picture
+            ></a>
+            <div
+              class="dashboard-tabs"
+              role="tablist"
+              aria-label="Explore as áreas do painel demonstrativo"
+            >
+              <button
+                type="button"
+                role="tab"
+                id="tab-inicio"
+                data-view="inicio"
+                aria-selected="true"
                 tabindex="0"
+                aria-controls="dashboard-panel"
               >
-                <div class="dashboard-view-heading">
-                  <div>
-                    <p class="mini-label">NOVEMBRO · 2026</p>
-                    <h3>Seu dinheiro, com contexto.</h3>
-                  </div>
-                  <span class="panel-success">{{icon:check}} Almoço registrado</span>
-                </div>
-                <div class="stat-pair">
-                  <div><span>Entradas registradas</span><strong>R$ 4.800,00</strong></div>
-                  <div><span>Saídas registradas</span><strong>R$ 1.624,00</strong></div>
-                </div>
-                <div class="transaction-row highlighted">
-                  <span class="transaction-icon">{{icon:wallet}}</span>
-                  <div><strong>Almoço</strong><span>Alimentação · Hoje, 12/11</span></div>
-                  <b>− R$ 42,00</b>
-                </div>
-                <div class="transaction-row">
-                  <span class="transaction-icon muted">{{icon:home}}</span>
-                  <div><strong>Aluguel</strong><span>Casa · 05/11</span></div>
-                  <b>− R$ 950,00</b>
-                </div>
-                <div class="transaction-row">
-                  <span class="transaction-icon muted">{{icon:arrow-down-left}}</span>
-                  <div><strong>Salário</strong><span>Receita · 05/11</span></div>
-                  <b class="positive">+ R$ 4.800,00</b>
-                </div>
-                <div class="balance-line">
-                  <span>Saldo dos registros</span><strong>R$ 3.176,00</strong>
-                </div>
-              </div>
-              <div class="dashboard-bottom">
-                {{icon:link}} A mesma informação. Um jeito mais claro de ver.
-              </div>
+                {{icon:home}}<span>Início</span></button
+              ><button
+                type="button"
+                role="tab"
+                id="tab-transacoes"
+                data-view="transacoes"
+                aria-selected="false"
+                tabindex="-1"
+                aria-controls="dashboard-panel"
+              >
+                {{icon:wallet}}<span>Transações</span></button
+              ><button
+                type="button"
+                role="tab"
+                id="tab-categorias"
+                data-view="categorias"
+                aria-selected="false"
+                tabindex="-1"
+                aria-controls="dashboard-panel"
+              >
+                {{icon:chart}}<span>Categorias</span></button
+              ><button
+                type="button"
+                role="tab"
+                id="tab-agenda"
+                data-view="agenda"
+                aria-selected="false"
+                tabindex="-1"
+                aria-controls="dashboard-panel"
+              >
+                {{icon:calendar}}<span>Agenda</span></button
+              ><button
+                type="button"
+                role="tab"
+                id="tab-perfil"
+                data-view="perfil"
+                aria-selected="false"
+                tabindex="-1"
+                aria-controls="dashboard-panel"
+              >
+                {{icon:user}}<span>Perfil</span>
+              </button>
             </div>
-          </div>
-          <p
-            class="demo-live-status visually-hidden"
-            id="demo-status"
-            role="status"
-            aria-live="polite"
-          ></p>
-          <div class="demo-footer">
-            <p>
-              A prévia representa áreas que já existem no Astra.<br />Seus dados reais ficam no seu
-              acesso pessoal.
-            </p>
-            <a class="text-link" href="https://app.astraacessor.pro/cliente/entrar"
-              >Já tenho acesso ao painel {{icon:arrow-up-right}}</a
+            <a class="panel-login" href="https://app.astraacessor.pro/cliente/entrar"
+              >Acessar meu painel {{icon:arrow-up-right}}</a
             >
           </div>
-          <noscript
-            ><p class="noscript-note">
-              Ative o JavaScript para trocar os exemplos. A conversa acima é uma demonstração de
-              registro de despesa; os links de assinatura e acesso continuam disponíveis.
-            </p></noscript
+          <div
+            id="dashboard-panel"
+            class="dashboard-panel"
+            role="tabpanel"
+            aria-labelledby="tab-inicio"
+            tabindex="0"
           >
+            <div class="overview-balance">
+              <span>Saldo dos registros · novembro</span><strong>R$ 3.176,00</strong>
+            </div>
+            <div class="stat-pair">
+              <div><span>Entradas registradas</span><strong>R$ 4.800,00</strong></div>
+              <div><span>Saídas registradas</span><strong>R$ 1.624,00</strong></div>
+            </div>
+          </div>
+          <div class="dashboard-foot">
+            <span>{{icon:shield}} Prévia ilustrativa das áreas do Astra.</span
+            ><a href="/demonstracao">Ver a conversa virar registro {{icon:arrow-right}}</a>
+          </div>
         </div>
       </section>
-
-      <section class="features-section section-pad" id="recursos" aria-labelledby="features-title">
-        <div class="container">
-          <div class="section-heading">
+      <section class="capability-section container" id="recursos">
+        <h2>E os outros detalhes?<br />Conte com o Astra também.</h2>
+        <p>
+          Do compromisso da família ao seu próximo plano.<br />Toque em uma opção para conhecer um
+          exemplo.
+        </p>
+        <div class="capability-cloud">
+          <a class="capability-chip" href="/demonstracao#financas"
+            >{{icon:wallet}}Gastos por mensagem</a
+          ><a class="capability-chip" href="/demonstracao#agenda">{{icon:calendar}}Agenda pessoal</a
+          ><a class="capability-chip" href="/demonstracao#estudos"
+            >{{icon:replay}}Lembretes recorrentes</a
+          ><a class="capability-chip" href="/demonstracao#familia">{{icon:home}}Rotina familiar</a
+          ><a class="capability-chip" href="/demonstracao#tarefas"
+            >{{icon:check}}Tarefas com prazo</a
+          ><a class="capability-chip" href="/demonstracao#notas">{{icon:note}}Notas e informações</a
+          ><a class="capability-chip" href="/demonstracao#trabalho"
+            >{{icon:arrow-down-left}}Entradas e saídas</a
+          ><a class="capability-chip" href="/demonstracao#metas">{{icon:target}}Metas pessoais</a
+          ><a class="capability-chip" href="/demonstracao#viagens"
+            >{{icon:plane}}Viagens organizadas</a
+          ><a class="capability-chip" href="/demonstracao#financas"
+            >{{icon:chart}}Gráficos por categoria</a
+          ><a class="capability-chip" href="/demonstracao#lembretes"
+            >{{icon:bell}}Avisos no WhatsApp</a
+          ><a class="capability-chip" href="/demonstracao#agenda">{{icon:mic}}Áudio e imagem</a>
+        </div>
+        <a class="text-link" href="/demonstracao"
+          >Abrir demonstração completa {{icon:arrow-right}}</a
+        >
+      </section>
+      <section class="pricing-section container" id="plano" aria-labelledby="price-title">
+        <div class="pricing-intro">
+          <h2 id="price-title">Muita coisa<br />para organizar.<br />Um Astra para ajudar.</h2>
+          <p>
+            Seu dinheiro, seus compromissos e o que não pode ficar para depois. Tudo na conversa que
+            já faz parte da sua vida.
+          </p>
+          <div class="module-row" aria-label="Finanças, agenda, lembretes, tarefas, metas e notas">
+            <span class="module-icon" title="Finanças">{{icon:wallet}}</span
+            ><span class="module-icon" title="Agenda">{{icon:calendar}}</span
+            ><span class="module-icon" title="Lembretes">{{icon:bell}}</span
+            ><span class="module-icon" title="Tarefas">{{icon:check}}</span
+            ><span class="module-icon" title="Metas">{{icon:target}}</span
+            ><span class="module-icon" title="Notas">{{icon:note}}</span>
+          </div>
+          <p class="pricing-note">
+            {{icon:message}} Converse pelo WhatsApp.<br />Consulte também no celular e no
+            computador.
+          </p>
+          <button type="button" class="text-link" data-contact="question">
+            Quero tirar uma dúvida {{icon:arrow-up-right}}
+          </button>
+        </div>
+        <article class="price-card" aria-label="Assinatura mensal Astra">
+          <span class="plan-badge">SEU ASSISTENTE PESSOAL</span>
+          <h3>Seu Astra, por inteiro.</h3>
+          <p>Para cuidar dos detalhes da sua rotina.</p>
+          <div class="price"><span>R$</span><strong>19,90</strong><span>/mês</span></div>
+          <span class="billing-period">Assinatura mensal</span>
+          <ul>
+            <li>{{icon:check}} Finanças, entradas, gastos e categorias</li>
+            <li>{{icon:check}} Agenda e compromissos</li>
+            <li>{{icon:check}} Lembretes pelo WhatsApp</li>
+            <li>{{icon:check}} Tarefas e notas pessoais</li>
+            <li>{{icon:check}} Metas e progresso registrado</li>
+            <li>{{icon:check}} Conversa por texto, áudio e imagem</li>
+            <li>{{icon:check}} Painel no celular e no computador</li>
+          </ul>
+          <a
+            class="button button-dark checkout"
+            href="https://pay.cakto.com.br/CubL455"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Assinar meu Astra {{icon:arrow-right}}<span class="visually-hidden">
+              (abre o checkout em outra aba)</span
+            ></a
+          ><small>Contratação pelo checkout oficial.</small>
+        </article>
+      </section>
+      <section class="faq-section container" id="perguntas">
+        <div>
+          <h2>Quer saber<br />mais alguma coisa?</h2>
+          <p>As respostas para começar<br />com mais clareza.</p>
+          <button class="text-link" type="button" data-contact="question">
+            Falar com a equipe {{icon:arrow-up-right}}
+          </button>
+        </div>
+        <div class="faq-list">
+          <details>
+            <summary>O que posso pedir ao Astra?{{icon:plus}}</summary>
             <div>
-              <p class="eyebrow">FEITO PARA A VIDA ACONTECENDO</p>
-              <h2 id="features-title">Do café de hoje<br />ao plano de amanhã.</h2>
+              <p>
+                Registrar e consultar gastos, entradas, tarefas, notas, compromissos, lembretes e
+                metas. Você manda uma mensagem pelo WhatsApp e confere o que o Astra organizou.
+                <a href="/demonstracao">Explore os exemplos.</a>
+              </p>
             </div>
-            <p>
-              Você não precisa de uma rotina perfeita.<br />Precisa de um jeito simples de cuidar
-              dela.
-            </p>
-          </div>
-          <div class="feature-grid">
-            <article class="feature-card">
-              <div class="feature-number">01 / FINANÇAS</div>
-              <h3>Entenda para onde<br />o dinheiro foi.</h3>
+          </details>
+          <details>
+            <summary>Preciso instalar outro aplicativo?{{icon:plus}}</summary>
+            <div>
               <p>
-                Registre entradas e gastos, organize categorias e consulte o que já anotou. Sem
-                montar uma planilha do zero.
+                Não. Você conversa pelo WhatsApp que já usa. Seu painel abre no navegador do celular
+                ou do computador, com seu acesso pessoal.
               </p>
-              <div
-                class="feature-visual finance-visual"
-                aria-label="Exemplo: despesas de R$ 1.624,00, sendo R$ 420,00 em alimentação"
-              >
-                <span>SAÍDAS DO MÊS <small>Exemplo</small></span
-                ><strong>R$ 1.624,00</strong>
-                <div class="mini-bars" aria-hidden="true">
-                  <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-                </div>
-                <div class="visual-bottom">
-                  <span><i class="blue-dot"></i> Alimentação</span><b>R$ 420,00</b>
-                </div>
-              </div>
-            </article>
-            <article class="feature-card">
-              <div class="feature-number">02 / AGENDA E TAREFAS</div>
-              <h3>Deixe os compromissos<br />no lugar certo.</h3>
-              <p>
-                Datas, pendências e lembretes pelo WhatsApp. Para lembrar de pagar a conta e de
-                chegar à reunião.
-              </p>
-              <div class="feature-visual agenda-visual">
-                <span>SEU DIA <small>Exemplo</small></span>
-                <div class="agenda-mini-item">
-                  <time>09:00</time>
-                  <div><strong>Revisar a proposta</strong><span>Tarefa · Trabalho</span></div>
-                  {{icon:check}}
-                </div>
-                <div class="agenda-mini-item">
-                  <time>15:00</time>
-                  <div><strong>Dentista</strong><span>Lembrete às 14h</span></div>
-                  {{icon:bell}}
-                </div>
-                <div class="agenda-mini-item">
-                  <time>20:00</time>
-                  <div><strong>Estudar inglês</strong><span>Lembrete diário</span></div>
-                  {{icon:book}}
-                </div>
-              </div>
-            </article>
-            <article class="feature-card">
-              <div class="feature-number">03 / METAS E PLANOS</div>
-              <h3>Seus planos merecem<br />um próximo passo.</h3>
-              <p>
-                Defina uma meta e acompanhe o progresso registrado. A viagem, a reserva, aquele
-                projeto que você quer tirar do papel.
-              </p>
-              <div class="feature-visual goal-visual">
-                <div class="goal-visual-top">
-                  <span class="goal-icon">{{icon:plane}}</span><small>Exemplo ilustrativo</small>
-                </div>
-                <h4>A próxima viagem</h4>
-                <strong>R$ 2.600 <span>de R$ 4.000</span></strong>
-                <div
-                  class="progress-track"
-                  role="progressbar"
-                  aria-label="Meta da viagem"
-                  aria-valuenow="65"
-                  aria-valuemin="0"
-                  aria-valuemax="100"
-                >
-                  <span></span>
-                </div>
-                <div class="visual-bottom"><span>Um passo de cada vez.</span><b>65%</b></div>
-              </div>
-            </article>
-          </div>
-          <div class="product-note">
-            {{icon:shield}} Você decide o que registrar. O Astra organiza as informações que você
-            compartilha.
-            <a href="/privacidade">Saiba sobre a privacidade deste site {{icon:arrow-up-right}}</a>
-          </div>
-        </div>
-      </section>
-
-      <section class="start-section section-pad" id="como-comecar" aria-labelledby="start-title">
-        <div class="container start-grid">
-          <div>
-            <p class="eyebrow light-eyebrow">DO PRIMEIRO PASSO AO PRIMEIRO OI</p>
-            <h2 id="start-title">Cabe no seu dia.<br />Começa por aqui.</h2>
-            <p>
-              Sem um sistema complicado para aprender.<br />Use o WhatsApp que já faz parte da sua
-              rotina.
-            </p>
-            <img
-              class="start-symbol"
-              src="/assets/brand-bc825f0438ab.svg"
-              width="110"
-              height="94"
-              alt=""
-              loading="lazy"
-            />
-          </div>
-          <ol class="start-steps">
-            <li>
-              <span>01</span>
-              <div>
-                <h3>Assine pelo checkout oficial.</h3>
-                <p>Conheça seu plano e conclua a assinatura pelo checkout oficial.</p>
-              </div>
-            </li>
-            <li>
-              <span>02</span>
-              <div>
-                <h3>Comece uma conversa.</h3>
-                <p>
-                  Com seu acesso, mande um oi para o Astra no WhatsApp. Conte o que você quer
-                  organizar.
-                </p>
-              </div>
-            </li>
-            <li>
-              <span>03</span>
-              <div>
-                <h3>Consulte. Continue o dia.</h3>
-                <p>Acompanhe seus registros no painel e volte à conversa sempre que precisar.</p>
-              </div>
-            </li>
-          </ol>
-        </div>
-      </section>
-
-      <section class="price-section section-pad" id="plano" aria-labelledby="price-title">
-        <div class="container price-grid">
-          <div class="price-copy">
-            <p class="eyebrow">UM ASSISTENTE PARA CHAMAR DE SEU</p>
-            <h2 id="price-title">Mais organização.<br />Menos peso na rotina.</h2>
-            <p>Uma assinatura para cuidar dos pequenos detalhes que fazem diferença no seu dia.</p>
-            <div class="price-caption">
-              {{icon:message}} No seu WhatsApp.<br />{{icon:layout}} Também no seu navegador.
             </div>
-            <button class="text-link" data-contact="question" type="button">
-              Quero tirar uma dúvida {{icon:arrow-up-right}}
-            </button>
-          </div>
-          <article class="price-card" aria-label="Assinatura mensal Astra">
-            <div class="price-card-top">
-              <span>ASTRA PESSOAL</span><span class="billing-label">Assinatura mensal</span>
+          </details>
+          <details>
+            <summary>A demonstração usa uma IA de verdade?{{icon:plus}}</summary>
+            <div>
+              <p>
+                Os exemplos do site são simulações guiadas com dados fictícios. Não enviam
+                mensagens, não salvam registros na sua conta e não representam uma conversa ao vivo
+                com a IA.
+              </p>
             </div>
-            <div class="price-amount"><span>R$</span><strong>19,90</strong><span>/mês</span></div>
-            <p>Seu dia mais leve começa com uma conversa.</p>
-            <ul class="plan-features">
-              <li>{{icon:check}} Finanças e categorias</li>
-              <li>{{icon:check}} Compromissos e lembretes</li>
-              <li>{{icon:check}} Tarefas, notas e metas</li>
-              <li>{{icon:check}} Conversa por texto, áudio e imagem</li>
-              <li>{{icon:check}} Painel no celular e no computador</li>
-            </ul>
-            <a
-              class="button button-blue checkout-link"
-              href="https://pay.cakto.com.br/CubL455"
-              target="_blank"
-              rel="noopener noreferrer"
-              >Assinar meu Astra {{icon:arrow-up-right}}<span class="visually-hidden">
-                (abre checkout da Cakto em outra aba)</span
-              ></a
-            >
-          </article>
+          </details>
+          <details>
+            <summary>Posso mandar áudio e imagem?{{icon:plus}}</summary>
+            <div>
+              <p>
+                Sim. O Astra tem recursos de transcrição de áudio e leitura de imagens. Confira os
+                valores, as datas e os detalhes interpretados antes de contar com um registro ou
+                lembrete.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>Quanto custa o Astra?{{icon:plus}}</summary>
+            <div>
+              <p>
+                O plano custa R$ 19,90/mês. Veja os dados da assinatura e as condições de
+                contratação no checkout oficial.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>Como meus dados são tratados?{{icon:plus}}</summary>
+            <div>
+              <p>
+                O painel exige autenticação e a demonstração usa apenas dados fictícios. A política
+                do site explica os formulários e seus prazos.
+                <a href="/privacidade">Leia a política de privacidade.</a>
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>Como recebo ajuda com meu acesso ou assinatura?{{icon:plus}}</summary>
+            <div>
+              <p>
+                Use o contato da equipe para dúvidas sobre o acesso, plano, renovação ou
+                cancelamento. As informações da sua compra e os termos também ficam no checkout e no
+                comprovante. <a href="/suporte">Abrir atendimento.</a>
+              </p>
+            </div>
+          </details>
         </div>
       </section>
-
-      <section class="faq-section section-pad" id="perguntas" aria-labelledby="faq-title">
-        <div class="container faq-grid">
-          <div>
-            <p class="eyebrow">PODE PERGUNTAR</p>
-            <h2 id="faq-title">Tudo claro.<br />Antes de começar.</h2>
-            <p>Ficou alguma dúvida?<br />A equipe pode ajudar.</p>
-            <button class="text-link" data-contact="question" type="button">
-              Falar com a equipe {{icon:arrow-up-right}}
-            </button>
-          </div>
-          <div class="faq-list">
-            <details>
-              <summary>O que é o Astra? {{icon:plus}}</summary>
-              <p>
-                É um assistente pessoal com inteligência artificial pelo WhatsApp. Ele ajuda a
-                registrar e consultar finanças, tarefas, compromissos, lembretes e metas. Você
-                também acompanha seus registros no painel web.
-              </p>
-            </details>
-            <details>
-              <summary>Preciso instalar outro aplicativo? {{icon:plus}}</summary>
-              <p>
-                Para conversar com o Astra, você usa o seu WhatsApp. O painel abre no navegador do
-                celular ou do computador, com acesso pessoal após a ativação.
-              </p>
-            </details>
-            <details>
-              <summary>A demonstração conversa com uma IA de verdade? {{icon:plus}}</summary>
-              <p>
-                Não. Os exemplos desta página são simulações guiadas com dados fictícios, para você
-                conhecer a proposta. Nenhuma mensagem é enviada ao assistente e nenhum dado pessoal
-                é solicitado na demonstração.
-              </p>
-            </details>
-            <details>
-              <summary>Posso enviar áudio e imagem? {{icon:plus}}</summary>
-              <p>
-                Sim, além de texto. Confira sempre os valores, as datas e os detalhes que o Astra
-                confirmar: a interpretação de áudio e imagem pode conter erros.
-              </p>
-            </details>
-            <details>
-              <summary>O Astra conecta meu banco ou faz pagamentos? {{icon:plus}}</summary>
-              <p>
-                Esta assinatura é apresentada como organização dos dados que você registra. A
-                landing não oferece conexão bancária, Pix ou movimentação do seu dinheiro. Anotar um
-                pagamento não realiza uma transação.
-              </p>
-            </details>
-            <details>
-              <summary>Quanto custa o Astra? {{icon:plus}}</summary>
-              <p>
-                O plano custa R$ 19,90/mês. Clique em “Assinar meu Astra” para continuar no checkout
-                oficial.
-              </p>
-            </details>
-            <details>
-              <summary>Como trato renovação, cancelamento ou suporte? {{icon:plus}}</summary>
-              <p>
-                Confira as condições na contratação e no comprovante da Cakto. Se precisar de ajuda
-                com o acesso, a renovação ou o cancelamento,
-                <button class="inline-link" type="button" data-contact="question">
-                  envie uma solicitação à equipe
-                </button>
-                com o e-mail da compra. Não envie senha, cartão ou documentos pelo formulário.
-              </p>
-            </details>
-          </div>
-        </div>
-      </section>
-
-      <section class="closing-section">
-        <div class="container closing-inner">
-          <div>
-            <p class="eyebrow">MAIS ESPAÇO PARA O QUE IMPORTA</p>
-            <h2>Seu dia continua.<br />O Astra vai com você.</h2>
-          </div>
-          <a class="button button-blue" href="#plano">Conhecer meu Astra {{icon:arrow-right}}</a>
-        </div>
+      <section class="closing container">
+        <img
+          class="closing-mark"
+          src="/assets/brand-bc825f0438ab.svg"
+          width="62"
+          height="62"
+          alt=""
+        />
+        <h2>Sua próxima mensagem.<br />Uma coisa a menos na cabeça.</h2>
+        <p>Finanças, agenda, tarefas e planos.<br />Conte com o Astra nos detalhes do seu dia.</p>
+        <a
+          class="button button-dark checkout"
+          href="https://pay.cakto.com.br/CubL455"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Quero meu Astra {{icon:arrow-right}}<span class="visually-hidden">
+            (abre o checkout em outra aba)</span
+          ></a
+        ><small>R$ 19,90/mês</small>
       </section>
     </main>
-    <footer class="site-footer">
+    <footer class="site-footer" id="rodape">
       <div class="container">
         <div class="footer-top">
           <div>
-            <a class="brand" href="#inicio" aria-label="Astra, voltar ao início"
-              ><img
-                src="/assets/brand-2a6daf003c28.svg"
-                width="200"
-                height="51"
-                alt="Astra"
-                loading="lazy"
-            /></a>
-            <p>Sua rotina, mais leve.<br />Uma conversa de cada vez.</p>
+            <a class="brand" href="/#inicio" aria-label="Astra, início"
+              ><picture
+                ><source
+                  media="(prefers-color-scheme: dark)"
+                  srcset="/assets/brand-2a6daf003c28.svg" />
+                <img
+                  src="/assets/brand-0cf450d05c3b.svg"
+                  width="176"
+                  height="45"
+                  alt="Astra"
+                  fetchpriority="high" /></picture
+            ></a>
+            <p>Mais espaço na cabeça.<br />Mais presença no seu dia.</p>
           </div>
-          <nav aria-label="Produto">
-            <span>CONHEÇA</span><a href="#na-pratica">Na prática</a><a href="#recursos">O que faz</a
-            ><a href="#plano">Plano e assinatura</a
-            ><a href="https://app.astraacessor.pro/cliente/entrar">Acessar meu painel</a>
+          <div class="footer-panel">
+            <span>Seu Astra, também no navegador.</span
+            ><a class="button button-dark" href="https://app.astraacessor.pro/cliente/entrar"
+              >Acessar meu painel {{icon:arrow-up-right}}</a
+            >
+          </div>
+        </div>
+        <div class="footer-grid">
+          <nav aria-label="Produtos">
+            <h2>Produtos</h2>
+            <a href="/financas">Finanças</a><a href="/agenda">Agenda</a
+            ><a href="/lembretes">Lembretes</a><a href="/tarefas">Tarefas</a
+            ><a href="/metas">Metas</a><a href="/notas">Notas</a>
           </nav>
-          <nav aria-label="Informações e atendimento">
-            <span>PODE CONTAR COM A GENTE</span
-            ><button type="button" data-contact="question">Fale com a equipe</button
-            ><a href="#perguntas">Perguntas frequentes</a
-            ><a href="/privacidade">Privacidade do site</a
-            ><a href="/condicoes">Termos e contratação</a>
+          <nav aria-label="Conheça o Astra">
+            <h2>Conheça o Astra</h2>
+            <a href="/sobre">Seu assistente pessoal</a><a href="/como-usar">Como usar</a
+            ><a href="/demonstracao">Veja na prática</a><a href="/#painel">Conheça o painel</a>
           </nav>
+          <nav aria-label="Acesso e informações">
+            <h2>Está tudo aqui</h2>
+            <a href="/#plano">Assinar meu Astra</a
+            ><a href="https://app.astraacessor.pro/cliente/entrar">Entrar na conta</a
+            ><a href="/seguranca">Segurança</a><a href="/suporte">Ajuda e atendimento</a>
+          </nav>
+          <div>
+            <h2>Vamos conversar</h2>
+            <button type="button" data-contact="question" class="text-link">
+              Fale com a equipe {{icon:arrow-up-right}}
+            </button>
+            <p>Ajuda com seu acesso,<br />plano ou uso do Astra.</p>
+            <small
+              >O assistente usa inteligência artificial.<br />Confira as informações
+              importantes.</small
+            >
+          </div>
         </div>
         <div class="footer-bottom">
-          <span>© 2026 Astra. Assistente pessoal com IA.</span
-          ><span>Demonstrações com dados fictícios.</span>
+          <span>© 2026 Astra. Assistente pessoal com IA.</span>
+          <div><a href="/privacidade">Privacidade</a><a href="/condicoes">Termos de uso</a></div>
         </div>
       </div>
     </footer>
-
     <dialog id="mobile-menu" class="mobile-menu" aria-labelledby="mobile-menu-title">
       <div class="mobile-menu-head">
-        <span id="mobile-menu-title">Explore o Astra</span
+        <a class="brand" href="/#inicio" aria-label="Astra, início"
+          ><picture
+            ><source media="(prefers-color-scheme: dark)" srcset="/assets/brand-2a6daf003c28.svg" />
+            <img
+              src="/assets/brand-0cf450d05c3b.svg"
+              width="176"
+              height="45"
+              alt="Astra"
+              fetchpriority="high" /></picture></a
         ><button class="icon-button" type="button" data-close-menu aria-label="Fechar menu">
           {{icon:close}}
         </button>
       </div>
+      <h2 id="mobile-menu-title" class="visually-hidden">Explore o Astra</h2>
       <nav aria-label="Navegação no celular">
-        <a href="#na-pratica">Na prática {{icon:arrow-right}}</a
-        ><a href="#recursos">O que faz {{icon:arrow-right}}</a
-        ><a href="#como-comecar">Como começar {{icon:arrow-right}}</a
-        ><a href="#plano">Plano e assinatura {{icon:arrow-right}}</a
+        <details>
+          <summary>Produtos {{icon:chevron-down}}</summary>
+          <div class="mobile-products">
+            <a href="/financas"
+              ><span class="module-icon">{{icon:wallet}}</span
+              ><span><strong>Finanças</strong><small>Seu dinheiro, com clareza.</small></span
+              >{{icon:arrow-right}}</a
+            ><a href="/agenda"
+              ><span class="module-icon">{{icon:calendar}}</span
+              ><span><strong>Agenda</strong><small>Cada compromisso no seu lugar.</small></span
+              >{{icon:arrow-right}}</a
+            ><a href="/lembretes"
+              ><span class="module-icon">{{icon:bell}}</span
+              ><span
+                ><strong>Lembretes</strong><small>O aviso que chega na hora combinada.</small></span
+              >{{icon:arrow-right}}</a
+            ><a href="/tarefas"
+              ><span class="module-icon">{{icon:check}}</span
+              ><span
+                ><strong>Tarefas</strong
+                ><small>Do que precisa fazer ao que já resolveu.</small></span
+              >{{icon:arrow-right}}</a
+            ><a href="/metas"
+              ><span class="module-icon">{{icon:target}}</span
+              ><span><strong>Metas</strong><small>Seus planos, um passo de cada vez.</small></span
+              >{{icon:arrow-right}}</a
+            ><a href="/notas"
+              ><span class="module-icon">{{icon:note}}</span
+              ><span
+                ><strong>Notas</strong><small>As informações que você quer guardar.</small></span
+              >{{icon:arrow-right}}</a
+            >
+          </div>
+        </details>
+        <a href="/como-usar">Como usar {{icon:arrow-right}}</a
+        ><a href="/demonstracao">Na prática {{icon:arrow-right}}</a
+        ><a href="/seguranca">Segurança {{icon:arrow-right}}</a
+        ><a href="/sobre">Sobre o Astra {{icon:arrow-right}}</a
+        ><a href="/suporte">Suporte {{icon:arrow-right}}</a
+        ><a href="/#plano">Plano e assinatura {{icon:arrow-right}}</a
         ><a href="https://app.astraacessor.pro/cliente/entrar"
           >Entrar no painel {{icon:arrow-up-right}}</a
         >

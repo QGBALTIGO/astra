@@ -96,7 +96,7 @@ try {
         });
         await page.evaluate(() => document.fonts.ready);
         if (version === 'after') {
-          await page.locator('[data-scenario="agenda"]').click();
+          await page.locator('[data-day="agenda"]').click();
           await page.locator('#tab-categorias').click();
         } else {
           const button = page.locator('.astra-try-buttons button').first();

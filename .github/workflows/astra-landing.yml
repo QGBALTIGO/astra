@@ -25,15 +25,10 @@ jobs:
       - run: npx playwright install --with-deps chromium firefox webkit
       - name: Generate first visual references when absent
         run: |
-          if [ ! -f tests/browser/screenshots/phone-320/night-hero.png ]; then
-            npm run test:browser -- tests/browser/night.spec.mjs --update-snapshots
+          if [ ! -f tests/browser/screenshots/assessor-pattern/phone-320/hero.png ]; then
+            npm run test:browser -- --grep 'visual regression' --update-snapshots
           fi
-          if [ -d tests/browser/screenshots ]; then
-            npm run test:browser
-          else
-            npm run test:browser -- --update-snapshots
-            npm run test:browser
-          fi
+          npm run test:browser
       - name: Measure before and after under the same lab conditions
         run: node tests/performance.mjs
       - uses: actions/upload-artifact@v4

@@ -1,3 +1,4 @@
+import { publicPages } from './src/public-pages.mjs';
 /** Local QA only. Serves public files; never connects to the agent or a database. */
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -29,6 +30,7 @@ const routes = {
   '/condicoes': '/condicoes.html',
   '/remover': '/remover.html',
   '/baseline/': '/baseline/index.html',
+  ...Object.fromEntries(publicPages.map((page) => [page.path, page.path + '.html'])),
 };
 const server = createServer(async (req, res) => {
   let files;

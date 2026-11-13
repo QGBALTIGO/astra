@@ -124,6 +124,21 @@ export const scenarios = Object.freeze([
     cta: 'Meta organizada',
   },
   {
+    id: 'notas',
+    label: 'Notas',
+    icon: 'note',
+    tab: 'agenda',
+    tag: 'Uma informação que volta quando você precisa',
+    user: 'Qual o nome da pousada que pedi para anotar?',
+    reply:
+      'Na sua nota: Pousada do Lago. Você anotou para consultar a disponibilidade em dezembro.',
+    record: 'Pousada do Lago',
+    detail: 'Nota pessoal · Viagem',
+    note: 'Informação salva por você',
+    kind: 'note',
+    cta: 'Nota consultada',
+  },
+  {
     id: 'viagens',
     label: 'Viagens',
     icon: 'plane',
