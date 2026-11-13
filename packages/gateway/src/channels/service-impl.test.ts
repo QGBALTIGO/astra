@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
+import { ASTRA_WEEKLY_PORTAL_REPLY } from './astra-access.js';
 import type { Message } from '@ownpilot/core/agent';
 import { inboundAccessCycle } from '../db/repositories/channel-access-inbound-notices.js';
 import type { ChannelUserEntity } from '../db/repositories/channels/users.js';
@@ -3151,6 +3152,16 @@ describe('ChannelServiceImpl', () => {
           'cpmp acesso o dashboard',
           'Você entra pelo painel do Astra.',
           'Você entra pelo painel do Astra.\n\nPainel do Astra: https://app.astraacessor.pro/cliente/entrar',
+        ],
+        [
+          'Quero organizar minha semana pelo Astra. Para fazer isso pelo navegador, onde entro e por onde vale começar?',
+          'No painel, crie compromissos na aba “Tarefas”.',
+          ASTRA_WEEKLY_PORTAL_REPLY,
+        ],
+        [
+          'Como posso planejar a minha semana no painel do Astra?',
+          'Abra Agenda e toque em Criar item. https://app.astraacessor.pro/cliente/entrar',
+          'Abra Agenda e toque em Criar item. https://app.astraacessor.pro/cliente/entrar',
         ],
       ])(
         'asks the agent about WhatsApp access and sends a readable login plus a native action for %s',

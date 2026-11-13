@@ -2,6 +2,19 @@
 import { ASTRA_SITE_URL, ASTRA_CUSTOMER_LOGIN_URL } from '../config/astra-public-urls.js';
 export { ASTRA_SITE_URL, ASTRA_CUSTOMER_LOGIN_URL };
 
+export const ASTRA_WEEKLY_PORTAL_REPLY = `Para organizar a semana, abra seu painel: ${ASTRA_CUSTOMER_LOGIN_URL}
+
+Entre com seu número de WhatsApp e digite no painel o código recebido. Em Agenda, escolha o dia. Toque em “Criar item” e selecione Compromisso, Tarefa ou Lembrete.`;
+
+/** A generative answer may reuse stale navigation instructions from chat history. */
+export function hasWeeklyPortalSteps(answer: string): boolean {
+  return (
+    /\bagenda\b/iu.test(answer) &&
+    /\bcriar item\b/iu.test(answer) &&
+    !/(?:aba|seção|menu|página)\s+[“"'*]*tarefas/iu.test(answer)
+  );
+}
+
 export const ASTRA_ACCESS_REPLY = `Acesse seu painel do Astra:
 ${ASTRA_CUSTOMER_LOGIN_URL}
 

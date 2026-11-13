@@ -779,7 +779,7 @@ try {
           delivery.at <= saved[index]!.remindAt.getTime() + 7_000,
           'Reminder exceeded the worker tolerance'
         );
-        assert.equal(delivery.text, '⏰ *Lembrete*\n\n• *Assunto:* vê o pc');
+        assert.equal(delivery.text, '⏰ Você pediu para eu te lembrar: vê o pc');
         assert.ok(delivery.receipt);
         const before = (await reminders(customer)).length;
         const replay = await invoke(index === 0 ? 'bus' : 'direct', customer, messages[index]!);

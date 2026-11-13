@@ -16,8 +16,16 @@ import {
   ASTRA_CUSTOMER_LOGIN_URL,
   containsCustomerLoginLink,
 } from '../config/astra-public-urls.js';
-import { isAstraAccessAnswerRequested } from './astra-access.js';
-import { maybePersonalizeConfirmedReply } from './confirmed-reply-personality.js';
+import {
+  ASTRA_WEEKLY_PORTAL_REPLY,
+  hasWeeklyPortalSteps,
+  isAstraAccessAnswerRequested,
+  isWeeklyPortalGuide,
+} from './astra-access.js';
+import {
+  isPersonalizableReceipt,
+  maybePersonalizeConfirmedReply,
+} from './confirmed-reply-personality.js';
 import {
   type IChannelService,
   type ChannelOutgoingMessage,
@@ -1171,6 +1179,13 @@ export class ChannelServiceImpl implements IChannelService {
         (message.platform === 'whatsapp' || message.platform === 'telegram') &&
         !message.attachments?.length &&
         isAstraAccessAnswerRequested(message.text);
+      if (
+        accessRequest &&
+        isWeeklyPortalGuide(message.text) &&
+        !hasWeeklyPortalSteps(responseText)
+      ) {
+        responseText = ASTRA_WEEKLY_PORTAL_REPLY;
+      }
       if (accessRequest && !containsCustomerLoginLink(responseText))
         responseText += '\n\nPainel do Astra: ' + ASTRA_CUSTOMER_LOGIN_URL;
 
@@ -1187,15 +1202,29 @@ export class ChannelServiceImpl implements IChannelService {
           ? { label: 'Abrir meu painel', url: ASTRA_CUSTOMER_LOGIN_URL }
           : undefined;
       const dashboardAction = confirmedAction ?? accessAction;
-      if (confirmedAction && message.platform === 'whatsapp') {
-        // The verified, structured receipt is immutable. The AI may only add a
-        // short, safe sentence and never delays delivery beyond 1.8 seconds.
+      if (
+        isPersonalizableReceipt(responseText) &&
+        ((message.platform === 'whatsapp' && message.metadata?.isGroup !== true) ||
+          (message.platform === 'telegram' &&
+            (message.metadata?.chatType === 'private' ||
+              message.platformChatId === message.sender.platformUserId)))
+      ) {
         responseText = await maybePersonalizeConfirmedReply({
           responseText,
           channelPluginId: message.channelPluginId,
           dataUserId,
-          displayName: message.sender.displayName,
+          messageId: message.id,
+          displayName: message.sender.displayName ?? channelUser.displayName,
         });
+        if (
+          message.platform === 'whatsapp' &&
+          !(await this.isWhatsAppAccessAllowed(message.sender.platformUserId, dataUserId))
+        ) {
+          await progress?.cancel().catch(() => {
+            log.debug('Could not clear progress after WhatsApp access changed');
+          });
+          return;
+        }
       }
       let sentMessageId: string;
       if (progress && !replyWithVoice) {

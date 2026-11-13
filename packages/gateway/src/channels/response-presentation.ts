@@ -1,5 +1,6 @@
 /** Small, deterministic WhatsApp confirmations built from persisted facts. */
 import { stripInternalTags } from './normalizers/base.js';
+import { subjectEmoji } from './channel-personalization.js';
 import { expenseCategoryLabelPtBr } from '../tools/expense-presentation.js';
 
 export interface AstraMessageField {
@@ -178,4 +179,14 @@ export function formatReminderConfirmation(
     ],
     saved.status === 'pending' ? 'Vou avisar você por aqui.' : undefined
   );
+}
+
+/** Alerts should land on time even when the writing model is busy. */
+export function formatDueReminder(subject: string, firstName?: string | null): string {
+  const title = displayText(subject);
+  if (!title) return '⏰ Chegou a hora do seu lembrete.';
+  const icon = subjectEmoji(title) ?? '⏰';
+  return firstName
+    ? `${icon} ${firstName}, você pediu para eu te lembrar: ${title}`
+    : `${icon} Você pediu para eu te lembrar: ${title}`;
 }
