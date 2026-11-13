@@ -8,7 +8,9 @@ vi.mock('../../../services/outbound-quality.js', () => ({
   recordOutboundQuality: mockRecordOutboundQuality,
 }));
 
-vi.mock('@whiskeysockets/baileys', () => ({
+vi.mock('@whiskeysockets/baileys', async (importOriginal) => ({
+  normalizeMessageContent: (await importOriginal<typeof import('@whiskeysockets/baileys')>())
+    .normalizeMessageContent,
   default: vi.fn(),
   useMultiFileAuthState: vi.fn(),
   makeCacheableSignalKeyStore: vi.fn(),
@@ -48,8 +50,62 @@ vi.mock('@ownpilot/core/events', async (importOriginal) => {
 });
 
 import { WhatsAppChannelAPI } from './whatsapp-api.js';
+import { downloadMediaMessage } from '@whiskeysockets/baileys';
+import { Readable } from 'node:stream';
+vi.mock('../../../services/channel-asset-store.js', () => ({
+  channelAssetStore: {
+    persistIncomingAttachments: async (input: { attachments: unknown[] }) => input.attachments,
+  },
+}));
 
 describe('WhatsAppChannelAPI', () => {
+  it('bounds a stuck media download even when the provider ignores cancellation', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(downloadMediaMessage).mockImplementationOnce(() => new Promise(() => {}));
+      const api = new WhatsAppChannelAPI({}, 'channel.whatsapp');
+      const result = (api as any).downloadAttachmentData({});
+      await vi.advanceTimersByTimeAsync(12000);
+      expect(await result).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('stops oversized media before accumulating more than the limit', async () => {
+    vi.mocked(downloadMediaMessage).mockResolvedValueOnce(
+      Readable.from([Buffer.alloc(12 * 1024 * 1024 + 1)]) as never
+    );
+    const api = new WhatsAppChannelAPI({}, 'channel.whatsapp');
+    expect(await (api as any).downloadAttachmentData({})).toBeUndefined();
+  });
+  it.each([
+    [
+      {
+        documentWithCaptionMessage: {
+          message: {
+            documentMessage: { mimetype: 'audio/wav', fileName: 'synthetic.wav', caption: 'teste' },
+          },
+        },
+      },
+      'file',
+    ],
+    [{ ephemeralMessage: { message: { audioMessage: { mimetype: 'audio/ogg' } } } }, 'audio'],
+  ])('processes media inside WhatsApp content wrappers', async (content, type) => {
+    vi.mocked(downloadMediaMessage).mockResolvedValueOnce(
+      Readable.from([Buffer.from('synthetic audio')]) as never
+    );
+    const api = new WhatsAppChannelAPI({ my_phone: '37253049737' }, 'channel.whatsapp');
+    (api as any).sock = { user: { id: '37253049737:0@s.whatsapp.net' } };
+    await (api as any).handleIncomingMessage({
+      key: { remoteJid: '37253049737@s.whatsapp.net', id: 'wrapped-media', fromMe: true },
+      message: content,
+      messageTimestamp: 1700000000,
+    });
+    expect(mockEmit).toHaveBeenCalledTimes(1);
+    const { message } = mockEmit.mock.calls[0]![0];
+    expect(message.attachments[0].type).toBe(type);
+    expect(Buffer.from(message.attachments[0].data).toString()).toBe('synthetic audio');
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });

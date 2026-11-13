@@ -55,6 +55,10 @@ async function complete(
     resolvedAuth,
     timeout: remaining,
     maxRetries: 0,
+    headers: {
+      ...config?.headers,
+      ...(provider === 'ollama-local' ? { 'X-Astra-Deadline': String(deadline) } : {}),
+    },
   });
   const result = await writer.complete({
     model: { model, maxTokens: tokens, temperature: 0.75 },

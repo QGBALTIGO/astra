@@ -9,6 +9,7 @@ import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 import type { NormalizedAttachment } from '@ownpilot/core/services';
 
 export interface NormalizedIncoming {
+  failureReply?: string;
   /** Cleaned text content */
   text: string;
   /** Normalized attachments (base64-encoded data URIs) */
