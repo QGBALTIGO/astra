@@ -5,7 +5,6 @@ import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerDayStart, customerLocalDay } from '../services/customer-date.js';
 import { formatAstraMessage } from './response-presentation.js';
 import { stripInternalTags } from './normalizers/base.js';
-import { safePersonalComment } from './confirmed-reply-personality.js';
 
 export async function tryAgendaOverview(
   message: ChannelIncomingMessage,
@@ -107,6 +106,7 @@ export async function tryAgendaOverview(
     );
   else blocks.push('📅 Não consegui consultar sua agenda agora.');
   const candidate = await introPromise;
+  const { safePersonalComment } = await import('./confirmed-reply-personality.js');
   const intro = typeof candidate === 'string' ? safePersonalComment(candidate) : null;
   return (intro ? intro + '\n\n' : '') + blocks.join('\n\n');
 }

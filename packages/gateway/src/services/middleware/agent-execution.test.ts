@@ -419,7 +419,7 @@ describe('createAgentExecutionMiddleware', () => {
       expect(result.response.content).toBe(
         saved
           ? 'Lembrete agendado.'
-          : 'A confirmação do aviso não chegou. Confira o horário e o status em Agenda no painel antes de criar outro.'
+          : 'Ainda não consegui confirmar a alteração dos lembretes. Peça para consultar os itens que ficaram salvos antes de repetir.'
       );
       expect(agent.setAdditionalTools).toHaveBeenCalledWith(
         expect.arrayContaining(['core.schedule_channel_reminder'])
@@ -616,9 +616,9 @@ describe('createAgentExecutionMiddleware', () => {
         vi.fn()
       );
 
-      expect(result.response.content).toContain('limite de respostas');
+      expect(result.response.content).toContain('Não consegui terminar minha resposta agora');
       expect(result.response.content).not.toContain('Groq');
-      expect(result.response.content).toContain('limite');
+      expect(result.response.content).not.toContain('limite');
       expect(result.response.content).not.toContain('org_secret');
       expect(result.response.content).not.toContain('429');
       expect(result.response.metadata.error).toBe(details);
