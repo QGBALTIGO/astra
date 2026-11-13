@@ -107,6 +107,8 @@ export function parseQuickFinancePlan(raw: string, request: string): Plan | null
   }
   if (
     !p ||
+    typeof p !== 'object' ||
+    Array.isArray(p) ||
     'newAmount' in p ||
     !['list', 'update'].includes(p.op) ||
     typeof p.search !== 'string' ||

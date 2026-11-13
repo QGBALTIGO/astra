@@ -95,6 +95,10 @@ describe('short AI expense consultation', () => {
       parseQuickFinancePlan(JSON.stringify({ ...plan, newAmount: 2.34 }), 'Consulte Café')
     ).toBeNull();
   });
+  it('refuses JSON values that are not plan objects', () => {
+    expect(parseQuickFinancePlan('"texto"', 'Consulte Café')).toBeNull();
+    expect(parseQuickFinancePlan('[]', 'Consulte Café')).toBeNull();
+  });
   it('keeps grouped BRL amounts intact and declines multiple different values', () => {
     expect(
       explicitFinancePlan('Liste os gastos Café de R$ 1.000,50 de hoje', '2026-11-13')?.amount
