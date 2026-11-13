@@ -502,12 +502,14 @@ export class CustomerAuthService {
             continue;
           }
           invoked = true;
-          // The verified WhatsApp native copy action copies only the six digits.
-          // Preserve the one-attempt boundary: an ambiguous relay must never
-          // cause a duplicate OTP or reveal it through logs.
+          // Deliver security codes as ordinary WhatsApp text. The native
+          // cta_copy flow sometimes reports a successful relay even though the
+          // recipient never receives the message. A single normal text send
+          // avoids that unreliable transport path while keeping the OTP hidden
+          // from API responses and logs. Never retry an ambiguous send.
           await fresh.api.sendMessage({
             platformChatId: challenge.phoneNumber,
-            ...message,
+            text: message.text,
             sendBefore: challenge.expiresAt,
           });
           await this.d.auth.finishDelivery(challenge.id, lease, 'sent');
