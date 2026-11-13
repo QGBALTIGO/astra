@@ -67,7 +67,7 @@ describe('recalling recent private receipts', () => {
       },
     ]);
     expect(history).toBe(
-      '🗂️ *Seus últimos pedidos*\n\n☕ *Gasto*\ncafé\n💵 *R$ 2,65*\nAlimentação · 13/11/2026\n\n⏰ *Lembrete*\nbuscar o livro\n📅 13/11/2026 às *11:13*\n\n🔁 *Assinatura*\nClube das Flores\n💵 *R$ 12,70*\n📅 Renovação em 15/12/2026'
+      '🗂️ *Seus últimos pedidos*\n\n☕ *Gasto*\n\n• *Valor:* R$ 2,65\n• *Descrição:* café\n• *Categoria:* Alimentação\n• *Data:* 13/11/2026\n\n⏰ *Lembrete*\n\n• *Assunto:* buscar o livro\n• *Data:* 13/11/2026\n• *Horário:* 11:13\n\n🔁 *Assinatura*\n\n• *Nome:* Clube das Flores\n• *Valor:* R$ 12,70\n• *Renovação:* 15/12/2026'
     );
   });
   it('keeps the receipts in chronology when asked for several', async () => {
