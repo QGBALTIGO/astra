@@ -25,7 +25,7 @@ export function safeContactFirstName(displayName: string | undefined): string | 
     first.length < 2 ||
     first.length > 24 ||
     !/^\p{L}[\p{L}\p{M}'-]*$/u.test(first) ||
-    /^(?:whatsapp|contato|desconhecido|usuario|usuário|você|astra|número)$/iu.test(first)
+    /^(?:whatsapp|contato|cliente|desconhecido|usuario|usuário|você|astra|número)$/iu.test(first)
   )
     return null;
   return first;

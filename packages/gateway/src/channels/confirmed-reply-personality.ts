@@ -176,6 +176,15 @@ export async function maybePersonalizeConfirmedReply(input: {
       ],
     });
     const opening = result.ok ? safePersonalComment(result.value.content) : null;
+    // A tracked subscription is a personal note, not a receipt from the merchant.
+    if (
+      receipt.action === 'assinatura' &&
+      opening &&
+      /\b(?:ativ[ao]s?|inativ[ao]s?|valid[ao]s?|vigente|vence|vencimento|renova|renovação|cadastro|fim do mês|até|plano|cobrança|assinatura)\b/iu.test(
+        opening
+      )
+    )
+      return fallback;
     return opening ? opening + '\n\n' + receipt.facts : fallback;
   })()
     .catch(() => fallback)

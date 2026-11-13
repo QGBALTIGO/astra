@@ -6,6 +6,7 @@ describe('Natural occasional use of first names', () => {
     expect(safeContactFirstName('Kayky Sousa')).toBe('Kayky');
     expect(safeContactFirstName('5511999999999')).toBeNull();
     expect(safeContactFirstName('Contato')).toBeNull();
+    expect(safeContactFirstName('Cliente sintético')).toBeNull();
   });
   it('replaces previous user context without accumulating prompt content', () => {
     const first = withContactStyleContext('System prompt', 'Kayky');

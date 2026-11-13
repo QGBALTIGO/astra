@@ -110,6 +110,15 @@ describe('personal writing for private confirmations', () => {
     expect(await maybePersonalizeConfirmedReply({ ...input, responseText: text })).toContain(text);
     expect(mocks.complete).toHaveBeenCalledTimes(1);
   });
+  it('rejects invented service state from the model for a tracked subscription', async () => {
+    const note =
+      'Assinatura adicionada ao seu controle: Spotify · R$ 22,90 · renovação em 15/11/2026.';
+    mocks.complete.mockResolvedValue(
+      say('Tudo bem, seu plano de Spotify tá ativo até o fim do mês! 🎵')
+    );
+    expect(await maybePersonalizeConfirmedReply({ ...input, responseText: note })).toBe(note);
+  });
+
   it('returns facts on timeout and avoids duplicate writers for a busy customer', async () => {
     vi.useFakeTimers();
     let finish!: (value: ReturnType<typeof say>) => void;
