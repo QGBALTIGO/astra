@@ -8,6 +8,7 @@ import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { addCalendarDays, customerDayStart, customerLocalDay } from '../services/customer-date.js';
 import { formatAstraMessage } from './response-presentation.js';
 import { stripInternalTags } from './normalizers/base.js';
+import { resolveCustomerTimeZone } from './timezone-routing.js';
 
 const PAGE_SIZE = 15;
 const statusLabels: Record<ChannelReminder['status'], string> = {
@@ -32,9 +33,16 @@ export async function tryListTodaysReminders(
   )
     return null;
   const text = message.text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+  const qualifier =
+    /(?:[?.,!]?\s+(?:(?:mostre|exiba)\s+os\s+horarios|(?:no|pelo)\s+(?:horario|fuso))\s+de\s+)([a-z0-9_+/-]+(?: [a-z0-9_+/-]+)*)[?!.]*$/.exec(
+      text
+    );
+  const explicitZone = qualifier ? resolveCustomerTimeZone(qualifier[1]!) : null;
+  if (qualifier && !explicitZone) return null;
+  const request = qualifier ? text.slice(0, qualifier.index).trim() : text;
   if (
     !/^(?:astra[, ]+)?(?:(?:quais (?:sao )?|(?:liste|mostre) )(?:os )?)?(?:meus )?lembretes (?:de |para |pra )?hoje(?:,? por favor)?[?!.]*$/.test(
-      text
+      request
     )
   )
     return null;
@@ -42,8 +50,11 @@ export async function tryListTodaysReminders(
     return 'Não consegui identificar a conversa para consultar os lembretes.';
   }
   try {
-    const account = await customerAccountsRepo.getByDataUserId(userId);
-    const timeZone = account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
+    const timeZone =
+      explicitZone ??
+      (await customerAccountsRepo.getByDataUserId(userId))?.timeZone ??
+      process.env.TZ ??
+      'America/Campo_Grande';
     const now = new Date();
     const received = message.timestamp;
     const day = customerLocalDay(
@@ -58,7 +69,8 @@ export async function tryListTodaysReminders(
       customerDayStart(addCalendarDays(day, 1), timeZone),
       PAGE_SIZE + 1
     );
-    const date = day.split('-').reverse().join('/');
+    const zoneLabel = explicitZone === 'America/Cuiaba' ? 'Cuiabá' : explicitZone;
+    const date = day.split('-').reverse().join('/') + (zoneLabel ? ' (' + zoneLabel + ')' : '');
     if (!reminders.length) return `Nenhum lembrete nesta conversa para ${date}.`;
     const time = new Intl.DateTimeFormat('pt-BR', { timeZone, timeStyle: 'medium' });
     return formatAstraMessage(

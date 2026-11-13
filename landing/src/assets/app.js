@@ -250,13 +250,14 @@ function track(event) {
     keepalive: true,
   }).catch(() => {});
 }
-function openContact() {
+function openContact(trigger) {
   if (!contact || contact.open) return;
+  contactReturn =
+    trigger && menu?.contains(trigger) ? menuToggle : (trigger ?? document.activeElement);
   closeMenu(false);
   formRun++;
   requestId = crypto.randomUUID();
   previousPayload = '';
-  contactReturn = document.activeElement;
   form.reset();
   form.hidden = false;
   form.removeAttribute('aria-busy');
@@ -272,7 +273,7 @@ function openContact() {
   track('contact_open');
 }
 $$('[data-contact]').forEach((button) =>
-  button.addEventListener('click', () => openContact(button.dataset.contact))
+  button.addEventListener('click', () => openContact(button))
 );
 $$('[data-close-contact]').forEach((button) =>
   button.addEventListener('click', () => contact.close())
