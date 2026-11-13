@@ -5,8 +5,14 @@ import { buildCustomerOtpMessage } from './customer-auth-messages.js';
 describe('buildCustomerOtpMessage', () => {
   it.each([
     ['login', 'Recebemos uma solicitação para acessar seu painel do *Astra*.'],
-    ['phone_change_old', 'Recebemos uma solicitação para alterar o número de WhatsApp da sua conta *Astra*.'],
-    ['phone_change_new', 'Recebemos uma solicitação para confirmar seu novo número de WhatsApp no *Astra*.'],
+    [
+      'phone_change_old',
+      'Recebemos uma solicitação para alterar o número de WhatsApp da sua conta *Astra*.',
+    ],
+    [
+      'phone_change_new',
+      'Recebemos uma solicitação para confirmar seu novo número de WhatsApp no *Astra*.',
+    ],
   ] as const)(
     'explains %s with professional formatting, an exact code and the native clipboard action',
     (purpose, instruction) => {
