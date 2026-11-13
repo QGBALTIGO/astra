@@ -9,9 +9,6 @@ test.beforeEach(async ({ page }) => {
 });
 async function accessible(page, include) {
   let a = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
-  // The landing uses a single document. Run the same rules directly on Firefox,
-  // where axe's multi-frame collection crashes the page during the demo scan.
-  if (page.context().browser()?.browserType().name() === 'firefox') a.setLegacyMode();
   if (include) a = a.include(include);
   const result = await a.analyze();
   expect(
@@ -50,14 +47,15 @@ test('all guided conversations and dashboard views remain accessible at night', 
   page,
 }) => {
   await page.goto('/demonstracao');
+  await page.locator('.demo-workspace').scrollIntoViewIfNeeded();
   for (const s of scenarios) {
     await page.getByLabel('Escolha um exemplo').selectOption(s.id);
     await expect(page.locator('#demo-reply')).toHaveText(s.reply);
-    await accessible(page, '.demo-workspace');
+    await accessible(page);
   }
   for (const view of ['inicio', 'transacoes', 'categorias', 'agenda', 'perfil']) {
     await page.locator('#tab-' + view).click();
-    await accessible(page, '.demo-workspace');
+    await accessible(page);
   }
 });
 test('night mode covers contact, navigation and all public page types', async ({

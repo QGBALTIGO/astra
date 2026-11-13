@@ -2017,7 +2017,7 @@ summary::-webkit-details-marker {
 .demo-workspace {
   display: grid;
   align-items: start;
-  grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr);
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
   gap: clamp(16px, 2.5vw, 32px);
 }
 .demo-conversation,
@@ -2045,7 +2045,7 @@ summary::-webkit-details-marker {
 .demo-conversation-top h2,
 .demo-dashboard-top h2 {
   font-size: 16px;
-  letter-spacing: -.025em;
+  letter-spacing: -0.025em;
 }
 .demo-dashboard-top > .icon {
   color: var(--ink);
@@ -2897,7 +2897,7 @@ dialog::backdrop {
     font-size: 34px;
   }
   .demo-workspace {
-    grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
   }
   .demo-dashboard .dashboard-tabs button {
     padding: 9px 7px;

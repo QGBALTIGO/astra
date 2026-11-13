@@ -7,14 +7,22 @@ const icon = (name) =>
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
 // Native dialogs move focus on open. Keep that focus visible for keyboard navigation.
-document.addEventListener('pointerdown', () => {
-  document.documentElement.dataset.pointerFocus = '';
-}, { capture: true, passive: true });
-document.addEventListener('keydown', (event) => {
-  if (!event.metaKey && !event.altKey && !event.ctrlKey) {
-    delete document.documentElement.dataset.pointerFocus;
-  }
-}, true);
+document.addEventListener(
+  'pointerdown',
+  () => {
+    document.documentElement.dataset.pointerFocus = '';
+  },
+  { capture: true, passive: true }
+);
+document.addEventListener(
+  'keydown',
+  (event) => {
+    if (!event.metaKey && !event.altKey && !event.ctrlKey) {
+      delete document.documentElement.dataset.pointerFocus;
+    }
+  },
+  true
+);
 
 // Native dialogs provide an inert background, Escape support and a focus boundary.
 const menu = $('#mobile-menu');

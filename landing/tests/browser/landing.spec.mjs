@@ -80,7 +80,9 @@ test('dashboard tabs use roving focus and show coherent data', async ({ page }) 
   expect(await page.locator('.dashboard-tabs [role="tab"][tabindex="0"]').count()).toBe(1);
 });
 test('profile values have room and pointer focus stays quiet when opening the menu', async ({
-  page, viewport, hasTouch,
+  page,
+  viewport,
+  hasTouch,
 }) => {
   for (const path of ['/', '/demonstracao']) {
     await page.goto(path);
@@ -90,11 +92,15 @@ test('profile values have room and pointer focus stays quiet when opening the me
     await expect(profile).toHaveCSS('outline-style', 'none');
     const rows = page.locator('.profile-details > div');
     await expect(rows).toHaveCount(3);
-    expect(await rows.evaluateAll((items) => items.every((item) => {
-      const label = item.querySelector('dt').getBoundingClientRect();
-      const value = item.querySelector('dd').getBoundingClientRect();
-      return value.top >= label.bottom + 2 || value.left >= label.right + 4;
-    }))).toBe(true);
+    expect(
+      await rows.evaluateAll((items) =>
+        items.every((item) => {
+          const label = item.querySelector('dt').getBoundingClientRect();
+          const value = item.querySelector('dd').getBoundingClientRect();
+          return value.top >= label.bottom + 2 || value.left >= label.right + 4;
+        })
+      )
+    ).toBe(true);
     if (viewport.width >= 960) continue;
     const toggle = page.getByRole('button', { name: 'Abrir menu' });
     if (hasTouch) await toggle.tap();
