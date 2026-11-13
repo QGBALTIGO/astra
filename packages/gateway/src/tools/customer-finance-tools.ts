@@ -56,7 +56,7 @@ export const CUSTOMER_FINANCE_TOOLS: ToolDefinition[] = [
     category: 'Finance',
     brief: 'Buscar entradas, saídas e pendências financeiras',
     description:
-      'Consulta entradas, saídas e pendências do usuário. Use antes de corrigir/excluir; não invente IDs. IDs retornados são internos: não exiba nem peça ao usuário. Se houver vários resultados compatíveis, diferencie por descrição, valor e data e pergunte qual.',
+      'Consulta entradas, saídas e pendências do usuário. Use antes de corrigir/excluir; não invente IDs. IDs retornados são internos: não exiba nem peça ao usuário. createdLocal é a data e hora de criação no fuso do cliente; copie esse horário diretamente. createdAt é o instante original em UTC. Diferencie os lançamentos por descrição, valor, data e hora de criação. Pergunte apenas se continuar ambíguo.',
     parameters: {
       type: 'object',
       properties: {
@@ -194,7 +194,20 @@ export async function executeCustomerFinanceTool(
         if (typeof args.page !== 'number') throw new CustomerFinanceError('Página inválida.');
         query.page = args.page;
       }
-      return { success: true, result: await repo.listTransactions(query) };
+      const result = await repo.listTransactions(query);
+      if (!result.transactions.length) return { success: true, result };
+      const account = await customerAccountsRepo.getByDataUserId(userId);
+      const timeZone = account?.timeZone ?? 'America/Campo_Grande';
+      const clock = new Intl.DateTimeFormat('pt-BR', {
+        timeZone,
+        dateStyle: 'short',
+        timeStyle: 'medium',
+      });
+      const transactions = result.transactions.map((item) => ({
+        ...item,
+        createdLocal: clock.format(new Date(item.createdAt)),
+      }));
+      return { success: true, result: { ...result, timeZone, transactions } };
     }
     if (toolName === 'financial_summary') {
       return {

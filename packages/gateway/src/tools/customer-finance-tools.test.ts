@@ -291,7 +291,11 @@ describe('same-ledger finance tools', () => {
     expect(f.create).not.toHaveBeenCalled();
   });
   it('lists scoped IDs and filters rather than making them up', async () => {
-    f.list.mockResolvedValueOnce({ transactions: [{ id: 'saved' }], total: 1 });
+    f.account.mockResolvedValueOnce({ timeZone: 'America/Cuiaba' });
+    f.list.mockResolvedValueOnce({
+      transactions: [{ id: 'saved', createdAt: '2026-11-13T13:25:40.526Z' }],
+      total: 1,
+    });
     const result = await executeCustomerFinanceTool(
       'list_transactions',
       { search: 'Cakto', type: 'income', status: 'pending' },
@@ -303,6 +307,10 @@ describe('same-ledger finance tools', () => {
       search: 'Cakto',
       type: 'income',
       status: 'pending',
+    });
+    expect(result.result).toMatchObject({
+      timeZone: 'America/Cuiaba',
+      transactions: [{ id: 'saved', createdLocal: expect.stringContaining('09:25:40') }],
     });
   });
   it('preserves actual/pending totals returned by the shared ledger', async () => {
