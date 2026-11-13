@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   Calendar,
   Check,
+  ChevronDown,
+  ExternalLink,
   Lock,
   MessageSquare,
   Receipt,
@@ -221,20 +223,17 @@ export function CustomerLogin() {
             </form>
           )}
           <details className="ac-login-help">
-            <summary>Preciso de ajuda</summary>
-            <p>
-              Use o número autorizado no seu acesso ao Astra e confira se ele está conectado ao
-              WhatsApp. Para dúvidas sobre seu acesso,{' '}
+            <summary>
+              <span>Preciso de ajuda</span>
+              <ChevronDown className="ac-login-help-chevron" aria-hidden="true" />
+            </summary>
+            <div className="ac-login-help-content">
+              <p>Confira o DDD e use o número autorizado no seu acesso ao Astra.</p>
               <a href={ASTRA_SITE_URL + '#contato'} target="_blank" rel="noopener noreferrer">
-                fale com a equipe Astra
+                Falar com a equipe Astra <ExternalLink aria-hidden="true" />
               </a>
-              .
-            </p>
+            </div>
           </details>
-          <p className="ac-login-security">
-            <Lock aria-hidden="true" />
-            Seu acesso é confirmado no seu WhatsApp.
-          </p>
         </main>
       </div>
     </div>

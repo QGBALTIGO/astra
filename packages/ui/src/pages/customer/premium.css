@@ -346,21 +346,58 @@ html .astra-customer .ac-auth-generic {
 html .astra-customer .ac-login-help {
   font-size: 12px;
   margin-top: 22px;
+  border-top: 1px solid var(--ac-border);
 }
 html .astra-customer .ac-login-help summary {
-  min-height: 36px;
-  padding-block: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding-block: 14px;
+  list-style: none;
+  font-weight: 500;
+  transition: color 160ms ease;
+}
+html .astra-customer .ac-login-help summary::marker {
+  content: '';
+}
+html .astra-customer .ac-login-help summary::-webkit-details-marker {
+  display: none;
+}
+html .astra-customer .ac-login-help summary:hover,
+html .astra-customer .ac-login-help[open] summary {
+  color: var(--ac-text);
+}
+html .astra-customer .ac-login-help-chevron {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  stroke-width: 1.75;
+  transition: transform 160ms ease;
+}
+html .astra-customer .ac-login-help[open] .ac-login-help-chevron {
+  transform: rotate(180deg);
+}
+html .astra-customer .ac-login-help-content {
+  padding: 0 0 4px;
+}
+html .astra-customer .ac-login-help-content p {
+  margin: 0 0 8px;
 }
 html .astra-customer .ac-login-help a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
   color: var(--ac-link);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-html .astra-customer .ac-login-security {
-  line-height: 1.7;
-  font-size: 10px;
-  margin-top: 18px;
-  padding-top: 18px;
+html .astra-customer .ac-login-help a svg {
+  width: 13px;
+  height: 13px;
 }
 @media (min-width: 768px) and (max-width: 1100px) {
   html .astra-customer.ac-app {
@@ -400,6 +437,9 @@ html .astra-customer .ac-login-security {
   }
 }
 @media (max-width: 767px) {
+  html .astra-customer.ac-login {
+    align-items: flex-start;
+  }
   html .astra-customer .ac-content {
     padding: 24px 20px calc(100px + env(safe-area-inset-bottom));
   }
@@ -489,14 +529,14 @@ html .astra-customer .ac-login-security {
     padding: 15px;
   }
   html .astra-customer.ac-login {
-    padding: 28px 20px;
+    padding: 24px 16px;
   }
   html .astra-customer .ac-login-layout {
     display: block;
     max-width: 430px;
   }
   html .astra-customer .ac-login-card {
-    padding: 26px;
+    padding: 24px 20px;
     border-radius: 14px;
   }
   html .astra-customer .ac-login-mobile-brand {
@@ -524,12 +564,6 @@ html .astra-customer .ac-login-security {
   }
   html .astra-customer .ac-page-heading h1 {
     font-size: 25px;
-  }
-  html .astra-customer.ac-login {
-    padding: 20px 12px;
-  }
-  html .astra-customer .ac-login-card {
-    padding: 24px 20px;
   }
 }
 @media (max-height: 680px) {
