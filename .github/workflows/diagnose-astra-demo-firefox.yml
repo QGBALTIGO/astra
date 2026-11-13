@@ -3,7 +3,11 @@ on: push
 permissions:
   contents: read
 jobs:
-  run:
+  audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        trace: ['on', 'off']
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     defaults:
@@ -17,6 +21,4 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build
       - run: npx playwright install --with-deps firefox
-      - run: |
-          node preview.mjs > /tmp/preview.log 2>&1 &
-          node firefox-scan-diagnostic.mjs
+      - run: npm run test:browser -- --project=desktop-firefox --grep 'all guided conversations and dashboard views remain accessible at night' --trace=${{ matrix.trace }} --reporter=list
