@@ -5,6 +5,7 @@ import { customerFinanceRoutes } from './finance.js';
 import { customerAgendaRoutes } from './agenda.js';
 import { customerPlanningRoutes } from './planning.js';
 import { customerDataRoutes } from './data.js';
+import { customerConnectedAppsRoutes } from './connected-apps.js';
 import { requireCustomerSession } from '../../middleware/customer-session.js';
 import { apiError } from '../helpers.js';
 
@@ -16,6 +17,7 @@ customerRoutes.route('/', customerAccountRoutes);
 customerRoutes.route('/finance', customerFinanceRoutes);
 customerRoutes.route('/planning', customerPlanningRoutes);
 customerRoutes.route('/agenda', customerAgendaRoutes);
+customerRoutes.route('/connected-apps', customerConnectedAppsRoutes);
 customerRoutes.route('/', customerDataRoutes);
 customerRoutes.all('*', (c) =>
   apiError(c, { code: 'NOT_FOUND', message: 'Página não encontrada.' }, 404)

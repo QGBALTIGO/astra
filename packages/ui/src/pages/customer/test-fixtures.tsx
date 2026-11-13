@@ -109,6 +109,22 @@ export function mockCustomerApi(customer: Customer = structuredClone(customerFix
     revokeOtherSessions: vi
       .spyOn(customerApi, 'revokeOtherSessions')
       .mockResolvedValue({ revoked: 1 }),
+    connectedApps: vi.spyOn(customerApi, 'connectedApps').mockResolvedValue({
+      configured: false,
+      apps: [
+        { slug: 'gmail', name: 'Gmail', status: 'unavailable', connectionId: null },
+        {
+          slug: 'googlecalendar',
+          name: 'Google Agenda',
+          status: 'unavailable',
+          connectionId: null,
+        },
+      ],
+    }),
+    connectApp: vi.spyOn(customerApi, 'connectApp').mockResolvedValue({
+      redirectUrl: 'https://connect.composio.dev/link/test-customer',
+    }),
+    disconnectApp: vi.spyOn(customerApi, 'disconnectApp').mockResolvedValue({ disconnected: true }),
     integrations: vi.spyOn(customerApi, 'integrations').mockResolvedValue({
       googleCalendar: {
         available: false,

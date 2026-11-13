@@ -365,6 +365,19 @@ export async function mockCustomerApi(
           },
         ],
       };
+    } else if (method === 'GET' && path === '/connected-apps') {
+      data = {
+        configured: false,
+        apps: [
+          { slug: 'gmail', name: 'Gmail', status: 'unavailable', connectionId: null },
+          {
+            slug: 'googlecalendar',
+            name: 'Google Agenda',
+            status: 'unavailable',
+            connectionId: null,
+          },
+        ],
+      };
     } else if (method === 'GET' && path === '/integrations') {
       data = {
         whatsapp: { available: true, connected: true, status: 'connected' },

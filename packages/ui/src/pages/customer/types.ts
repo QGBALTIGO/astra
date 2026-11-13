@@ -25,6 +25,18 @@ export interface CustomerSession {
   expiresAt: string;
   current: boolean;
 }
+export type CustomerAppSlug = 'gmail' | 'googlecalendar';
+export interface CustomerConnectedApp {
+  slug: CustomerAppSlug;
+  name: string;
+  status: 'connected' | 'disconnected' | 'needs_attention' | 'unavailable';
+  connectionId: string | null;
+}
+export interface CustomerConnectedAppsResponse {
+  configured: boolean;
+  apps: CustomerConnectedApp[];
+}
+
 export interface CustomerIntegrations {
   whatsapp?: {
     available: boolean;

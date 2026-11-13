@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
-  Calendar,
   Download,
   Edit3,
   ExternalLink,
@@ -33,6 +32,7 @@ import {
 import { useCustomerQuery } from './hooks';
 import { CustomerPhoneChange } from './PhoneChange';
 import { CustomerPlanAccess } from './PlanAccess';
+import { CustomerConnectedApps } from './ConnectedApps';
 import type { Customer, CustomerSession, CustomerTheme } from './types';
 
 export function CustomerProfile({
@@ -272,22 +272,11 @@ export function CustomerProfile({
                     </div>
                   </div>
                 ) : null}
-                <div className="ac-integration">
-                  <Calendar aria-hidden="true" />
-                  <div>
-                    <h3>Google Agenda</h3>
-                    <span className="ac-status">
-                      {integrations.data.googleCalendar.status === 'connected'
-                        ? 'Conectado'
-                        : integrations.data.googleCalendar.status === 'needs_attention'
-                          ? 'Precisa de atenção'
-                          : integrations.data.googleCalendar.available
-                            ? 'Não conectado'
-                            : 'Indisponível'}
-                    </span>
-                    <p>{integrations.data.googleCalendar.message}</p>
-                  </div>
-                </div>
+                <CustomerConnectedApps
+                  active={active}
+                  canWrite={current.access.canWrite}
+                  onChanged={onChanged}
+                />
               </>
             ) : null}
           </section>
