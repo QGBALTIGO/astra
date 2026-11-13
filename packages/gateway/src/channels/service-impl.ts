@@ -16,7 +16,12 @@ import {
   ASTRA_CUSTOMER_LOGIN_URL,
   containsCustomerLoginLink,
 } from '../config/astra-public-urls.js';
-import { isAstraAccessAnswerRequested } from './astra-access.js';
+import {
+  ASTRA_WEEKLY_PORTAL_REPLY,
+  hasWeeklyPortalSteps,
+  isAstraAccessAnswerRequested,
+  isWeeklyPortalGuide,
+} from './astra-access.js';
 import { maybePersonalizeConfirmedReply } from './confirmed-reply-personality.js';
 import {
   type IChannelService,
@@ -1171,6 +1176,13 @@ export class ChannelServiceImpl implements IChannelService {
         (message.platform === 'whatsapp' || message.platform === 'telegram') &&
         !message.attachments?.length &&
         isAstraAccessAnswerRequested(message.text);
+      if (
+        accessRequest &&
+        isWeeklyPortalGuide(message.text) &&
+        !hasWeeklyPortalSteps(responseText)
+      ) {
+        responseText = ASTRA_WEEKLY_PORTAL_REPLY;
+      }
       if (accessRequest && !containsCustomerLoginLink(responseText))
         responseText += '\n\nPainel do Astra: ' + ASTRA_CUSTOMER_LOGIN_URL;
 
