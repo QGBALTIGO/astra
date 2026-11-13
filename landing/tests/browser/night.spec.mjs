@@ -47,15 +47,14 @@ test('all guided conversations and dashboard views remain accessible at night', 
   page,
 }) => {
   await page.goto('/demonstracao');
-  await page.locator('.demo-workspace').scrollIntoViewIfNeeded();
   for (const s of scenarios) {
     await page.getByLabel('Escolha um exemplo').selectOption(s.id);
     await expect(page.locator('#demo-reply')).toHaveText(s.reply);
-    await accessible(page);
+    await accessible(page, '.demo-workspace');
   }
   for (const view of ['inicio', 'transacoes', 'categorias', 'agenda', 'perfil']) {
     await page.locator('#tab-' + view).click();
-    await accessible(page);
+    await accessible(page, '.demo-workspace');
   }
 });
 test('night mode covers contact, navigation and all public page types', async ({

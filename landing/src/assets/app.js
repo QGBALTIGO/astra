@@ -186,11 +186,7 @@ if (panel) {
     replayTimer = setTimeout(finish, 320);
   }
   chooser?.addEventListener('change', () => {
-    const scenario = scenarios.find(({ id }) => id === chooser.value);
-    if (scenario) {
-      history.replaceState(null, '', '#' + scenario.id);
-      playScenario(scenario);
-    }
+    if (chooser.value !== activeScenario.id) location.hash = chooser.value;
   });
   $('#replay')?.addEventListener('click', () => playScenario(activeScenario));
   const requested = location.hash.slice(1);
@@ -198,8 +194,9 @@ if (panel) {
     playScenario(scenarios.find((s) => s.id === requested) || scenarios[0], false);
   else showView('inicio');
   window.addEventListener('hashchange', () => {
-    const s = scenarios.find((s) => s.id === location.hash.slice(1));
-    if (s && $('#demo-user')) playScenario(s);
+    if (!chooser) return;
+    const scenario = scenarios.find(({ id }) => id === location.hash.slice(1)) || scenarios[0];
+    playScenario(scenario);
   });
 }
 

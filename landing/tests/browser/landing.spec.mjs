@@ -221,6 +221,9 @@ test('local topic chooser and linked demonstrations preserve the simulation boun
   await expect(page.locator('#demo-reply')).toContainText('internet');
   await page.reload();
   await expect(chooser).toHaveValue('lembretes');
+  await page.goBack();
+  await expect(chooser).toHaveValue('notas');
+  await expect(page.locator('#demo-reply')).toContainText('Pousada do Lago');
   expect(outbound).toEqual([]);
 });
 test('all public destinations, legal pages and error states are complete', async ({ page }) => {
