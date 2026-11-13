@@ -8,11 +8,10 @@ Entre com seu número de WhatsApp e digite no painel o código recebido. Em Agen
 
 /** A generative answer may reuse stale navigation instructions from chat history. */
 export function hasWeeklyPortalSteps(answer: string): boolean {
-  return (
-    /\bagenda\b/iu.test(answer) &&
-    /\bcriar item\b/iu.test(answer) &&
-    !/(?:aba|seção|menu|página)\s+[“"'*]*tarefas/iu.test(answer)
-  );
+  const route = answer.toLocaleLowerCase('pt-BR').replace(/[*_“”"'‘’]/gu, '');
+  const wrongSection =
+    /(?:\b(?:aba|seção|menu|página)\s+(?:de\s+)?|\b(?:toque|clique|entre|vá|acesse|abra)\s+(?:(?:na|no|em|a|o)\s+)?)(?:tarefas|lembretes)\b/u;
+  return /\bagenda\b[\s\S]{0,175}?\bcriar item\b/u.test(route) && !wrongSection.test(route);
 }
 
 export const ASTRA_ACCESS_REPLY = `Acesse seu painel do Astra:
