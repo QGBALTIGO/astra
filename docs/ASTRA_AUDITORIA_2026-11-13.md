@@ -62,6 +62,14 @@ Na única conversa autorizada, foram feitas três verificações ligadas ao mesm
 
 Seis inferências locais alternaram a versão anterior e a atual do prompt do canal, com o mesmo modelo Qwen3 4B Instruct, semente, pergunta e limite de 210 tokens. A mediana do tempo total passou de 14,20 s para 9,13 s, e de 208 para 121 tokens de saída. As três respostas com o novo prompt citaram “Criar item”. Nenhuma das seis continha sozinha a URL canônica completa, o que reforça a necessidade da verificação do link antes do envio. O laboratório exclui a rede, o histórico do cliente, ferramentas e filas. Estes dados não medem a distribuição de tempos reais no WhatsApp.
 
+## Personalização das confirmações
+
+No código anterior, a redação adicional dependia de existir um botão específico de WhatsApp, usava um agente com histórico e dispunha de 1,8 s. Assim, lembretes do dono do canal, Telegram, tarefas em texto corrido e compromissos podiam ficar fora. Mesmo em caso de sucesso, a frase aparecia depois da ficha de registro.
+
+Na revisão seguinte, conversas privadas reconhecem confirmações de despesas, receitas, lembretes, tarefas, assinaturas e compromissos. O redator recebe somente o assunto, tipo de operação e, ocasionalmente, um primeiro nome válido. A abertura vem antes dos dados salvos. Campos exatos são montados com o retorno confirmado. As solicitações de redação não têm ferramentas, permissões de escrita nem histórico de outro usuário. Há limite de cinco segundos e uma chamada por vez por conta e canal. Em saturação, a confirmação segue imediatamente. Avisos com hora marcada são enviados diretamente para preservar o horário. Em assuntos reconhecidos como delicados, a confirmação usa apenas o dado salvo, sem pedir uma frase ao redator. Se a IA demorar, alguns assuntos cotidianos conservam um emoji contextual.
+
+Foram testados modelos que inventam valores, vazamento entre duas contas, falhas do provedor, concorrência, emissão de links, campos de data/hora e conteúdo de tarefas, despesas e assinaturas. O ensaio de redação com Qwen local usou somente situações fictícias. A bateria de produção usa a conversa pessoal autorizada e um lembrete de demonstração.
+
 ## Riscos que seguem abertos
 
 Não há prova de capacidade sustentada com 500 conversas de IA, do custo por provedor ou de recuperação completa da produção após perda de volume. As questões abertas de lembretes, uniformidade do modo Groq e personalização continuam exigindo evidências de seus fluxos completos. Não foi feita sincronização de Google em conta real, teste de pagamento ou disparo para clientes. A comprovação de entrega física e a revisão automática de segurança dependem de recursos distintos dos testes acima.

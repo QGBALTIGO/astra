@@ -10,7 +10,8 @@ import { getOwnerUserId } from './pairing-service.js';
 import { getLog } from './log.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { resolveCustomerPhone } from './customer-identity.js';
-import { formatAstraMessage } from '../channels/response-presentation.js';
+import { formatDueReminder } from '../channels/response-presentation.js';
+import { safeContactFirstName } from '../channels/channel-personalization.js';
 
 const log = getLog('ChannelReminderWorker');
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -41,6 +42,7 @@ export async function dispatchDueChannelReminders(): Promise<{
           continue;
         }
         let platformChatId = entry.platformChatId;
+        let firstName: string | null = null;
         if (api.getPlatform() === 'whatsapp' && entry.userId.startsWith('whatsapp:')) {
           const account = await customerAccountsRepo.getByDataUserId(entry.userId);
           const phone = account?.phoneNumber ?? entry.userId.slice('whatsapp:'.length);
@@ -51,6 +53,7 @@ export async function dispatchDueChannelReminders(): Promise<{
             : entry.platformChatId.replace(/[^0-9]/g, '');
           const alias = account && recipient ? await resolveCustomerPhone(recipient) : null;
           const user = await channelUsersRepo.findByPlatform('whatsapp', phone);
+          firstName = safeContactFirstName(account?.displayName ?? user?.displayName);
           const ownerPhone = await getOwnerUserId('whatsapp');
           const currentOwner =
             ownerPhone === phone && user?.isVerified && !user.isBlocked && user.status === 'active';
@@ -77,7 +80,7 @@ export async function dispatchDueChannelReminders(): Promise<{
         }
         const id = await channels.send(entry.channelPluginId, {
           platformChatId,
-          text: formatAstraMessage('⏰ Lembrete', [{ label: 'Assunto', value: entry.title }]),
+          text: formatDueReminder(entry.title, firstName),
         });
         if (typeof id !== 'string' || !id.trim()) {
           // An empty receipt is ambiguous: the transport may already have sent
