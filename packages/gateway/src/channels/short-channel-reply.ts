@@ -15,6 +15,29 @@ export async function writeShortChannelReply(
   tokens: number,
   deadline: number
 ): Promise<string | null> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      complete(channel, system, prompt, tokens, deadline),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), remaining);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function complete(
+  channel: string,
+  system: string,
+  prompt: string,
+  tokens: number,
+  deadline: number
+): Promise<string | null> {
   const { provider, model } = await resolveForChannel(channel);
   if (!provider || !model || provider.startsWith('cli-')) return null;
   const config = loadProviderConfig(provider);

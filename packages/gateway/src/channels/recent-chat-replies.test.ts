@@ -12,6 +12,18 @@ const prior = [
   { action: 'Despesa registrada', facts: 'R$ 5,00 · café' },
 ];
 describe('recalling recent private receipts', () => {
+  it('discards a plausible but invented dashboard domain even without https', async () => {
+    vi.mocked(writeShortChannelReply).mockResolvedValue(
+      'Entro em astra.app, clico em Agenda e toco em Criar item.'
+    );
+    const reply = await quickPrivateReply(
+      'channel.whatsapp',
+      'Como posso planejar a minha semana no painel do Astra?',
+      []
+    );
+    expect(reply).toContain('https://app.astraacessor.pro/cliente/entrar');
+    expect(reply).not.toContain('astra.app');
+  });
   it('uses AI for a short standalone planning tip and keeps mixed requests on the tool path', async () => {
     vi.mocked(writeShortChannelReply).mockResolvedValue(
       'Enquanto passa o café, escolha uma prioridade.'

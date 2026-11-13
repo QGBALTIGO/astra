@@ -104,7 +104,11 @@ export async function quickPrivateReply(
   } catch {
     return fallback;
   }
-  if (!line || line.length > 270 || /[<>\p{Cc}]|https?:|www\.|\b(?:core\.|use_tool)/iu.test(line))
+  if (
+    !line ||
+    line.length > 270 ||
+    /[<>\p{Cc}]|https?:|www\.|\b[\w-]+\.[a-z]{2,}\b|\b(?:core\.|use_tool)/iu.test(line)
+  )
     return fallback;
   if (weekly)
     return hasWeeklyPortalSteps(line) && !/\d|senha|pagamento/iu.test(line) ? line : fallback;
