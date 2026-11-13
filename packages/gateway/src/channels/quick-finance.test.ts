@@ -67,6 +67,34 @@ beforeEach(() => {
   f.update.mockResolvedValue({ ...saved, categoryId: 'food', categoryName: 'Alimentação' });
 });
 describe('short AI expense consultation', () => {
+  it('corrects an explicit amount on one stored expense while AI writes only the personality line', async () => {
+    f.write.mockResolvedValue('Café com os detalhes em dia.');
+    f.update.mockResolvedValue({ ...saved, amount: 2.34 });
+    const reply = await tryQuickFinanceReply(
+      message('Corrija o valor do gasto Café de R$ 0,75 para R$ 2,34, sem criar outro lançamento.'),
+      'whatsapp:synthetic',
+      async () => true
+    );
+    expect(f.update).toHaveBeenCalledWith('synthetic', { amount: 2.34 }, saved.updatedAt);
+    expect(f.categories).not.toHaveBeenCalled();
+    expect(f.write).toHaveBeenCalledTimes(1);
+    expect(reply).toContain('2,34');
+    expect(
+      explicitFinancePlan('Corrija o valor do gasto Café de R$ 0,75 para R$ 2,345', '2026-11-13')
+    ).toBeNull();
+    expect(
+      explicitFinancePlan('Corrija o valor do gasto Café de R$ 0,75 para R$ 0,00', '2026-11-13')
+    ).toBeNull();
+    expect(
+      explicitFinancePlan(
+        'Corrija o valor do gasto Café de R$ 0,75 para R$ 2,34 e apague o lembrete',
+        '2026-11-13'
+      )
+    ).toBeNull();
+    expect(
+      parseQuickFinancePlan(JSON.stringify({ ...plan, newAmount: 2.34 }), 'Consulte Café')
+    ).toBeNull();
+  });
   it('keeps grouped BRL amounts intact and declines multiple different values', () => {
     expect(
       explicitFinancePlan('Liste os gastos Café de R$ 1.000,50 de hoje', '2026-11-13')?.amount

@@ -18,6 +18,8 @@ type Plan = {
   at: string | null;
   category: string | null;
   latest: boolean;
+  /** Only the anchored, explicit old-value -> new-value parser may set this. */
+  newAmount?: number;
 };
 const instructions =
   'Extraia um filtro de DESPESAS do pedido, sem executar ações. Somente JSON compacto com op (list/update), search (descrição literal ou ""), amount (valor usado para identificar, em reais, ou null), on (dia YYYY-MM-DD ou null), at (hora local HH:mm ou null), category (nova categoria literal ou null), latest (true só se pediu o último gasto). Hoje consta no contexto. NÃO invente filtros. Update só para mudar categoria explicitamente. Inclua intro com uma frase curta de até dez palavras que reaja ao assunto, com personalidade discreta, sem números nem confirmar ações. Nunca crie nem exclua. Se pedir outra ação ou houver mais de uma ação, responda null.';
@@ -25,6 +27,26 @@ const instructions =
 export function explicitFinancePlan(request: string, today: string): Plan | null {
   const input = fold(request);
   if (/\b(?:nao|nunca|se|talvez|exemplo|ficticio|e depois|tambem)\b/.test(input)) return null;
+  const amountEdit =
+    /^(?:astra[,!]?\s+)?(?:corrija|altere|mude|troque)\s+(?:o\s+)?valor\s+(?:do|da)\s+(?:gasto|despesa|lançamento)\s+["“]?([\p{L}\p{M}][\p{L}\p{M}\d '-]{0,100}?)["”]?\s+de\s+r\$\s*(\d+(?:\.\d{3})*(?:,\d{1,2})?)\s+para\s+r\$\s*(\d+(?:\.\d{3})*(?:,\d{1,2})?)(?:,?\s+sem\s+(?:criar outro(?: lançamento)?|duplicar))?[.!]?$/iu.exec(
+      request.trim()
+    );
+  if (amountEdit) {
+    const amount = Number(amountEdit[2]!.replace(/\./g, '').replace(',', '.'));
+    const newAmount = Number(amountEdit[3]!.replace(/\./g, '').replace(',', '.'));
+    if (![amount, newAmount].every((n) => Number.isFinite(n) && n > 0 && n <= 1_000_000_000))
+      return null;
+    return {
+      op: 'update',
+      search: amountEdit[1]!.trim(),
+      amount,
+      newAmount,
+      on: null,
+      at: null,
+      category: null,
+      latest: false,
+    };
+  }
   if (/^(?:qual foi |qual e |qual )?(?:o )?meu ultimo gasto[?.!]?$/u.test(input))
     return {
       op: 'list',
@@ -85,6 +107,7 @@ export function parseQuickFinancePlan(raw: string, request: string): Plan | null
   }
   if (
     !p ||
+    'newAmount' in p ||
     !['list', 'update'].includes(p.op) ||
     typeof p.search !== 'string' ||
     p.search.length > 120 ||
@@ -175,6 +198,7 @@ export async function tryQuickFinanceReply(
   };
   const compact = input.replace(/\s/g, '');
   if (
+    !explicit &&
     plan.amount !== null &&
     !compact.includes(String(plan.amount)) &&
     !compact.includes(String(plan.amount).replace('.', ','))
@@ -194,7 +218,8 @@ export async function tryQuickFinanceReply(
     return null;
   if (
     plan.op === 'update' &&
-    (!/\b(?:mude|altere|corrija|troque)\b/.test(input) || !/categoria/.test(input))
+    (!/\b(?:mude|altere|corrija|troque)\b/.test(input) ||
+      (!plan.newAmount && !/categoria/.test(input)))
   )
     return null;
   const repo = new CustomerFinanceRepository(userId);
@@ -239,18 +264,20 @@ export async function tryQuickFinanceReply(
         })),
         'Me diga o horário do lançamento que quer corrigir.'
       );
-    const categories = await repo.listCategories();
-    const category = categories.find(
-      (c) => c.type === 'expense' && !c.archived && fold(c.name) === fold(plan.category!)
-    );
-    if (!category) return 'Me diga o nome da categoria como aparece no seu painel para eu ajustar.';
+    const changes: { amount?: number; categoryId?: string } = {};
+    if (plan.newAmount) changes.amount = plan.newAmount;
+    else {
+      const categories = await repo.listCategories();
+      const category = categories.find(
+        (c) => c.type === 'expense' && !c.archived && fold(c.name) === fold(plan.category!)
+      );
+      if (!category)
+        return 'Me diga o nome da categoria como aparece no seu painel para eu ajustar.';
+      changes.categoryId = category.id;
+    }
     if (!(await canWrite())) return null;
     try {
-      const saved = await repo.updateTransaction(
-        items[0]!.id,
-        { categoryId: category.id },
-        items[0]!.updatedAt
-      );
+      const saved = await repo.updateTransaction(items[0]!.id, changes, items[0]!.updatedAt);
       if (!saved)
         return 'Esse lançamento mudou enquanto eu conferia. Consulte o gasto novamente antes de corrigir.';
       return present(
