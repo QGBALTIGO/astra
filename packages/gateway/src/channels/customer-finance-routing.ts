@@ -1,3 +1,4 @@
+import { inferExpenseCategory } from '../services/expense-category.js';
 /** Explicit income/pending transactions and queries without an LLM call. */
 import { createHash } from 'node:crypto';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
@@ -41,17 +42,7 @@ function categoryFor(description: string, type: CustomerTransactionType): string
     if (/\b(?:rendimento|rendimentos|dividendos|investimento)\b/.test(text)) return 'investments';
     return 'other';
   }
-  if (
-    /\b(?:mercado|supermercado|almoco|jantar|cafe|lanche|restaurante|padaria|alimentacao)\b/.test(
-      text
-    )
-  )
-    return 'food';
-  if (/\b(?:internet|energia|luz|agua|telefone)\b/.test(text)) return 'utilities';
-  if (/\b(?:aluguel|condominio|moradia)\b/.test(text)) return 'housing';
-  if (/\b(?:uber|gasolina|combustivel|onibus|transporte)\b/.test(text)) return 'transport';
-  if (/\b(?:farmacia|saude|consulta|dentista|remedio)\b/.test(text)) return 'health';
-  return 'other';
+  return inferExpenseCategory(description);
 }
 
 function explicitCents(raw: string): number | null {

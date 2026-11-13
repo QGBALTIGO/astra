@@ -1,3 +1,4 @@
+import { inferExpenseCategory } from '../services/expense-category.js';
 /** User-scoped tools for the same income/expense ledger used by the customer portal. */
 import { createHash } from 'node:crypto';
 import { getExecContext } from '@ownpilot/core/agent';
@@ -6,6 +7,7 @@ import {
   CustomerFinanceError,
   CustomerFinanceRepository,
   validateCustomerFinanceDate,
+  type CustomerCategory,
   type CustomerTransactionInput,
   type CustomerTransactionQuery,
 } from '../db/repositories/customer-finance.js';
@@ -14,6 +16,11 @@ import { customerLocalDay } from '../services/customer-date.js';
 
 const fields = {
   description: { type: 'string', description: 'Descrição informada pelo usuário.' },
+  category: {
+    type: 'string',
+    description:
+      'Nome da categoria, quando indicado pela pessoa. Para novos gastos, a categoria também pode ser inferida pela descrição.',
+  },
   amount: { type: 'number', description: 'Valor positivo em reais, até duas casas decimais.' },
   type: {
     type: 'string',
@@ -49,7 +56,7 @@ export const CUSTOMER_FINANCE_TOOLS: ToolDefinition[] = [
     category: 'Finance',
     brief: 'Buscar entradas, saídas e pendências financeiras',
     description:
-      'Consulta entradas, saídas e pendências do usuário. Use antes de corrigir/excluir; não invente IDs. IDs retornados são internos: não exiba nem peça ao usuário. Se houver vários resultados compatíveis, diferencie por descrição, valor e data e pergunte qual.',
+      'Consulta entradas, saídas e pendências do usuário. Use antes de corrigir/excluir; não invente IDs. IDs retornados são internos: não exiba nem peça ao usuário. createdLocal é a data e hora de criação no fuso do cliente; copie esse horário diretamente. createdAt é o instante original em UTC. Diferencie os lançamentos por descrição, valor, data e hora de criação. Pergunte apenas se continuar ambíguo.',
     parameters: {
       type: 'object',
       properties: {
@@ -67,7 +74,7 @@ export const CUSTOMER_FINANCE_TOOLS: ToolDefinition[] = [
     category: 'Finance',
     brief: 'Corrigir um lançamento existente sem duplicar',
     description:
-      'Corrige pelo ID interno consultado: valor, descrição, data, entrada/saída e pendente/realizado. Para trocar despesa por entrada atualize type=income, não exclua e recrie. Não confirma recebimento quando o valor ainda está previsto. Na resposta use descrição, valor e data; nunca exiba ou peça o ID.',
+      'Corrige pelo ID interno consultado: valor, descrição, categoria, data, entrada/saída e pendente/realizado. Para trocar despesa por entrada atualize type=income, não exclua e recrie. Não confirma recebimento quando o valor ainda está previsto. Na resposta use descrição, valor e data; nunca exiba ou peça o ID.',
     parameters: {
       type: 'object',
       properties: { transaction_id: { type: 'string' }, ...fields },
@@ -119,6 +126,37 @@ function transactionStatus(value: unknown): CustomerTransactionInput['status'] {
   return value;
 }
 
+function selectCategory(
+  categories: CustomerCategory[],
+  type: CustomerTransactionInput['type'],
+  description: string,
+  explicit: unknown
+): CustomerCategory {
+  const active = categories.filter((category) => category.type === type && !category.archived);
+  const fold = (value: string) =>
+    value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+  if (explicit !== undefined) {
+    const name = fold(text(explicit, 'a categoria'));
+    const matched =
+      active.find((c) => fold(c.name) === name) ?? active.find((c) => c.legacyKey === name);
+    if (!matched)
+      throw new CustomerFinanceError(
+        'Não encontrei essa categoria ativa para esse tipo de lançamento.'
+      );
+    return matched;
+  }
+  const inferred = type === 'expense' ? inferExpenseCategory(description) : 'other';
+  const category =
+    active.find((c) => c.legacyKey === inferred) ??
+    active.find(
+      (c) =>
+        c.legacyKey === 'other' || c.name === (type === 'expense' ? 'Outros' : 'Outras entradas')
+    ) ??
+    active[0];
+  if (!category) throw new CustomerFinanceError('Categoria compatível não encontrada.');
+  return category;
+}
+
 async function validateSettlementDate(
   date: string,
   status: CustomerTransactionInput['status'],
@@ -156,7 +194,20 @@ export async function executeCustomerFinanceTool(
         if (typeof args.page !== 'number') throw new CustomerFinanceError('Página inválida.');
         query.page = args.page;
       }
-      return { success: true, result: await repo.listTransactions(query) };
+      const result = await repo.listTransactions(query);
+      if (!result.transactions.length) return { success: true, result };
+      const account = await customerAccountsRepo.getByDataUserId(userId);
+      const timeZone = account?.timeZone ?? 'America/Campo_Grande';
+      const clock = new Intl.DateTimeFormat('pt-BR', {
+        timeZone,
+        dateStyle: 'short',
+        timeStyle: 'medium',
+      });
+      const transactions = result.transactions.map((item) => ({
+        ...item,
+        createdLocal: clock.format(new Date(item.createdAt)),
+      }));
+      return { success: true, result: { ...result, timeZone, transactions } };
     }
     if (toolName === 'financial_summary') {
       return {
@@ -176,15 +227,12 @@ export async function executeCustomerFinanceTool(
       if (typeof args.amount !== 'number')
         throw new CustomerFinanceError('Informe o valor em reais.');
       await validateSettlementDate(date, status, userId);
-      const categories = await repo.listCategories();
-      const category =
-        categories.find(
-          (c) =>
-            c.type === type &&
-            !c.archived &&
-            c.name === (type === 'income' ? 'Outras entradas' : 'Outros')
-        ) ?? categories.find((c) => c.type === type && !c.archived);
-      if (!category) throw new CustomerFinanceError('Categoria compatível não encontrada.');
+      const category = selectCategory(
+        await repo.listCategories(),
+        type,
+        description,
+        args.category
+      );
       // One requested financial item per native call. Replays with changed fields
       // conflict instead of creating a second row; distinct descriptions allow
       // explicitly itemised messages. Corrections must address the saved ID.
@@ -223,20 +271,14 @@ export async function executeCustomerFinanceTool(
         patch.amount = args.amount;
       }
       if (args.status !== undefined) patch.status = transactionStatus(args.status);
-      if (args.type !== undefined) {
-        patch.type = transactionType(args.type);
-        if (patch.type !== current.type) {
-          const categories = await repo.listCategories();
-          const category =
-            categories.find(
-              (c) =>
-                c.type === patch.type &&
-                !c.archived &&
-                c.name === (patch.type === 'income' ? 'Outras entradas' : 'Outros')
-            ) ?? categories.find((c) => c.type === patch.type && !c.archived);
-          if (!category) throw new CustomerFinanceError('Categoria compatível não encontrada.');
-          patch.categoryId = category.id;
-        }
+      if (args.type !== undefined) patch.type = transactionType(args.type);
+      if (args.category !== undefined || (patch.type && patch.type !== current.type)) {
+        patch.categoryId = selectCategory(
+          await repo.listCategories(),
+          patch.type ?? current.type,
+          patch.description ?? current.description ?? '',
+          args.category
+        ).id;
       }
       if (!Object.keys(patch).length)
         throw new CustomerFinanceError('Informe a correção desejada.');

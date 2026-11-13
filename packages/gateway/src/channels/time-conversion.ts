@@ -110,6 +110,8 @@ export function tryChannelTimeConversion(raw: string, receivedAt: Date): string 
     .replace(/(\d)t(?=\d{2}:)/gu, '$1 ')
     .replace(/\bas (\d{1,2})(?=\s+(?:de|em|do|no|para)\b)/gu, 'as $1h');
   const places = [...text.matchAll(placePattern)];
+  if (/\b(?:sem (?:conversao|converter)|nao (?:converta|converte|converter))\b/u.test(text))
+    return null;
   const clocks = [...text.matchAll(timePattern)];
   const localQuestion =
     /\b(?:que horas?|que horario|qual (?:e o |o |seria o )?horario)\s+(?:(?:sao|serao|seria|sera|fica|ficaria|isso|agora)\s+)*(?:em|aqui|ai|no fuso|no horario)\b/u.test(

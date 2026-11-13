@@ -18,6 +18,14 @@ const example =
   'Minha videochamada de terça, dia 17 de novembro de 2026, é às 14h de Brasília. Que horas são aqui em Cuiabá? Só me diga o horário, que eu mesmo marco.';
 
 describe('private channel wall-clock conversions', () => {
+  it('leaves a request for original finance timestamps with the finance assistant', () => {
+    expect(
+      tryChannelTimeConversion(
+        'Consulte os cafés de R$ 0,75 e mostre a hora original UTC sem conversão. Qual lancei às 09h25?',
+        received
+      )
+    ).toBeNull();
+  });
   it('preserves minutes and the destination civil day for every pair of supported Brazilian panel cities', () => {
     // Known UTC offsets for this specific day. Historical and DST dates are tested separately.
     const places = [
