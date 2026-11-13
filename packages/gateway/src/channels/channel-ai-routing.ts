@@ -33,6 +33,8 @@ import { getLog } from '../services/log.js';
 import { tryAstraAccessReply } from './astra-access.js';
 import { channelPasswordAdvice } from './password-advice.js';
 import { financialCapabilityReply } from './financial-capabilities.js';
+import { tryAstraScopeReply, tryResetClarification } from './astra-scope.js';
+import { tryAgendaOverview } from './agenda-overview.js';
 import {
   CHANNEL_UNVERIFIED_REPLY,
   safeChannelResponse,
@@ -347,6 +349,10 @@ function tryAuthorizedChannelShortcut(
       return INACTIVE_CHANNEL_ACCESS_REPLY;
     }
     // Media captions cannot confirm a previous financial operation.
+    const scopeReply = await tryAstraScopeReply(message.channelPluginId, message.text);
+    if (scopeReply) return scopeReply;
+    const resetQuestion = tryResetClarification(message.text);
+    if (resetQuestion) return resetQuestion;
     const hasMedia = Boolean(message.attachments?.length);
     expenseDuplicateGuard.observe(key, hasMedia ? '' : message.text);
     if (hasMedia) return null;
@@ -361,6 +367,7 @@ function tryAuthorizedChannelShortcut(
       (await tryPersonalSubscriptionReply(message, userId, () =>
         canProcessChannelMessage(message, isAccessAllowed)
       )) ??
+      (await tryAgendaOverview(message, userId)) ??
       (await tryListTodaysReminders(message, userId)) ??
       (await tryCancelNamedReminder(message, userId)) ??
       (message.platform === 'whatsapp' || message.platform === 'telegram'
@@ -579,6 +586,10 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
   const { enrichWhatsAppMedia } = await import('./normalizers/media-understanding.js');
   const interpreted = await enrichWhatsAppMedia(message, incoming);
   if (interpreted.failureReply) return interpreted.failureReply;
+  const speechScope = interpreted.userSpeech
+    ? await tryAstraScopeReply(message.channelPluginId, interpreted.userSpeech)
+    : null;
+  if (speechScope) return speechScope;
 
   // Build NormalizedMessage from normalized incoming
   const normalized: NormalizedMessage = {
@@ -755,6 +766,10 @@ async function processDirectAgentInSession(
   const incoming = await getNormalizer(message.platform).normalizeIncoming(message);
   const interpreted = await enrichWhatsAppMedia(message, incoming);
   if (interpreted.failureReply) return interpreted.failureReply;
+  const speechScope = interpreted.userSpeech
+    ? await tryAstraScopeReply(message.channelPluginId, interpreted.userSpeech)
+    : null;
+  if (speechScope) return speechScope;
   const account = userId.startsWith('whatsapp:')
     ? await customerAccountsRepo.getByDataUserId(userId)
     : null;

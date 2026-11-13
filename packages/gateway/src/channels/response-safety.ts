@@ -388,6 +388,9 @@ export function safeChannelResponse(
   const bareCalendarWrite =
     requestedCalendarWrite && /^(?:pronto|feito|tudo certo|ok)[.!\s]*$/.test(lower.trim());
   let unsupported =
+    /\b(?:tudo (?:limpo|apagado|removido)|conta (?:esta |foi |ta )?(?:zerada|limpa)|(?:apaguei|removi|exclui) tudo)\b/.test(
+      lower
+    ) ||
     (bareCalendarWrite && !confirmedCalendar.size) ||
     [...calendar].some(([receipt, detail]) => !isFailedChannelReceipt(receipt) && !detail);
   let claimsCalendarWrite = false;

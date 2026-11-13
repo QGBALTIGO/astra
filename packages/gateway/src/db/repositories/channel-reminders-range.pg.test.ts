@@ -49,6 +49,25 @@ it.skipIf(!process.env.ASTRA_REMINDERS_QA_PORT)(
         'late',
       ]);
       expect((await repo.listForChatInRange(...range, 2)).map((row) => row.id)).toEqual(['a', 'b']);
+      await client.query(
+        "UPDATE channel_reminders SET status='delivered' WHERE id LIKE 'old%' AND id <> 'old1'"
+      );
+      await client.query(`INSERT INTO channel_reminders (id,user_id,channel_plugin_id,platform_chat_id,remind_at,status) VALUES
+        ('in_transit','u','p','c','2026-11-12T06:00:00Z','sending'),
+        ('cancelled_future','u','p','c','2026-11-14T06:00:00Z','cancelled'),
+        ('failed_future','u','p','c','2026-11-14T06:00:00Z','failed')`);
+      expect((await repo.listActiveForChat('u', 'p', 'c', 16)).map((r) => r.id)).toEqual([
+        'old1',
+        'a',
+        'b',
+        'in_transit',
+        'late',
+        'end',
+      ]);
+      expect((await repo.listActiveForChat('u', 'p', 'c', 2)).map((r) => r.id)).toEqual([
+        'old1',
+        'a',
+      ]);
 
       const received = new Date('2026-11-12T10:01:00Z');
       await client.query(`INSERT INTO channel_reminders
@@ -76,8 +95,12 @@ it.skipIf(!process.env.ASTRA_REMINDERS_QA_PORT)(
       expect(await cancel('Comprar jornal')).toBe('not-pending');
       expect(await cancel('%')).toBe('not-pending');
       expect(
-        (await client.query("SELECT id FROM channel_reminders WHERE status='cancelled'")).rows
-      ).toEqual([{ id: 'one' }]);
+        (
+          await client.query(
+            "SELECT id FROM channel_reminders WHERE status='cancelled' ORDER BY id"
+          )
+        ).rows
+      ).toEqual([{ id: 'cancelled_future' }, { id: 'one' }]);
     } finally {
       await client.end();
     }

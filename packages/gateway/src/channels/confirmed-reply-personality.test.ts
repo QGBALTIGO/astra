@@ -15,6 +15,7 @@ vi.mock('@ownpilot/core/agent', async (original) => ({
 import {
   maybePersonalizeConfirmedReply,
   safePersonalComment,
+  receiptContext,
 } from './confirmed-reply-personality.js';
 import { formatDueReminder } from './response-presentation.js';
 
@@ -106,9 +107,21 @@ describe('personal writing for private confirmations', () => {
     expect(result).toContain('buscar remédio privado');
     expect(mocks.complete).not.toHaveBeenCalled();
   });
+  it('keeps the current receipt in context without starting another writer after a safe intro', async () => {
+    const answer =
+      'Café ajustado com suavidade.\n\n' +
+      record.replace('registrada', 'atualizada').replace('42,00', '2,45');
+    expect(receiptContext(answer)?.facts).toContain('2,45');
+    expect(receiptContext(answer)?.action).toBe('Despesa atualizada');
+    expect(await maybePersonalizeConfirmedReply({ ...input, responseText: answer })).toBe(answer);
+    expect(mocks.complete).not.toHaveBeenCalled();
+  });
   it('keeps short contextual emoji responses and strips internal material', () => {
     expect(safePersonalComment('Forno aceso! 🍕')).toBe('Forno aceso! 🍕');
     expect(safePersonalComment('<think>técnico</think>')).toBeNull();
+    expect(safePersonalComment('Kayky, o ensaio do Clube Maracujá tá marcado!')).toBeNull();
+    expect(safePersonalComment('O GPT cuida desse café.')).toBeNull();
+    expect(safePersonalComment('Sua conta está zerada!')).toBeNull();
     expect(formatDueReminder('<think>privado</think>pegar o livro', 'Kayky')).toBe(
       '📚 Kayky, você pediu para eu te lembrar: pegar o livro'
     );

@@ -119,6 +119,20 @@ export class ChannelRemindersRepository extends BaseRepository {
     );
     return rows.map(mapReminder);
   }
+  async listActiveForChat(
+    userId: string,
+    channelPluginId: string,
+    platformChatId: string,
+    limit = 16
+  ): Promise<ChannelReminder[]> {
+    const rows = await this.query<ReminderRow>(
+      `SELECT * FROM channel_reminders
+      WHERE user_id=$1 AND channel_plugin_id=$2 AND platform_chat_id=$3 AND status IN ('pending','sending')
+      ORDER BY remind_at ASC, id ASC LIMIT $4`,
+      [userId, channelPluginId, platformChatId, Math.max(1, Math.min(50, limit))]
+    );
+    return rows.map(mapReminder);
+  }
 
   async cancel(
     id: string,
