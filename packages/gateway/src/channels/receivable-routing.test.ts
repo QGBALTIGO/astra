@@ -78,6 +78,42 @@ describe('installment receivable requests', () => {
       )
     ).toBeNull();
   });
+  it('reads a JSON envelope but refuses omitted or duplicate clients and wrong Sunday rules', () => {
+    const rows = [first, second, third];
+    const counted = request.replace('Emprestei', 'Emprestei para 3 clientes');
+    expect(
+      parseReceivablePlans(
+        JSON.stringify({ planos: rows }),
+        counted,
+        '2026-11-13',
+        'America/Cuiaba'
+      )
+    ).toEqual(rows);
+    expect(
+      parseReceivablePlans(
+        JSON.stringify({ planos: rows.slice(0, 2) }),
+        counted,
+        '2026-11-13',
+        'America/Cuiaba'
+      )
+    ).toBeNull();
+    expect(
+      parseReceivablePlans(
+        JSON.stringify({ planos: [first, first, third] }),
+        counted,
+        '2026-11-13',
+        'America/Cuiaba'
+      )
+    ).toBeNull();
+    expect(
+      parseReceivablePlans(
+        JSON.stringify({ planos: [{ ...first, skipSunday: false }, second, third] }),
+        counted,
+        '2026-11-13',
+        'America/Cuiaba'
+      )
+    ).toBeNull();
+  });
   it('rejects an invented date and installments that do not sum to the total', () => {
     expect(
       parseReceivablePlans(
