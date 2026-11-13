@@ -501,7 +501,9 @@ export function ConnectedAppsPage() {
             Aplicativos conectados
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            {composioConfigured ? 'Gerencie os aplicativos conectados via Composio' : 'Catálogo demonstrativo · aguarda configuração do Composio'}
+            {composioConfigured
+              ? 'Gerencie os aplicativos conectados via Composio'
+              : 'Catálogo demonstrativo · aguarda configuração do Composio'}
           </p>
         </div>
         <button
@@ -563,8 +565,7 @@ export function ConnectedAppsPage() {
                 icon: Search,
                 color: 'text-emerald-500 bg-emerald-500/10',
                 title: 'Service Discovery',
-                description:
-                  'Explore os aplicativos disponíveis após a configuração do Composio.',
+                description: 'Explore os aplicativos disponíveis após a configuração do Composio.',
               },
               {
                 icon: Shield,
@@ -584,8 +585,7 @@ export function ConnectedAppsPage() {
             steps={[
               {
                 title: 'Choose a service',
-                detail:
-                  'Selecione um serviço disponível e autorize com segurança.',
+                detail: 'Selecione um serviço disponível e autorize com segurança.',
               },
               {
                 title: 'Authorize via OAuth',
@@ -677,7 +677,8 @@ export function ConnectedAppsPage() {
               {/* Available Apps — always shown */}
               <div className="flex items-center justify-between mb-3">
                 <div className="text-xs font-medium text-text-muted dark:text-dark-text-muted">
-                  {composioConfigured ? 'Aplicativos disponíveis' : 'Aplicativos de exemplo'} {apps.length > 0 && `(${filteredApps.length})`}
+                  {composioConfigured ? 'Aplicativos disponíveis' : 'Aplicativos de exemplo'}{' '}
+                  {apps.length > 0 && `(${filteredApps.length})`}
                 </div>
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted dark:text-dark-text-muted" />
@@ -709,7 +710,8 @@ export function ConnectedAppsPage() {
               )}
               {filteredApps.length > 50 && (
                 <p className="text-xs text-text-muted dark:text-dark-text-muted text-center mt-3">
-                  Exibindo 50 de {filteredApps.length} aplicativos. Use a busca para encontrar outros.
+                  Exibindo 50 de {filteredApps.length} aplicativos. Use a busca para encontrar
+                  outros.
                 </p>
               )}
             </section>
