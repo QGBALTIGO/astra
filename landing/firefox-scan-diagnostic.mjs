@@ -1,23 +1,19 @@
 import { firefox } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
-const b = await firefox.launch();
-for(const filter of ['exact','skip-select','scoped','no-home','no-locale','no-timezone','native','blur','no-scroll','rm-select','rm-svg','rm-dashboard','rm-chat','rm-header','rm-css','no-contrast']){
- const c = await b.newContext({colorScheme:'dark',viewport:{width:1280,height:900},reducedMotion:'reduce',locale:filter==='no-locale'?'en-US':'pt-BR',timezoneId: filter==='no-timezone'?'UTC':'America/Campo_Grande'});
- const page=await c.newPage();
- try {
- if(filter!=='no-home'){await page.goto('http://localhost:4173/');await page.evaluate(()=>document.fonts.ready);}
- await page.goto('http://localhost:4173/demonstracao');
- if(filter!=='no-scroll')await page.locator('.demo-workspace').scrollIntoViewIfNeeded();
- if(filter!=='skip-select')await page.getByLabel('Escolha um exemplo').selectOption('financas');
- const rm={'rm-select':'select','rm-svg':'svg','rm-dashboard':'.demo-dashboard','rm-chat':'.demo-conversation','rm-header':'.site-header','rm-css':'link[rel=stylesheet]'}[filter];
- if(rm)await page.locator(rm).evaluateAll(els=>els.forEach(el=>el.remove()));
- if(filter==='native')await page.addStyleTag({content:'select{appearance:auto!important}'});
- if(filter==='blur')await page.evaluate(()=>document.activeElement.blur());
- let a=new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa','wcag22aa']);
- if(filter==='scoped')a.include('.demo-workspace');
- if(filter==='no-contrast')a.disableRules('color-contrast');
- const r=await a.analyze();console.log('CASE',filter,'PASS',r.violations.map(x=>x.id));
- }catch(e){console.log('CASE',filter,'FAIL',String(e).slice(0,90))}
- await c.close().catch(()=>{});
+const b=await firefox.launch();
+for(const mode of ['pause','no-url','fragment','skip-duplicate','no-aria-live','no-replace-rerender','no-browser-tz','default']) {
+const c=await b.newContext({viewport:{width:1280,height:900},colorScheme:'dark',reducedMotion:'reduce',locale:'pt-BR',...(mode==='no-browser-tz'?{}:{timezoneId:'America/Campo_Grande'})});
+const p=await c.newPage();
+try{
+await p.route('**/assets/app-*.js',async route=>{const res=await route.fetch();let s=await res.text();const re=/history\.replaceState\(null,"","#"\+([a-zA-Z]+)\.id\)/;if(mode==='no-url')s=s.replace(re,'void 0');if(mode==='fragment')s=s.replace(re,'location.hash=$1.id');await route.fulfill({response:res,body:s});});
+await p.goto('http://localhost:4173/demonstracao');
+if(mode==='no-aria-live')await p.locator('#demo-status').evaluate(el=>el.removeAttribute('role'));
+for(const id of ['financas','agenda','notas','tarefas']){
+if(mode==='skip-duplicate' && await p.locator('#scenario-select').inputValue()===id){}else if(mode==='no-replace-rerender'){await p.goto('http://localhost:4173/demonstracao#'+id);await p.locator('#demo-reply').waitFor();}else{await p.locator('#scenario-select').selectOption(id);}
+if(mode==='pause')await p.waitForTimeout(350);
+await new AxeBuilder({page:p}).include('.demo-workspace').withTags(['wcag2a','wcag2aa','wcag21aa','wcag22aa']).analyze();
+console.log('CASE',mode,id,'PASS');
 }
-await b.close();
+}catch(e){console.log('CASE',mode,'FAIL',String(e).slice(0,75))}
+await c.close().catch(()=>{});
+}await b.close();
