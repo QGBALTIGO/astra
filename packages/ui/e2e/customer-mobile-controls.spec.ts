@@ -65,11 +65,15 @@ async function prepare(page: Page, theme: 'light' | 'dark') {
         configured: false,
         apps: [
           { slug: 'gmail', name: 'Gmail', status: 'unavailable', connectionId: null },
-          { slug: 'googlecalendar', name: 'Google Agenda', status: 'unavailable', connectionId: null },
+          {
+            slug: 'googlecalendar',
+            name: 'Google Agenda',
+            status: 'unavailable',
+            connectionId: null,
+          },
         ],
       };
-    }
-    else if (path === '/integrations') {
+    } else if (path === '/integrations') {
       data = {
         whatsapp: { available: true, connected: true, status: 'connected' },
         googleCalendar: { available: false, connected: false, status: 'unavailable' },
