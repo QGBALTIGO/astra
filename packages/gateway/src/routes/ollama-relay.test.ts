@@ -110,6 +110,54 @@ describe('Astra local Ollama outbound relay', () => {
     });
     expect(late.status).toBe(410);
   });
+  it('passes the main agent budget to the PC without extending a shorter absolute deadline', async () => {
+    const app = createTestApp();
+    for (const absolute of [undefined, Date.now() + 1000]) {
+      const started = Date.now();
+      const workerPromise = app.request(base + '/worker/next', { headers });
+      const clientPromise = app.request(base + '/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'content-type': 'application/json',
+          'X-Astra-Timeout-Ms': '2500',
+          ...(absolute ? { 'X-Astra-Deadline': String(absolute) } : {}),
+        },
+        body: JSON.stringify({
+          model: 'qwen3:4b-instruct',
+          messages: [{ role: 'user', content: 'Exemplo' }],
+        }),
+      });
+      const task = (await (await workerPromise).json()) as { id: string; expiresAt: number };
+      expect(task.expiresAt).toBeLessThanOrEqual(Date.now() + 2500);
+      if (absolute) expect(task.expiresAt).toBe(absolute);
+      else expect(task.expiresAt).toBeGreaterThanOrEqual(started + 2500);
+      await app.request(base + '/worker/result', {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: task.id,
+          result: { choices: [{ message: { role: 'assistant', content: 'OK' } }] },
+        }),
+      });
+      expect((await clientPromise).status).toBe(200);
+    }
+    for (const budget of ['-1', 'invalid']) {
+      expect(
+        (
+          await app.request(base + '/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              ...headers,
+              'content-type': 'application/json',
+              'X-Astra-Timeout-Ms': budget,
+            },
+            body: JSON.stringify({ messages: [] }),
+          })
+        ).status
+      ).toBe(400);
+    }
+  });
 
   it('emits compatible SSE tool-call frames when the agent requests streaming', async () => {
     const app = createTestApp();

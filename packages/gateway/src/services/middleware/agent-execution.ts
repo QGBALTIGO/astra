@@ -104,11 +104,13 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
     const conversationId = ctx.get<string>('conversationId');
     const conversationOnly =
       message.metadata.source === 'channel' &&
-      !message.attachments?.length &&
-      isConversationalOnlyChannelRequest(message.content);
+      (ctx.get<boolean>('channelConversationOnly') === true ||
+        (!message.attachments?.length && isConversationalOnlyChannelRequest(message.content)));
     const directTools =
       message.metadata.source === 'channel'
-        ? channelToolsForMessage(message.content, recentChannelText(agent.getConversation()))
+        ? conversationOnly
+          ? []
+          : channelToolsForMessage(message.content, recentChannelText(agent.getConversation()))
         : ctx.get<string[]>('directTools');
     const stream = ctx.get<StreamCallbacks>('stream');
 

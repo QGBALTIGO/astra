@@ -680,6 +680,8 @@ async function createChatAgentInstance(
 
   // A local-only installation needs enough time for the bridge to finish.
   const channelPrimaryTimeout = provider === 'ollama-local' ? 52_000 : 20_000;
+  const channelFallbackPrimaryTimeout =
+    provider === 'ollama-local' ? 14_000 : channelPrimaryTimeout;
 
   const config: AgentConfig = {
     name: isCliProvider
@@ -692,7 +694,10 @@ async function createChatAgentInstance(
       apiKey: apiKey ?? 'cli-no-key',
       resolvedAuth,
       baseUrl,
-      headers: providerConfig?.headers,
+      headers:
+        channelMode && provider === 'ollama-local'
+          ? { ...providerConfig?.headers, 'X-Astra-Timeout-Ms': String(channelPrimaryTimeout) }
+          : providerConfig?.headers,
       endpoint: providerConfig?.endpoint,
       features: providerConfig?.features,
       ...(channelMode ? { timeout: channelPrimaryTimeout, maxRetries: 0 } : {}),
@@ -817,13 +822,17 @@ async function createChatAgentInstance(
             apiKey: apiKey!,
             resolvedAuth,
             baseUrl,
-            headers: providerConfig?.headers,
+            headers:
+              channelMode && provider === 'ollama-local'
+                ? {
+                    ...providerConfig?.headers,
+                    'X-Astra-Timeout-Ms': String(channelFallbackPrimaryTimeout),
+                  }
+                : providerConfig?.headers,
             // Tool calls need time to finish on the local model. A two-second
             // deadline prematurely trips its circuit and exhausts the cloud backup.
             // Short conversational writers keep their independent, smaller deadlines.
-            ...(channelMode
-              ? { timeout: provider === 'ollama-local' ? 14_000 : channelPrimaryTimeout }
-              : {}),
+            ...(channelMode ? { timeout: channelFallbackPrimaryTimeout } : {}),
             maxRetries: 0,
           },
           fallbacks: usableFallbacks,

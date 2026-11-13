@@ -1401,6 +1401,9 @@ describe('getOrCreateChatAgent', () => {
     const config = mockCreateAgent.mock.calls.at(-1)?.[0] as
       (ChatAgentTestConfig & { provider: { timeout: number } }) | undefined;
     expect(config?.provider.timeout).toBe(52_000);
+    expect(mockCreateAgent.mock.calls.at(-1)?.[0].provider.headers['X-Astra-Timeout-Ms']).toBe(
+      '52000'
+    );
     expect(config?.model.maxTokens).toBe(1536);
     expect(config?.memory.maxTokens).toBe(3072);
   });
@@ -1424,7 +1427,12 @@ describe('getOrCreateChatAgent', () => {
     const core = await import('@ownpilot/core');
     expect(core.createFallbackProvider).toHaveBeenCalledWith(
       expect.objectContaining({
-        primary: expect.objectContaining({ id: 'ollama-local', timeout: 14000, maxRetries: 0 }),
+        primary: expect.objectContaining({
+          id: 'ollama-local',
+          timeout: 14000,
+          maxRetries: 0,
+          headers: expect.objectContaining({ 'X-Astra-Timeout-Ms': '14000' }),
+        }),
         fallbacks: expect.arrayContaining([
           expect.objectContaining({
             id: 'groq',
