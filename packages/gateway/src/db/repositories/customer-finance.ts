@@ -42,6 +42,7 @@ export interface CustomerTransactionInput {
 }
 
 export interface CustomerTransactionQuery {
+  sort?: 'created';
   from?: string;
   to?: string;
   type?: CustomerTransactionType | 'all';
@@ -605,7 +606,8 @@ export class CustomerFinanceRepository extends BaseRepository {
 
   async updateTransaction(
     id: string,
-    patch: Partial<CustomerTransactionInput>
+    patch: Partial<CustomerTransactionInput>,
+    expectedUpdatedAt?: string
   ): Promise<CustomerTransaction | null> {
     await this.prepareCategories();
     return this.transaction(async () => {
@@ -613,6 +615,8 @@ export class CustomerFinanceRepository extends BaseRepository {
       const row = await this.readTransaction(id, true);
       if (!row) return null;
       const previous = transactionFromRow(row);
+      if (expectedUpdatedAt !== undefined && previous.updatedAt !== expectedUpdatedAt)
+        throw new CustomerFinanceError('Lançamento alterado durante a conferência.', 409);
       const input = validateInput({ ...previous, ...patch });
       if (
         input.amount !== previous.amount ||
@@ -733,7 +737,7 @@ export class CustomerFinanceRepository extends BaseRepository {
       );
       const rows = await this.query<TransactionRow>(
         `${TRANSACTION_SELECT} WHERE ${where}
-        ORDER BY e.date DESC, e.created_at DESC, e.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        ORDER BY ${query.sort === 'created' ? 'e.created_at DESC, e.id DESC' : 'e.date DESC, e.created_at DESC, e.id DESC'} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
         [...params, pageSize, (page - 1) * pageSize]
       );
       return {

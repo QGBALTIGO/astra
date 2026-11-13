@@ -91,6 +91,8 @@ export async function quickPrivateReply(
   text: string,
   receipts: RecentReceipt[]
 ): Promise<string | null> {
+  if (/\b(?:gasto|despesa)\b/iu.test(text)) return null;
+
   const weekly = isWeeklyPortalGuide(text);
   // A self-contained request for a short planning tip needs neither data nor tools.
   const tip =

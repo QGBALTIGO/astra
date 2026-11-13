@@ -1,3 +1,4 @@
+import { tryQuickFinanceReply } from './quick-finance.js';
 /**
  * Channel AI Routing
  *
@@ -370,6 +371,9 @@ function tryAuthorizedChannelShortcut(
       )) ??
       (await tryCustomerTimezoneChannelReply(message, userId)) ??
       (await tryClockChannelReply(message.text, userId)) ??
+      (await tryQuickFinanceReply(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
       (await tryFinancingChannelReply(message, userId)) ??
       (await tryExpenseRecordChannelReply(message, userId))
     );

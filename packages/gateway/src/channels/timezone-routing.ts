@@ -126,9 +126,9 @@ export async function tryCustomerTimezoneChannelReply(
     const account = await customerAccountsRepo.getByDataUserId(userId);
     if (!account || account.dataUserId !== userId) throw new Error('Customer account unavailable');
     const alreadySet = account.timeZone === request.timeZone;
-    const saved = alreadySet
-      ? account
-      : await customerAccountsRepo.updateProfile(account.id, { timeZone: request.timeZone });
+    const saved = await customerAccountsRepo.updateProfile(account.id, {
+      timeZone: request.timeZone,
+    });
     if (
       !saved ||
       saved.id !== account.id ||
