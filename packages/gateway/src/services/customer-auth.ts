@@ -502,9 +502,13 @@ export class CustomerAuthService {
             continue;
           }
           invoked = true;
+          // Native WhatsApp copy buttons use a separate relay protocol that can be
+          // accepted without rendering on some clients. Verification codes must
+          // arrive as ordinary text rather than depend on a native-flow action.
+          // Keep the same one-attempt boundary: never retry an ambiguous send.
           await fresh.api.sendMessage({
             platformChatId: challenge.phoneNumber,
-            ...message,
+            text: message.text,
             sendBefore: challenge.expiresAt,
           });
           await this.d.auth.finishDelivery(challenge.id, lease, 'sent');
