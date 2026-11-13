@@ -1,18 +1,10 @@
 /** Write the conversational opening separately from the facts that authorize a receipt. */
-import { createProvider, type ProviderConfig } from '@ownpilot/core/agent';
+import { writeShortChannelReply } from './short-channel-reply.js';
 import {
   isDiscreetSubject,
   safeContactFirstName,
   subjectEmoji,
 } from './channel-personalization.js';
-import { resolveForChannel } from '../services/llm/model-routing.js';
-import {
-  getProviderApiKey,
-  loadProviderConfig,
-  NATIVE_PROVIDERS,
-} from '../services/agent/cache.js';
-import { resolveAuthForRequest } from '../services/auth/oauth-flow.js';
-
 const busy = new Set<string>();
 const MAX_WAIT_MS = 5_000;
 const style =
@@ -41,7 +33,7 @@ export function safePersonalComment(content: string): string | null {
 type Receipt = { subject: string; facts: string; action: string };
 
 /** Only a single, complete known receipt is eligible. Keep mixed requests and failures intact. */
-function receiptContext(text: string): Receipt | null {
+export function receiptContext(text: string): Receipt | null {
   const simple =
     /^(?:Adicionei “([^”\n]+)” à sua lista de tarefas\. Ela está pendente\.|Marquei como concluída a tarefa “([^”\n]+)”\.|Assinatura (?:adicionada ao|atualizada no) seu controle: ([^·\n]+) · [^\n]+\.)$/u.exec(
       text
@@ -141,24 +133,6 @@ export async function maybePersonalizeConfirmedReply(input: {
   const deadline = Date.now() + MAX_WAIT_MS;
   busy.add(key);
   const work = (async () => {
-    const { provider, model } = await resolveForChannel(input.channelPluginId);
-    if (!provider || !model || provider.startsWith('cli-')) return fallback;
-    const config = loadProviderConfig(provider);
-    const native = NATIVE_PROVIDERS.has(provider);
-    if (!native && !config?.baseUrl) return fallback;
-    const resolvedAuth = await resolveAuthForRequest(provider);
-    const apiKey = resolvedAuth?.value ?? (await getProviderApiKey(provider));
-    const remaining = deadline - Date.now();
-    if (!apiKey || remaining <= 0) return fallback;
-    const writer = createProvider({
-      ...config,
-      id: provider,
-      provider: (native ? provider : 'openai') as ProviderConfig['provider'],
-      apiKey,
-      resolvedAuth,
-      timeout: remaining,
-      maxRetries: 0,
-    });
     const name = safeContactFirstName(input.displayName);
     // A stable sample on retries avoids a name in every turn and stores no contact history.
     const mentionName =
@@ -168,14 +142,8 @@ export async function maybePersonalizeConfirmedReply(input: {
       contexto: receipt.action,
       ...(name && mentionName ? { nome: name } : {}),
     });
-    const result = await writer.complete({
-      model: { model, maxTokens: 52, temperature: 0.85 },
-      messages: [
-        { role: 'system', content: style },
-        { role: 'user', content: prompt },
-      ],
-    });
-    const opening = result.ok ? safePersonalComment(result.value.content) : null;
+    const line = await writeShortChannelReply(input.channelPluginId, style, prompt, 42, deadline);
+    const opening = line ? safePersonalComment(line) : null;
     // A tracked subscription is a personal note, not a receipt from the merchant.
     if (
       receipt.action === 'assinatura' &&

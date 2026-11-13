@@ -5,6 +5,7 @@
  * This is the "innermost" middleware — it actually generates the AI response.
  */
 
+import { withRecentReceiptContext } from '../../channels/recent-chat-replies.js';
 import { randomUUID } from 'node:crypto';
 import type { MessageMiddleware, StreamCallbacks } from '@ownpilot/core/services';
 import { getExecContext, runInExecContext, type ContentPart } from '@ownpilot/core/agent';
@@ -202,7 +203,10 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
       }
 
       // Convert attachments to ContentPart[] for vision models
-      let chatContent: string | readonly ContentPart[] = message.content;
+      let chatContent: string | readonly ContentPart[] = withRecentReceiptContext(
+        message.content,
+        ctx.get('channelRecentReceipts')
+      );
       if (message.attachments?.length) {
         const parts: ContentPart[] = [{ type: 'text', text: message.content }];
         for (const att of message.attachments) {

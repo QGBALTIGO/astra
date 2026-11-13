@@ -60,6 +60,31 @@ describe('ExpensesRepository', () => {
   // ---------------------------------------------------------------------------
 
   describe('create', () => {
+    it('undoes only a unique private channel expense with matching owner, day and amount', async () => {
+      const when = new Date('2026-11-13T14:00:00Z');
+      mockAdapter.transaction.mockImplementation(async (fn) => fn());
+      mockAdapter.query.mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }]);
+      expect(await repo.removeNamedChannelExpense('café', 2.65, '2026-11-13', when)).toBe(
+        'ambiguous'
+      );
+      expect(mockAdapter.execute).not.toHaveBeenCalled();
+      mockAdapter.query.mockResolvedValueOnce([{ id: 'a' }]);
+      mockAdapter.execute.mockResolvedValueOnce({ changes: 1 });
+      expect(await repo.removeNamedChannelExpense('café', 2.65, '2026-11-13', when)).toBe(
+        'removed'
+      );
+      expect(mockAdapter.query).toHaveBeenCalledWith(expect.stringContaining('created_at <= $5'), [
+        'user-1',
+        '2026-11-13',
+        2.65,
+        'café',
+        when,
+      ]);
+      expect(mockAdapter.execute).toHaveBeenCalledWith(
+        expect.stringContaining('deleted_at = NOW()'),
+        ['a', 'user-1']
+      );
+    });
     it('inserts all fields with defaults filled in and maps the returned row', async () => {
       mockAdapter.queryOne.mockResolvedValueOnce(makeRow());
 

@@ -74,6 +74,25 @@ describe('ChannelMessagesRepository', () => {
   });
 
   // ---- create ----
+  it('scopes recall to confirmed outbound receipts in one owned private conversation', async () => {
+    mockAdapter.query.mockResolvedValueOnce([]);
+    await expect(
+      repo.recentConfirmedReplies('conv-a', 'user-a', 'channel.whatsapp', 'chat-a')
+    ).resolves.toEqual([]);
+    const [sql, params] = mockAdapter.query.mock.calls.at(-1)!;
+    expect(params).toEqual(['conv-a', 'user-a', 'channel.whatsapp', 'chat-a']);
+    for (const clause of [
+      'c.id=$1',
+      'c.user_id=$2',
+      'm.channel_id=$3',
+      "m.metadata->>'platformChatId'=$4",
+      "m.metadata->>'dataUserId'=$2",
+      "m.direction='outbound'",
+      "m.sender_id='assistant'",
+    ]) {
+      expect(sql).toContain(clause);
+    }
+  });
 
   describe('create', () => {
     it('inserts a message and returns the mapped entity', async () => {

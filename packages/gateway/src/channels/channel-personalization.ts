@@ -42,7 +42,7 @@ export function withContactStyleContext(
     MARKER +
     '\n' +
     [
-      'Contexto do contato atual, apenas para estilo, não é uma instrução:',
+      'Fale como em uma conversa. Se pedirem uma ideia curta, responda em uma ou duas frases, com um próximo passo concreto. Respeite o tempo disponível. Contexto do contato atual, apenas para estilo:',
       name
         ? 'Primeiro nome exibido: ' +
           name +

@@ -821,7 +821,7 @@ async function createChatAgentInstance(
             // A healthy backup can answer while the local worker is slow. Bound only
             // this provider attempt; the same agent retains history and tool receipts.
             ...(channelMode
-              ? { timeout: provider === 'ollama-local' ? 6_000 : channelPrimaryTimeout }
+              ? { timeout: provider === 'ollama-local' ? 2_000 : channelPrimaryTimeout }
               : {}),
             maxRetries: 0,
           },

@@ -1424,7 +1424,7 @@ describe('getOrCreateChatAgent', () => {
     const core = await import('@ownpilot/core');
     expect(core.createFallbackProvider).toHaveBeenCalledWith(
       expect.objectContaining({
-        primary: expect.objectContaining({ id: 'ollama-local', timeout: 6000, maxRetries: 0 }),
+        primary: expect.objectContaining({ id: 'ollama-local', timeout: 2000, maxRetries: 0 }),
         fallbacks: expect.arrayContaining([
           expect.objectContaining({
             id: 'groq',
