@@ -43,6 +43,12 @@ export function isConversationalOnlyChannelRequest(text: string): boolean {
   // A calendar exercise and its explicitly hypothetical follow-up use the
   // conversation as their source. Do not give the model a real calendar.
   if (
+    /\b(?:so estamos conversando sobre esse exemplo|so quero (?:uma orientacao|uma sugestao)|apenas orientacao|so analise|apenas analise)\b/.test(
+      input
+    )
+  )
+    return true;
+  if (
     /\b(?:(?:exercicio|simulacao) de agenda|agenda (?:do|desse|deste) (?:exemplo|cenario|exercicio))\b/.test(
       input
     ) &&
