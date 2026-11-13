@@ -5,23 +5,23 @@ export function buildCustomerOtpMessage(code: string, purpose: CustomerChallenge
   if (code.length !== 6 || !/^\d{6}$/.test(code))
     throw new Error('Invalid customer verification code');
 
-  let instruction: string;
+  let context: string;
   switch (purpose) {
     case 'login':
-      instruction = 'Use este código para entrar no seu painel.';
+      context = 'Recebemos uma solicitação para acessar seu painel do *Astra*.';
       break;
     case 'phone_change_old':
-      instruction = 'Use este código para confirmar a troca do seu telefone.';
+      context = 'Recebemos uma solicitação para alterar o número de WhatsApp da sua conta *Astra*.';
       break;
     case 'phone_change_new':
-      instruction = 'Use este código para confirmar seu novo telefone no Astra.';
+      context = 'Recebemos uma solicitação para confirmar seu novo número de WhatsApp no *Astra*.';
       break;
     default:
       throw new Error('Invalid customer verification purpose');
   }
 
   return {
-    text: `*Astra · Código de acesso*\n\n*${code}*\n\n${instruction}\nVálido por 5 minutos a partir da solicitação.\n\nNão compartilhe este código. Se não foi você, ignore esta mensagem.`,
+    text: `*Astra · Verificação de acesso*\n\n${context}\n\n🔐 *Seu código de verificação é:*\n\n*${code}*\n\n⏳ *Validade:* 5 minutos.\n\n🛡️ *Não reconhece esta tentativa?* Pode ignorar esta mensagem. Seu acesso permanece protegido.`,
     copyCode: { label: 'Copiar código', code },
   };
 }
