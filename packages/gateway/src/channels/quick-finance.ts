@@ -5,8 +5,6 @@ import {
 } from '../db/repositories/customer-finance.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDay, validCalendarDay } from '../services/customer-date.js';
-import { writeShortChannelReply } from './short-channel-reply.js';
-import { safePersonalComment } from './confirmed-reply-personality.js';
 import { formatAstraMessage, formatTransactionConfirmation } from './response-presentation.js';
 import { isConversationalOnlyChannelRequest } from './tool-selection.js';
 
@@ -23,6 +21,60 @@ type Plan = {
 };
 const instructions =
   'Extraia um filtro de DESPESAS do pedido, sem executar ações. Somente JSON compacto com op (list/update), search (descrição literal ou ""), amount (valor usado para identificar, em reais, ou null), on (dia YYYY-MM-DD ou null), at (hora local HH:mm ou null), category (nova categoria literal ou null), latest (true só se pediu o último gasto). Hoje consta no contexto. NÃO invente filtros. Update só para mudar categoria explicitamente. Inclua intro com uma frase curta de até dez palavras que reaja ao assunto, com personalidade discreta, sem números nem confirmar ações. Nunca crie nem exclua. Se pedir outra ação ou houver mais de uma ação, responda null.';
+
+export function explicitFinancePlan(request: string, today: string): Plan | null {
+  const input = fold(request);
+  if (/\b(?:nao|nunca|se|talvez|exemplo|ficticio|e depois|tambem)\b/.test(input)) return null;
+  if (/^(?:qual foi |qual e |qual )?(?:o )?meu ultimo gasto[?.!]?$/u.test(input))
+    return {
+      op: 'list',
+      search: '',
+      amount: null,
+      on: null,
+      at: null,
+      category: null,
+      latest: true,
+    };
+  const target =
+    /\bpara\s+(alimenta[cç][aã]o|transporte|sa[uú]de|outros|compras|lazer|assinaturas|educa[cç][aã]o|moradia)\b/iu.exec(
+      request
+    )?.[1] ?? null;
+  const op = /\b(?:mude|altere|corrija|troque)\b/.test(input) ? 'update' : 'list';
+  if (op === 'update' && (!target || !/categoria/.test(input))) return null;
+  const subject =
+    /\b(?:gastos?|despesas?|lan[cç]amentos?)\s+(?:com (?:a )?descri[cç][aã]o\s+)?["“]?([\p{L}\p{M}][\p{L}\p{M} '-]{0,100}?)(?:["”]|\s+de\s+r\$)/iu
+      .exec(request)?.[1]
+      ?.trim();
+  if (!subject) return null;
+  const amounts = [...request.matchAll(/r\$\s*(\d[\d.,]*)/giu)].map((m) => m[1]!);
+  const amount = amounts[0];
+  if (
+    !amount ||
+    new Set(amounts).size !== 1 ||
+    !/^(?:\d+(?:[,.]\d{1,2})?|\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?)$/.test(amount)
+  )
+    return null;
+  const value = Number(
+    amount.includes(',')
+      ? amount.replace(/\./g, '').replace(',', '.')
+      : /^\d{1,3}(?:\.\d{3})+$/.test(amount)
+        ? amount.replace(/\./g, '')
+        : amount
+  );
+  const date = /\b(\d{2})\/(\d{2})\/(\d{4})\b/.exec(request);
+  const on = /\bhoje\b/.test(input) ? today : date ? [date[3], date[2], date[1]].join('-') : null;
+  if (on && !validCalendarDay(on)) return null;
+  const at = /\b((?:[01]\d|2[0-3]):[0-5]\d)(?::\d{2})?\b/.exec(request)?.[1] ?? null;
+  return {
+    op,
+    search: subject,
+    amount: value,
+    on,
+    at,
+    category: op === 'update' ? target : null,
+    latest: false,
+  };
+}
 
 export function parseQuickFinancePlan(raw: string, request: string): Plan | null {
   let p: Plan;
@@ -55,6 +107,7 @@ export function parseQuickFinancePlan(raw: string, request: string): Plan | null
   )
     return null;
   if (p.op === 'list' && p.category !== null) return null;
+  p.latest = p.latest && /\bultim[oa]\b/.test(input);
   return p;
 }
 
@@ -81,23 +134,45 @@ export async function tryQuickFinanceReply(
   const account = await customerAccountsRepo.getByDataUserId(userId);
   const timeZone = account?.timeZone ?? 'America/Sao_Paulo';
   const today = customerLocalDay(message.timestamp, timeZone);
-  let raw: string | null;
-  try {
-    raw = await writeShortChannelReply(
-      message.channelPluginId,
-      instructions,
-      JSON.stringify({ hoje: today, pedido: message.text }),
-      230,
-      Date.now() + 4500
-    );
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-  const plan = parseQuickFinancePlan(raw, message.text);
+  const explicit = explicitFinancePlan(message.text, today);
+  let raw: string | null = null;
+  if (!explicit)
+    try {
+      const { writeShortChannelReply } = await import('./short-channel-reply.js');
+      raw = await writeShortChannelReply(
+        message.channelPluginId,
+        instructions,
+        JSON.stringify({ hoje: today, pedido: message.text }),
+        230,
+        Date.now() + 7500
+      );
+    } catch {
+      return null;
+    }
+  const plan = explicit ?? (raw ? parseQuickFinancePlan(raw, message.text) : null);
   if (!plan) return null;
-  const intro = typeof plan.intro === 'string' ? safePersonalComment(plan.intro) : null;
-  const present = (body: string) => (intro ? intro + '\n\n' + body : body);
+  const { safePersonalComment } = await import('./confirmed-reply-personality.js');
+  const comment = explicit
+    ? import('./short-channel-reply.js')
+        .then(({ writeShortChannelReply }) =>
+          writeShortChannelReply(
+            message.channelPluginId,
+            'Você é o Astra. Reaja ao assunto numa frase natural de até oito palavras. Não repita números nem afirme operações. Sem perguntas, conselhos ou termos técnicos. Responda apenas a frase.',
+            JSON.stringify({
+              assunto: plan.search || 'consulta do último gasto',
+              pedido: message.text,
+            }),
+            26,
+            Date.now() + 2600
+          )
+        )
+        .catch(() => null)
+    : Promise.resolve(plan.intro ?? null);
+  const present = async (body: string) => {
+    const text = await comment;
+    const intro = typeof text === 'string' ? safePersonalComment(text) : null;
+    return intro ? intro + '\n\n' + body : body;
+  };
   const compact = input.replace(/\s/g, '');
   if (
     plan.amount !== null &&
