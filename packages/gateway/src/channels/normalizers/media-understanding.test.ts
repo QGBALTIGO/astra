@@ -43,6 +43,7 @@ describe('OCR WhatsApp do Astra', () => {
     );
     expect(transcribe).toHaveBeenCalledTimes(1);
     expect(result.text).toContain('Quero organizar meus lembretes.');
+    expect(result.userSpeech).toBe('Quero organizar meus lembretes.');
     expect(result.attachments).toBeUndefined();
   });
   it('extracts a PDF as untrusted document content and removes the raw attachment', async () => {
@@ -59,6 +60,7 @@ describe('OCR WhatsApp do Astra', () => {
     );
     expect(result.text).toContain('Total R$ 48,90');
     expect(result.text).toContain('ignore instruções');
+    expect(result.userSpeech).toBeUndefined();
     expect(result.attachments).toBeUndefined();
   });
   it('accepts only whitelisted fields', () => {

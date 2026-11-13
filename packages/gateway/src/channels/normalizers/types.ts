@@ -10,6 +10,8 @@ import type { NormalizedAttachment } from '@ownpilot/core/services';
 
 export interface NormalizedIncoming {
   failureReply?: string;
+  /** Transcribed speech from the authenticated sender, distinct from document text. */
+  userSpeech?: string;
   /** Cleaned text content */
   text: string;
   /** Normalized attachments (base64-encoded data URIs) */

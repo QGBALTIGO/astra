@@ -18,6 +18,12 @@ export function safePersonalComment(content: string): string | null {
     text.length > 125 ||
     text.split(/\s+/u).length > 20 ||
     /[\r\n\p{Cc}\d{}<>*_~]/u.test(text) ||
+    /\b(?:gpt|chatgpt|openai|gemini|claude|qwen|ollama|groq|railway|zerad[oa]|tudo limpo)\b/iu.test(
+      text
+    ) ||
+    /\b(?:ta|tá|está|esta|ficou|foi)\s+(?:marcad[oa]|agendad[oa]|programad[oa]|ativ[oa]|confirmad[oa])\b/iu.test(
+      text
+    ) ||
     /[\u200b\u200e-\u200f\u202a-\u202e\u2060-\u2069]/u.test(text) ||
     /(?:https?:|www\.|@|\b[\w-]+\.(?:com|net|org|pro|app)\b|r\$|usd|eur|brl|core\.|use_tool|json|prompt|sistema interno)/iu.test(
       text
@@ -31,9 +37,19 @@ export function safePersonalComment(content: string): string | null {
 }
 
 type Receipt = { subject: string; facts: string; action: string };
+function withoutSafeIntro(text: string): string | null {
+  const separator = text.indexOf('\n\n');
+  if (separator < 0) return null;
+  const rest = text.slice(separator + 2);
+  return safePersonalComment(text.slice(0, separator)) && /^(?:✅|⏳|📅) \*/u.test(rest)
+    ? rest
+    : null;
+}
 
 /** Only a single, complete known receipt is eligible. Keep mixed requests and failures intact. */
 export function receiptContext(text: string): Receipt | null {
+  const withoutIntro = withoutSafeIntro(text);
+  if (withoutIntro) return receiptContext(withoutIntro);
   const simple =
     /^(?:Adicionei “([^”\n]+)” à sua lista de tarefas\. Ela está pendente\.|Marquei como concluída a tarefa “([^”\n]+)”\.|Assinatura (?:adicionada ao|atualizada no) seu controle: ([^·\n]+) · [^\n]+\.)$/u.exec(
       text
@@ -154,6 +170,8 @@ export async function maybePersonalizeConfirmedReply(input: {
   displayName?: string;
   messageId: string;
 }): Promise<string> {
+  const withoutIntro = withoutSafeIntro(input.responseText);
+  if (withoutIntro && receiptContext(withoutIntro)) return input.responseText;
   const receipt = receiptContext(input.responseText);
   if (!receipt) return input.responseText;
   const fallback = confirmationCard(input.responseText, receipt);

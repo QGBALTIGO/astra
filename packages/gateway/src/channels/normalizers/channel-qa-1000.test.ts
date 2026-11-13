@@ -78,7 +78,8 @@ describe('Astra: 1.000 simulações seguras de respostas de canais', () => {
         id;
       const response = userFacingAgentError(sampleMessage('channel'), detail);
       expect(response).toContain('responder');
-      expect(response).toContain('limite de respostas');
+      expect(response).toContain('agora');
+      expect(response).not.toContain('limite de respostas');
       expect(response).not.toContain('registros');
       expect(response).not.toContain('org_private');
       expect(response).not.toContain('429');

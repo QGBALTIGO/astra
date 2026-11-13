@@ -26,6 +26,20 @@ const reminder = (status = 'pending'): ChannelToolReceipt => ({
 });
 
 describe('Channel responses use persisted facts without internal details', () => {
+  it('does not extend a finance deletion into a claim that the whole account was erased', () => {
+    const receipt: ChannelToolReceipt = {
+      name: 'core.delete_transaction',
+      arguments: '',
+      isError: false,
+      content: JSON.stringify({ success: true, result: { deleted: true } }),
+    };
+    const response = safeChannelResponse('Pronto! Tudo limpo por aqui. Sua conta está zerada.', [
+      receipt,
+    ]);
+    expect(response).not.toMatch(/tudo limpo|conta.*zerada/i);
+    expect(response).toMatch(/lançamento financeiro|Confirmado|confirmad/);
+    expect(safeChannelResponse('Sua conta está zerada.', [])).toBe(CHANNEL_UNVERIFIED_REPLY);
+  });
   it('returns an ordinary conversational reply without pretending a Pix was made', () => {
     const natural =
       'Acho que sim — se for um carinho espontâneo e couber no seu orçamento, por que não? 😊';

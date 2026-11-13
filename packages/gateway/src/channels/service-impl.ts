@@ -23,6 +23,7 @@ import {
   isWeeklyPortalGuide,
 } from './astra-access.js';
 import { receiptContext, maybePersonalizeConfirmedReply } from './confirmed-reply-personality.js';
+import { enforceAstraScopeOutput } from './astra-scope.js';
 import {
   asksAboutRecentReceipts,
   quickPrivateReply,
@@ -1216,6 +1217,8 @@ export class ChannelServiceImpl implements IChannelService {
       }
 
       // 8. Send response (guard against empty text — Telegram rejects it)
+      if (message.platform === 'whatsapp' || message.platform === 'telegram')
+        responseText = enforceAstraScopeOutput(responseText || '', message.text);
       responseText = presentChannelReply(responseText || '', message.text);
       const accessRequest =
         (message.platform === 'whatsapp' || message.platform === 'telegram') &&

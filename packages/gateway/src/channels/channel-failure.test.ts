@@ -77,7 +77,7 @@ describe('channel failure replies', () => {
     const answer = channelFailureReply(q, 'provider_unavailable');
     expect(answer).toMatch(/compromisso|agenda/i);
     expect(answer).not.toMatch(/confirmação do aviso|lembretes|criar outro/i);
-    if (q.startsWith('Consulta')) expect(answer).toContain('agenda não abriu');
+    if (q.startsWith('Consulta')) expect(answer).toContain('consultar sua agenda');
     else expect(answer).toContain('sem a confirmação desse compromisso');
   });
   it.each([
@@ -86,7 +86,7 @@ describe('channel failure replies', () => {
     'Mude meu lembrete da reunião; se não encontrar, me avisa.',
   ])('preserves actual requests to schedule or modify a reminder: %s', (q) => {
     const answer = channelFailureReply(q, 'timeout');
-    expect(answer).toMatch(/confirmação do aviso/);
+    expect(answer).toMatch(/confirmar a alteração dos lembretes/);
     expect(answer).not.toContain('confirmação desse compromisso');
   });
   it.each([
@@ -105,8 +105,8 @@ describe('channel failure replies', () => {
   it.each([
     [b03, 'aviso de renovação'],
     [b06, 'dois fusos'],
-    ['Agenda de hoje?', 'Agenda no painel'],
-    ['Quais meus lembretes de hoje?', 'Quais são meus lembretes de hoje?'],
+    ['Agenda de hoje?', 'consultar sua agenda'],
+    ['Quais meus lembretes de hoje?', 'consultar seus lembretes'],
     ['Quanto gastei no ônibus?', 'Transações'],
     ['Minhas tarefas de hoje?', 'lista de tarefas'],
     ['Quais assinaturas tenho?', 'Minhas assinaturas'],
@@ -130,7 +130,7 @@ describe('channel failure replies', () => {
     ['Cancele a assinatura de música', 'Minhas assinaturas'],
     ['Mude o meu compromisso', 'Agenda no painel'],
     ['Pode criar a tarefa de separar os recibos?', 'Consulte a tarefa'],
-    ['Me lembre de ligar para a clínica', 'status em Agenda'],
+    ['Me lembre de ligar para a clínica', 'consultar os itens que ficaram salvos'],
   ])('provides a safe verification path for %s', (input, marker) => {
     const reply = channelFailureReply(input, 'timeout');
     expect(reply).toContain(marker);
@@ -140,7 +140,7 @@ describe('channel failure replies', () => {
   });
   it.each([
     ['Não quero cancelar a assinatura. Só quero saber quando vence.', 'Meu planejamento'],
-    ['Não apague o aviso! Quero ver a que horas ele toca.', 'lista de avisos'],
+    ['Não apague o aviso! Quero ver a que horas ele toca.', 'consultar seus lembretes'],
     ['Paguei ontem ou foi hoje? É só consulta do gasto.', 'Transações'],
     [
       'Você consegue cancelar assinaturas com o fornecedor ou só acompanha os vencimentos?',
@@ -166,9 +166,15 @@ describe('channel failure replies', () => {
   });
 
   it.each([
-    ['Me dá um toque pra pegar a marmita na hora de sair, lá pelas seis?', 'status em Agenda'],
+    [
+      'Me dá um toque pra pegar a marmita na hora de sair, lá pelas seis?',
+      'consultar os itens que ficaram salvos',
+    ],
     ['Muda a minha reunião de amanhã pras dez?', 'Antes de pedir outra alteração'],
-    ['Em vez das sete, me avisa às oito de levar o casaco?', 'status em Agenda'],
+    [
+      'Em vez das sete, me avisa às oito de levar o casaco?',
+      'consultar os itens que ficaram salvos',
+    ],
     ['Opa, pode corrigir o lançamento de 12 pra 10 reais?', 'confirmação do lançamento'],
     ['Troca a mensalidade de 10 para 16 reais?', 'confirmação da assinatura'],
     [
@@ -182,7 +188,7 @@ describe('channel failure replies', () => {
       'A partir de hoje deixa de acompanhar minha assinatura, pode ser?',
       'confirmação da assinatura',
     ],
-    ['Não apague o aviso, mas me lembre de ligar amanhã.', 'status em Agenda'],
+    ['Não apague o aviso, mas me lembre de ligar amanhã.', 'consultar os itens que ficaram salvos'],
     [
       'Como funciona a agenda? Pode criar um compromisso para amanhã?',
       'Antes de pedir outra alteração',

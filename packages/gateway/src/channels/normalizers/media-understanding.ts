@@ -313,6 +313,7 @@ export async function enrichWhatsAppMedia(
   let pdfCount = 0;
   let understood = 0;
   let failureReply: string | undefined;
+  let userSpeech: string | undefined;
   for (const att of originals) {
     if (isAudio(att.type, att.mimeType)) {
       if (++audioCount > 1) {
@@ -326,6 +327,7 @@ export async function enrichWhatsAppMedia(
         continue;
       }
       const result = await (hooks.transcribe ?? transcribeWhatsAppAudio)(att.data, att.mimeType);
+      if (result) userSpeech = safeString(result, 6_000);
       if (result) understood++;
       else
         failureReply =
@@ -388,6 +390,7 @@ export async function enrichWhatsAppMedia(
   );
   return {
     ...(!understood && failureReply ? { failureReply } : {}),
+    ...(userSpeech ? { userSpeech } : {}),
     text: parts.join('\n\n') || 'Não consegui entender o arquivo enviado.',
     attachments: remaining?.length ? remaining : undefined,
   };

@@ -32,6 +32,8 @@ export function isConversationalOnlyChannelRequest(text: string): boolean {
     .toLowerCase()
     .trim()
     .replace(/^(?:astra[,!:]?\s+)?(?:por favor[, ]+\s*)?/, '');
+  // A final explicit no-action boundary also covers commands quoted in an exercise.
+  if (/\bso estamos conversando sobre esse exemplo[.!?]*$/.test(input)) return true;
   // Compound requests must go through the normal, verified action pipeline.
   if (
     /\be\s+(?:registr[ae]|anot[ae]|salv[ae]|agend[ae]|crie|canc[ae]le|exclua|pague|transfira)\b/.test(

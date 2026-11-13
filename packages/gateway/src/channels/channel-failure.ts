@@ -44,15 +44,15 @@ type Failure = ReturnType<typeof channelFailureKind>;
 const guidance = {
   calendar: {
     check: 'Você pode conferir o compromisso em Agenda no painel.',
-    read: 'Sua agenda não abriu por aqui agora. Dá uma olhada em Agenda no painel para conferir os horários.',
+    read: 'Não consegui consultar sua agenda agora. Pode tentar de novo em instantes?',
     write:
       'Fiquei sem a confirmação desse compromisso. Antes de pedir outra alteração, veja em Agenda no painel se a mudança já aparece.',
   },
   reminder: {
     check: 'Para conferir o aviso e o horário, abra Agenda no painel.',
-    read: 'A lista de avisos não abriu agora. Dá uma olhada em Agenda no painel. Se quiser consultar por aqui depois, pergunte “Quais são meus lembretes de hoje?”',
+    read: 'Não consegui consultar seus lembretes agora. Pode tentar de novo em instantes?',
     write:
-      'A confirmação do aviso não chegou. Confira o horário e o status em Agenda no painel antes de criar outro.',
+      'Ainda não consegui confirmar a alteração dos lembretes. Peça para consultar os itens que ficaram salvos antes de repetir.',
   },
   task: {
     check: 'Para conferir como a tarefa está, mande “Consulte a tarefa” com o título.',
@@ -133,6 +133,7 @@ function classifyRequest(text: string) {
   // Test each instruction in its own clause so "não apague; mude o horário" retains the write.
   const instructions = s.split(/[,.!?;:]\s*|\s+(?:e|mas)\s+/);
   const write =
+    /^(?:astra[, ]+)?(?:limp[ae]|zer[ae])\b/.test(s) ||
     instructions.some((clause, index) => {
       const instruction = clause
         .trim()
@@ -163,6 +164,7 @@ function classifyRequest(text: string) {
   // Unknown imperatives often end with a friendly question ("pode ser?"). Only
   // announce a lookup failure when there is evidence of a lookup in the text.
   const readRequest =
+    /\btenho (?:algum(?:a)?s? )?(?:lembretes?|agendamentos?|compromissos?)\b/.test(s) ||
     /\b(?:qual|quais|quanto|quantos|que horas|sera que tenho|confer[ei]|confir[ae]|consult[ae]|mostr[ae]|liste|me diga|quero saber|quero ver)\b/.test(
       s
     ) ||
@@ -277,11 +279,7 @@ export function channelFailureReply(
   else
     reply =
       'Não consegui terminar minha resposta agora. Se o pedido envolvia um registro, confira no painel como ele ficou.';
-  return reason === 'rate_limited'
-    ? 'Cheguei ao limite de respostas por enquanto. ' + reply
-    : reason === 'timeout'
-      ? 'A resposta demorou mais do que o esperado. ' + reply
-      : reply;
+  return reply;
 }
 
 // Match a complete historical runtime banner only. Explanations and quotations must survive.

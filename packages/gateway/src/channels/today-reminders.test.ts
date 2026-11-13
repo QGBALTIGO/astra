@@ -144,7 +144,7 @@ describe('today reminders in the authenticated conversation', () => {
   it('returns an explicit read failure when the database is unavailable', async () => {
     db.list.mockRejectedValue(new Error('sensitive SQL details'));
     expect(await tryListTodaysReminders(message, 'u')).toBe(
-      'A lista de avisos não abriu agora. Dá uma olhada em Agenda no painel. Se quiser consultar por aqui depois, pergunte “Quais são meus lembretes de hoje?”'
+      'Não consegui consultar seus lembretes agora. Pode tentar de novo em instantes?'
     );
   });
 });

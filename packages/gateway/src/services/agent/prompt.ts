@@ -9,10 +9,11 @@
  */
 
 import { ASTRA_CHANNEL_ACCESS_FACTS } from '../../channels/astra-access.js';
+import { ASTRA_CHANNEL_SCOPE } from '../../channels/astra-scope.js';
 
 /** Apply channel facts to either an API or CLI provider's base prompt. */
 export function withChannelAccessFacts(systemPrompt: string): string {
-  return `${systemPrompt}\n\n${ASTRA_CHANNEL_ACCESS_FACTS}`;
+  return `${systemPrompt}\n\n${ASTRA_CHANNEL_ACCESS_FACTS}\n\n${ASTRA_CHANNEL_SCOPE}\nLembretes, tarefas e despesas sobre cursos ou projetos de programação fazem parte da assessoria; não produza código.`;
 }
 
 /**

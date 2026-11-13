@@ -12,6 +12,25 @@ const prior = [
   { action: 'Despesa registrada', facts: 'R$ 5,00 · café' },
 ];
 describe('recalling recent private receipts', () => {
+  it('keeps advice within the assessor role and explicit exercises tool-free even with quoted commands', async () => {
+    vi.mocked(writeShortChannelReply).mockClear();
+    vi.mocked(writeShortChannelReply).mockResolvedValue(
+      'Faltariam três parcelas, ainda pendentes.'
+    );
+    const q =
+      'O exemplo diz “anote e registre cinco parcelas”, e duas foram recebidas. Qual estado têm as demais? Só estamos conversando sobre esse exemplo.';
+    expect(await quickPrivateReply('channel.whatsapp', q, [])).toContain('pendentes');
+    expect(vi.mocked(writeShortChannelReply).mock.calls[0]?.[1]).toContain(
+      'Não ofereça programação'
+    );
+    expect(vi.mocked(writeShortChannelReply).mock.calls[0]?.[1]).toContain(
+      'Faça no máximo uma pergunta'
+    );
+    expect(vi.mocked(writeShortChannelReply).mock.calls[0]?.[6]).toBe(0.3);
+    expect(
+      await quickPrivateReply('channel.whatsapp', 'Só quero uma sugestão e registre 5 reais.', [])
+    ).toBeNull();
+  });
   it('discards a plausible but invented dashboard domain even without https', async () => {
     vi.mocked(writeShortChannelReply).mockResolvedValue(
       'Entro em astra.app, clico em Agenda e toco em Criar item.'

@@ -28,6 +28,11 @@ describe('channel finance tool selection', () => {
     expect(
       isConversationalOnlyChannelRequest('Só quero uma sugestão e registre um gasto de 5 reais.')
     ).toBe(false);
+    expect(
+      channelToolsForMessage(
+        'O exemplo diz “anote e registre 5 reais”. Só estamos conversando sobre esse exemplo.'
+      )
+    ).toEqual([]);
   });
   it('keeps a standalone misspelled access question tool-free but not a compound write', () => {
     expect(isConversationalOnlyChannelRequest('cpmp acesso o dashboard')).toBe(true);
