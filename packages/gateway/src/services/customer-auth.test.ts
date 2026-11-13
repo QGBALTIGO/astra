@@ -308,12 +308,11 @@ describe('CustomerAuthService', () => {
     expect(api.sendMessage).toHaveBeenCalledExactlyOnceWith({
       platformChatId: phone,
       text: expect.stringContaining('*123456*'),
-      copyCode: { label: 'Copiar código', code: '123456' },
       sendBefore: challenges.get(challenge.challengeId)!.expiresAt,
     });
     expect(auth.finishDelivery).toHaveBeenCalledWith(expect.any(String), 'delivery-lease', 'sent');
   });
-  it('keeps a leading-zero OTP intact in encrypted storage and native copy action', async () => {
+  it('keeps a leading-zero OTP intact in encrypted storage and ordinary WhatsApp text transport', async () => {
     generatedCode = '000123';
     const challenge = await service.requestCode(phone, 'ip');
     expect(JSON.stringify(challenge)).not.toContain(generatedCode);
@@ -322,7 +321,6 @@ describe('CustomerAuthService', () => {
     expect(api.sendMessage).toHaveBeenCalledExactlyOnceWith({
       platformChatId: phone,
       text: expect.stringContaining('\n\n*000123*\n\n'),
-      copyCode: { label: 'Copiar código', code: '000123' },
       sendBefore: new Date(now.getTime() + 300_000),
     });
     expect(logWarn).not.toHaveBeenCalled();
@@ -333,7 +331,6 @@ describe('CustomerAuthService', () => {
     expect(api.sendMessage).toHaveBeenNthCalledWith(1, {
       platformChatId: phone,
       text: expect.stringContaining('solicitação para alterar o número de WhatsApp'),
-      copyCode: { label: 'Copiar código', code: '123456' },
       sendBefore: challenges.get(old.challengeId)!.expiresAt,
     });
     const next = await service.confirmOldPhone(
@@ -347,7 +344,6 @@ describe('CustomerAuthService', () => {
     expect(api.sendMessage).toHaveBeenNthCalledWith(2, {
       platformChatId: '5511999997777',
       text: expect.stringContaining('solicitação para confirmar seu novo número de WhatsApp'),
-      copyCode: { label: 'Copiar código', code: '123456' },
       sendBefore: challenges.get(next.challengeId)!.expiresAt,
     });
     expect(api.sendMessage).toHaveBeenCalledTimes(2);
