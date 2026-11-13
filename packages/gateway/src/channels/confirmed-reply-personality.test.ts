@@ -52,6 +52,17 @@ describe('personal writing for private confirmations', () => {
     expect(request.messages[1].content).not.toMatch(/42|13\/11|Silva|whatsapp|person/);
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 0 }));
   });
+  it('uses the configured local OpenAI transport for short replies', async () => {
+    mocks.routing.mockResolvedValue({ provider: 'ollama-local', model: 'qwen3:4b-instruct' });
+    await maybePersonalizeConfirmedReply(input);
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'openai',
+        id: 'ollama-local',
+        baseUrl: 'https://synthetic.invalid/v1',
+      })
+    );
+  });
   it('uses the name occasionally and never shares a different contact’s subject', async () => {
     await maybePersonalizeConfirmedReply(input);
     await maybePersonalizeConfirmedReply({

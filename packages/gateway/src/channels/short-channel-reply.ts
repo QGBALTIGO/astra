@@ -27,7 +27,7 @@ export async function writeShortChannelReply(
   const writer = createProvider({
     ...config,
     id: provider,
-    provider: (native ? provider : (config?.type ?? 'openai')) as ProviderConfig['provider'],
+    provider: (native ? provider : 'openai') as ProviderConfig['provider'],
     apiKey,
     resolvedAuth,
     timeout: remaining,
