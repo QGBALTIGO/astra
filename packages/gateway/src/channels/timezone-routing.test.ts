@@ -49,11 +49,11 @@ describe('explicit WhatsApp customer timezone declarations', () => {
     expect(reply).not.toContain('Mato Grosso do Sul');
   });
 
-  it('does not write again when the declared zone is already saved', async () => {
+  it('records the explicit choice even when it equals the inferred zone', async () => {
     f.getByDataUserId.mockResolvedValue({ ...account, timeZone: 'America/Campo_Grande' });
     const reply = await tryCustomerTimezoneChannelReply(message('Meu fuso é MS'), userId, now);
 
-    expect(f.updateProfile).not.toHaveBeenCalled();
+    expect(f.updateProfile).toHaveBeenCalledWith(account.id, { timeZone: 'America/Campo_Grande' });
     expect(reply).toContain('*Seu fuso horário*');
     expect(reply).toContain('Mato Grosso do Sul (UTC−4)');
   });

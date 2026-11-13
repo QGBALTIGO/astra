@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS customer_accounts (
   current_phone TEXT NOT NULL UNIQUE CHECK(current_phone ~ '^[1-9][0-9]{9,14}$'),
   display_name TEXT NOT NULL DEFAULT '',
   time_zone TEXT NOT NULL DEFAULT 'America/Campo_Grande',
+  time_zone_source TEXT NOT NULL DEFAULT 'legacy',
   currency TEXT NOT NULL DEFAULT 'BRL' CHECK(currency = 'BRL'),
   theme TEXT NOT NULL DEFAULT 'system' CHECK(theme IN ('light', 'dark', 'system')),
   hide_amounts BOOLEAN NOT NULL DEFAULT FALSE,
@@ -59,7 +60,9 @@ CREATE TABLE IF NOT EXISTS customer_auth_challenges (
 );
 `;
 
-export const CUSTOMER_ACCOUNTS_MIGRATIONS_SQL = ``;
+export const CUSTOMER_ACCOUNTS_MIGRATIONS_SQL = `
+ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS time_zone_source TEXT NOT NULL DEFAULT 'legacy';
+`;
 
 export const CUSTOMER_ACCOUNTS_INDEXES_SQL = `
 CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_phone_current

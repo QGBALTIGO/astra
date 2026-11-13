@@ -1,3 +1,4 @@
+import { phoneTimeZone } from '../../services/phone-timezone.js';
 import { whatsappPhoneSpellings } from '../../channels/whatsapp-phone.js';
 import { randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
@@ -22,6 +23,7 @@ interface AccountRow {
   current_phone: string;
   display_name: string;
   time_zone: string;
+  time_zone_source?: string;
   currency: 'BRL';
   theme: CustomerAccount['theme'];
   hide_amounts: boolean;
@@ -50,7 +52,11 @@ function accountFrom(row: AccountRow): CustomerAccount {
     dataUserId: row.data_user_id,
     phoneNumber: row.current_phone,
     displayName: row.display_name,
-    timeZone: row.time_zone,
+    timeZone:
+      row.time_zone_source === 'manual' ||
+      (row.time_zone_source !== 'ddd' && row.time_zone !== 'America/Campo_Grande')
+        ? row.time_zone
+        : phoneTimeZone(row.current_phone),
     currency: 'BRL',
     theme: row.theme,
     hideAmounts: row.hide_amounts,
@@ -106,14 +112,14 @@ export class CustomerAccountsRepository extends BaseRepository {
       const alias = await this.resolvePhone(phone);
       if (alias) return alias.isCurrent ? this.getById(alias.accountId) : null;
       const row = await this.queryOne<AccountRow>(
-        `INSERT INTO customer_accounts (id, channel_user_id, data_user_id, current_phone, display_name)
-         SELECT $1, u.id, u.ownpilot_user_id, u.platform_user_id, COALESCE(u.display_name, '')
+        `INSERT INTO customer_accounts (id, channel_user_id, data_user_id, current_phone, display_name, time_zone, time_zone_source)
+         SELECT $1, u.id, u.ownpilot_user_id, u.platform_user_id, COALESCE(u.display_name, ''), $4, 'ddd'
          FROM channel_users u WHERE u.id = $2 AND u.platform = 'whatsapp' AND u.platform_user_id = $3
            AND u.ownpilot_user_id = 'whatsapp:' || u.platform_user_id
            AND u.is_verified = TRUE AND u.is_blocked = FALSE AND u.status = 'active'
            AND NOT EXISTS (SELECT 1 FROM system_settings WHERE key = 'owner_whatsapp' AND value = u.platform_user_id)
          ON CONFLICT (channel_user_id) DO NOTHING RETURNING *`,
-        [randomUUID(), channelUserId, phone]
+        [randomUUID(), channelUserId, phone, phoneTimeZone(phone)]
       );
       if (!row) return null;
       await this.execute(
@@ -140,7 +146,7 @@ export class CustomerAccountsRepository extends BaseRepository {
   ): Promise<CustomerAccount | null> {
     const row = await this.queryOne<AccountRow>(
       `UPDATE customer_accounts SET display_name = COALESCE($2, display_name),
-         time_zone = COALESCE($3, time_zone), theme = COALESCE($4, theme),
+         time_zone = COALESCE($3, time_zone), time_zone_source = CASE WHEN $3::text IS NOT NULL THEN 'manual' ELSE time_zone_source END, theme = COALESCE($4, theme),
          hide_amounts = COALESCE($5, hide_amounts), updated_at = NOW()
        WHERE id = $1 RETURNING *`,
       [
