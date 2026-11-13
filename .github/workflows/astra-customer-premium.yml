@@ -35,7 +35,7 @@ jobs:
           ASTRA_AXE_SCRIPT: ${{ github.workspace }}/landing/node_modules/axe-core/axe.min.js
         run: |
           if [ -d packages/ui/e2e/customer-premium-snapshots ]; then
-            pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts
+            pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts --update-snapshots
           else
             pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts --update-snapshots
             pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts
