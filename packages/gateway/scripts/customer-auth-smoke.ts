@@ -75,6 +75,8 @@ export async function verifyCustomerAuthPersistence(adapter: DatabaseAdapter): P
     now: () => now,
   });
   let sends = 0;
+  let textSends = 0;
+  let copySends = 0;
   let connected = true;
   const api: ChannelPluginAPI = {
     connect: async () => {},
@@ -86,6 +88,12 @@ export async function verifyCustomerAuthPersistence(adapter: DatabaseAdapter): P
       // This is deliberately a local fake, not the registered channel service.
       assert.ok(allPhones.includes(message.platformChatId));
       assert.ok(message.text.includes('*123456*'));
+      if (message.copyCode) {
+        assert.equal(message.copyCode.code, '123456');
+        copySends++;
+      } else {
+        textSends++;
+      }
       sends++;
       return `synthetic-delivery-${sends}`;
     },
@@ -167,7 +175,9 @@ export async function verifyCustomerAuthPersistence(adapter: DatabaseAdapter): P
       replicaService.dispatchOtps(),
     ]);
     await service.dispatchOtps();
-    assert.equal(sends, 1, 'Worker re-entry and repeat polling must deliver at most once');
+    assert.equal(textSends, 1, 'Worker re-entry must deliver one primary OTP text');
+    assert.equal(copySends, 1, 'Worker re-entry must not duplicate the optional copy button');
+    assert.equal(sends, 2, 'One primary text and one optional copy button are the only transports');
     const deliveries = await adapter.queryOne<{
       delivery_status: string;
       code_ciphertext: string | null;
@@ -546,7 +556,9 @@ export async function verifyCustomerAuthPersistence(adapter: DatabaseAdapter): P
       interrupted.challengeId,
     ]);
     assert.deepEqual(ambiguous, { delivery_status: 'failed', code_ciphertext: null });
-    assert.equal(sends, 1, 'All transport calls must remain isolated and single-delivery');
+    assert.equal(textSends, 1, 'Only one primary code delivery is permitted');
+    assert.equal(copySends, 1, 'Only one optional copy action is permitted');
+    assert.equal(sends, 2, 'No other OTP sends or retries are allowed');
     console.log(
       '[smoke] Customer OTP atomicity, throttling, access checks, session isolation and immutable phone transfer passed'
     );
