@@ -176,6 +176,18 @@ export const customerApi = {
     }),
   integrations: (signal?: AbortSignal) =>
     request<CustomerIntegrations>('/integrations', { signal }),
+  connectedApps: (signal?: AbortSignal) =>
+    request<CustomerConnectedAppsResponse>('/connected-apps', { signal }),
+  connectApp: (app: CustomerAppSlug) =>
+    request<{ redirectUrl: string }>('/connected-apps/connect', {
+      method: 'POST',
+      body: { app },
+    }),
+  disconnectApp: (connectionId: string) =>
+    request<{ disconnected: boolean }>('/connected-apps/' + encodeURIComponent(connectionId), {
+      method: 'DELETE',
+      body: {},
+    }),
   summary: (period: CustomerPeriod, signal?: AbortSignal) =>
     request<CustomerFinanceSummary>('/finance/summary', { params: period, signal }),
   transactions: (filters: CustomerTransactionFilters, signal?: AbortSignal) =>
