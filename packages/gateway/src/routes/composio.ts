@@ -7,10 +7,10 @@
  */
 
 import { LOCAL_OWNER_ID } from '../config/defaults.js';
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import { composioService } from '../services/composio-service.js';
 import { getLog } from '../services/log.js';
-import { apiResponse, apiError, ERROR_CODES, getErrorMessage, getIntParam } from './helpers.js';
+import { apiResponse, apiError, ERROR_CODES, getIntParam } from './helpers.js';
 
 const log = getLog('ComposioRoutes');
 
@@ -59,13 +59,9 @@ composioRoutes.get('/apps', async (c) => {
   try {
     const apps = await composioService.getAvailableApps();
     return apiResponse(c, { apps, count: apps.length });
-  } catch (err) {
-    log.error('Failed to list Composio apps:', err);
-    return apiError(
-      c,
-      { code: ERROR_CODES.INTERNAL_ERROR, message: getErrorMessage(err, 'Failed to list apps') },
-      500
-    );
+  } catch {
+    log.error('Failed to list Composio apps');
+    return apiError(c, { code: ERROR_CODES.INTERNAL_ERROR, message: 'Failed to list apps' }, 500);
   }
 });
 
@@ -78,13 +74,13 @@ composioRoutes.get('/connections', async (c) => {
     const userId = LOCAL_OWNER_ID;
     const connections = await composioService.getConnections(userId);
     return apiResponse(c, { connections, count: connections.length });
-  } catch (err) {
-    log.error('Failed to list connections:', err);
+  } catch {
+    log.error('Failed to list connections');
     return apiError(
       c,
       {
         code: ERROR_CODES.INTERNAL_ERROR,
-        message: getErrorMessage(err, 'Failed to list connections'),
+        message: 'Failed to list connections',
       },
       500
     );
@@ -117,13 +113,13 @@ composioRoutes.post('/connections', async (c) => {
       connectionId: result.connectedAccountId,
       status: result.connectionStatus,
     });
-  } catch (err) {
-    log.error('Failed to initiate connection:', err);
+  } catch {
+    log.error('Failed to initiate connection');
     return apiError(
       c,
       {
         code: ERROR_CODES.INTERNAL_ERROR,
-        message: getErrorMessage(err, 'Failed to initiate connection'),
+        message: 'Failed to initiate connection',
       },
       500
     );
@@ -134,18 +130,38 @@ composioRoutes.post('/connections', async (c) => {
 // GET /connections/:id — Single connection status
 // =============================================================================
 
+// Status, revocation and refresh must all use the same owner boundary as the list.
+const requireOwnerConnection: MiddlewareHandler = async (c, next) => {
+  let owned;
+  try {
+    owned = await composioService.getConnections(LOCAL_OWNER_ID);
+  } catch {
+    return apiError(
+      c,
+      { code: ERROR_CODES.SERVICE_UNAVAILABLE, message: 'Unable to verify connection ownership.' },
+      503
+    );
+  }
+  if (!owned.some((connection) => connection.id === c.req.param('id'))) {
+    return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'Connection not found.' }, 404);
+  }
+  return next();
+};
+composioRoutes.use('/connections/:id', requireOwnerConnection);
+composioRoutes.use('/connections/:id/refresh', requireOwnerConnection);
+
 composioRoutes.get('/connections/:id', async (c) => {
   try {
     const connectionId = c.req.param('id');
     const connection = await composioService.waitForConnection(connectionId, 5);
     return apiResponse(c, connection);
-  } catch (err) {
-    log.error('Failed to get connection:', err);
+  } catch {
+    log.error('Failed to get connection');
     return apiError(
       c,
       {
         code: ERROR_CODES.INTERNAL_ERROR,
-        message: getErrorMessage(err, 'Failed to get connection status'),
+        message: 'Failed to get connection status',
       },
       500
     );
@@ -161,13 +177,9 @@ composioRoutes.delete('/connections/:id', async (c) => {
     const connectionId = c.req.param('id');
     await composioService.disconnect(connectionId);
     return apiResponse(c, { disconnected: true, connectionId });
-  } catch (err) {
-    log.error('Failed to disconnect:', err);
-    return apiError(
-      c,
-      { code: ERROR_CODES.INTERNAL_ERROR, message: getErrorMessage(err, 'Failed to disconnect') },
-      500
-    );
+  } catch {
+    log.error('Failed to disconnect');
+    return apiError(c, { code: ERROR_CODES.INTERNAL_ERROR, message: 'Failed to disconnect' }, 500);
   }
 });
 
@@ -180,13 +192,13 @@ composioRoutes.post('/connections/:id/refresh', async (c) => {
     const connectionId = c.req.param('id');
     const connection = await composioService.refreshConnection(connectionId);
     return apiResponse(c, connection);
-  } catch (err) {
-    log.error('Failed to refresh connection:', err);
+  } catch {
+    log.error('Failed to refresh connection');
     return apiError(
       c,
       {
         code: ERROR_CODES.INTERNAL_ERROR,
-        message: getErrorMessage(err, 'Failed to refresh connection'),
+        message: 'Failed to refresh connection',
       },
       500
     );
@@ -240,13 +252,13 @@ composioRoutes.get('/actions/search', async (c) => {
 
     const actions = await composioService.searchActions(query, app ?? undefined, limit);
     return apiResponse(c, { actions, count: actions.length });
-  } catch (err) {
-    log.error('Failed to search actions:', err);
+  } catch {
+    log.error('Failed to search actions');
     return apiError(
       c,
       {
         code: ERROR_CODES.INTERNAL_ERROR,
-        message: getErrorMessage(err, 'Failed to search actions'),
+        message: 'Failed to search actions',
       },
       500
     );

@@ -89,12 +89,33 @@ describe('today reminders in the authenticated conversation', () => {
     db.list.mockResolvedValue([]);
     expect(await tryListTodaysReminders({ ...message, text }, 'u')).toContain('Nenhum lembrete');
   });
+  it.each(['whatsapp', 'telegram'] as const)(
+    'uses an explicit timezone for the range and displayed times on %s without changing the profile',
+    async (platform) => {
+      db.account.mockResolvedValue({ timeZone: 'Asia/Tokyo' });
+      const text = 'Quais meus lembretes de hoje? Mostre os horários de Cuiabá.';
+      const answer = await tryListTodaysReminders({ ...message, platform, text }, 'u');
+      expect(answer).toContain('12/11/2026');
+      expect(answer).toContain('18:40:20');
+      expect(answer).toContain('Cuiabá');
+      expect(db.list).toHaveBeenCalledWith(
+        'u',
+        message.channelPluginId,
+        message.platformChatId,
+        new Date('2026-11-12T04:00:00Z'),
+        new Date('2026-11-13T04:00:00Z'),
+        16
+      );
+    }
+  );
   it.each([
     'Quais meus lembretes de hoje e cancele o terceiro?',
     'Não liste meus lembretes de hoje',
     'Quais meus lembretes de amanhã?',
     'Quais meus lembretes de hoje?\nAgende outro',
     'Quais meus lembretes de hoje da minha mãe?',
+    'Quais meus lembretes de hoje no horário de Cuiabá e cancele o primeiro?',
+    'Quais meus lembretes de hoje no horário de Atlantis?',
   ])('leaves compound or ambiguous text untouched: %s', async (text) => {
     expect(await tryListTodaysReminders({ ...message, text }, 'u')).toBeNull();
     expect(db.account).not.toHaveBeenCalled();

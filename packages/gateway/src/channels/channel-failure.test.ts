@@ -1,6 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import { channelFailureKind, channelFailureReply, presentChannelReply } from './channel-failure.js';
 import { CHANNEL_UNVERIFIED_REPLY, type ChannelToolReceipt } from './response-safety.js';
+import { isConversationalOnlyChannelRequest } from './tool-selection.js';
+import { tryAstraAccessReply } from './astra-access.js';
+
+describe('browser onboarding during a provider failure', () => {
+  const question =
+    'Quero organizar minha semana pelo Astra. Para fazer isso pelo navegador, onde entro e por onde vale começar?';
+  it.each([
+    question,
+    'Como posso planejar a minha semana no painel do Astra?',
+    'Quero organizar minha semana pelo navegador. Por onde começar?',
+  ])('guides the customer after a provider failure: %s', (request) => {
+    expect(tryAstraAccessReply(request)).toBeNull();
+    expect(isConversationalOnlyChannelRequest(request)).toBe(true);
+    const answer = channelFailureReply(request, 'agent_error');
+    expect(answer).toContain('https://app.astraacessor.pro/cliente/entrar');
+    expect(answer).toContain('Agenda');
+    expect(answer).not.toMatch(/se o pedido envolvia|confira seus registros/i);
+  });
+  it.each([
+    question + ' E marque um compromisso amanhã.',
+    'Quero organizar minha semana pelo banco. Para fazer isso pelo navegador, onde entro?',
+  ])('preserves the normal processing of %s', (request) => {
+    expect(isConversationalOnlyChannelRequest(request)).toBe(false);
+  });
+});
 
 const b03 =
   'Para o Astra me avisar um dia antes de uma assinatura vencer, basta eu cadastrar a data de renovação ou preciso pedir um lembrete separado? Só quero entender como funciona.';

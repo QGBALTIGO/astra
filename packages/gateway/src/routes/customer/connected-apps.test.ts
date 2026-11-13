@@ -72,6 +72,7 @@ describe('customer Google connections', () => {
 
   it('uses only the authenticated stable account ID for listing', async () => {
     svc.getCustomerConnections.mockResolvedValueOnce([
+      { id: 'ca_old', appName: 'gmail', status: 'REVOKED' },
       { id: 'ca_gmail', appName: 'gmail', status: 'ACTIVE' },
       { id: 'ca_cal', appName: 'googlecalendar', status: 'EXPIRED' },
     ]);

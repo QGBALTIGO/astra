@@ -68,7 +68,21 @@ describe('Composio Routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockComposioService.isConfigured.mockReturnValue(true);
+    mockComposioService.getConnections.mockResolvedValue([...sampleConnections, { id: 'ca_123' }]);
     app = createApp();
+  });
+
+  it.each([
+    ['GET', '/composio/connections/ca_customer'],
+    ['DELETE', '/composio/connections/ca_customer'],
+    ['POST', '/composio/connections/ca_customer/refresh'],
+  ])('rejects %s %s when the connection belongs to a customer', async (method, path) => {
+    const response = await app.request(path, { method });
+    expect(response.status).toBe(404);
+    expect(mockComposioService.getConnections).toHaveBeenCalledWith('default');
+    expect(mockComposioService.waitForConnection).not.toHaveBeenCalled();
+    expect(mockComposioService.disconnect).not.toHaveBeenCalled();
+    expect(mockComposioService.refreshConnection).not.toHaveBeenCalled();
   });
 
   // ========================================================================
@@ -260,9 +274,12 @@ describe('Composio Routes', () => {
 
   describe('GET /composio/connections — error path', () => {
     it('returns 500 when getConnections throws', async () => {
-      mockComposioService.getConnections.mockRejectedValueOnce(new Error('SDK failure'));
+      mockComposioService.getConnections.mockRejectedValueOnce(
+        new Error('synthetic-private-upstream-detail')
+      );
       const res = await app.request('/composio/connections');
       expect(res.status).toBe(500);
+      expect(await res.text()).not.toContain('synthetic-private-upstream-detail');
     });
   });
 

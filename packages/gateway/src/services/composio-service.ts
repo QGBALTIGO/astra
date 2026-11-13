@@ -214,55 +214,53 @@ class ComposioService {
    * List all connections for a user.
    */
   async getConnections(userId: string): Promise<ComposioConnection[]> {
-    const client = (await this.getClient()) as Record<string, unknown>;
-    const accounts = client.connectedAccounts as { list: (q?: unknown) => Promise<unknown> };
-
-    const response = (await accounts.list({ userId })) as { items?: unknown[] };
-
-    return (response.items || []).map((item: unknown) => {
-      const c = item as Record<string, unknown>;
-      return {
-        id: toStr(c.id) || toStr(c.nanoid),
-        appName: toStr(c.appName) || toStr(c.toolkit),
-        status: toStr(c.status, 'UNKNOWN'),
-        createdAt: c.createdAt ? toStr(c.createdAt) : undefined,
-        updatedAt: c.updatedAt ? toStr(c.updatedAt) : undefined,
-      };
-    });
-  }
-
-  /**
-   * Customer connections always belong to one stable Astra customer account,
-   * never LOCAL_OWNER_ID. API filtering is server-side, with an extra userId
-   * check when the provider includes its identity in the returned object.
-   */
-  async getCustomerConnections(userId: string): Promise<ComposioConnection[]> {
     const client = (await this.getClient()) as {
-      connectedAccounts: { list: (options: { userIds: string[] }) => Promise<unknown> };
+      connectedAccounts: {
+        list(query: {
+          userIds: string[];
+          cursor?: string;
+        }): Promise<
+          | { items?: Record<string, unknown>[]; nextCursor?: string | null }
+          | Record<string, unknown>[]
+        >;
+      };
     };
-    const response = await client.connectedAccounts.list({ userIds: [userId] });
-    const items: unknown[] = Array.isArray(response)
-      ? response
-      : ((response as { items?: unknown[] } | null)?.items ?? []);
-    return items.flatMap((entry) => {
-      if (!entry || typeof entry !== 'object') return [];
-      const item = entry as Record<string, unknown>;
-      const linkedUser = typeof item.userId === 'string' ? item.userId : item.user_id;
-      if (typeof linkedUser === 'string' && linkedUser !== userId) return [];
-      const toolkit = toStr(item.toolkit) || toStr(item.appName);
-      if (toolkit !== 'gmail' && toolkit !== 'googlecalendar') return [];
-      const id = toStr(item.id) || toStr(item.nanoid);
-      if (!id || id.length > 128) return [];
-      return [
-        {
+    const connections: ComposioConnection[] = [];
+    const seen = new Set<string>();
+    let cursor: string | null | undefined;
+    do {
+      // The SDK strips unknown keys. Its plural userIds filter must be present on every page.
+      const page = await client.connectedAccounts.list({
+        userIds: [userId],
+        ...(cursor && { cursor }),
+      });
+      for (const item of Array.isArray(page) ? page : (page.items ?? [])) {
+        if (!item || typeof item !== 'object') continue;
+        const owner = item.userId ?? item.user_id;
+        if (owner !== undefined && owner !== userId) continue;
+        const id = toStr(item.id) || toStr(item.nanoid);
+        if (!id || id.length > 128) continue;
+        connections.push({
           id,
-          appName: toolkit,
+          appName: toStr(item.toolkit) || toStr(item.appName),
           status: toStr(item.status, 'UNKNOWN'),
           createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
           updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
-        },
-      ];
-    });
+        });
+      }
+      cursor = Array.isArray(page) ? null : page.nextCursor;
+      if (cursor) {
+        if (seen.has(cursor)) throw new Error('Repeated Composio pagination cursor');
+        seen.add(cursor);
+      }
+    } while (cursor);
+    return connections;
+  }
+
+  async getCustomerConnections(userId: string): Promise<ComposioConnection[]> {
+    return (await this.getConnections(userId)).filter(
+      (item) => item.appName === 'gmail' || item.appName === 'googlecalendar'
+    );
   }
 
   /**

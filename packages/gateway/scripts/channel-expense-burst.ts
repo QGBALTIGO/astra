@@ -175,7 +175,7 @@ try {
     users.push(...(await Promise.all(Array.from({ length: 10 }, (_, j) => seed(i + j)))));
   }
   const waves = [];
-  for (const n of [10, 100, 500]) waves.push(await wave(users.slice(0, n)));
+  for (const n of [10, 50, 100, 250, 500]) waves.push(await wave(users.slice(0, n)));
   const result = {
     measuredAt: new Date().toISOString(),
     node: process.version,
