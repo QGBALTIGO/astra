@@ -144,10 +144,69 @@ export async function tryExpenseRecordChannelReply(
   message: Pick<
     ChannelIncomingMessage,
     'text' | 'id' | 'channelPluginId' | 'platformChatId' | 'timestamp'
-  >,
+  > &
+    Partial<Pick<ChannelIncomingMessage, 'platform' | 'metadata' | 'sender'>>,
   userId: string
 ): Promise<string | null> {
   const pendingKey = expenseConfirmationKey(userId, message);
+  const undo =
+    /^(?:apague|remova|exclua) (?:apenas |somente )?o gasto de hoje de r\$\s*(\d{1,8}(?:,\d{2})?) com (?:a descrição )?["“]([^"”\r\n]{2,160})["”][.!]?$/iu.exec(
+      message.text.trim()
+    );
+  if (
+    undo &&
+    !(
+      (message.platform === 'whatsapp' &&
+        message.metadata?.isGroup !== true &&
+        !message.platformChatId.endsWith('@g.us')) ||
+      (message.platform === 'telegram' &&
+        (message.metadata?.chatType === 'private' ||
+          message.platformChatId === message.sender?.platformUserId))
+    )
+  )
+    return 'Abra a conversa privada com o Astra para conferir o seu gasto.';
+  if (
+    undo &&
+    userId.trim() &&
+    message.id &&
+    message.platformChatId &&
+    message.channelPluginId &&
+    message.timestamp instanceof Date &&
+    Number.isFinite(message.timestamp.getTime())
+  ) {
+    const amount = Number(undo[1]!.replace(',', '.'));
+    if (!(amount > 0)) return 'Qual foi o valor positivo desse gasto?';
+    try {
+      const account = userId.startsWith('whatsapp:')
+        ? await customerAccountsRepo.getByDataUserId(userId)
+        : null;
+      const day = customerLocalDay(
+        message.timestamp,
+        account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande'
+      );
+      const result = await new ExpensesRepository(userId).removeNamedChannelExpense(
+        undo[2]!,
+        amount,
+        day,
+        message.timestamp
+      );
+      if (result === 'removed')
+        return (
+          'Removi do seu controle o gasto de R$ ' +
+          amount.toFixed(2).replace('.', ',') +
+          ' com ' +
+          undo[2] +
+          '.'
+        );
+      if (result === 'missing')
+        return 'Não encontrei um gasto registrado por aqui hoje com esse valor e essa descrição.';
+      if (result === 'ambiguous')
+        return 'Encontrei mais de um gasto igual. Abra o painel e escolha o lançamento que quer remover.';
+      return 'Esse gasto está vinculado a um financiamento. Você pode conferir o vínculo no painel.';
+    } catch {
+      return 'Não consegui conferir esse gasto agora. Consulte o lançamento no painel antes de tentar novamente.';
+    }
+  }
   const answer = expenseDuplicateGuard.consume(pendingKey, message.text);
   if (answer?.kind === 'stale') {
     return 'A confirmação anterior já foi encerrada. Para registrar outro gasto, envie o valor e a descrição.';

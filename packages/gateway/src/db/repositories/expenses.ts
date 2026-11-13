@@ -314,6 +314,26 @@ export class ExpensesRepository extends BaseRepository {
     return ((result as { changes?: number })?.changes ?? 0) > 0;
   }
 
+  /** A private chat can undo one unambiguous posted expense from that day. Soft delete only. */
+  async removeNamedChannelExpense(
+    description: string,
+    amount: number,
+    date: string,
+    requestedAt: Date
+  ): Promise<'removed' | 'missing' | 'ambiguous' | 'linked'> {
+    return this.transaction(async () => {
+      const matches = await this.query<{ id: string }>(
+        `SELECT id FROM expenses WHERE user_id=$1 AND date=$2 AND currency='BRL' AND amount=$3
+        AND created_at <= $5 AND LOWER(description)=LOWER($4) AND source='channel' AND status='settled' AND transaction_type='expense' AND deleted_at IS NULL
+        ORDER BY id LIMIT 2 FOR UPDATE`,
+        [this.userId, date, amount, description, requestedAt]
+      );
+      if (!matches.length) return 'missing';
+      if (matches.length !== 1) return 'ambiguous';
+      return (await this.delete(matches[0]!.id)) ? 'removed' : 'linked';
+    });
+  }
+
   async list(query: ExpenseQuery = {}): Promise<Expense[]> {
     const conditions = [
       'user_id = $1',

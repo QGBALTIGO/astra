@@ -44,6 +44,7 @@ import {
   recentChannelText,
 } from './tool-selection.js';
 import { restoreChannelHistory } from './restore-history.js';
+import { withRecentReceiptContext } from './recent-chat-replies.js';
 import { formatAstraMessage, formatReminderConfirmation } from './response-presentation.js';
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { tryChannelTimeConversion } from './time-conversion.js';
@@ -622,6 +623,7 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
             model: effectiveModel,
             conversationId: activeConversationId,
             directToolMode: useDirectTools,
+            channelRecentReceipts: message.metadata?.astraRecentReceipts,
           },
         })
     );
@@ -782,14 +784,19 @@ async function processDirectAgentInSession(
       },
       () =>
         conversationOnly
-          ? agent.chat(interpreted.text, {
-              toolChoice: 'none',
-              onBeforeToolCall: async () => ({
-                approved: false,
-                reason: 'Conversa sem operação solicitada.',
-              }),
-            })
-          : agent.chat(interpreted.text)
+          ? agent.chat(
+              withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts),
+              {
+                toolChoice: 'none',
+                onBeforeToolCall: async () => ({
+                  approved: false,
+                  reason: 'Conversa sem operação solicitada.',
+                }),
+              }
+            )
+          : agent.chat(
+              withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts)
+            )
     ).finally(() => agent.clearAdditionalTools?.());
   } catch (error) {
     const reason = channelFailureKind(error instanceof Error ? error.message : '');

@@ -69,6 +69,28 @@ function rowToChannelMessage(row: ChannelMessageRow): ChannelMessage {
 }
 
 export class ChannelMessagesRepository extends BaseRepository {
+  /** Only receipts written by this gateway in the current user's private conversation. */
+  async recentConfirmedReplies(
+    conversationId: string,
+    userId: string,
+    channelId: string,
+    chatId: string
+  ): Promise<{ facts: string; action: string }[]> {
+    return this.query<{ facts: string; action: string }>(
+      `SELECT m.metadata->'astraReceipt'->>'facts' AS facts,
+              m.metadata->'astraReceipt'->>'action' AS action
+         FROM channel_messages m JOIN conversations c ON c.id=m.conversation_id
+        WHERE c.id=$1 AND c.user_id=$2 AND m.channel_id=$3
+          AND m.metadata->>'platformChatId'=$4 AND m.metadata->>'dataUserId'=$2
+          AND m.direction='outbound' AND m.sender_id='assistant'
+          AND jsonb_typeof(m.metadata->'astraReceipt'->'facts')='string'
+          AND jsonb_typeof(m.metadata->'astraReceipt'->'action')='string'
+          AND m.created_at >= NOW() - INTERVAL '2 hours'
+        ORDER BY m.created_at DESC, m.id DESC LIMIT 6`,
+      [conversationId, userId, channelId, chatId]
+    );
+  }
+
   async create(data: {
     id: string;
     channelId: string;

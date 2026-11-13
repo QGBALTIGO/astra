@@ -10,6 +10,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { ASTRA_WEEKLY_PORTAL_REPLY } from './astra-access.js';
+import { isWeeklyPortalGuide } from './astra-access.js';
+import { writeShortChannelReply } from './short-channel-reply.js';
+vi.mock('./short-channel-reply.js', () => ({ writeShortChannelReply: vi.fn() }));
 import type { Message } from '@ownpilot/core/agent';
 import { inboundAccessCycle } from '../db/repositories/channel-access-inbound-notices.js';
 import type { ChannelUserEntity } from '../db/repositories/channels/users.js';
@@ -65,6 +68,7 @@ const mockSessionsRepo = vi.hoisted(() => ({
 }));
 
 const mockMessagesRepo = vi.hoisted(() => ({
+  recentConfirmedReplies: vi.fn().mockResolvedValue([]),
   create: vi.fn().mockResolvedValue(undefined),
   createIfNew: vi.fn().mockResolvedValue(true),
   linkConversation: vi.fn().mockResolvedValue(undefined),
@@ -230,6 +234,7 @@ vi.mock('../db/repositories/channels/sessions.js', () => ({
 
 vi.mock('../db/repositories/channels/messages.js', () => ({
   ChannelMessagesRepository: class {
+    recentConfirmedReplies = mockMessagesRepo.recentConfirmedReplies;
     create = mockMessagesRepo.create;
     createIfNew = mockMessagesRepo.createIfNew;
     linkConversation = mockMessagesRepo.linkConversation;
@@ -3166,11 +3171,14 @@ describe('ChannelServiceImpl', () => {
         [
           'Como posso planejar a minha semana no painel do Astra?',
           'Abra Agenda e toque em Criar item. https://app.astraacessor.pro/cliente/entrar',
-          'Abra Agenda e toque em Criar item. https://app.astraacessor.pro/cliente/entrar',
+          'Abra Agenda e toque em Criar item.\n\nPainel do Astra: https://app.astraacessor.pro/cliente/entrar',
         ],
       ])(
         'asks the agent about WhatsApp access and sends a readable login plus a native action for %s',
         async (question, answer, expected) => {
+          vi.mocked(writeShortChannelReply).mockResolvedValue(
+            answer.replace(/https:\/\/\S+/gu, '').trim()
+          );
           const phone = '5511999990001';
           mockGetOwnerUserId.mockResolvedValue(phone);
           const granted = createChannelUser({
@@ -3195,7 +3203,10 @@ describe('ChannelServiceImpl', () => {
               text: question,
             }) as never
           );
-          expect(mockAgent.chat).toHaveBeenCalledTimes(1);
+          if (isWeeklyPortalGuide(question)) {
+            expect(writeShortChannelReply).toHaveBeenCalled();
+            expect(mockAgent.chat).not.toHaveBeenCalled();
+          } else expect(mockAgent.chat).toHaveBeenCalledTimes(1);
           expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
             expect.objectContaining({
               text: expected,

@@ -22,10 +22,12 @@ import {
   isAstraAccessAnswerRequested,
   isWeeklyPortalGuide,
 } from './astra-access.js';
+import { receiptContext, maybePersonalizeConfirmedReply } from './confirmed-reply-personality.js';
 import {
-  isPersonalizableReceipt,
-  maybePersonalizeConfirmedReply,
-} from './confirmed-reply-personality.js';
+  asksAboutRecentReceipts,
+  quickPrivateReply,
+  type RecentReceipt,
+} from './recent-chat-replies.js';
 import {
   type IChannelService,
   type ChannelOutgoingMessage,
@@ -450,6 +452,20 @@ export class ChannelServiceImpl implements IChannelService {
    * This is the main pipeline: auth check -> session lookup -> AI routing.
    */
   async processIncomingMessage(message: ChannelIncomingMessage): Promise<void> {
+    if (this.floodGuard.shouldDrop(message.channelPluginId, message.sender.platformUserId)) return;
+    if (message.platform === 'whatsapp' && message.metadata?.isGroup !== true) {
+      const key = JSON.stringify([
+        'private-turn',
+        message.channelPluginId,
+        message.platformChatId,
+        message.sender.platformUserId,
+      ]);
+      return this.withSessionLock(key, () => this.handleIncomingMessage(message));
+    }
+    return this.handleIncomingMessage(message);
+  }
+
+  private async handleIncomingMessage(message: ChannelIncomingMessage): Promise<void> {
     type ChannelProgressManager = {
       start(text?: string): Promise<string>;
       update(text: string): void;
@@ -462,12 +478,6 @@ export class ChannelServiceImpl implements IChannelService {
     let progress: ChannelProgressManager | null = null;
     let whatsappUserId: string | undefined;
     try {
-      // 0. Drop floods before any DB/LLM work. A single sender cannot exhaust
-      //    resources by spamming — see InboundFloodGuard for the sliding window.
-      if (this.floodGuard.shouldDrop(message.channelPluginId, message.sender.platformUserId)) {
-        return;
-      }
-
       // Resolve channel ownership before choosing a data scope. The connected WhatsApp
       // account is the administrator; each external phone gets a separate identity.
       const ownerUserId = await getOwnerUserId(message.platform);
@@ -1141,10 +1151,42 @@ export class ChannelServiceImpl implements IChannelService {
       }
 
       let responseText: string;
+      const privateText =
+        !message.attachments?.length &&
+        message.platform === 'whatsapp' &&
+        message.metadata?.isGroup !== true;
+      let recent: RecentReceipt[] = [];
+      if (
+        privateText &&
+        session.conversationId &&
+        (asksAboutRecentReceipts(message.text) ||
+          /\b(?:essa|esse|isso|esses|essas|ela|ele|anterior|últim[oa]|acabei|mesm[oa]|dela|dele)\b/iu.test(
+            message.text
+          ))
+      ) {
+        try {
+          recent = await this.messagesRepo.recentConfirmedReplies(
+            session.conversationId,
+            dataUserId,
+            message.channelPluginId,
+            message.platformChatId
+          );
+        } catch {
+          log.debug('Recent channel receipts unavailable');
+        }
+      }
+      // This metadata is produced locally after checking tenant and conversation ownership.
+      message = { ...message, metadata: { ...message.metadata, astraRecentReceipts: recent } };
+      const quick =
+        privateText && !session.context?.preferredModel
+          ? await quickPrivateReply(message.channelPluginId, message.text, recent)
+          : null;
 
       // Try MessageBus pipeline first
       const bus = tryGetMessageBus();
-      if (bus) {
+      if (quick) {
+        responseText = quick;
+      } else if (bus) {
         responseText = await this.processViaBus(
           bus,
           message,
@@ -1202,8 +1244,9 @@ export class ChannelServiceImpl implements IChannelService {
           ? { label: 'Abrir meu painel', url: ASTRA_CUSTOMER_LOGIN_URL }
           : undefined;
       const dashboardAction = confirmedAction ?? accessAction;
+      const receipt = receiptContext(responseText);
       if (
-        isPersonalizableReceipt(responseText) &&
+        receipt &&
         ((message.platform === 'whatsapp' && message.metadata?.isGroup !== true) ||
           (message.platform === 'telegram' &&
             (message.metadata?.chatType === 'private' ||
@@ -1266,7 +1309,14 @@ export class ChannelServiceImpl implements IChannelService {
           contentType: 'text',
           replyToId: message.id,
           conversationId: session.conversationId ?? undefined,
-          metadata: { ...message.metadata, platformChatId: message.platformChatId },
+          metadata: {
+            ...message.metadata,
+            astraRecentReceipts: undefined,
+            platformChatId: message.platformChatId,
+            dataUserId,
+            astraReceipt:
+              privateText && receipt ? { facts: receipt.facts, action: receipt.action } : undefined,
+          },
         });
       } catch (error) {
         log.warn('Failed to save outgoing message', { error });
