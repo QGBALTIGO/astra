@@ -808,6 +808,22 @@ describe('WhatsApp connection lifecycle', () => {
     }
   );
 
+  it('sends OTP as readable text once if the socket has no native copy transport', async () => {
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const socket = sockets[0]!.socket;
+    // Some channel adapters lack relayMessage; this is a known pre-send limit.
+    (socket as unknown as { relayMessage?: unknown }).relayMessage = undefined;
+    const result = await api.sendMessage(accessCodeMessage(nextPhone));
+    expect(result).toBe('sent-message');
+    expect(socket.sendMessage).toHaveBeenCalledExactlyOnceWith(
+      `${nextPhone}@s.whatsapp.net`,
+      { text: expect.stringContaining('*000123*') },
+      {}
+    );
+    expect(mocks.generateMessage).not.toHaveBeenCalled();
+  });
   it('never retries a native OTP as text after an ambiguous relay failure', async () => {
     const api = newApi();
     await api.connect();
