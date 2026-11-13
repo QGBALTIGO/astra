@@ -502,12 +502,15 @@ export class CustomerAuthService {
             continue;
           }
           invoked = true;
-          // The verified WhatsApp native copy action copies only the six digits.
-          // Preserve the one-attempt boundary: an ambiguous relay must never
-          // cause a duplicate OTP or reveal it through logs.
+          // A native-flow copy button can be acknowledged without appearing in the
+          // recipient's WhatsApp chat. Deliver the OTP as ordinary text by
+          // default; preserve the known-good formatting and at-most-once send.
+          // Explicit opt-in is reserved for controlled native-copy testing.
+          const nativeCopyEnabled = process.env.ASTRA_CUSTOMER_OTP_NATIVE_COPY === 'true';
           await fresh.api.sendMessage({
             platformChatId: challenge.phoneNumber,
-            ...message,
+            text: message.text,
+            ...(nativeCopyEnabled ? { copyCode: message.copyCode } : {}),
             sendBefore: challenge.expiresAt,
           });
           await this.d.auth.finishDelivery(challenge.id, lease, 'sent');
