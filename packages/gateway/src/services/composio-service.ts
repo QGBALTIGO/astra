@@ -66,7 +66,7 @@ function toStr(value: unknown, fallback = ''): string {
 
 class ComposioService {
   private client: unknown = null;
-  private appsCache: { data: ComposioApp[]; timestamp: number } | null = null;
+  private appsCache: { data: ComposioApp[]; timestamp: number; key: string } | null = null;
 
   /**
    * Resolve API key from Config Center or env var.
@@ -124,15 +124,19 @@ class ComposioService {
   /**
    * List available Composio apps/toolkits (cached).
    */
-  async getAvailableApps(): Promise<ComposioApp[]> {
-    if (this.appsCache && Date.now() - this.appsCache.timestamp < APPS_CACHE_TTL_MS) {
+  async getAvailableApps(slugs?: readonly string[]): Promise<ComposioApp[]> {
+    const key = slugs?.join(',') ?? '*';
+    if (this.appsCache?.key === key && Date.now() - this.appsCache.timestamp < APPS_CACHE_TTL_MS) {
       return this.appsCache.data;
     }
 
     const client = (await this.getClient()) as Record<string, unknown>;
     const toolkits = client.toolkits as { get: (q?: unknown) => Promise<unknown> };
     // SDK returns a flat array of toolkit items (not { items: [...] })
-    const response = await toolkits.get();
+    // Fetch each curated toolkit directly: a provider's first catalog page may omit it.
+    const response = slugs
+      ? await Promise.all(slugs.map((slug) => toolkits.get(slug)))
+      : await toolkits.get();
     const items: unknown[] = Array.isArray(response) ? response : [];
 
     const apps: ComposioApp[] = items.map((item: unknown) => {
@@ -156,7 +160,7 @@ class ComposioService {
       };
     });
 
-    this.appsCache = { data: apps, timestamp: Date.now() };
+    this.appsCache = { data: apps, timestamp: Date.now(), key };
     return apps;
   }
 

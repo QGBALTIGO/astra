@@ -88,6 +88,28 @@ describe('ComposioService', () => {
   // ========================================================================
 
   describe('getAvailableApps', () => {
+    it('retrieves selected apps directly instead of depending on a truncated catalog page', async () => {
+      mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
+      mockComposioInstance.toolkits.get.mockImplementation(async (slug?: string) =>
+        slug ? { slug, name: slug } : [{ slug: 'unrelated', name: 'Unrelated' }]
+      );
+      const slugs = [
+        'googlecalendar',
+        'gmail',
+        'googledrive',
+        'googlesheets',
+        'todoist',
+        'notion',
+        'trello',
+      ];
+      expect((await composioService.getAvailableApps(slugs)).map((app) => app.slug)).toEqual(slugs);
+      expect(mockComposioInstance.toolkits.get).toHaveBeenCalledTimes(7);
+      await composioService.getAvailableApps(slugs);
+      expect(mockComposioInstance.toolkits.get).toHaveBeenCalledTimes(7);
+      expect((await composioService.getAvailableApps()).map((app) => app.slug)).toEqual([
+        'unrelated',
+      ]);
+    });
     it('returns mapped apps from SDK', async () => {
       mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
       // SDK returns a flat array (not { items: [...] })

@@ -7,7 +7,7 @@
  */
 
 import { LOCAL_OWNER_ID } from '../config/defaults.js';
-import { ASTRA_CONNECTED_APPS } from '../config/astra-connected-apps.js';
+import { ASTRA_CONNECTED_APPS, ASTRA_CONNECTED_APP_SLUGS } from '../config/astra-connected-apps.js';
 import { ASTRA_CUSTOMER_ORIGIN } from '../config/astra-public-urls.js';
 import { Hono, type MiddlewareHandler } from 'hono';
 import { composioService } from '../services/composio-service.js';
@@ -60,7 +60,7 @@ composioRoutes.get('/status', (c) => {
 
 composioRoutes.get('/apps', async (c) => {
   try {
-    const available = await composioService.getAvailableApps();
+    const available = await composioService.getAvailableApps(ASTRA_CONNECTED_APP_SLUGS);
     const apps = ASTRA_CONNECTED_APPS.flatMap((app) => {
       const found = available.find((item) => item.slug === app.slug);
       return found ? [{ ...found, ...app }] : [];
