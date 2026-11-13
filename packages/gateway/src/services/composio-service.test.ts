@@ -226,10 +226,30 @@ describe('ComposioService', () => {
       mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
       mockComposioInstance.connectedAccounts.list.mockResolvedValue({
         items: [
-          { id: 'ca_gmail', toolkit: { slug: 'gmail' }, status: 'ACTIVE', userId: 'astra-customer:one' },
-          { id: 'ca_wrong', toolkit: { slug: 'gmail' }, status: 'ACTIVE', userId: 'astra-customer:two' },
-          { id: 'ca_gh', toolkit: { slug: 'github' }, status: 'ACTIVE', userId: 'astra-customer:one' },
-          { id: 'ca_cal', toolkit: { slug: 'googlecalendar' }, status: 'EXPIRED', userId: 'astra-customer:one' },
+          {
+            id: 'ca_gmail',
+            toolkit: { slug: 'gmail' },
+            status: 'ACTIVE',
+            userId: 'astra-customer:one',
+          },
+          {
+            id: 'ca_wrong',
+            toolkit: { slug: 'gmail' },
+            status: 'ACTIVE',
+            userId: 'astra-customer:two',
+          },
+          {
+            id: 'ca_gh',
+            toolkit: { slug: 'github' },
+            status: 'ACTIVE',
+            userId: 'astra-customer:one',
+          },
+          {
+            id: 'ca_cal',
+            toolkit: { slug: 'googlecalendar' },
+            status: 'EXPIRED',
+            userId: 'astra-customer:one',
+          },
         ],
       });
       const result = await composioService.getCustomerConnections('astra-customer:one');
@@ -245,33 +265,49 @@ describe('ComposioService', () => {
         redirectUrl: 'https://connect.composio.dev/link/ln_safe',
       });
       mockComposioInstance.create.mockResolvedValue({ authorize });
-      expect(await composioService.authorizeCustomerToolkit(
-        'astra-customer:one',
-        'gmail',
-        'https://app.astraacessor.pro/cliente/perfil?integracoes=1',
-      )).toBe('https://connect.composio.dev/link/ln_safe');
-      expect(mockComposioInstance.create).toHaveBeenCalledWith(
-        'astra-customer:one',
-        { toolkits: ['gmail'] }
-      );
+      expect(
+        await composioService.authorizeCustomerToolkit(
+          'astra-customer:one',
+          'gmail',
+          'https://app.astraacessor.pro/cliente/perfil?integracoes=1'
+        )
+      ).toBe('https://connect.composio.dev/link/ln_safe');
+      expect(mockComposioInstance.create).toHaveBeenCalledWith('astra-customer:one', {
+        toolkits: ['gmail'],
+      });
       authorize.mockResolvedValueOnce({ redirectUrl: 'https://evil.example/token' });
-      await expect(composioService.authorizeCustomerToolkit(
-        'astra-customer:one', 'gmail', 'https://app.astraacessor.pro/cliente/perfil'
-      )).rejects.toThrow('Unsafe Composio connection link');
+      await expect(
+        composioService.authorizeCustomerToolkit(
+          'astra-customer:one',
+          'gmail',
+          'https://app.astraacessor.pro/cliente/perfil'
+        )
+      ).rejects.toThrow('Unsafe Composio connection link');
     });
 
     it('refuses to disconnect accounts not present for the signed-in customer', async () => {
       mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
       mockComposioInstance.connectedAccounts.list.mockResolvedValue({
         items: [
-          { id: 'ca_my', toolkit: { slug: 'gmail' }, status: 'ACTIVE', userId: 'astra-customer:one' },
+          {
+            id: 'ca_my',
+            toolkit: { slug: 'gmail' },
+            status: 'ACTIVE',
+            userId: 'astra-customer:one',
+          },
         ],
       });
-      expect(await composioService.disconnectCustomerToolkit('astra-customer:one', 'ca_foreign')).toBe(false);
+      expect(
+        await composioService.disconnectCustomerToolkit('astra-customer:one', 'ca_foreign')
+      ).toBe(false);
       expect(mockComposioInstance.connectedAccounts.delete).not.toHaveBeenCalled();
       mockComposioInstance.connectedAccounts.delete.mockResolvedValue({});
-      expect(await composioService.disconnectCustomerToolkit('astra-customer:one', 'ca_my')).toBe(true);
-      expect(mockComposioInstance.connectedAccounts.delete).toHaveBeenCalledExactlyOnceWith('ca_my');
+      expect(await composioService.disconnectCustomerToolkit('astra-customer:one', 'ca_my')).toBe(
+        true
+      );
+      expect(mockComposioInstance.connectedAccounts.delete).toHaveBeenCalledExactlyOnceWith(
+        'ca_my'
+      );
     });
   });
 
