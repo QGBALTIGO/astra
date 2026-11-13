@@ -253,6 +253,21 @@ test('assets, navigation scripts and checkout links have no errors or payment si
 test('complete demonstration visual regression', async ({ page }) => {
   await page.goto('/demonstracao');
   await page.evaluate(() => document.fonts.ready);
+  const clippedLabels = await page.locator('.demo-dashboard [role="tab"]').evaluateAll((tabs) =>
+    tabs.flatMap((tab) => {
+      const bounds = tab.getBoundingClientRect();
+      return [...tab.childNodes].flatMap((node) => {
+        if (node.nodeType !== Node.TEXT_NODE || !node.textContent.trim()) return [];
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const label = range.getBoundingClientRect();
+        return label.left < bounds.left - 1 || label.right > bounds.right + 1
+          ? [tab.dataset.view]
+          : [];
+      });
+    })
+  );
+  expect(clippedLabels).toEqual([]);
   await expect(page.locator('#demo-reply')).toHaveText(scenarios[0].reply);
   await expect(page.locator('.demo-workspace')).toHaveScreenshot('full-demo.png', {
     stylePath: './tests/browser/capture.css',

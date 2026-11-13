@@ -3824,7 +3824,7 @@ dialog::backdrop {
   .demo-dashboard .dashboard-tabs button {
     font-size: 8px;
     padding: 9px 5px;
-    flex-direction: row;
+    flex-direction: column;
     gap: 4px;
   }
   .demo-dashboard .dashboard-tabs button .icon {
