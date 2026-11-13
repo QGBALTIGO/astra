@@ -8,6 +8,7 @@ import {
   type SubscriptionChange,
   type SubscriptionResult,
 } from '../db/repositories/customer-planning.js';
+import { formatAstraMessage } from './response-presentation.js';
 import { channelDataFailure } from './channel-failure.js';
 
 const HELP =
@@ -191,6 +192,16 @@ function describePlan(plan: CustomerPlan): string {
   );
 }
 
+function subscriptionCard(plan: CustomerPlan): string {
+  return formatAstraMessage('🔁 ' + plan.title, [
+    { label: 'Valor', value: currency.format(plan.amount) },
+    {
+      label: 'Renovação',
+      value: plan.nextDueDate?.split('-').reverse().join('/') ?? 'Sem data definida',
+    },
+  ]);
+}
+
 function formatResult(result: SubscriptionResult): string {
   switch (result.status) {
     case 'inactive':
@@ -208,8 +219,8 @@ function formatResult(result: SubscriptionResult): string {
         'Há várias assinaturas com esse nome. Repita o pedido com o código da assinatura no lugar do nome.\n' +
         result.plans
           .slice(0, pageSize)
-          .map((plan) => describePlan(plan) + ' · #' + plan.id)
-          .join('\n') +
+          .map((plan) => subscriptionCard(plan) + '\n• *Código:* #' + plan.id)
+          .join('\n\n') +
         (result.plans.length > pageSize
           ? '\nOs demais códigos aparecem em “Minhas assinaturas”.'
           : '')
@@ -278,14 +289,15 @@ export async function tryPersonalSubscriptionReply(
         .slice(offset, offset + pageSize)
         .map(
           (plan, i) =>
-            describePlan(plan) +
+            subscriptionCard(plan) +
             (!addressableTitle(plan.title) ||
             names.indexOf(names[offset + i]!) !== names.lastIndexOf(names[offset + i]!)
-              ? ' · #' + plan.id
+              ? '\n• *Código:* #' + plan.id
               : '')
         );
       return (
-        entries.join('\n') +
+        (entries.length > 1 ? '📋 *Suas assinaturas*\n\n' : '') +
+        entries.join('\n\n') +
         (intent.page < pages
           ? '\nContinue com “Minhas assinaturas página ' + (intent.page + 1) + '”.'
           : '')
