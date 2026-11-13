@@ -4183,3 +4183,16 @@ dialog::backdrop {
     font-size: 10px;
   }
 }
+
+.demo-dashboard-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.demo-dashboard-foot .icon {
+  width: 16px;
+  height: 16px;
+}
+.demo-pending .dashboard-panel {
+  opacity: 0.45;
+}

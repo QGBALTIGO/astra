@@ -86,3 +86,12 @@ test('night mode covers contact, navigation and all public page types', async ({
     await accessible(page);
   }
 });
+
+test('complete demonstration visual regression at night', async ({ page }) => {
+  await page.goto('/demonstracao');
+  await page.evaluate(() => document.fonts.ready);
+  await expect(page.locator('#demo-reply')).toHaveText(scenarios[0].reply);
+  await expect(page.locator('.demo-workspace')).toHaveScreenshot('night-full-demo.png', {
+    style: '.site-header,.skip-link{visibility:hidden!important}',
+  });
+});
