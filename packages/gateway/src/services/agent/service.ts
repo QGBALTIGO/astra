@@ -818,10 +818,11 @@ async function createChatAgentInstance(
             resolvedAuth,
             baseUrl,
             headers: providerConfig?.headers,
-            // A healthy backup can answer while the local worker is slow. Bound only
-            // this provider attempt; the same agent retains history and tool receipts.
+            // Tool calls need time to finish on the local model. A two-second
+            // deadline prematurely trips its circuit and exhausts the cloud backup.
+            // Short conversational writers keep their independent, smaller deadlines.
             ...(channelMode
-              ? { timeout: provider === 'ollama-local' ? 2_000 : channelPrimaryTimeout }
+              ? { timeout: provider === 'ollama-local' ? 14_000 : channelPrimaryTimeout }
               : {}),
             maxRetries: 0,
           },

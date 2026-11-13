@@ -1405,7 +1405,7 @@ describe('getOrCreateChatAgent', () => {
     expect(config?.memory.maxTokens).toBe(3072);
   });
 
-  it('bounds Ollama latency on channels with a configured and usable backup', async () => {
+  it('lets local tool calls finish before switching to a configured backup', async () => {
     mockCreateAgent.mockReturnValue(makeMockAgent().agent);
     mockGetProviderApiKey.mockResolvedValue('test-key');
     mockLoadProviderConfig.mockReturnValue({ baseUrl: 'https://test.invalid/v1' });
@@ -1424,7 +1424,7 @@ describe('getOrCreateChatAgent', () => {
     const core = await import('@ownpilot/core');
     expect(core.createFallbackProvider).toHaveBeenCalledWith(
       expect.objectContaining({
-        primary: expect.objectContaining({ id: 'ollama-local', timeout: 2000, maxRetries: 0 }),
+        primary: expect.objectContaining({ id: 'ollama-local', timeout: 14000, maxRetries: 0 }),
         fallbacks: expect.arrayContaining([
           expect.objectContaining({
             id: 'groq',
