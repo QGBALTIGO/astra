@@ -1984,35 +1984,70 @@ summary::-webkit-details-marker {
   width: min(100%, 380px);
   margin-block: 24px;
 }
-.scenario-choice label {
+.scenario-choice > span {
   display: block;
   font-size: 13px;
   margin-bottom: 6px;
 }
-.scenario-field {
+#scenario-chooser {
   position: relative;
 }
-.scenario-field select {
-  display: block;
-  width: 100%;
+#scenario-chooser summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-height: 48px;
-  appearance: none;
+  list-style: none;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 10px 40px 10px 14px;
-  font-size: 16px;
-  cursor: pointer;
+  padding: 10px 14px;
+  font-size: 15px;
 }
-.scenario-field .icon {
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
+#scenario-chooser summary::-webkit-details-marker {
+  display: none;
+}
+#scenario-chooser .icon {
   width: 16px;
   height: 16px;
-  pointer-events: none;
-  color: var(--muted);
+}
+#scenario-chooser[open] summary .icon {
+  transform: rotate(180deg);
+}
+.scenario-options {
+  position: absolute;
+  z-index: 5;
+  inset: calc(100% + 4px) 0 auto;
+  max-height: min(320px, 45vh);
+  overflow: auto;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px #0002;
+}
+.scenario-options button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: left;
+}
+.scenario-options button[aria-pressed='true'] {
+  color: var(--ink);
+  background: var(--soft);
+}
+.scenario-options button[aria-pressed='false'] .icon {
+  visibility: hidden;
+}
+.scenario-options button:focus-visible {
+  outline-offset: -2px;
 }
 .demo-workspace {
   display: grid;

@@ -3,6 +3,10 @@ import AxeBuilder from '@axe-core/playwright';
 import { scenarios } from '../../src/assets/scenarios.js';
 test.use({ colorScheme: 'dark', reducedMotion: 'reduce' });
 test.setTimeout(90000);
+async function chooseExample(page, id) {
+  await page.locator('#scenario-chooser summary').click();
+  await page.locator(`[data-example="${id}"]`).click();
+}
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => document.fonts.ready);
@@ -48,7 +52,7 @@ test('all guided conversations and dashboard views remain accessible at night', 
 }) => {
   await page.goto('/demonstracao');
   for (const s of scenarios) {
-    await page.getByLabel('Escolha um exemplo').selectOption(s.id);
+    await chooseExample(page, s.id);
     await expect(page.locator('#demo-reply')).toHaveText(s.reply);
     await accessible(page, '.demo-workspace');
   }

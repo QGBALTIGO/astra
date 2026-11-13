@@ -2,6 +2,10 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { scenarios } from '../../src/assets/scenarios.js';
 import { publicPages } from '../../src/public-pages.mjs';
+async function chooseExample(page, id) {
+  await page.locator('#scenario-chooser summary').click();
+  await page.locator(`[data-example="${id}"]`).click();
+}
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => document.fonts.ready);
@@ -189,15 +193,15 @@ test('all guided conversations produce the correct result and dashboard state', 
 }) => {
   await page.goto('/demonstracao');
   for (const s of scenarios) {
-    await page.getByLabel('Escolha um exemplo').selectOption(s.id);
+    await chooseExample(page, s.id);
     await expect(page.locator('#demo-user')).toHaveText(s.user);
     await expect(page.locator('#demo-reply')).toHaveText(s.reply);
     await expect(page.locator('#dashboard-panel')).toContainText(s.cta);
     await expect(page.locator('#tab-' + s.tab)).toHaveAttribute('aria-selected', 'true');
   }
-  await page.getByLabel('Escolha um exemplo').selectOption('agenda');
-  await page.getByLabel('Escolha um exemplo').selectOption('metas');
-  await page.getByLabel('Escolha um exemplo').selectOption('trabalho');
+  await chooseExample(page, 'agenda');
+  await chooseExample(page, 'metas');
+  await chooseExample(page, 'trabalho');
   await expect(page.locator('#dashboard-panel')).toContainText('5.650,00');
   await page.locator('#tab-inicio').click();
   await expect(page.locator('#dashboard-panel')).toContainText('1.582,00');
@@ -214,15 +218,15 @@ test('local topic chooser and linked demonstrations preserve the simulation boun
   await page.goto('/demonstracao#notas');
   await expect(page.locator('#demo-reply')).toContainText('Pousada do Lago');
   await expect(page.locator('#dashboard-panel')).toContainText('recuperada no WhatsApp');
-  const chooser = page.getByLabel('Escolha um exemplo');
-  await expect(chooser).toHaveValue('notas');
-  await chooser.selectOption('lembretes');
+  const selected = page.locator('[data-example][aria-pressed="true"]');
+  await expect(selected).toHaveAttribute('data-example', 'notas');
+  await chooseExample(page, 'lembretes');
   await expect(page).toHaveURL(/#lembretes$/);
   await expect(page.locator('#demo-reply')).toContainText('internet');
   await page.reload();
-  await expect(chooser).toHaveValue('lembretes');
+  await expect(selected).toHaveAttribute('data-example', 'lembretes');
   await page.goBack();
-  await expect(chooser).toHaveValue('notas');
+  await expect(selected).toHaveAttribute('data-example', 'notas');
   await expect(page.locator('#demo-reply')).toContainText('Pousada do Lago');
   expect(outbound).toEqual([]);
 });

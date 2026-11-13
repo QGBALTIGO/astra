@@ -59,7 +59,8 @@ const panel = $('#dashboard-panel');
 if (panel) {
   const tabs = $$('[data-view]');
   let activeScenario = scenarios[0];
-  const chooser = $('#scenario-select');
+  const chooser = $('#scenario-chooser');
+  const choices = $$('[data-example]');
   let activeView = activeScenario.tab;
   let replayTimer;
   const transaction = (
@@ -148,7 +149,11 @@ if (panel) {
   function playScenario(scenario, animate = true) {
     clearTimeout(replayTimer);
     activeScenario = scenario;
-    if (chooser) chooser.value = scenario.id;
+    for (const choice of choices) {
+      const selected = choice.dataset.example === scenario.id;
+      choice.setAttribute('aria-pressed', String(selected));
+      if (selected) $('#example-title').textContent = choice.textContent.trim();
+    }
     if (!$('#demo-user')) {
       showView(scenario.tab);
       return;
@@ -185,9 +190,28 @@ if (panel) {
       '<span class="typing" aria-label="Preparando exemplo"><i></i><i></i><i></i></span>';
     replayTimer = setTimeout(finish, 320);
   }
-  chooser?.addEventListener('change', () => {
-    if (chooser.value !== activeScenario.id) location.hash = chooser.value;
-  });
+  if (chooser) {
+    const summary = $('summary', chooser);
+    for (const choice of choices) {
+      choice.addEventListener('click', () => {
+        chooser.open = false;
+        summary.focus({ preventScroll: true });
+        if (choice.dataset.example !== activeScenario.id) location.hash = choice.dataset.example;
+      });
+    }
+    chooser.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && chooser.open) {
+        chooser.open = false;
+        summary.focus({ preventScroll: true });
+      }
+    });
+    document.addEventListener('click', (event) => {
+      if (chooser.open && !chooser.contains(event.target)) chooser.open = false;
+    });
+    chooser.addEventListener('focusout', (event) => {
+      if (event.relatedTarget && !chooser.contains(event.relatedTarget)) chooser.open = false;
+    });
+  }
   $('#replay')?.addEventListener('click', () => playScenario(activeScenario));
   const requested = location.hash.slice(1);
   if ($('#demo-user'))

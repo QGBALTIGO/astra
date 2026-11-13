@@ -25,11 +25,13 @@ export const publicPages = [
         <p>Veja como uma conversa no WhatsApp aparece no seu painel. Os exemplos usam dados fictícios.</p>
       </header>
       <div class="scenario-choice">
-        <label for="scenario-select">Escolha um exemplo</label>
-        <div class="scenario-field">
-          <select id="scenario-select">${scenarios.map(({ id }) => `<option value="${id}">${exampleTitles[id]}</option>`).join('')}</select>
-          {{icon:chevron-down}}
-        </div>
+        <span id="example-label">Escolha um exemplo</span>
+        <details id="scenario-chooser">
+          <summary aria-labelledby="example-label example-title"><span id="example-title">${exampleTitles.financas}</span>{{icon:chevron-down}}</summary>
+          <div class="scenario-options" role="group" aria-labelledby="example-label">
+            ${scenarios.map(({ id }) => `<button type="button" data-example="${id}" aria-pressed="${id === 'financas'}">${exampleTitles[id]} {{icon:check}}</button>`).join('')}
+          </div>
+        </details>
       </div>
       <div class="demo-workspace">
         <section class="demo-conversation" aria-labelledby="conversation-title">
