@@ -232,6 +232,82 @@ class ComposioService {
   }
 
   /**
+   * Customer connections always belong to one stable Astra customer account,
+   * never LOCAL_OWNER_ID. API filtering is server-side, with an extra userId
+   * check when the provider includes its identity in the returned object.
+   */
+  async getCustomerConnections(userId: string): Promise<ComposioConnection[]> {
+    const client = (await this.getClient()) as {
+      connectedAccounts: { list: (options: { userIds: string[] }) => Promise<unknown> };
+    };
+    const response = await client.connectedAccounts.list({ userIds: [userId] });
+    const items: unknown[] = Array.isArray(response)
+      ? response
+      : ((response as { items?: unknown[] } | null)?.items ?? []);
+    return items.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return [];
+      const item = entry as Record<string, unknown>;
+      const linkedUser = typeof item.userId === 'string' ? item.userId : item.user_id;
+      if (typeof linkedUser === 'string' && linkedUser !== userId) return [];
+      const toolkit = toStr(item.toolkit) || toStr(item.appName);
+      if (toolkit !== 'gmail' && toolkit !== 'googlecalendar') return [];
+      const id = toStr(item.id) || toStr(item.nanoid);
+      if (!id || id.length > 128) return [];
+      return [{
+        id,
+        appName: toolkit,
+        status: toStr(item.status, 'UNKNOWN'),
+        createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
+        updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
+      }];
+    });
+  }
+
+  /**
+   * Issue a Composio-managed Connect Link for precisely one customer's toolkit.
+   * No OAuth credentials or provider tokens are returned to Astra's frontend.
+   */
+  async authorizeCustomerToolkit(
+    userId: string,
+    toolkit: 'gmail' | 'googlecalendar',
+    callbackUrl: string
+  ): Promise<string> {
+    const client = (await this.getClient()) as {
+      create: (
+        ownerId: string,
+        config: { toolkits: string[] }
+      ) => Promise<{
+        authorize: (
+          app: string,
+          options: { callbackUrl: string }
+        ) => Promise<{ redirectUrl?: string }>;
+      }>;
+    };
+    const session = await client.create(userId, { toolkits: [toolkit] });
+    const result = await session.authorize(toolkit, { callbackUrl });
+    const link = new URL(result.redirectUrl ?? '');
+    if (
+      link.protocol !== 'https:' ||
+      !['composio.dev', 'composio.com'].some(
+        (domain) => link.hostname === domain || link.hostname.endsWith('.' + domain)
+      )
+    ) {
+      throw new Error('Unsafe Composio connection link');
+    }
+    return link.toString();
+  }
+
+  /** Delete only an account that this customer demonstrably owns. */
+  async disconnectCustomerToolkit(userId: string, connectionId: string): Promise<boolean> {
+    const owned = (await this.getCustomerConnections(userId)).some(
+      (item) => item.id === connectionId
+    );
+    if (!owned) return false;
+    await this.disconnect(connectionId);
+    return true;
+  }
+
+  /**
    * Check connection status for a specific app.
    */
   async getConnectionStatus(userId: string, appName: string): Promise<ComposioConnection | null> {
