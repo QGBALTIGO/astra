@@ -734,8 +734,12 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       }
       assertSendDeadline(message.sendBefore);
 
-      const loginTextOnly = loginButton && typeof sock.relayMessage !== 'function';
-      if (interactivePayload && !loginTextOnly) {
+      // Preserve the OTP when running against a transport without native-flow
+      // relay support. A known unsupported transport gets ONE plain text send;
+      // an ambiguous relay failure is never retried or followed by a second send.
+      const textOnlyFallback =
+        typeof sock.relayMessage !== 'function' && (loginButton || Boolean(copyPayload));
+      if (interactivePayload && !textOnlyFallback) {
         const userJid = sock.user?.id;
         if (!userJid) throw new Error('WhatsApp account unavailable before sending');
         const generated = generateWAMessageFromContent(jid, interactivePayload.content, {
