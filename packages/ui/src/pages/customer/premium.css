@@ -437,6 +437,9 @@ html .astra-customer .ac-login-help a svg {
   }
 }
 @media (max-width: 767px) {
+  html .astra-customer.ac-login {
+    align-items: flex-start;
+  }
   html .astra-customer .ac-content {
     padding: 24px 20px calc(100px + env(safe-area-inset-bottom));
   }
