@@ -1,20 +1,20 @@
-name: Isolate Firefox demo scan
+name: Verify example selection in Firefox
 on: push
 permissions: { contents: read }
 jobs:
-  audit:
+  check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 6
     defaults:
       run:
         working-directory: landing
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: d16429a020d515d75e6e686223b38c7de0b3da6e
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - run: npx playwright install --with-deps firefox
-      - run: |
-          node preview.mjs > /tmp/preview.log 2>&1 &
-          node firefox-scan-diagnostic.mjs
+      - run: npm run test:browser -- --project=desktop-firefox --grep 'all guided conversations and dashboard views remain accessible at night|local topic chooser' --reporter=list
