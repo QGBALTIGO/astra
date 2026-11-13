@@ -44,9 +44,7 @@ describe('customer Google connections', () => {
     vi.stubEnv('ASTRA_CUSTOMER_OAUTH_ENABLED', 'true');
     svc.isConfigured.mockReturnValue(true);
     svc.getCustomerConnections.mockResolvedValue([]);
-    svc.authorizeCustomerToolkit.mockResolvedValue(
-      'https://connect.composio.dev/link/test-auth'
-    );
+    svc.authorizeCustomerToolkit.mockResolvedValue('https://connect.composio.dev/link/test-auth');
     svc.disconnectCustomerToolkit.mockResolvedValue(true);
   });
   afterEach(() => vi.unstubAllEnvs());
@@ -58,7 +56,9 @@ describe('customer Google connections', () => {
     const payload = await res.json();
     expect(payload.data.configured).toBe(false);
     expect(payload.data.apps).toHaveLength(2);
-    expect(payload.data.apps.every((app: { status: string }) => app.status === 'unavailable')).toBe(true);
+    expect(payload.data.apps.every((app: { status: string }) => app.status === 'unavailable')).toBe(
+      true
+    );
     expect(svc.getCustomerConnections).not.toHaveBeenCalled();
     expect((await post(createApp(), '/connected-apps/connect', { app: 'gmail' })).status).toBe(503);
   });
@@ -80,7 +80,12 @@ describe('customer Google connections', () => {
     const body = await res.json();
     expect(body.data.apps).toEqual([
       { slug: 'gmail', name: 'Gmail', status: 'connected', connectionId: 'ca_gmail' },
-      { slug: 'googlecalendar', name: 'Google Agenda', status: 'needs_attention', connectionId: 'ca_cal' },
+      {
+        slug: 'googlecalendar',
+        name: 'Google Agenda',
+        status: 'needs_attention',
+        connectionId: 'ca_cal',
+      },
     ]);
     expect(svc.getCustomerConnections).toHaveBeenCalledExactlyOnceWith('astra-customer:account-a');
   });
@@ -95,9 +100,15 @@ describe('customer Google connections', () => {
   it('allows only Gmail or Google Calendar, never custom redirects or user IDs', async () => {
     const app = createApp();
     expect((await post(app, '/connected-apps/connect', { app: 'github' })).status).toBe(400);
-    expect((await post(app, '/connected-apps/connect', {
-      app: 'gmail', userId: 'another-person', callbackUrl: 'https://evil.example',
-    })).status).toBe(400);
+    expect(
+      (
+        await post(app, '/connected-apps/connect', {
+          app: 'gmail',
+          userId: 'another-person',
+          callbackUrl: 'https://evil.example',
+        })
+      ).status
+    ).toBe(400);
     const valid = await post(app, '/connected-apps/connect', { app: 'googlecalendar' });
     expect(valid.status).toBe(200);
     expect(svc.authorizeCustomerToolkit).toHaveBeenCalledExactlyOnceWith(
@@ -110,13 +121,19 @@ describe('customer Google connections', () => {
   it('only disconnects IDs confirmed as belonging to the logged-in customer', async () => {
     svc.disconnectCustomerToolkit.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const app = createApp();
-    expect((await app.request('/connected-apps/another-person-account', { method: 'DELETE' })).status).toBe(404);
+    expect(
+      (await app.request('/connected-apps/another-person-account', { method: 'DELETE' })).status
+    ).toBe(404);
     expect((await app.request('/connected-apps/ca_own', { method: 'DELETE' })).status).toBe(200);
     expect(svc.disconnectCustomerToolkit).toHaveBeenNthCalledWith(
-      1, 'astra-customer:account-a', 'another-person-account'
+      1,
+      'astra-customer:account-a',
+      'another-person-account'
     );
     expect(svc.disconnectCustomerToolkit).toHaveBeenNthCalledWith(
-      2, 'astra-customer:account-a', 'ca_own'
+      2,
+      'astra-customer:account-a',
+      'ca_own'
     );
   });
 });
