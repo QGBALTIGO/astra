@@ -1,13 +1,8 @@
 name: Isolate Firefox demo scan
 on: push
-permissions:
-  contents: read
+permissions: { contents: read }
 jobs:
   audit:
-    strategy:
-      fail-fast: false
-      matrix:
-        trace: ['on', 'off']
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     defaults:
@@ -18,7 +13,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm run build
+      - run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - run: npx playwright install --with-deps firefox
-      - run: npm run test:browser -- --project=desktop-firefox --grep 'all guided conversations and dashboard views remain accessible at night' --trace=${{ matrix.trace }} --reporter=list
+      - run: |
+          node preview.mjs > /tmp/preview.log 2>&1 &
+          node firefox-scan-diagnostic.mjs
