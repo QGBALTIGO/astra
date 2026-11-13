@@ -155,12 +155,10 @@ describe('createAgentExecutionMiddleware', () => {
 
   it('blocks a stale subscription write when a hypothetical profile reaches the full agent after a short-writer failure', async () => {
     const agent = createAgent({
-      getConversation: vi
-        .fn()
-        .mockReturnValue({
-          id: 'conv-1',
-          messages: [{ content: 'Adicione uma assinatura de R$ 3,45.' }],
-        }),
+      getConversation: vi.fn().mockReturnValue({
+        id: 'conv-1',
+        messages: [{ content: 'Adicione uma assinatura de R$ 3,45.' }],
+      }),
     });
     const ctx = createContext({ store: { agent, userId: 'synthetic' } });
     await middleware(
