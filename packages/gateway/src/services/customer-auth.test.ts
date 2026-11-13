@@ -305,12 +305,18 @@ describe('CustomerAuthService', () => {
     const challenge = await service.requestCode(phone, 'ip');
     await service.dispatchOtps();
     expect(auth.beginDelivery).toHaveBeenCalledOnce();
-    expect(api.sendMessage).toHaveBeenCalledExactlyOnceWith({
+    expect(api.sendMessage).toHaveBeenNthCalledWith(1, {
+      platformChatId: phone,
+      text: expect.stringContaining('*123456*'),
+      sendBefore: challenges.get(challenge.challengeId)!.expiresAt,
+    });
+    expect(api.sendMessage).toHaveBeenNthCalledWith(2, {
       platformChatId: phone,
       text: expect.stringContaining('*123456*'),
       copyCode: { label: 'Copiar código', code: '123456' },
       sendBefore: challenges.get(challenge.challengeId)!.expiresAt,
     });
+    expect(api.sendMessage).toHaveBeenCalledTimes(2);
     expect(auth.finishDelivery).toHaveBeenCalledWith(expect.any(String), 'delivery-lease', 'sent');
   });
   it('keeps a leading-zero OTP intact in encrypted storage and native copy action', async () => {
@@ -319,9 +325,14 @@ describe('CustomerAuthService', () => {
     expect(JSON.stringify(challenge)).not.toContain(generatedCode);
     expect(challenges.get(challenge.challengeId)?.codeCiphertext).not.toContain(generatedCode);
     await service.dispatchOtps();
-    expect(api.sendMessage).toHaveBeenCalledExactlyOnceWith({
+    expect(api.sendMessage).toHaveBeenNthCalledWith(1, {
       platformChatId: phone,
       text: expect.stringContaining('\n\n*000123*\n\n'),
+      sendBefore: new Date(now.getTime() + 300_000),
+    });
+    expect(api.sendMessage).toHaveBeenNthCalledWith(2, {
+      platformChatId: phone,
+      text: expect.stringContaining('*000123*'),
       copyCode: { label: 'Copiar código', code: '000123' },
       sendBefore: new Date(now.getTime() + 300_000),
     });
@@ -333,6 +344,11 @@ describe('CustomerAuthService', () => {
     expect(api.sendMessage).toHaveBeenNthCalledWith(1, {
       platformChatId: phone,
       text: expect.stringContaining('solicitação para alterar o número de WhatsApp'),
+      sendBefore: challenges.get(old.challengeId)!.expiresAt,
+    });
+    expect(api.sendMessage).toHaveBeenNthCalledWith(2, {
+      platformChatId: phone,
+      text: expect.stringContaining('*123456*'),
       copyCode: { label: 'Copiar código', code: '123456' },
       sendBefore: challenges.get(old.challengeId)!.expiresAt,
     });
@@ -344,13 +360,18 @@ describe('CustomerAuthService', () => {
       'ip'
     );
     await service.dispatchOtps();
-    expect(api.sendMessage).toHaveBeenNthCalledWith(2, {
+    expect(api.sendMessage).toHaveBeenNthCalledWith(3, {
       platformChatId: '5511999997777',
       text: expect.stringContaining('solicitação para confirmar seu novo número de WhatsApp'),
+      sendBefore: challenges.get(next.challengeId)!.expiresAt,
+    });
+    expect(api.sendMessage).toHaveBeenNthCalledWith(4, {
+      platformChatId: '5511999997777',
+      text: expect.stringContaining('*123456*'),
       copyCode: { label: 'Copiar código', code: '123456' },
       sendBefore: challenges.get(next.challengeId)!.expiresAt,
     });
-    expect(api.sendMessage).toHaveBeenCalledTimes(2);
+    expect(api.sendMessage).toHaveBeenCalledTimes(4);
   });
   it.each(['revoked', 'no identity', 'offline'])('does not send an OTP when %s', async (reason) => {
     await service.requestCode(phone, 'ip');
@@ -381,6 +402,46 @@ describe('CustomerAuthService', () => {
       });
     }
   );
+  it('keeps a valid text OTP when its optional copy button fails', async () => {
+    await service.requestCode(phone, 'ip');
+    api.sendMessage
+      .mockResolvedValueOnce('text-transport-id')
+      .mockRejectedValueOnce(new Error('native-flow unavailable'));
+    await service.dispatchOtps();
+    expect(api.sendMessage).toHaveBeenCalledTimes(2);
+    expect(auth.finishDelivery).toHaveBeenCalledExactlyOnceWith(
+      expect.any(String),
+      'delivery-lease',
+      'sent'
+    );
+    expect(logWarn).toHaveBeenCalledExactlyOnceWith(
+      'Optional customer code copy button unavailable'
+    );
+  });
+
+  it('does not send a copy button if the initial text transport was not acknowledged', async () => {
+    await service.requestCode(phone, 'ip');
+    api.sendMessage.mockResolvedValueOnce('');
+    await service.dispatchOtps();
+    expect(api.sendMessage).toHaveBeenCalledOnce();
+    expect(auth.finishDelivery).toHaveBeenCalledWith(expect.any(String), 'delivery-lease', 'failed');
+    expect(auth.deferDelivery).not.toHaveBeenCalled();
+  });
+
+  it('does not send a copy button after access is revoked between the two transports', async () => {
+    await service.requestCode(phone, 'ip');
+    api.sendMessage.mockImplementationOnce(async () => {
+      identity.getContext.mockResolvedValue(null);
+      return 'text-transport-id';
+    });
+    await service.dispatchOtps();
+    expect(api.sendMessage).toHaveBeenCalledOnce();
+    expect(auth.finishDelivery).toHaveBeenCalledExactlyOnceWith(
+      expect.any(String),
+      'delivery-lease',
+      'sent'
+    );
+  });
   it('does not dispatch a second copy while the first OTP is still sending', async () => {
     await service.requestCode(phone, 'ip');
     let completeSend!: (messageId: string) => void;
@@ -396,6 +457,8 @@ describe('CustomerAuthService', () => {
     expect(api.sendMessage).toHaveBeenCalledOnce();
     completeSend('mock-delivery-id');
     await firstDispatch;
+    expect(api.sendMessage).toHaveBeenCalledTimes(2);
+    expect(auth.finishDelivery).toHaveBeenCalledWith(expect.any(String), 'delivery-lease', 'sent');
   });
   it('cancels delivery when permission changes after beginDelivery', async () => {
     await service.requestCode(phone, 'ip');
