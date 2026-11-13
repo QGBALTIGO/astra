@@ -15,7 +15,11 @@ export function CustomerConnectedApps({
   canWrite: boolean;
   onChanged: (message: string) => void;
 }) {
-  const apps = useCustomerQuery('customer-connected-apps', (signal) => customerApi.connectedApps(signal), active);
+  const apps = useCustomerQuery(
+    'customer-connected-apps',
+    (signal) => customerApi.connectedApps(signal),
+    active
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,16 +66,19 @@ export function CustomerConnectedApps({
   };
 
   if (apps.loading && !apps.data) return <CustomerSkeleton />;
-  if (apps.error)
-    return <CustomerError error={apps.error} onRetry={apps.retry} />;
+  if (apps.error) return <CustomerError error={apps.error} onRetry={apps.retry} />;
 
   return (
     <>
-      {error ? <p className="ac-field-error" role="alert">{error}</p> : null}
+      {error ? (
+        <p className="ac-field-error" role="alert">
+          {error}
+        </p>
+      ) : null}
       {!apps.data?.configured ? (
         <p className="ac-muted">
-          Gmail e Google Agenda ainda estão em configuração. Cada pessoa poderá conectar sua
-          própria conta quando a autorização segura estiver habilitada.
+          Gmail e Google Agenda ainda estão em configuração. Cada pessoa poderá conectar sua própria
+          conta quando a autorização segura estiver habilitada.
         </p>
       ) : null}
       {apps.data?.apps.map((app) => {
@@ -84,9 +91,13 @@ export function CustomerConnectedApps({
             <div>
               <h3>{app.name}</h3>
               <span className="ac-status">
-                {isConnected ? 'Conectado' : app.status === 'needs_attention'
-                  ? 'Reconexão necessária' : app.status === 'unavailable'
-                    ? 'Aguardando ativação' : 'Não conectado'}
+                {isConnected
+                  ? 'Conectado'
+                  : app.status === 'needs_attention'
+                    ? 'Reconexão necessária'
+                    : app.status === 'unavailable'
+                      ? 'Aguardando ativação'
+                      : 'Não conectado'}
               </span>
               <p>
                 {isCalendar
@@ -119,8 +130,8 @@ export function CustomerConnectedApps({
       })}
       {apps.data?.configured ? (
         <p className="ac-field-help">
-          A conexão autoriza o vínculo da conta. A sincronização e as ações da IA
-          serão habilitadas separadamente, após validação de permissões.
+          A conexão autoriza o vínculo da conta. A sincronização e as ações da IA serão habilitadas
+          separadamente, após validação de permissões.
         </p>
       ) : null}
       {confirmId ? (
