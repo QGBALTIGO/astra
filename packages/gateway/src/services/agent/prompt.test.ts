@@ -323,6 +323,8 @@ describe('CHANNEL_SYSTEM_PROMPT', () => {
       expect(prompt).toContain(ASTRA_SITE_URL);
       expect(prompt).toContain('número de WhatsApp autorizado');
       expect(prompt).toContain('código de 6 dígitos');
+      expect(prompt).toContain('página Agenda');
+      expect(prompt).toContain('Criar item');
       expect(prompt).toContain('Não ofereça login por e-mail/senha nem aplicativo móvel próprio');
       expect(prompt).toContain('nunca ao painel ou login de outro serviço');
     }

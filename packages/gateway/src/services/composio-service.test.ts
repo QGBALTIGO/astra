@@ -189,6 +189,42 @@ describe('ComposioService', () => {
   // ========================================================================
 
   describe('getConnections', () => {
+    it('uses the SDK owner filter on every page and excludes explicit foreign owners', async () => {
+      mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
+      const list = mockComposioInstance.connectedAccounts.list;
+      list.mockResolvedValueOnce({
+        items: [
+          { id: 'first', toolkit: { slug: 'github' }, status: 'ACTIVE' },
+          { id: 'foreign', userId: 'astra-customer:two', toolkit: { slug: 'gmail' } },
+        ],
+        nextCursor: 'page2',
+      });
+      list.mockResolvedValueOnce({ items: [{ id: 'second', appName: 'slack' }] });
+      expect((await composioService.getConnections('default')).map((c) => c.id)).toEqual([
+        'first',
+        'second',
+      ]);
+      expect(list).toHaveBeenNthCalledWith(1, { userIds: ['default'] });
+      expect(list).toHaveBeenNthCalledWith(2, { userIds: ['default'], cursor: 'page2' });
+    });
+    it('fails closed on a repeated pagination cursor', async () => {
+      mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
+      const list = mockComposioInstance.connectedAccounts.list;
+      list.mockResolvedValue({ items: [], nextCursor: 'repeated' });
+      await expect(composioService.getConnections('default')).rejects.toThrow(/cursor/i);
+      expect(list).toHaveBeenCalledTimes(2);
+    });
+
+    it('accepts the legacy array response and still checks explicit ownership', async () => {
+      mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
+      mockComposioInstance.connectedAccounts.list.mockResolvedValue([
+        { id: 'mine', toolkit: 'gmail' },
+        { id: 'theirs', toolkit: 'gmail', user_id: 'another-customer' },
+      ]);
+      const items = await composioService.getCustomerConnections('astra-customer:one');
+      expect(items.map((item) => item.id)).toEqual(['mine']);
+    });
+
     it('returns mapped connections', async () => {
       mockConfigServicesRepo.getFieldValue.mockReturnValue('comp-key');
       mockComposioInstance.connectedAccounts.list.mockResolvedValue({

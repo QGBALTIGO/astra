@@ -1,6 +1,11 @@
 import { getLog } from '../services/log.js';
 import { currentAstraLinksInText } from '../config/astra-public-urls.js';
-import { ASTRA_ACCESS_REPLY, isAstraAccessAnswerRequested } from './astra-access.js';
+import {
+  ASTRA_ACCESS_REPLY,
+  ASTRA_CUSTOMER_LOGIN_URL,
+  isAstraAccessAnswerRequested,
+  isWeeklyPortalGuide,
+} from './astra-access.js';
 import { channelOperations } from './receipt-state.js';
 import {
   CHANNEL_UNVERIFIED_REPLY,
@@ -237,6 +242,9 @@ export function channelFailureReply(
   }
   if (reason === 'agent_busy')
     return 'Sua mensagem anterior ainda está em processamento. Aguarde a resposta dela antes de enviar outro pedido.';
+  if (!operations.length && isWeeklyPortalGuide(request)) {
+    return `Para organizar a semana, entre no painel pelo navegador: ${ASTRA_CUSTOMER_LOGIN_URL}\n\nUse seu número de WhatsApp e digite no painel o código recebido. Depois, abra Agenda, escolha um dia e confira os compromissos antes de marcar o próximo.`;
+  }
   if (!operations.length && isAstraAccessAnswerRequested(request)) return ASTRA_ACCESS_REPLY;
   const { domain, query, write, capability, conversion, normalized } = classifyRequest(request);
   // An actual write invocation outweighs a read-like sentence or a question mark,

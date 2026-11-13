@@ -2130,6 +2130,25 @@ describe('ChannelServiceImpl', () => {
         expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
       });
 
+      it('notifies the owner of a pairing request without logging its code', async () => {
+        const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+        mockGetOwnerUserId.mockResolvedValue('another-owner');
+        mockDmPairingRequests.listPending.mockResolvedValueOnce([{ platformUserId: 'user-456' }]);
+        mockDmPairingRequests.create.mockResolvedValueOnce(true);
+        try {
+          await service.processIncomingMessage(message);
+          const [request] = mockDmPairingRequests.create.mock.calls[0]!;
+          expect(request.code).toMatch(/^\d{6}$/);
+          expect(mockWsGateway.broadcast).toHaveBeenCalledWith('data:changed', {
+            entity: 'dm-pairing',
+            action: 'pending',
+          });
+          expect(JSON.stringify(output.mock.calls)).not.toContain(request.code);
+        } finally {
+          output.mockRestore();
+        }
+      });
+
       it('prompts the owner to claim without disclosing the key when unclaimed', async () => {
         // No owner claimed on this platform yet
         mockGetOwnerUserId.mockResolvedValue(null);

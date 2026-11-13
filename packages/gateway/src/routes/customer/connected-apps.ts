@@ -33,7 +33,8 @@ customerConnectedAppsRoutes.get('/', async (c) => {
     return apiResponse(c, {
       configured: true,
       apps: supported.map((app) => {
-        const existing = connections.find((item) => item.appName === app.slug);
+        const matches = connections.filter((item) => item.appName === app.slug);
+        const existing = matches.find((item) => item.status === 'ACTIVE') ?? matches[0];
         const connected = existing?.status === 'ACTIVE';
         const attention = existing?.status === 'EXPIRED' || existing?.status === 'REVOKED';
         return {

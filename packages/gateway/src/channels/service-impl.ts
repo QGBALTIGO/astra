@@ -707,17 +707,13 @@ export class ChannelServiceImpl implements IChannelService {
           const pendingSenders = await this.dmPairing.getPendingSenders(message.platform);
           if (pendingSenders.has(message.sender.platformUserId)) {
             // Pending — generate code, notify owner, store as pending
-            const code = await this.dmPairing.generateDmPairingCode(
+            await this.dmPairing.generateDmPairingCode(
               message.channelPluginId,
               message.platform,
               message.sender.platformUserId,
               ownerUserId
             );
-            log.info('DM pairing code sent to owner for pending sender', {
-              platform: message.platform,
-              sender: message.sender.platformUserId,
-              code,
-            });
+            log.info('DM pairing requested', { platform: message.platform });
           } else {
             // Not pending — drop silently
             log.debug('Dropping message from non-owner, non-pending sender', {
