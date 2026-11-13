@@ -4,6 +4,8 @@ import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { pages } from './src/legal.mjs';
+import { publicPages } from './src/public-pages.mjs';
+import { header, footer, dialogs } from './src/shared.mjs';
 import { minify } from 'terser';
 import CleanCSS from 'clean-css';
 import { minify as minifyHtml } from 'html-minifier-terser';
@@ -92,6 +94,35 @@ await writeFile(join(dist, 'index.html'), index);
 const baseHead = index
   .match(/<head>([\s\S]*?)<\/head>/)[1]
   .replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, '');
+for (const page of publicPages) {
+  const head = baseHead
+    .replace(/<title>.*?<\/title>/, `<title>${page.title}</title>`)
+    .replace(
+      /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/,
+      `<meta name="description" content="${page.description}">`
+    )
+    .replace(
+      /<meta\s+property="og:title"\s+content="[^"]*"\s*\/?>/,
+      `<meta property="og:title" content="${page.title}">`
+    )
+    .replace(
+      /<meta\s+property="og:description"\s+content="[^"]*"\s*\/?>/,
+      `<meta property="og:description" content="${page.description}">`
+    )
+    .replace(
+      /<meta\s+name="twitter:title"\s+content="[^"]*"\s*\/?>/,
+      `<meta name="twitter:title" content="${page.title}">`
+    )
+    .replaceAll('https://astraacessor.pro/"', `https://astraacessor.pro${page.path}"`);
+  const html = await compactHtml(
+    render(
+      `<!doctype html><html lang="pt-BR"><head>${head}</head><body><a class="skip-link" href="#principal">Pular para o conteúdo</a>${header}<main id="principal">${page.body}</main>${footer}${dialogs}</body></html>`
+    )
+  );
+  const path = `${page.path}.html`;
+  files[path] = html;
+  await writeFile(join(dist, path.slice(1)), html);
+}
 for (const [path, page] of Object.entries(pages)) {
   let head = baseHead
     .replace(/<title>.*?<\/title>/, `<title>${page.title}</title>`)
@@ -142,7 +173,7 @@ await writeFile(
   join(dist, 'build.json'),
   JSON.stringify(
     {
-      release: 'premium-20261112',
+      release: 'assessor-pattern-20261113',
       sha256: sha,
       files: Object.keys(files),
       paths,
@@ -157,7 +188,7 @@ await writeFile(
 );
 console.log(
   JSON.stringify({
-    release: 'premium-20261112',
+    release: 'assessor-pattern-20261113',
     sha256: sha,
     files: Object.keys(files).length,
     htmlBytes: Buffer.byteLength(index),

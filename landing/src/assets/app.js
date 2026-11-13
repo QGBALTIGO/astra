@@ -38,128 +38,142 @@ matchMedia('(min-width: 960px)').addEventListener('change', (event) => {
 });
 
 const panel = $('#dashboard-panel');
-const tabs = $$('[data-view]');
-let activeScenario = scenarios[0];
-let activeView = activeScenario.tab;
-let replayTimer;
-const transaction = (
-  title,
-  detail,
-  amount,
-  { highlight = false, symbol = 'wallet', positive = false } = {}
-) =>
-  `<div class="transaction-row${highlight ? ' highlighted' : ''}"><span class="transaction-icon${highlight ? '' : ' muted'}">${icon(symbol)}</span><div><strong>${title}</strong><span>${detail}</span></div><b${positive ? ' class="positive"' : ''}>${positive ? '+' : '−'} ${money(amount)}</b></div>`;
-const heading = (title) =>
-  `<div class="dashboard-view-heading"><div><p class="mini-label">NOVEMBRO · 2026</p><h3>${title}</h3></div><span class="panel-success">${icon('check')} ${activeScenario.cta}</span></div>`;
-const agendaItem = (time, title, detail, symbol = 'calendar') =>
-  `<div class="agenda-list-item"><time>${time}</time><div><strong>${title}</strong><span>${detail}</span></div>${icon(symbol)}</div>`;
-const goal = () =>
-  `<div class="dashboard-goal"><div><strong>Meta: Viagem</strong><small>${money(base.goal)} de ${money(base.target)}</small></div><div class="progress-track" role="progressbar" aria-label="Progresso da meta Viagem" aria-valuemin="0" aria-valuemax="100" aria-valuenow="65"><span></span></div><small>65% do objetivo registrado · Progresso informado por você</small></div>`;
+if (panel) {
+  const tabs = $$('[data-view]');
+  let activeScenario = scenarios[0];
+  let activeView = activeScenario.tab;
+  let replayTimer;
+  const transaction = (
+    title,
+    detail,
+    amount,
+    { highlight = false, symbol = 'wallet', positive = false } = {}
+  ) =>
+    `<div class="transaction-row${highlight ? ' highlighted' : ''}"><span class="transaction-icon${highlight ? '' : ' muted'}">${icon(symbol)}</span><div><strong>${title}</strong><span>${detail}</span></div><b${positive ? ' class="positive"' : ''}>${positive ? '+' : '−'} ${money(amount)}</b></div>`;
+  const heading = (title) =>
+    `<div class="dashboard-view-heading"><div><p class="mini-label">NOVEMBRO · 2026</p><h3>${title}</h3></div><span class="panel-success">${icon('check')} ${activeScenario.cta}</span></div>`;
+  const agendaItem = (time, title, detail, symbol = 'calendar') =>
+    `<div class="agenda-list-item"><time>${time}</time><div><strong>${title}</strong><span>${detail}</span></div>${icon(symbol)}</div>`;
+  const goal = () =>
+    `<div class="dashboard-goal"><div><strong>Meta: Viagem</strong><small>${money(base.goal)} de ${money(base.target)}</small></div><div class="progress-track" role="progressbar" aria-label="Progresso da meta Viagem" aria-valuemin="0" aria-valuemax="100" aria-valuenow="65"><span></span></div><small>65% do objetivo registrado · Progresso informado por você</small></div>`;
 
-function dashboardMarkup(view) {
-  const state = scenarioState(activeScenario);
-  if (view === 'inicio')
-    return `${heading('Seu dia, em uma visão.')}
-    <div class="overview-balance"><span>Saldo dos registros</span><strong>${money(state.balance)}</strong></div>
-    <div class="overview-items"><div><small>PRÓXIMO COMPROMISSO</small><strong>Dentista</strong><span>13 de novembro · 15h</span></div><div><small>PARA NÃO ESQUECER</small><strong>Revisar a proposta</strong><span>12 de novembro · 17h</span></div></div>${goal()}`;
-  if (view === 'transacoes') {
-    const monetary = ['expense', 'income'].includes(activeScenario.kind);
-    return `${heading('Seu dinheiro, com contexto.')}
+  function dashboardMarkup(view) {
+    const state = scenarioState(activeScenario);
+    if (activeScenario.kind === 'note' && view === 'agenda')
+      return `${heading('Sua nota voltou para a conversa.')}<p class="profile-note">Nesta cena, a informação é recuperada no WhatsApp. Explore também os exemplos de finanças, compromissos e metas nas outras abas.</p>`;
+    if (view === 'inicio')
+      return `<div class="dashboard-overview"><div><span class="mini-label">SALDO DOS REGISTROS · NOVEMBRO</span><div class="overview-balance"><strong>${money(state.balance)}</strong></div><div class="stat-pair"><div><span>Entradas registradas</span><strong>${money(state.income)}</strong></div><div><span>Saídas registradas</span><strong>${money(state.expenses)}</strong></div></div></div><div class="dashboard-insight"><img src="/assets/brand-bc825f0438ab.svg" width="28" height="28" alt=""><div><strong>Astra</strong><p>Seus registros estão reunidos por aqui. Você também pode pedir uma consulta na conversa.</p><small>Mensagem ilustrativa</small></div></div></div><div class="dashboard-widgets"><div class="dashboard-chart white-card"><h3>Gastos por categoria</h3><p>Distribuição dos ${money(state.expenses)} registrados.</p><div class="chart-bars">${state.categories.map((c) => `<div><span>${c.name}</span><i style="--w:${((100 * c.amount) / Math.max(...state.categories.map((x) => x.amount))).toFixed(2)}%"></i><b>${money(c.amount).replace('R$', '').trim()}</b></div>`).join('')}</div></div><div class="white-card dashboard-next"><h3>Próximos passos</h3>${agendaItem('15:00', 'Dentista', '13 de novembro · Lembrete às 14h')}${agendaItem('10:00', 'Revisar a proposta', 'Amanhã · Trabalho', 'check')}${goal()}</div></div>`;
+    if (view === 'transacoes') {
+      const monetary = ['expense', 'income'].includes(activeScenario.kind);
+      return `${heading('Seu dinheiro, com contexto.')}
       <div class="stat-pair"><div><span>Entradas registradas</span><strong>${money(state.income)}</strong></div><div><span>Saídas registradas</span><strong>${money(state.expenses)}</strong></div></div>
       ${monetary ? transaction(activeScenario.record, activeScenario.detail, activeScenario.amount, { highlight: true, positive: activeScenario.kind === 'income' }) : transaction('Mercado', 'Alimentação · 11/11', 15200, { symbol: 'wallet' })}
       ${transaction('Aluguel', 'Casa · 05/11', 95000, { symbol: 'home' })}
       ${transaction('Salário', 'Receita · 05/11', 480000, { positive: true, symbol: 'arrow-down-left' })}
       <div class="balance-line"><span>Saldo dos registros</span><strong>${money(state.balance)}</strong></div>`;
-  }
-  if (view === 'categorias') {
-    const colors = {
-      navy: '#263f65',
-      blue: '#0061fd',
-      sky: '#5685be',
-      gray: '#8c9eb7',
-      violet: '#7370ad',
-    };
-    return `${heading('Cada gasto tem seu lugar.')}<div class="balance-line"><span>Total das despesas registradas</span><strong>${money(state.expenses)}</strong></div>${state.categories.map((category) => `<div class="category-row" style="--bar-color:${colors[category.color]};--bar-width:${((category.amount / state.expenses) * 100).toFixed(2)}%"><div class="category-label"><span><i></i>${category.name}</span><strong>${money(category.amount)}</strong></div><div class="category-bar" aria-hidden="true"><i></i></div></div>`).join('')}`;
-  }
-  if (view === 'agenda') {
-    const hasEvent = ['event', 'reminder', 'task'].includes(activeScenario.kind);
-    return `${heading('O que vem pela frente.')}<div class="agenda-day"><div class="agenda-date"><small>NOV</small><b>12</b></div><div><strong>Uma coisa de cada vez.</strong><span>Compromissos, tarefas e lembretes.</span></div></div>
+    }
+    if (view === 'categorias') {
+      const colors = {
+        navy: '#263f65',
+        blue: '#0061fd',
+        sky: '#5685be',
+        gray: '#8c9eb7',
+        violet: '#7370ad',
+      };
+      return `${heading('Cada gasto tem seu lugar.')}<div class="balance-line"><span>Total das despesas registradas</span><strong>${money(state.expenses)}</strong></div>${state.categories.map((category) => `<div class="category-row" style="--bar-color:${colors[category.color]};--bar-width:${((category.amount / state.expenses) * 100).toFixed(2)}%"><div class="category-label"><span><i></i>${category.name}</span><strong>${money(category.amount)}</strong></div><div class="category-bar" aria-hidden="true"><i></i></div></div>`).join('')}`;
+    }
+    if (view === 'agenda') {
+      const hasEvent = ['event', 'reminder', 'task'].includes(activeScenario.kind);
+      return `${heading('O que vem pela frente.')}<div class="agenda-day"><div class="agenda-date"><small>NOV</small><b>12</b></div><div><strong>Uma coisa de cada vez.</strong><span>Compromissos, tarefas e lembretes.</span></div></div>
       ${hasEvent ? agendaItem(activeScenario.time, activeScenario.record, `${activeScenario.detail} · ${activeScenario.note}`, activeScenario.icon) : agendaItem('15:00', 'Dentista', '13 de novembro · Aviso às 14h')}
       ${agendaItem('17:00', 'Revisar a proposta', '12 de novembro · Tarefa pendente', 'check')}
       ${agendaItem('18:00', 'Pagar a fatura', '12 de novembro · Lembrete no WhatsApp', 'bell')}`;
-  }
-  return `${heading('Um espaço que é seu.')}<div class="profile-person"><span class="profile-avatar">MC</span><div><strong>Marina Costa</strong><p>Perfil fictício · Demonstração</p></div></div><div class="profile-setting"><span>Acesso ao painel</span><strong>Código pelo WhatsApp</strong></div><div class="profile-setting"><span>Moeda dos registros</span><strong>Real brasileiro (R$)</strong></div><div class="profile-setting"><span>Preferência de tema</span><strong>Claro, escuro ou sistema</strong></div><p class="profile-note">Esta prévia não permite alterar uma conta. Para consultar e editar seus dados reais, entre no seu painel pessoal.</p>`;
-}
-function showView(view, focusTab = false) {
-  if (!panel || !tabs.some((tab) => tab.dataset.view === view)) return;
-  activeView = view;
-  tabs.forEach((tab) => {
-    const selected = tab.dataset.view === view;
-    tab.setAttribute('aria-selected', String(selected));
-    tab.tabIndex = selected ? 0 : -1;
-    if (selected && focusTab) tab.focus({ preventScroll: true });
-  });
-  panel.setAttribute('aria-labelledby', `tab-${view}`);
-  panel.innerHTML = dashboardMarkup(view);
-}
-tabs.forEach((tab, index) => {
-  tab.addEventListener('click', () => showView(tab.dataset.view));
-  tab.addEventListener('keydown', (event) => {
-    let next;
-    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
-    if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
-    if (event.key === 'Home') next = 0;
-    if (event.key === 'End') next = tabs.length - 1;
-    if (next === undefined) return;
-    event.preventDefault();
-    showView(tabs[next].dataset.view, true);
-  });
-});
-function playScenario(scenario, animate = true) {
-  clearTimeout(replayTimer);
-  activeScenario = scenario;
-  $$('[data-scenario]').forEach((button) =>
-    button.setAttribute('aria-pressed', String(button.dataset.scenario === scenario.id))
-  );
-  $('#demo-user').textContent = scenario.user;
-  $('#demo-tag').textContent = scenario.tag;
-  $('#demo-status').textContent = '';
-  const reply = $('#demo-reply');
-  const bubble = $('#demo-reply-bubble');
-  const workspace = $('.demo-workspace');
-  const finish = () => {
-    reply.textContent = scenario.reply;
-    workspace.classList.remove('demo-pending');
-    panel.removeAttribute('aria-busy');
-    showView(scenario.tab);
-    if (animate && !reducedMotion.matches) {
-      bubble.classList.remove('message-enter');
-      panel.classList.remove('panel-enter');
-      // A fresh frame restarts only these finite, small entrance animations.
-      requestAnimationFrame(() => {
-        bubble.classList.add('message-enter');
-        panel.classList.add('panel-enter');
-      });
     }
-    $('#demo-status').textContent =
-      `${scenario.label}: ${scenario.cta}. A prévia do painel foi atualizada. Dados fictícios.`;
-  };
-  if (!animate || reducedMotion.matches) {
-    finish();
-    return;
+    return `${heading('Um espaço que é seu.')}<div class="profile-person"><span class="profile-avatar">MC</span><div><strong>Marina Costa</strong><p>Perfil fictício · Demonstração</p></div></div><div class="profile-setting"><span>Acesso ao painel</span><strong>Código pelo WhatsApp</strong></div><div class="profile-setting"><span>Moeda dos registros</span><strong>Real brasileiro (R$)</strong></div><div class="profile-setting"><span>Preferência de tema</span><strong>Claro, escuro ou sistema</strong></div><p class="profile-note">Esta prévia não permite alterar uma conta. Para consultar e editar seus dados reais, entre no seu painel pessoal.</p>`;
   }
-  workspace.classList.add('demo-pending');
-  panel.setAttribute('aria-busy', 'true');
-  reply.innerHTML =
-    '<span class="typing" aria-label="Preparando exemplo"><i></i><i></i><i></i></span>';
-  replayTimer = setTimeout(finish, 320);
+  function showView(view, focusTab = false) {
+    if (!panel || !tabs.some((tab) => tab.dataset.view === view)) return;
+    activeView = view;
+    tabs.forEach((tab) => {
+      const selected = tab.dataset.view === view;
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      if (selected && focusTab) tab.focus({ preventScroll: true });
+    });
+    panel.setAttribute('aria-labelledby', `tab-${view}`);
+    panel.innerHTML = dashboardMarkup(view);
+  }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => showView(tab.dataset.view));
+    tab.addEventListener('keydown', (event) => {
+      let next;
+      if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+      if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === 'Home') next = 0;
+      if (event.key === 'End') next = tabs.length - 1;
+      if (next === undefined) return;
+      event.preventDefault();
+      showView(tabs[next].dataset.view, true);
+    });
+  });
+  function playScenario(scenario, animate = true) {
+    clearTimeout(replayTimer);
+    activeScenario = scenario;
+    $$('[data-scenario]').forEach((button) =>
+      button.setAttribute('aria-pressed', String(button.dataset.scenario === scenario.id))
+    );
+    if (!$('#demo-user')) {
+      showView(scenario.tab);
+      return;
+    }
+    $('#demo-user').textContent = scenario.user;
+    $('#demo-tag').textContent = scenario.tag;
+    $('#demo-status').textContent = '';
+    const reply = $('#demo-reply');
+    const bubble = $('#demo-reply-bubble');
+    const workspace = $('.demo-workspace');
+    const finish = () => {
+      reply.textContent = scenario.reply;
+      workspace.classList.remove('demo-pending');
+      panel.removeAttribute('aria-busy');
+      showView(scenario.tab);
+      if (animate && !reducedMotion.matches) {
+        bubble.classList.remove('message-enter');
+        panel.classList.remove('panel-enter');
+        // A fresh frame restarts only these finite, small entrance animations.
+        requestAnimationFrame(() => {
+          bubble.classList.add('message-enter');
+          panel.classList.add('panel-enter');
+        });
+      }
+      $('#demo-status').textContent =
+        `${scenario.label}: ${scenario.cta}. A prévia do painel foi atualizada. Dados fictícios.`;
+    };
+    if (!animate || reducedMotion.matches) {
+      finish();
+      return;
+    }
+    workspace.classList.add('demo-pending');
+    panel.setAttribute('aria-busy', 'true');
+    reply.innerHTML =
+      '<span class="typing" aria-label="Preparando exemplo"><i></i><i></i><i></i></span>';
+    replayTimer = setTimeout(finish, 320);
+  }
+  $$('[data-scenario]').forEach((button) =>
+    button.addEventListener('click', () =>
+      playScenario(scenarios.find((scenario) => scenario.id === button.dataset.scenario))
+    )
+  );
+  $('#replay')?.addEventListener('click', () => playScenario(activeScenario));
+  const requested = location.hash.slice(1);
+  if ($('#demo-user'))
+    playScenario(scenarios.find((s) => s.id === requested) || scenarios[0], false);
+  else showView('inicio');
+  window.addEventListener('hashchange', () => {
+    const s = scenarios.find((s) => s.id === location.hash.slice(1));
+    if (s && $('#demo-user')) playScenario(s);
+  });
 }
-$$('[data-scenario]').forEach((button) =>
-  button.addEventListener('click', () =>
-    playScenario(scenarios.find((scenario) => scenario.id === button.dataset.scenario))
-  )
-);
-$('#replay')?.addEventListener('click', () => playScenario(activeScenario));
 
 // All requests keep the existing landing API contract and its CSRF protection.
 const contact = $('#contact-dialog');
@@ -346,15 +360,183 @@ if ($('#plano') && 'IntersectionObserver' in window) {
   );
   observer.observe($('#plano'));
 }
-if (['#contato', '#interesse'].includes(location.hash)) openContact();
-if (['#painel', '#experimente', '#funcionalidades', '#como'].includes(location.hash)) {
-  const aliases = {
-    '#painel': '#na-pratica',
-    '#experimente': '#na-pratica',
-    '#funcionalidades': '#recursos',
-    '#como': '#como-comecar',
-  };
-  const target = aliases[location.hash];
-  history.replaceState(null, '', target);
-  $(target)?.scrollIntoView();
+
+const dayData = {
+  rotina: {
+    scenario: 'agenda',
+    user: 'Astra, o que tenho para hoje?',
+    reply:
+      'Nos seus registros de hoje: revisar a proposta às 10h e dentista às 15h. O lembrete do dentista está marcado para as 14h.',
+    title: 'SEU DIA · EXEMPLO',
+    rows: [
+      ['10:00', 'Revisar a proposta'],
+      ['14:00', 'Lembrete do dentista'],
+      ['15:00', 'Consulta no dentista'],
+    ],
+  },
+  agenda: {
+    scenario: 'agenda',
+    user: 'Marca dentista amanhã às 15h e me lembra uma hora antes.',
+    reply: 'Dentista registrado para amanhã, às 15h. O lembrete ficou para as 14h.',
+    title: 'COMPROMISSO ORGANIZADO',
+    rows: [
+      ['13 NOV', 'Dentista · 15:00'],
+      ['14:00', 'Aviso no WhatsApp'],
+    ],
+  },
+  financas: {
+    scenario: 'financas',
+    user: 'Astra, gastei R$ 42 no almoço.',
+    reply:
+      'Registrei R$ 42,00 em Alimentação. Com este almoço, seus registros da categoria somam R$ 420,00 neste mês.',
+    title: 'SEU ALMOÇO NOS REGISTROS',
+    rows: [
+      ['R$ 42,00', 'Almoço · Alimentação'],
+      ['R$ 420,00', 'Total da categoria no mês'],
+    ],
+  },
+  notas: {
+    scenario: 'notas',
+    user: 'Qual era o nome da pousada que pedi para você anotar?',
+    reply:
+      'Na nota que você salvou: Pousada do Lago. Você anotou também para consultar a disponibilidade para dezembro.',
+    title: 'NOTA ENCONTRADA · EXEMPLO',
+    rows: [
+      ['VIAGEM', 'Pousada do Lago'],
+      ['NOTA', 'Consultar disponibilidade em dezembro'],
+    ],
+  },
+  tarefas: {
+    scenario: 'tarefas',
+    user: 'O que ficou para resolver amanhã?',
+    reply:
+      'Você tem duas tarefas registradas: revisar a proposta às 10h e separar os documentos da viagem.',
+    title: 'PARA AMANHÃ',
+    rows: [
+      ['10:00', 'Revisar a proposta'],
+      ['PENDENTE', 'Separar documentos da viagem'],
+    ],
+  },
+};
+const dayTabs = $$('[data-day]');
+let dayCurrent = 'rotina',
+  dayTimer;
+function dayBubble(text, out) {
+  return `<div class="message message-${out ? 'out' : 'in'}">${out ? '' : '<strong class="message-author">Astra</strong>'}<p>${text}</p><span class="message-time">${dayTabs.find((t) => t.dataset.day === dayCurrent)?.querySelector('time')?.textContent || '07:40'} ${out ? icon('double-check') : ''}</span></div>`;
 }
+function showDay(id, animate = true, focus = false) {
+  const data = dayData[id];
+  if (!data || !$('#day-content')) return;
+  clearTimeout(dayTimer);
+  dayCurrent = id;
+  dayTabs.forEach((t) => {
+    const on = t.dataset.day === id;
+    t.setAttribute('aria-selected', String(on));
+    t.tabIndex = on ? 0 : -1;
+    if (on && focus) {
+      t.focus({ preventScroll: true });
+      t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  });
+  $('#day-content').setAttribute('aria-labelledby', 'day-tab-' + id);
+  $('#day-explore').href = '/demonstracao#' + data.scenario;
+  const finish = () => {
+    $('#day-messages').innerHTML =
+      dayBubble(data.user, true) +
+      dayBubble(data.reply, false) +
+      `<div class="day-result white-card"><span class="mini-label">${data.title}</span>${data.rows.map(([when, title]) => `<div><time>${when}</time><strong>${title}</strong></div>`).join('')}</div>`;
+    $('#day-content').removeAttribute('aria-busy');
+  };
+  if (animate && !reducedMotion.matches) {
+    $('#day-content').setAttribute('aria-busy', 'true');
+    dayTimer = setTimeout(finish, 160);
+  } else finish();
+}
+dayTabs.forEach((tab, index) => {
+  tab.addEventListener('click', () => showDay(tab.dataset.day));
+  tab.addEventListener('keydown', (e) => {
+    let next;
+    if (['ArrowDown', 'ArrowRight'].includes(e.key)) next = (index + 1) % dayTabs.length;
+    if (['ArrowUp', 'ArrowLeft'].includes(e.key))
+      next = (index - 1 + dayTabs.length) % dayTabs.length;
+    if (e.key === 'Home') next = 0;
+    if (e.key === 'End') next = dayTabs.length - 1;
+    if (next === undefined) return;
+    e.preventDefault();
+    showDay(dayTabs[next].dataset.day, false, true);
+  });
+});
+$('#day-replay')?.addEventListener('click', () => showDay(dayCurrent));
+const header = $('.site-header');
+let scrollTick = false;
+addEventListener(
+  'scroll',
+  () => {
+    if (scrollTick) return;
+    scrollTick = true;
+    requestAnimationFrame(() => {
+      header?.classList.toggle('is-floating', scrollY > 48);
+      scrollTick = false;
+    });
+  },
+  { passive: true }
+);
+const products = $('.products-menu');
+document.addEventListener('click', (e) => {
+  if (products?.open && !products.contains(e.target)) products.open = false;
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && products?.open) {
+    products.open = false;
+    products.querySelector('summary')?.focus();
+  }
+});
+const composer = $('#demo-composer');
+composer?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const value = $('#demo-question').value.toLocaleLowerCase('pt-BR');
+  const keys = [
+    [/gastei|gasto|almo|dinheiro|finan/, 'financas'],
+    [/recebi|sal[aá]rio|projeto/, 'trabalho'],
+    [/dentista|agenda|compromisso/, 'agenda'],
+    [/lembra|internet|pagar/, 'lembretes'],
+    [/tarefa|contrato|proposta/, 'tarefas'],
+    [/meta|juntar|guardar/, 'metas'],
+    [/viag|pousada/, 'viagens'],
+    [/estud|ingl[eê]s/, 'estudos'],
+    [/fam[ií]lia|escola/, 'familia'],
+    [/nota|anot|informa/, 'notas'],
+  ];
+  const match = keys.find(([re]) => re.test(value));
+  if (!match) {
+    $('#composer-status').textContent =
+      'Esta é uma simulação com exemplos prontos. Escolha uma das situações abaixo para continuar.';
+    return;
+  }
+  location.hash = match[1];
+  $('#composer-status').textContent =
+    'Abrimos um exemplo ilustrativo relacionado ao assunto. Seu texto não foi enviado nem salvo.';
+  document
+    .querySelector('#scenario-picker')
+    ?.scrollIntoView({ behavior: reducedMotion.matches ? 'instant' : 'smooth', block: 'start' });
+});
+if (['#contato', '#interesse'].includes(location.hash)) openContact();
+const oldAnchors = {
+  '#experimente': '#na-pratica',
+  '#funcionalidades': '#recursos',
+  '#como': '#como-comecar',
+  '#planos': '#plano',
+};
+if (oldAnchors[location.hash]) {
+  history.replaceState(null, '', oldAnchors[location.hash]);
+  $(location.hash)?.scrollIntoView();
+}
+
+const dayOrientation = matchMedia('(max-width:699px)');
+const syncDayOrientation = () =>
+  $('.day-choices')?.setAttribute(
+    'aria-orientation',
+    dayOrientation.matches ? 'horizontal' : 'vertical'
+  );
+syncDayOrientation();
+dayOrientation.addEventListener('change', syncDayOrientation);

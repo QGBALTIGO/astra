@@ -1,5 +1,15 @@
 # Astra landing
 
+## Presentation update, 13 November 2026
+
+The public presentation follows the requested Meu Assessor interaction and composition pattern: centered introduction, wide guided conversation entry, five situations throughout a day, alternating product illustrations, a browser dashboard, capability links, monthly pricing and native disclosure FAQs. Official Astra artwork, blue, product capabilities and R$ 19,90/month remain specific to Astra.
+
+The eleven public destinations cover the guided demonstration, six capabilities, getting started, security, product information and support. No bank connection, fiscal issuance, independent named assessors, native app, competitor testimonials or unsupported integrations are advertised. The ten detailed examples and the topic chooser are explicitly simulated; the chooser matches local topics without sending the entered text anywhere.
+
+The Poppins regular Latin font is self-hosted from Google Fonts; `src/assets/POPPINS_LICENSE.txt` contains its OFL. The blue backdrop is an original lightweight SVG. No competitor image, logo, JavaScript or stylesheet was copied.
+
+Visual candidates for this presentation are generated separately under `tests/browser/screenshots/assessor-pattern/`. They must be reviewed before accepting references. `rollback/production-before-assessor-pattern.ts` captures the live landing Function read before this change. The existing form protections and operations remain intact; only public routes and sitemap coverage expand.
+
 Independent, buildless public frontend for the existing Railway `astra-landing` Bun Function. It does not build, deploy or import the agent, WhatsApp, customer dashboard or Ollama.
 
 ## Work locally

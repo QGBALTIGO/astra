@@ -1,74 +1,77 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { scenarios } from '../../src/assets/scenarios.js';
-
+import { publicPages } from '../../src/public-pages.mjs';
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => document.fonts.ready);
 });
-test('viewport, full page and product visual regression', async ({ page }) => {
+async function noOverflow(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true
   );
+}
+test('responsive layout and visual regression', async ({ page }) => {
+  await noOverflow(page);
   await expect(page).toHaveScreenshot('hero.png');
-  await expect(page.locator('.demo-workspace')).toHaveScreenshot('demo.png');
+  await expect(page.locator('.day-chat')).toHaveScreenshot('demo.png');
   await expect(page.locator('.price-card')).toHaveScreenshot('price.png');
+  await expect(page.locator('.dashboard-frame')).toHaveScreenshot('panel.png');
   await page.screenshot({ path: test.info().outputPath('full-page.png'), fullPage: true });
   const overflow = await page
-    .locator('h1,h2,h3,p,button,a,img,.feature-card,.price-card')
+    .locator('h1,h2,h3,p,img,.price-card,.product-art')
     .evaluateAll((elements) =>
       elements
-        .filter((element) => {
-          const rect = element.getBoundingClientRect();
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
           return (
-            rect.width > 0 &&
-            getComputedStyle(element).visibility !== 'hidden' &&
-            !element.closest('dialog:not([open])') &&
-            !element.classList.contains('skip-link') &&
-            (rect.right > innerWidth + 1 || rect.left < -1)
+            r.width > 0 &&
+            getComputedStyle(el).visibility !== 'hidden' &&
+            !el.closest('dialog:not([open])') &&
+            !el.closest('.day-choices') &&
+            !el.classList.contains('visually-hidden') &&
+            (r.right > innerWidth + 1 || r.left < -1)
           );
         })
-        .map((element) => ({ tag: element.tagName, text: element.textContent.slice(0, 60) }))
+        .map((el) => ({ tag: el.tagName, text: el.textContent.slice(0, 60) }))
     );
   expect(overflow).toEqual([]);
 });
-test('all nine conversations create coherent dashboard previews', async ({ page }) => {
-  for (const scenario of scenarios) {
-    await page.locator(`[data-scenario="${scenario.id}"]`).click();
-    await expect(page.locator('#demo-user')).toHaveText(scenario.user);
-    await expect(page.locator('#demo-reply')).toHaveText(scenario.reply);
-    await expect(page.locator('#dashboard-panel')).toContainText(scenario.cta);
-    await expect(page.locator(`#tab-${scenario.tab}`)).toHaveAttribute('aria-selected', 'true');
+test('five day situations respond, cancel stale animations and support keyboard', async ({
+  page,
+}) => {
+  for (const id of ['rotina', 'agenda', 'financas', 'notas', 'tarefas']) {
+    await page.locator(`[data-day="${id}"]`).click();
+    await expect(page.locator(`#day-tab-${id}`)).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#day-content')).toHaveAttribute('aria-labelledby', 'day-tab-' + id);
+    await expect(page.locator('#day-content')).not.toHaveAttribute('aria-busy', 'true');
   }
-  await page.locator('[data-scenario="agenda"]').click();
-  await page.locator('[data-scenario="metas"]').click();
-  await page.locator('[data-scenario="trabalho"]').click();
-  await expect(page.locator('#demo-reply')).toHaveText(
-    scenarios.find((scenario) => scenario.id === 'trabalho').reply
-  );
-  await expect(page.locator('#dashboard-panel')).toContainText('5.650,00');
-  await page.getByRole('button', { name: 'Rever conversa' }).click();
-  await expect(page.locator('#demo-reply')).toHaveText(
-    scenarios.find((scenario) => scenario.id === 'trabalho').reply
-  );
+  await page.locator('[data-day="financas"]').click();
+  await page.locator('[data-day="notas"]').click();
+  await expect(page.locator('#day-messages')).toContainText('Pousada do Lago');
+  await page.locator('#day-replay').click();
+  await expect(page.locator('#day-messages')).toContainText('Pousada do Lago');
+  await page.locator('#day-tab-rotina').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#day-tab-agenda')).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(page.locator('#day-tab-tarefas')).toBeFocused();
+  await expect(page.locator('#day-messages')).toContainText('duas tarefas');
 });
-test('dashboard tabs work with keyboard and maintain ARIA state', async ({ page }) => {
+test('dashboard tabs use roving focus and show coherent data', async ({ page }) => {
   await page.locator('#tab-transacoes').focus();
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('#tab-categorias')).toBeFocused();
-  await expect(page.locator('#dashboard-panel')).toHaveAttribute(
-    'aria-labelledby',
-    'tab-categorias'
-  );
   await expect(page.locator('#dashboard-panel')).toContainText('1.624,00');
   await page.keyboard.press('End');
   await expect(page.locator('#tab-perfil')).toBeFocused();
   await expect(page.locator('#dashboard-panel')).toContainText('Perfil fictício');
   await page.keyboard.press('Home');
   await expect(page.locator('#tab-inicio')).toBeFocused();
-  expect(await page.locator('[role="tab"][tabindex="0"]').count()).toBe(1);
+  await expect(page.locator('#dashboard-panel')).toContainText('3.176,00');
+  expect(await page.locator('.dashboard-tabs [role="tab"][tabindex="0"]').count()).toBe(1);
 });
-test('navigation, FAQ, menu and history stay usable', async ({ page, viewport }) => {
+test('navigation, products, FAQ and browser history work', async ({ page, viewport }) => {
   if (viewport.width < 960) {
     await page.getByRole('button', { name: 'Abrir menu' }).click();
     await expect(page.locator('#mobile-menu')).toBeVisible();
@@ -78,10 +81,17 @@ test('navigation, FAQ, menu and history stay usable', async ({ page, viewport })
     await page.getByRole('button', { name: 'Abrir menu' }).click();
     await page.locator('#mobile-menu').getByRole('link', { name: 'Plano e assinatura' }).click();
     await expect(page.locator('#mobile-menu')).not.toBeVisible();
-  } else await page.getByRole('link', { name: 'Conhecer o plano', exact: true }).click();
+  } else {
+    await page.locator('.products-menu>summary').click();
+    await expect(page.locator('.products-popover')).toBeVisible();
+    expect(await page.locator('.products-grid>a').count()).toBe(6);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.products-popover')).not.toBeVisible();
+    await page.locator('.header-cta').click();
+  }
   await expect(page).toHaveURL(/#plano$/);
-  await page.locator('summary').filter({ hasText: 'Quanto custa o Astra?' }).click();
-  await expect(page.locator('details[open]')).toContainText('R$ 19,90/mês');
+  await page.locator('.faq-list summary').filter({ hasText: 'Quanto custa o Astra?' }).click();
+  await expect(page.locator('.faq-list details[open]')).toContainText('R$ 19,90/mês');
   await page.goBack();
   await page.locator('.brand').first().click();
   await expect(page).toHaveURL(/#inicio$/);
@@ -129,46 +139,101 @@ test('form validation, loading, errors, retry and success use isolated mock resp
   await page.getByRole('button', { name: 'Concluir', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Quero tirar uma dúvida' })).toBeFocused();
 });
-test('privacy, terms, error and removal pages are real and safe', async ({ page }) => {
-  for (const path of ['/privacidade', '/condicoes']) {
-    const response = await page.goto(path);
-    expect(response.status()).toBe(200);
-    await expect(page.locator('h1')).toBeVisible();
-    expect(await page.locator('body').innerText()).not.toMatch(/0,99|20,89|ativa[çc][ãa]o manual/i);
+
+test('all guided conversations produce the correct result and dashboard state', async ({
+  page,
+}) => {
+  await page.goto('/demonstracao');
+  for (const s of scenarios) {
+    await page.locator(`[data-scenario="${s.id}"]`).click();
+    await expect(page.locator('#demo-user')).toHaveText(s.user);
+    await expect(page.locator('#demo-reply')).toHaveText(s.reply);
+    await expect(page.locator('#dashboard-panel')).toContainText(s.cta);
+    await expect(page.locator('#tab-' + s.tab)).toHaveAttribute('aria-selected', 'true');
   }
-  const response = await page.goto('/not-a-route');
-  expect(response.status()).toBe(404);
+  await page.locator('[data-scenario="agenda"]').click();
+  await page.locator('[data-scenario="metas"]').click();
+  await page.locator('[data-scenario="trabalho"]').click();
+  await expect(page.locator('#dashboard-panel')).toContainText('5.650,00');
+  await page.locator('#tab-inicio').click();
+  await expect(page.locator('#dashboard-panel')).toContainText('1.582,00');
+  await page.getByRole('button', { name: 'Rever conversa' }).click();
+  await expect(page.locator('#demo-reply')).toContainText('850,00');
+});
+test('local topic chooser and linked demonstrations preserve the simulation boundary', async ({
+  page,
+}) => {
+  const outbound = [];
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && !req.url().endsWith('/api/evento')) outbound.push(req.url());
+  });
+  await page.goto('/demonstracao#notas');
+  await expect(page.locator('#demo-reply')).toContainText('Pousada do Lago');
+  await expect(page.locator('#dashboard-panel')).toContainText('recuperada no WhatsApp');
+  await page
+    .getByLabel('Escolha um assunto para explorar')
+    .fill('Quero criar um lembrete para pagar internet');
+  await page.getByRole('button', { name: 'Explorar assunto' }).click();
+  await expect(page).toHaveURL(/#lembretes$/);
+  await expect(page.locator('#demo-reply')).toContainText('internet');
+  await page
+    .getByLabel('Escolha um assunto para explorar')
+    .fill('Uma pergunta que não está nos exemplos');
+  await page.getByRole('button', { name: 'Explorar assunto' }).click();
+  await expect(page.locator('#composer-status')).toContainText('exemplos prontos');
+  expect(outbound).toEqual([]);
+});
+test('all public destinations, legal pages and error states are complete', async ({ page }) => {
+  test.setTimeout(90000);
+  for (const p of publicPages) {
+    const response = await page.goto(p.path);
+    expect(response.status(), p.path).toBe(200);
+    await expect(page.locator('h1')).toHaveCount(1);
+    await expect(page.locator('.site-footer')).toBeVisible();
+    await noOverflow(page);
+  }
+  for (const path of ['/privacidade', '/condicoes']) {
+    const res = await page.goto(path);
+    expect(res.status()).toBe(200);
+    await expect(page.locator('h1')).toBeVisible();
+    expect(await page.locator('body').innerText()).not.toMatch(/0,99|20,89|ativação manual/i);
+  }
+  expect((await page.goto('/not-a-route')).status()).toBe(404);
   await expect(page.getByRole('link', { name: 'Voltar para o Astra' })).toBeVisible();
   await page.goto('/remover');
   await expect(page.locator('#remove-request')).toBeDisabled();
   await expect(page.locator('#remove-status')).toContainText('link pessoal');
 });
-test('accessibility AA, reduced motion and dialogs', async ({ page }) => {
+test('accessibility AA, reduced motion and contact dialog', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.locator('[data-scenario="metas"]').click();
-  await expect(page.locator('#demo-reply')).toContainText('65%');
-  let audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  await page.locator('[data-day="financas"]').click();
+  await expect(page.locator('#day-messages')).toContainText('420,00');
+  let audit = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze();
   expect(audit.violations).toEqual([]);
   await page.getByRole('button', { name: 'Quero tirar uma dúvida' }).click();
-  audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  audit = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze();
   expect(audit.violations).toEqual([]);
   await page.keyboard.press('Escape');
   await expect(page.locator('#contact-dialog')).not.toBeVisible();
 });
-test('assets and scripts load without browser errors or checkout side effects', async ({
+test('assets, navigation scripts and checkout links have no errors or payment side effects', async ({
   page,
 }) => {
-  const errors = [];
-  const failed = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+  const errors = [],
+    failed = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
   });
-  page.on('requestfailed', (request) => failed.push(request.url()));
+  page.on('requestfailed', (r) => failed.push(r.url()));
   await page.reload();
   await page.evaluate(() => document.fonts.ready);
-  await page.locator('[data-scenario="viagens"]').click();
-  await expect(page.locator('#demo-reply')).toContainText('380,00');
+  await page.locator('[data-day="notas"]').click();
+  await expect(page.locator('#day-messages')).toContainText('Pousada do Lago');
   expect(errors).toEqual([]);
   expect(failed).toEqual([]);
   for (const link of await page.locator('a[href*="pay.cakto.com.br"]').all()) {

@@ -11,7 +11,7 @@ export default defineConfig({
     ['html', { open: 'never' }],
     ['json', { outputFile: 'artifacts/browser-results.json' }],
   ],
-  snapshotPathTemplate: '{testDir}/screenshots/{projectName}/{arg}{ext}',
+  snapshotPathTemplate: '{testDir}/screenshots/assessor-pattern/{projectName}/{arg}{ext}',
   use: {
     baseURL: process.env.ASTRA_LANDING_TEST_URL || 'http://127.0.0.1:4173',
     locale: 'pt-BR',

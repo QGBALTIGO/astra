@@ -4,7 +4,7 @@
 import { SQL } from 'bun';
 import { gzipSync } from 'node:zlib';
 import { createHash, createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
-const RELEASE = 'premium-20261112';
+const RELEASE = 'assessor-pattern-20261113';
 /* PUBLIC_ASSET_BUNDLE */
 const preview = Bun.env.LANDING_PREVIEW === 'true';
 const schema = preview ? 'astra_landing_preview' : 'astra_landing';
@@ -210,6 +210,17 @@ const routes = {
   '/privacidade': '/privacidade.html',
   '/condicoes': '/condicoes.html',
   '/remover': '/remover.html',
+  '/demonstracao': '/demonstracao.html',
+  '/financas': '/financas.html',
+  '/agenda': '/agenda.html',
+  '/lembretes': '/lembretes.html',
+  '/tarefas': '/tarefas.html',
+  '/metas': '/metas.html',
+  '/notas': '/notas.html',
+  '/como-usar': '/como-usar.html',
+  '/seguranca': '/seguranca.html',
+  '/sobre': '/sobre.html',
+  '/suporte': '/suporte.html',
 };
 function staticResponse(req, path, status = 200) {
   const a = assets.get(path);
@@ -330,7 +341,8 @@ async function handle(req) {
       method === 'HEAD'
         ? null
         : '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
-            ['/', '/privacidade', '/condicoes']
+            Object.keys(routes)
+              .filter((route) => !route.endsWith('.html') && route !== '/remover')
               .map((x) => '<url><loc>' + publicOrigin + x + '</loc></url>')
               .join('') +
             '</urlset>',

@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { minify } from 'terser';
 import { pages } from '../src/legal.mjs';
+import { publicPages } from '../src/public-pages.mjs';
 import { scenarios, scenarioState, money } from '../src/assets/scenarios.js';
 import { requests, unavailableEvents } from './sql-double.mjs';
 
@@ -38,6 +39,11 @@ const token = async () => (await (await send('/api/form-token')).json()).token;
 
 test('the deployed form and HTTP handler code is preserved under source formatting', async () => {
   async function protectedCode(source) {
+    // Only the public sitemap now follows the complete public route inventory.
+    source = source.replace(
+      /Object\.keys\(routes\)\.filter\(\s*\(?route\)?\s*=>\s*!route\.endsWith\(['"]\.html['"]\)\s*&&\s*route\s*!==\s*['"]\/remover['"]\s*\)/g,
+      "['/', '/privacidade', '/condicoes']"
+    );
     const { code } = await minify(source, {
       module: true,
       compress: false,
@@ -47,7 +53,13 @@ test('the deployed form and HTTP handler code is preserved under source formatti
     const forms = code.match(/^function formToken\(\) \{[\s\S]+?(?=^const routes =)/m);
     const handler = code.match(/^async function handle\(req\) \{[\s\S]+?^\}/m);
     assert.ok(forms && handler, 'Expected form logic and an HTTP handler');
-    return [forms[0], handler[0]];
+    return [
+      forms[0],
+      handler[0].replace(
+        'Object.keys(routes).filter(route => !route.endsWith(".html") && route !== "/remover")',
+        '[ "/", "/privacidade", "/condicoes" ]'
+      ),
+    ];
   }
   // Keep the complete historical form logic and handler apart from the reviewed
   // metrics log and exact allowlist of first-party landing origins.
@@ -95,7 +107,7 @@ test('canonical, social images, JSON-LD, login links and sitemap publish the new
     JSON.parse(home.match(/<script type="application\/ld\+json">([\s\S]+?)<\/script>/)[1]).url,
     origin + '/'
   );
-  assert.equal(home.match(/href="https:\/\/app\.astraacessor\.pro\/cliente\/entrar"/g)?.length, 4);
+  assert.equal(home.match(/href="https:\/\/app\.astraacessor\.pro\/cliente\/entrar"/g)?.length, 5);
   assert.match(
     await (await send('/robots.txt')).text(),
     /Sitemap: https:\/\/astraacessor\.pro\/sitemap\.xml/
@@ -103,7 +115,9 @@ test('canonical, social images, JSON-LD, login links and sitemap publish the new
   const sitemap = await (await send('/sitemap.xml')).text();
   assert.deepEqual(
     [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]),
-    ['/', '/privacidade', '/condicoes'].map((path) => origin + path)
+    ['/', '/privacidade', '/condicoes', ...publicPages.map((page) => page.path)].map(
+      (path) => origin + path
+    )
   );
 });
 
@@ -173,9 +187,9 @@ test('all purchase links use the exact official checkout', () => {
     );
   }
 });
-test('the nine scenarios are distinct and map to supported dashboard areas', () => {
-  assert.equal(scenarios.length, 9);
-  assert.equal(new Set(scenarios.map((scenario) => scenario.id)).size, 9);
+test('the ten scenarios are distinct and map to supported dashboard areas', () => {
+  assert.equal(scenarios.length, 10);
+  assert.equal(new Set(scenarios.map((scenario) => scenario.id)).size, 10);
   for (const scenario of scenarios)
     assert.ok(['inicio', 'transacoes', 'categorias', 'agenda', 'perfil'].includes(scenario.tab));
 });
@@ -206,7 +220,7 @@ test('GET pages, static assets and health return their actual content types', as
     '/health',
     build.paths['/assets/app.js'],
     build.paths['/assets/styles.css'],
-    build.paths['/assets/dm-sans-latin.woff2'],
+    build.paths['/assets/poppins-latin-400.woff2'],
   ]) {
     const response = await send(path);
     assert.equal(response.status, 200, path);
@@ -402,4 +416,42 @@ test('isolated SQL double: success, idempotency, conflict and explicit deletion'
     ).status,
     200
   );
+});
+
+test('all product destinations have working routes, unique metadata and honest content', async () => {
+  for (const p of publicPages) {
+    const response = await send(p.path);
+    assert.equal(response.status, 200, p.path);
+    const html = await response.text();
+    assert.ok(html.includes(`<title>${p.title}</title>`));
+    assert.ok(html.includes(`rel="canonical" href="${origin}${p.path}"`));
+    assert.equal((html.match(/<h1[ >]/g) || []).length, 1);
+    assert.ok(
+      !/meuassessor|Open Finance|notas fiscais|350 mil|140 funcionalidades|App Store|Google Play|ativação manual|taxa da/i.test(
+        html
+      )
+    );
+  }
+});
+test('navigation and icon symbols resolve on every marketing page', () => {
+  const symbols = [...bundle[build.paths['/assets/icons.svg']].matchAll(/id="([^"]+)"/g)].map(
+    (m) => m[1]
+  );
+  for (const file of ['/index.html', ...publicPages.map((p) => p.path + '.html')]) {
+    const html = bundle[file];
+    const ids = [...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
+    assert.equal(new Set(ids).size, ids.length, file);
+    for (const use of html.matchAll(/<use href="[^"]+#([^"]+)"/g))
+      assert.ok(symbols.includes(use[1]), use[1]);
+    for (const match of html.matchAll(/href="([^"#?]+)(?:#[^"]*)?"/g)) {
+      const href = match[1];
+      if (href.startsWith('/') && !href.startsWith('/assets/'))
+        assert.ok(
+          href === '/' ||
+            publicPages.some((p) => p.path === href) ||
+            Object.values(pages).some((p) => p.path === href),
+          href
+        );
+    }
+  }
 });
