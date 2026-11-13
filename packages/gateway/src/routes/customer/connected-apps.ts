@@ -104,11 +104,7 @@ customerConnectedAppsRoutes.delete('/:id', async (c) => {
   try {
     const removed = await composioService.disconnectCustomerToolkit(userId(c.get('customer')), id);
     if (!removed) {
-      return apiError(
-        c,
-        { code: ERROR_CODES.NOT_FOUND, message: 'Conexão não encontrada.' },
-        404
-      );
+      return apiError(c, { code: ERROR_CODES.NOT_FOUND, message: 'Conexão não encontrada.' }, 404);
     }
     return apiResponse(c, { disconnected: true });
   } catch {
