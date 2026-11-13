@@ -529,14 +529,14 @@ html .astra-customer .ac-login-help a svg {
     padding: 15px;
   }
   html .astra-customer.ac-login {
-    padding: 28px 20px;
+    padding: 24px 16px;
   }
   html .astra-customer .ac-login-layout {
     display: block;
     max-width: 430px;
   }
   html .astra-customer .ac-login-card {
-    padding: 26px;
+    padding: 24px 20px;
     border-radius: 14px;
   }
   html .astra-customer .ac-login-mobile-brand {
@@ -564,12 +564,6 @@ html .astra-customer .ac-login-help a svg {
   }
   html .astra-customer .ac-page-heading h1 {
     font-size: 25px;
-  }
-  html .astra-customer.ac-login {
-    padding: 20px 12px;
-  }
-  html .astra-customer .ac-login-card {
-    padding: 24px 20px;
   }
 }
 @media (max-height: 680px) {
