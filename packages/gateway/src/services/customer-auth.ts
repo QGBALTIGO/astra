@@ -507,6 +507,7 @@ export class CustomerAuthService {
           if (whatsappPhoneSpellings(recipient).length > 1) {
             const identified = await selected.api.resolveWhatsAppRecipient?.(recipient);
             if (!identified) {
+              log.info('Customer code withheld: WhatsApp recipient unresolved');
               await this.d.auth.finishDelivery(challenge.id, lease, 'cancelled');
               continue;
             }
@@ -537,6 +538,7 @@ export class CustomerAuthService {
             sendBefore: challenge.expiresAt,
           });
           await this.d.auth.finishDelivery(challenge.id, lease, 'sent');
+          log.info('Customer code accepted by WhatsApp transport');
         } catch {
           try {
             if (invoked) await this.d.auth.finishDelivery(challenge.id, lease, 'failed');

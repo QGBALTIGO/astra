@@ -83,8 +83,32 @@ export class CustomerIdentityService {
         alias ||
         (user && (user.isVerified || user.accessSource || user.ownpilotUserId === 'default'))
     );
-    if (managed.length !== 1) return null;
-    return this.resolvePhone(managed[0]!.candidate, { provision: true });
+    // A prior admin could register both spellings. Only ignore a second
+    // unused grant when its record explicitly says it has never interacted,
+    // has no customer account and carries no restriction or foreign owner.
+    const established = managed.filter(
+      ({ alias, user, candidate }) =>
+        alias ||
+        !user ||
+        user.metadata?.hasInteracted !== false ||
+        !user.isVerified ||
+        user.status !== 'active' ||
+        user.ownpilotUserId !== 'whatsapp:' + candidate ||
+        channelUserAccessStatus(user, this.dependencies.now()) !== 'active'
+    );
+    if (managed.length > 1 && established.length === 0) {
+      // Neither grant has an account or interaction. Choose the earliest expiry
+      // and a stable spelling on ties, rather than extending either grant.
+      const [chosen] = [...managed].sort((a, b) => {
+        const endA = a.user?.accessExpiresAt?.getTime() ?? Infinity;
+        const endB = b.user?.accessExpiresAt?.getTime() ?? Infinity;
+        return endA === endB ? a.candidate.localeCompare(b.candidate) : endA - endB;
+      });
+      return this.resolvePhone(chosen!.candidate, { provision: true });
+    }
+    const owners = managed.length === 1 ? managed : established;
+    if (owners.length !== 1) return null;
+    return this.resolvePhone(owners[0]!.candidate, { provision: true });
   }
 
   async resolvePhone(

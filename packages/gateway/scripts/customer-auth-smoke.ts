@@ -154,6 +154,14 @@ export async function verifyCustomerAuthPersistence(adapter: DatabaseAdapter): P
     });
     assert.equal(duplicateGrant?.id, channelUserId);
     assert.equal((await identity.resolveLoginPhone(oldSpelling))?.accountId, accountId);
+    // Reproduce duplicate Brazilian authorizations created by older releases.
+    const unusedGrantId = randomUUID();
+    await adapter.execute(
+      `INSERT INTO channel_users(id,platform,platform_user_id,ownpilot_user_id,
+      is_verified,is_blocked,status,access_source,metadata) VALUES($1,'whatsapp',$2,$3,true,false,'active','manual','{"hasInteracted":false}'::jsonb)`,
+      [unusedGrantId, oldSpelling, 'whatsapp:' + oldSpelling]
+    );
+    assert.equal((await identity.resolveLoginPhone(oldSpelling))?.accountId, accountId);
     const first = await service.requestCode(`+${oldSpelling}`, 'synthetic-login-ip');
     await assert.rejects(
       service.requestCode(`+${phone}`, 'alternate-retry'),
@@ -214,6 +222,7 @@ export async function verifyCustomerAuthPersistence(adapter: DatabaseAdapter): P
     assert.equal(browserCredential?.token_hash, customerSessionHash(initialLogin.token));
     assert.notEqual(browserCredential?.token_hash, initialLogin.token);
 
+    await adapter.execute('DELETE FROM channel_users WHERE id=$1', [unusedGrantId]);
     advance(61_000);
     const replaced = await service.requestCode(`+${phone}`, 'synthetic-login-ip');
     advance(61_000);
