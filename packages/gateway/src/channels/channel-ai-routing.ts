@@ -633,6 +633,8 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
             conversationId: activeConversationId,
             directToolMode: useDirectTools,
             channelRecentReceipts: message.metadata?.astraRecentReceipts,
+            // The original caption is an instruction; extracted file contents are data.
+            channelConversationOnly: isConversationalOnlyChannelRequest(message.text),
           },
         })
     );
@@ -776,7 +778,8 @@ async function processDirectAgentInSession(
   );
   const channelReceipts: ChannelToolReceipt[] = [];
   const conversationOnly =
-    !message.attachments?.length && isConversationalOnlyChannelRequest(interpreted.text);
+    isConversationalOnlyChannelRequest(message.text) ||
+    (!interpreted.attachments?.length && isConversationalOnlyChannelRequest(interpreted.text));
   agent.setAdditionalTools?.(
     conversationOnly
       ? []

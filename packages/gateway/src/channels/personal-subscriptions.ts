@@ -53,6 +53,9 @@ const months = [
 function planningRequest(text: string): string | null {
   if (text.length > 350 || /[\r\n;]/u.test(text)) return text;
   const create =
+    /^(?:adicione|adiciona|inclua|registre)\s+(?:ao|no)\s+(?:meu\s+)?(?:controle|planejamento)\s+(?:a\s+)?assinatura\s+(.{1,120}?)\s*[:,]\s*(r\$\s*[\d.,]+)\s*(?:por m[êe]s|mensais|ao m[êe]s)\s*,\s*(?:pr[oó]xima )?renova[çc][aã]o (?:dia |em )?(\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2} de [a-zç]{3,9} de \d{4})[.!]?$/iu.exec(
+      text
+    ) ??
     /^(?:coloca|coloque|adiciona|adicione|inclua|inclui)\s+(?:a |o )?(.{1,120}?)\s+nas minhas assinaturas\s*[:,]\s*(r\$\s*[\d.,]+)\s*(?:por m[êe]s|mensais|ao m[êe]s)\s*,\s*(?:pr[oó]xima )?renova[çc][aã]o (?:dia |em )?(\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2} de [a-zç]{3,9} de \d{4})[.!]?(?: ainda n[aã]o paguei nada\.)?(?: quero acompanhar no meu planejamento[.!]?)?$/iu.exec(
       text
     );

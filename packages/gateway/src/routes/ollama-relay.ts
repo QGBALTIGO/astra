@@ -140,6 +140,10 @@ export function registerOllamaRelayRoutes(app: Hono): void {
     }
 
     const id = randomUUID();
+    const budgetHeader = c.req.header('X-Astra-Timeout-Ms');
+    const budget = Number(budgetHeader);
+    if (budgetHeader && (!Number.isFinite(budget) || budget <= 0))
+      return c.json({ error: 'Invalid local model budget' }, 400);
     const requestedDeadline = Number(c.req.header('X-Astra-Deadline'));
     if (
       c.req.header('X-Astra-Deadline') &&
@@ -147,10 +151,12 @@ export function registerOllamaRelayRoutes(app: Hono): void {
       requestedDeadline <= Date.now()
     )
       return c.json({ error: 'Local model request expired' }, 408);
+    const relativeDeadline =
+      Date.now() + (budgetHeader ? Math.min(budget, MAX_WAIT_MS) : MAX_WAIT_MS);
     const expiresAt =
       Number.isFinite(requestedDeadline) && requestedDeadline > Date.now()
-        ? Math.floor(Math.min(requestedDeadline, Date.now() + MAX_WAIT_MS))
-        : Date.now() + MAX_WAIT_MS;
+        ? Math.floor(Math.min(requestedDeadline, relativeDeadline))
+        : Math.floor(relativeDeadline);
     try {
       const result = await new Promise<Completion>((resolve, reject) => {
         const signal = c.req.raw.signal;
