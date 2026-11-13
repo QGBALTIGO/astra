@@ -253,13 +253,15 @@ class ComposioService {
       if (toolkit !== 'gmail' && toolkit !== 'googlecalendar') return [];
       const id = toStr(item.id) || toStr(item.nanoid);
       if (!id || id.length > 128) return [];
-      return [{
-        id,
-        appName: toolkit,
-        status: toStr(item.status, 'UNKNOWN'),
-        createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
-        updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
-      }];
+      return [
+        {
+          id,
+          appName: toolkit,
+          status: toStr(item.status, 'UNKNOWN'),
+          createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
+          updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
+        },
+      ];
     });
   }
 
