@@ -14,6 +14,7 @@
  */
 
 import { initializeAdapter, closeAdapter } from '../src/db/adapters/index.js';
+import { verifyReceivablePersistence } from './receivables-smoke.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { OutboundQualityRepository } from '../src/services/outbound-quality.js';
@@ -607,6 +608,7 @@ async function main(): Promise<void> {
   await verifyChannelAccessPersistence(adapter);
   await verifyCustomerAuthPersistence(adapter);
   await verifyCustomerPortalPersistence(adapter);
+  await verifyReceivablePersistence(adapter);
 
   // Re-run init to confirm idempotency.
   console.log('[smoke] Re-running initializeAdapter to confirm idempotency…');

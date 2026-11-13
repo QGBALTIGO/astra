@@ -13,6 +13,7 @@ type Completion = {
   model?: string;
 };
 type Job = {
+  expiresAt: number;
   id: string;
   payload: ObjectValue;
   resolve: (value: Completion) => void;
@@ -139,6 +140,17 @@ export function registerOllamaRelayRoutes(app: Hono): void {
     }
 
     const id = randomUUID();
+    const requestedDeadline = Number(c.req.header('X-Astra-Deadline'));
+    if (
+      c.req.header('X-Astra-Deadline') &&
+      Number.isFinite(requestedDeadline) &&
+      requestedDeadline <= Date.now()
+    )
+      return c.json({ error: 'Local model request expired' }, 408);
+    const expiresAt =
+      Number.isFinite(requestedDeadline) && requestedDeadline > Date.now()
+        ? Math.floor(Math.min(requestedDeadline, Date.now() + MAX_WAIT_MS))
+        : Date.now() + MAX_WAIT_MS;
     try {
       const result = await new Promise<Completion>((resolve, reject) => {
         const signal = c.req.raw.signal;
@@ -151,12 +163,15 @@ export function registerOllamaRelayRoutes(app: Hono): void {
           removeQueuedJob(id);
           reject(new Error('Local model client disconnected'));
         };
-        const timer = setTimeout(() => {
-          signal.removeEventListener('abort', onAbort);
-          jobs.delete(id);
-          removeQueuedJob(id);
-          reject(new Error('Local model timed out'));
-        }, MAX_WAIT_MS);
+        const timer = setTimeout(
+          () => {
+            signal.removeEventListener('abort', onAbort);
+            jobs.delete(id);
+            removeQueuedJob(id);
+            reject(new Error('Local model timed out'));
+          },
+          Math.max(1, expiresAt - Date.now())
+        );
         timer.unref?.();
         if (signal.aborted) {
           clearTimeout(timer);
@@ -165,6 +180,7 @@ export function registerOllamaRelayRoutes(app: Hono): void {
         }
         signal.addEventListener('abort', onAbort, { once: true });
         jobs.set(id, {
+          expiresAt,
           id,
           payload: { ...payload, stream: false },
           resolve: (value) => {
@@ -204,7 +220,6 @@ export function registerOllamaRelayRoutes(app: Hono): void {
     if (!job) {
       await new Promise<void>((resolve) => {
         let done = false;
-        let timer: ReturnType<typeof setTimeout>;
         const finish = () => {
           if (done) return;
           done = true;
@@ -213,14 +228,14 @@ export function registerOllamaRelayRoutes(app: Hono): void {
           resolve();
         };
         listeners.add(finish);
-        timer = setTimeout(finish, 20_000);
+        const timer = setTimeout(finish, 20_000);
       });
       lastWorkerContact = Date.now();
       job = takeJob();
     }
     if (!job) return c.body(null, 204);
     c.header('Cache-Control', 'no-store');
-    return c.json({ id: job.id, payload: job.payload });
+    return c.json({ id: job.id, payload: job.payload, expiresAt: job.expiresAt });
   });
 
   app.post(prefix + '/worker/result', async (c) => {

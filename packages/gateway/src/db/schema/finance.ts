@@ -53,6 +53,30 @@ CREATE TABLE IF NOT EXISTS customer_finance_operations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (user_id, source_key)
 );
+CREATE TABLE IF NOT EXISTS customer_receivable_plans (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  borrower TEXT NOT NULL,
+  principal_cents BIGINT NOT NULL CHECK (principal_cents > 0),
+  total_cents BIGINT NOT NULL CHECK (total_cents > 0),
+  installments INTEGER NOT NULL CHECK (installments BETWEEN 1 AND 120),
+  start_date TEXT NOT NULL,
+  local_time TEXT NOT NULL,
+  time_zone TEXT NOT NULL,
+  skip_sunday BOOLEAN NOT NULL,
+  fingerprint TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, fingerprint)
+);
+CREATE TABLE IF NOT EXISTS customer_receivable_items (
+  plan_id TEXT NOT NULL REFERENCES customer_receivable_plans(id),
+  sequence INTEGER NOT NULL,
+  transaction_id TEXT NOT NULL REFERENCES expenses(id),
+  reminder_id TEXT NOT NULL,
+  PRIMARY KEY (plan_id, sequence),
+  UNIQUE (transaction_id),
+  UNIQUE (reminder_id)
+);
 -- A financing is a liability, not a new expense. Historical amounts already
 -- paid are opening balance only, avoiding duplicate monthly expenses.
 CREATE TABLE IF NOT EXISTS finance_obligations (

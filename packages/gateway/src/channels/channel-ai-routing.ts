@@ -1,4 +1,5 @@
 import { tryQuickFinanceReply } from './quick-finance.js';
+import { tryReceivableChannelReply } from './receivable-routing.js';
 /**
  * Channel AI Routing
  *
@@ -371,6 +372,9 @@ function tryAuthorizedChannelShortcut(
       )) ??
       (await tryCustomerTimezoneChannelReply(message, userId)) ??
       (await tryClockChannelReply(message.text, userId)) ??
+      (await tryReceivableChannelReply(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
       (await tryQuickFinanceReply(message, userId, () =>
         canProcessChannelMessage(message, isAccessAllowed)
       )) ??
@@ -574,6 +578,7 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
   // happened in ChannelService before this function is called.
   const { enrichWhatsAppMedia } = await import('./normalizers/media-understanding.js');
   const interpreted = await enrichWhatsAppMedia(message, incoming);
+  if (interpreted.failureReply) return interpreted.failureReply;
 
   // Build NormalizedMessage from normalized incoming
   const normalized: NormalizedMessage = {
@@ -747,6 +752,7 @@ async function processDirectAgentInSession(
   const { enrichWhatsAppMedia } = await import('./normalizers/media-understanding.js');
   const incoming = await getNormalizer(message.platform).normalizeIncoming(message);
   const interpreted = await enrichWhatsAppMedia(message, incoming);
+  if (interpreted.failureReply) return interpreted.failureReply;
   const account = userId.startsWith('whatsapp:')
     ? await customerAccountsRepo.getByDataUserId(userId)
     : null;

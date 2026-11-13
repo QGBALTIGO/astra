@@ -64,12 +64,21 @@ async function infer(job) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('InvalidJob');
   }
-  const localPayload = { ...payload, model, stream: false, keep_alive: -1 };
+  const localPayload = {
+    ...payload,
+    model,
+    reasoning_effort: payload.reasoning_effort ?? 'none',
+    stream: false,
+    keep_alive: -1,
+  };
+  const remaining =
+    typeof job.expiresAt === 'number' ? Math.min(42_000, job.expiresAt - Date.now()) : 42_000;
+  if (remaining <= 0) throw new Error('ExpiredJob');
   const response = await fetch('http://127.0.0.1:11434/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(localPayload),
-    signal: AbortSignal.timeout(42_000),
+    signal: AbortSignal.timeout(remaining),
   });
   if (!response.ok) throw new Error('OllamaError');
   const completion = await response.json();

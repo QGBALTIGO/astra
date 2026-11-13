@@ -17,7 +17,9 @@ const mocks = vi.hoisted(() => ({
   info: vi.fn(),
 }));
 
-vi.mock('@whiskeysockets/baileys', () => ({
+vi.mock('@whiskeysockets/baileys', async (importOriginal) => ({
+  normalizeMessageContent: (await importOriginal<typeof import('@whiskeysockets/baileys')>())
+    .normalizeMessageContent,
   default: mocks.makeSocket,
   useMultiFileAuthState: mocks.loadAuth,
   makeCacheableSignalKeyStore: mocks.cacheKeys,

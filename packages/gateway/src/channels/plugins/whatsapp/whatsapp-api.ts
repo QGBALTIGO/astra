@@ -15,6 +15,7 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
+  normalizeMessageContent,
   generateWAMessageFromContent,
   generateMessageIDV2,
   Browsers,
@@ -25,6 +26,7 @@ import makeWASocket, {
 import type { Boom } from '@hapi/boom';
 import { randomInt } from 'node:crypto';
 import pino from 'pino';
+import { Readable } from 'node:stream';
 import {
   type ChannelPluginAPI,
   type ChannelConnectionStatus,
@@ -478,7 +480,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
                 if (!messageId) continue;
 
                 // Extract text content
-                const m = msg.message;
+                const m = normalizeMessageContent(msg.message);
                 let text = '';
                 if (m?.conversation) text = m.conversation;
                 else if (m?.extendedTextMessage?.text) text = m.extendedTextMessage.text;
@@ -1420,13 +1422,45 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   }
 
   private async downloadAttachmentData(msg: WAMessage): Promise<Uint8Array | undefined> {
+    const maxBytes = 12 * 1024 * 1024;
+    const controller = new AbortController();
+    let stream: Readable | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const buffer = await downloadMediaMessage(msg, 'buffer', {});
-      if (buffer instanceof Buffer) {
-        return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-      }
+      const download = async () => {
+        const options = { signal: controller.signal };
+        const downloaded: unknown = await downloadMediaMessage(msg, 'stream', { options });
+        if (Buffer.isBuffer(downloaded))
+          return downloaded.length <= maxBytes ? new Uint8Array(downloaded) : undefined;
+        if (!(downloaded instanceof Readable)) return undefined;
+        stream = downloaded;
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of stream) {
+          const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          size += data.length;
+          if (size > maxBytes) throw new Error('MediaTooLarge');
+          chunks.push(data);
+        }
+        return new Uint8Array(Buffer.concat(chunks, size));
+      };
+      return await Promise.race([
+        download(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            stream?.destroy();
+            reject(new Error('MediaDownloadTimeout'));
+          }, 12000);
+          timer.unref?.();
+        }),
+      ]);
     } catch {
-      // Download failed — metadata-only fallback
+      log.warn('WhatsApp attachment unavailable; metadata retained');
+    } finally {
+      if (timer) clearTimeout(timer);
+      controller.abort();
+      stream?.destroy();
     }
     return undefined;
   }
@@ -1554,7 +1588,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     }
 
     // Extract message content
-    const m = msg.message;
+    const m = normalizeMessageContent(msg.message);
     if (!m) return;
 
     let text = '';

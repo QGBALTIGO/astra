@@ -32,10 +32,15 @@ describe('Astra local Ollama outbound relay', () => {
 
   it('transports one completion over the authenticated outgoing worker connection', async () => {
     const app = createTestApp();
+    const deadline = Date.now() + 5000;
     const workerPromise = app.request(base + '/worker/next', { headers });
     const clientPromise = app.request(base + '/v1/chat/completions', {
       method: 'POST',
-      headers: { ...headers, 'content-type': 'application/json' },
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+        'X-Astra-Deadline': String(deadline),
+      },
       body: JSON.stringify({
         model: 'qwen3:4b-instruct',
         stream: false,
@@ -44,7 +49,12 @@ describe('Astra local Ollama outbound relay', () => {
     });
     const worker = await workerPromise;
     expect(worker.status).toBe(200);
-    const task = (await worker.json()) as { id: string; payload: { stream: boolean } };
+    const task = (await worker.json()) as {
+      id: string;
+      expiresAt: number;
+      payload: { stream: boolean };
+    };
+    expect(task.expiresAt).toBe(deadline);
     expect(task.payload.stream).toBe(false);
     const delivery = await app.request(base + '/worker/result', {
       method: 'POST',
