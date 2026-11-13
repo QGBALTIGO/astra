@@ -1326,7 +1326,7 @@ summary::-webkit-details-marker {
 .dashboard-insight small {
   display: block;
   font-size: 9px;
-  color: #e1ebff;
+  color: #fff;
   margin-top: 13px;
 }
 .dashboard-widgets {

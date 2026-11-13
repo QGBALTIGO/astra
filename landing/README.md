@@ -50,7 +50,7 @@ Read the current Function source and release immediately before an update. Deplo
 
 The three official brand vectors and the favicon were obtained from the existing production page and are preserved byte for byte. All other UI illustrations are HTML/CSS with explicitly fictional data. No generative logo was used. SVG interface symbols share one stroke system.
 
-DM Sans is self-hosted from `@fontsource-variable/dm-sans@5.3.0`, licensed under the included `FONT_LICENSE.txt`. The public WOFF2 is limited to the weight range 400–750 and the Latin characters used here. `create-social.py` renders the original logo into the share card; it requires Pillow, fontTools with Brotli, and CairoSVG. The committed share image makes those Python packages unnecessary for normal builds.
+Poppins Regular Latin is self-hosted from Google Fonts with its SIL Open Font License included. The existing social share image preserves Astra's official identity. The official logo files are not edited or regenerated.
 
 ## Research, 12 November 2026
 
