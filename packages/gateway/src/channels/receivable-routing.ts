@@ -35,8 +35,13 @@ export function parseReceivablePlans(
     const decoded: unknown = JSON.parse(
       raw.replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\s*\x60{3}$/, '')
     );
-    if (!Array.isArray(decoded)) return null;
-    plans = decoded.map((row) => {
+    const rows = Array.isArray(decoded)
+      ? decoded
+      : decoded && typeof decoded === 'object' && 'planos' in decoded
+        ? decoded.planos
+        : null;
+    if (!Array.isArray(rows)) return null;
+    plans = rows.map((row) => {
       if (!Array.isArray(row)) return row;
       if (row.length !== 7) throw new Error('Invalid loan tuple');
       const [borrower, principal, total, installments, startDate, localTime, skipSunday] = row;
@@ -47,6 +52,13 @@ export function parseReceivablePlans(
   }
   if (!Array.isArray(plans) || !plans.length || plans.length > 10) return null;
   const input = fold(request);
+  const requestedCount = /(?:pra|para|a)\s+(\d{1,2})\s+(?:clientes|pessoas|amigos)\b/u.exec(input);
+  if (requestedCount && plans.length !== Number(requestedCount[1])) return null;
+  if (
+    new Set(plans.map((p) => (typeof p?.borrower === 'string' ? fold(p.borrower) : ''))).size !==
+    plans.length
+  )
+    return null;
   try {
     for (const p of plans) {
       const start = input.indexOf(fold(p.borrower));
@@ -130,12 +142,13 @@ export async function tryReceivableChannelReply(
       const { writeShortChannelReply } = await import('./short-channel-reply.js');
       const raw = await writeShortChannelReply(
         message.channelPluginId,
-        'Extraia os empréstimos feitos PELO usuário para clientes. Somente array JSON de arrays, um por pessoa, nesta ordem exata: [nome completo literal, valor emprestado em reais, total a receber em reais, quantidade de parcelas, primeiro dia YYYY-MM-DD, horário HH:mm, pular domingo boolean]. Sem nomes de chaves nem texto extra. Hoje: ' +
+        'Extraia TODOS os empréstimos feitos PELO usuário. Retorne objeto JSON {"planos":[[nome completo literal, valor emprestado em reais, total a receber em reais, quantidade de parcelas, primeiro dia YYYY-MM-DD, horário HH:mm, excluir domingos boolean]]}. Cada pessoa ocupa uma linha independente de sete campos, sem aninhar linhas dentro de linhas. Excluir domingos: true se diz "menos domingo" ou "exceto domingo"; false somente se paga também aos domingos. Exemplo de uma linha: ["Cliente Exemplo",200,300,3,"2026-11-14","18:00",true]. Hoje: ' +
           today +
           '. Use somente dados explícitos. Não registre despesas nem recebimento antecipado. Se faltar alguma informação, responda null.',
         message.text,
         650,
-        Date.now() + 14000
+        Date.now() + 14000,
+        'json'
       );
       const plans = raw ? parseReceivablePlans(raw, message.text, today, timeZone) : null;
       if (!plans)

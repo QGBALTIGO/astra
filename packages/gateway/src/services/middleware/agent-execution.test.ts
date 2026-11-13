@@ -153,6 +153,47 @@ describe('createAgentExecutionMiddleware', () => {
     expect((await options.onBeforeToolCall()).approved).toBe(false);
   });
 
+  it('blocks a stale subscription write when a hypothetical profile reaches the full agent after a short-writer failure', async () => {
+    const agent = createAgent({
+      getConversation: vi.fn().mockReturnValue({
+        id: 'conv-1',
+        messages: [{ content: 'Adicione uma assinatura de R$ 3,45.' }],
+      }),
+    });
+    const ctx = createContext({ store: { agent, userId: 'synthetic' } });
+    await middleware(
+      createMessage({
+        content:
+          'Cenário fictício P231. Sou Pessoa Teste, 65 anos. Hoje marquei dois compromissos no mesmo horário. O que você precisa saber para ajudar a remarcar? Só estamos conversando sobre esse exemplo.',
+        metadata: { source: 'channel', platform: 'whatsapp' },
+      }),
+      ctx,
+      vi.fn()
+    );
+    const options = agent.chat.mock.calls[0][1] as {
+      toolChoice: string;
+      onBeforeToolCall: (call: unknown) => Promise<{ approved: boolean }>;
+    };
+    expect(options.toolChoice).toBe('none');
+    expect(
+      (
+        await options.onBeforeToolCall({
+          name: 'core.record_transaction',
+          arguments: '{"amount":3.45}',
+        })
+      ).approved
+    ).toBe(false);
+    expect(
+      (
+        await options.onBeforeToolCall({
+          name: 'use_tool',
+          arguments: '{"tool_name":"core.record_transaction"}',
+        })
+      ).approved
+    ).toBe(false);
+    expect(agent.setAdditionalTools).not.toHaveBeenCalled();
+    expect(mockCheckToolCallApproval).not.toHaveBeenCalled();
+  });
   it('keeps a hypothetical agenda follow-up tool-free and accepts its explicit no-write disclaimer', async () => {
     const text =
       'No exemplo, a reunião do Rafa continuaria na terça. A dentista ficaria na quinta às 9h de Cuiabá. Nenhum lembrete foi agendado de verdade.';

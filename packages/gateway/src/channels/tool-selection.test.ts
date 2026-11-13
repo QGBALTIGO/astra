@@ -14,6 +14,21 @@ const financeTools = [
 ];
 
 describe('channel finance tool selection', () => {
+  it('keeps 500 hypothetical profiles away from earlier real operations even after the short writer fails', () => {
+    for (let i = 0; i < 500; i++) {
+      const text = `Cenário fictício P${i}. Sou Pessoa ${i}, ${18 + (i % 64)} anos. Hoje marquei dois compromissos no mesmo horário. O que você precisa saber para ajudar a remarcar? Só estamos conversando sobre esse exemplo.`;
+      expect(isConversationalOnlyChannelRequest(text)).toBe(true);
+      expect(
+        channelToolsForMessage(
+          text,
+          'Adicione uma assinatura de R$ 3,45 e registre um valor a pagar.'
+        )
+      ).toEqual([]);
+    }
+    expect(
+      isConversationalOnlyChannelRequest('Só quero uma sugestão e registre um gasto de 5 reais.')
+    ).toBe(false);
+  });
   it('keeps a standalone misspelled access question tool-free but not a compound write', () => {
     expect(isConversationalOnlyChannelRequest('cpmp acesso o dashboard')).toBe(true);
     expect(channelToolsForMessage('cpmp acesso o dashboard', 'paguei 5 reais no café')).toEqual([]);
