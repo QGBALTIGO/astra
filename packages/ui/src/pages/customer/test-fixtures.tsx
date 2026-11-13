@@ -113,7 +113,12 @@ export function mockCustomerApi(customer: Customer = structuredClone(customerFix
       configured: false,
       apps: [
         { slug: 'gmail', name: 'Gmail', status: 'unavailable', connectionId: null },
-        { slug: 'googlecalendar', name: 'Google Agenda', status: 'unavailable', connectionId: null },
+        {
+          slug: 'googlecalendar',
+          name: 'Google Agenda',
+          status: 'unavailable',
+          connectionId: null,
+        },
       ],
     }),
     connectApp: vi.spyOn(customerApi, 'connectApp').mockResolvedValue({
