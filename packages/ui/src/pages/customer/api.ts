@@ -7,6 +7,8 @@ import type {
   CustomerChallenge,
   CustomerFinanceSummary,
   CustomerIntegrations,
+  CustomerConnectedAppsResponse,
+  CustomerAppSlug,
   CustomerPeriod,
   CustomerPlan,
   CustomerPlanInput,
