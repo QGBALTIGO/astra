@@ -3159,6 +3159,11 @@ describe('ChannelServiceImpl', () => {
           ASTRA_WEEKLY_PORTAL_REPLY,
         ],
         [
+          'Quero organizar minha semana pelo Astra. Para fazer isso pelo navegador, onde entro e por onde vale começar?',
+          'Tarefas: clique em “Tarefas” → “Criar item”. Lembretes: vá em “Lembretes” → “Criar item”. Na aba “Agenda” você verá os compromissos.',
+          ASTRA_WEEKLY_PORTAL_REPLY,
+        ],
+        [
           'Como posso planejar a minha semana no painel do Astra?',
           'Abra Agenda e toque em Criar item. https://app.astraacessor.pro/cliente/entrar',
           'Abra Agenda e toque em Criar item. https://app.astraacessor.pro/cliente/entrar',

@@ -70,6 +70,20 @@ Na revisão seguinte, conversas privadas reconhecem confirmações de despesas, 
 
 Foram testados modelos que inventam valores, vazamento entre duas contas, falhas do provedor, concorrência, emissão de links, campos de data/hora e conteúdo de tarefas, despesas e assinaturas. O ensaio de redação com Qwen local usou somente situações fictícias. A bateria de produção usa a conversa pessoal autorizada e um lembrete de demonstração.
 
+## Conversas com 500 contas de laboratório
+
+Cada conta percorreu cinco pedidos no gateway e no PostgreSQL isolado. Primeiro registrou uma despesa e pediu o total do mês. Depois fez uma pergunta sobre assinaturas, cancelamento no fornecedor, Pix ou cuidados com a senha. Por fim, agendou um lembrete e consultou os horários de hoje em Cuiabá. Variaram o assunto da despesa e o valor, e metade das contas usou cada uma das duas entradas de processamento. O ensaio conferiu o valor lido no próprio histórico e o único lançamento persistido em cada conta.
+
+As 500 conversas completaram 2.500 turnos em 16,8 segundos, em grupos de dez contas. O percentil 95 dos turnos foi de 156 ms. O modelo e o transporte externo estavam bloqueados neste ensaio. Uma segunda execução validou 26 cenários em banco descartável, incluindo a entrega de lembretes de 20 segundos e a ausência de duplicação no reprocessamento.
+
+No ensaio separado com o redator real em Ollama e dados fictícios, a despesa “pizza de calabresa” gerou uma abertura com o nome e 🍕 em 3,33 segundos. Em outro caso, a IA atribuiu ao Spotify um período de vigência que o cadastro não comprovava. A versão final recusa essa frase e usa os dados do cadastro. O caso entrou na bateria de regressão. O [PR 81](https://github.com/QGBALTIGO/astra/pull/81) passou pelas verificações de canal, simulação e integração contínua.
+
+## Confirmação pelo WhatsApp Web
+
+A imagem `1bea85f` subiu na Railway e o WhatsApp reconectou. Um lembrete de tirar pizza de calabresa do forno recebeu uma abertura espontânea sobre o assunto, com 🍕, em até 4,07 s. A consulta de hoje mostrou o lembrete às 08:01:07 em Cuiabá em até 1,86 s. O aviso apareceu às 08:01 na conversa, com o primeiro nome e o emoji. São observações de uma conversa em WhatsApp Web. A precisão visual do horário de entrega é de um minuto.
+
+A pergunta sobre organizar a semana obteve em até 9,09 s o domínio correto, mas indicou os destinos errados “clique em Tarefas” e “vá em Lembretes”. Essa resposta real entrou no teste da correção seguinte. A orientação deve ligar “Agenda” a “Criar item”.
+
 ## Riscos que seguem abertos
 
 Não há prova de capacidade sustentada com 500 conversas de IA, do custo por provedor ou de recuperação completa da produção após perda de volume. As questões abertas de lembretes, uniformidade do modo Groq e personalização continuam exigindo evidências de seus fluxos completos. Não foi feita sincronização de Google em conta real, teste de pagamento ou disparo para clientes. A comprovação de entrega física e a revisão automática de segurança dependem de recursos distintos dos testes acima.
