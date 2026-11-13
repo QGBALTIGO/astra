@@ -137,8 +137,9 @@ describe('customer profile', () => {
     expect(dom.container.textContent).toContain('Conectado');
     expect(dom.container.textContent).toContain('Aguardando ativação');
     expect(dom.container.textContent).toContain('Gmail');
-    const connectButtons = Array.from(dom.container.querySelectorAll<HTMLButtonElement>('button'))
-      .filter((button) => button.textContent?.includes('Conectar conta'));
+    const connectButtons = Array.from(
+      dom.container.querySelectorAll<HTMLButtonElement>('button')
+    ).filter((button) => button.textContent?.includes('Conectar conta'));
     expect(connectButtons).toHaveLength(2);
     expect(connectButtons.every((button) => button.disabled)).toBe(true);
     const renewal = Array.from(dom.container.querySelectorAll('a')).find((anchor) =>
