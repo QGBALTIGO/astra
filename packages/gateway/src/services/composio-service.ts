@@ -7,6 +7,11 @@
 
 import { getConfigCenter } from '@ownpilot/core/services';
 import { getLog } from './log.js';
+import { ASTRA_CUSTOMER_ORIGIN } from '../config/astra-public-urls.js';
+import {
+  ASTRA_CONNECTED_APP_SLUGS,
+  type AstraConnectedAppSlug,
+} from '../config/astra-connected-apps.js';
 
 const log = getLog('Composio');
 
@@ -258,8 +263,8 @@ class ComposioService {
   }
 
   async getCustomerConnections(userId: string): Promise<ComposioConnection[]> {
-    return (await this.getConnections(userId)).filter(
-      (item) => item.appName === 'gmail' || item.appName === 'googlecalendar'
+    return (await this.getConnections(userId)).filter((item) =>
+      ASTRA_CONNECTED_APP_SLUGS.includes(item.appName as AstraConnectedAppSlug)
     );
   }
 
@@ -269,9 +274,18 @@ class ComposioService {
    */
   async authorizeCustomerToolkit(
     userId: string,
-    toolkit: 'gmail' | 'googlecalendar',
+    toolkit: AstraConnectedAppSlug,
     callbackUrl: string
   ): Promise<string> {
+    return (await this.authorizeToolkit(userId, toolkit, callbackUrl)).redirectUrl;
+  }
+
+  private async authorizeToolkit(
+    userId: string,
+    toolkit: string,
+    callbackUrl: string
+  ): Promise<{ redirectUrl: string; connectedAccountId: string; connectionStatus: string }> {
+    if (!/^[a-z][a-z0-9_-]{1,63}$/.test(toolkit)) throw new Error('Invalid connection toolkit');
     const client = (await this.getClient()) as {
       create: (
         ownerId: string,
@@ -280,7 +294,7 @@ class ComposioService {
         authorize: (
           app: string,
           options: { callbackUrl: string }
-        ) => Promise<{ redirectUrl?: string }>;
+        ) => Promise<{ redirectUrl?: string; id?: string }>;
       }>;
     };
     const session = await client.create(userId, { toolkits: [toolkit] });
@@ -288,13 +302,20 @@ class ComposioService {
     const link = new URL(result.redirectUrl ?? '');
     if (
       link.protocol !== 'https:' ||
+      link.username ||
+      link.password ||
+      link.port ||
       !['composio.dev', 'composio.com'].some(
         (domain) => link.hostname === domain || link.hostname.endsWith('.' + domain)
       )
     ) {
       throw new Error('Unsafe Composio connection link');
     }
-    return link.toString();
+    return {
+      redirectUrl: link.toString(),
+      connectedAccountId: result.id ?? '',
+      connectionStatus: 'INITIATED',
+    };
   }
 
   /** Delete only an account that this customer demonstrably owns. */
@@ -323,18 +344,13 @@ class ComposioService {
     appName: string,
     _redirectUrl?: string
   ): Promise<ComposioConnectionRequest> {
-    const client = (await this.getClient()) as Record<string, unknown>;
-    const toolkits = client.toolkits as {
-      authorize: (userId: string, toolkit: string, authConfigId?: string) => Promise<unknown>;
-    };
-
-    const result = (await toolkits.authorize(userId, appName)) as Record<string, unknown>;
-
-    return {
-      redirectUrl: result.redirectUrl ? toStr(result.redirectUrl) : null,
-      connectedAccountId: toStr(result.connectedAccountId),
-      connectionStatus: toStr(result.connectionStatus, 'INITIATED'),
-    };
+    return this.authorizeToolkit(
+      userId,
+      appName,
+      ASTRA_CUSTOMER_ORIGIN +
+        '/settings/connected-apps?tab=apps&connected=' +
+        encodeURIComponent(appName)
+    );
   }
 
   /**

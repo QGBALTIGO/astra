@@ -7,6 +7,8 @@
  */
 
 import { LOCAL_OWNER_ID } from '../config/defaults.js';
+import { ASTRA_CONNECTED_APPS } from '../config/astra-connected-apps.js';
+import { ASTRA_CUSTOMER_ORIGIN } from '../config/astra-public-urls.js';
 import { Hono, type MiddlewareHandler } from 'hono';
 import { composioService } from '../services/composio-service.js';
 import { getLog } from '../services/log.js';
@@ -45,6 +47,7 @@ composioRoutes.use('*', async (c, next) => {
 composioRoutes.get('/status', (c) => {
   return apiResponse(c, {
     configured: composioService.isConfigured(),
+    recommendedApps: ASTRA_CONNECTED_APPS,
     message: composioService.isConfigured()
       ? 'Composio is configured and ready'
       : 'Composio API key not configured. Set it in Config Center → Composio.',
@@ -57,7 +60,11 @@ composioRoutes.get('/status', (c) => {
 
 composioRoutes.get('/apps', async (c) => {
   try {
-    const apps = await composioService.getAvailableApps();
+    const available = await composioService.getAvailableApps();
+    const apps = ASTRA_CONNECTED_APPS.flatMap((app) => {
+      const found = available.find((item) => item.slug === app.slug);
+      return found ? [{ ...found, ...app }] : [];
+    });
     return apiResponse(c, { apps, count: apps.length });
   } catch {
     log.error('Failed to list Composio apps');
@@ -225,8 +232,7 @@ composioRoutes.get('/callback', async (c) => {
   }
 
   // Redirect back to UI Connected Apps page
-  const uiPort = process.env.UI_PORT ?? '8199';
-  const uiHost = process.env.UI_HOST ?? `http://localhost:${uiPort}`;
+  const uiHost = ASTRA_CUSTOMER_ORIGIN;
   const redirectUrl = `${uiHost}/settings/connected-apps${safeAppName ? `?connected=${encodeURIComponent(safeAppName)}&status=${encodeURIComponent(status)}` : `?status=${encodeURIComponent(status)}`}`;
 
   return c.redirect(redirectUrl);

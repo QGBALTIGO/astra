@@ -1,17 +1,18 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { composioService } from '../../services/composio-service.js';
+import {
+  ASTRA_CONNECTED_APPS,
+  ASTRA_CONNECTED_APP_SLUGS,
+} from '../../config/astra-connected-apps.js';
 import type { CustomerSessionContext } from '../../middleware/customer-session.js';
 import { apiResponse, apiError, ERROR_CODES } from '../helpers.js';
 
 type CustomerEnv = { Variables: { customer: CustomerSessionContext } };
 export const customerConnectedAppsRoutes = new Hono<CustomerEnv>();
-const appSchema = z.object({ app: z.enum(['gmail', 'googlecalendar']) }).strict();
+const appSchema = z.object({ app: z.enum(ASTRA_CONNECTED_APP_SLUGS) }).strict();
 const connectionIdPattern = /^[A-Za-z0-9_-]{3,128}$/;
-const supported = [
-  { slug: 'gmail' as const, name: 'Gmail' },
-  { slug: 'googlecalendar' as const, name: 'Google Agenda' },
-];
+const supported = ASTRA_CONNECTED_APPS;
 
 const enabled = () =>
   process.env.ASTRA_CUSTOMER_OAUTH_ENABLED === 'true' && composioService.isConfigured();

@@ -30,6 +30,7 @@ export interface ComposioConnectionRequest {
 }
 
 export interface ComposioStatus {
+  recommendedApps?: ComposioApp[];
   configured: boolean;
   message: string;
 }

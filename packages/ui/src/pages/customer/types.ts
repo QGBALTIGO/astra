@@ -25,8 +25,10 @@ export interface CustomerSession {
   expiresAt: string;
   current: boolean;
 }
-export type CustomerAppSlug = 'gmail' | 'googlecalendar';
+export type CustomerAppSlug =
+  'gmail' | 'googlecalendar' | 'googledrive' | 'googlesheets' | 'todoist' | 'notion' | 'trello';
 export interface CustomerConnectedApp {
+  description?: string;
   slug: CustomerAppSlug;
   name: string;
   status: 'connected' | 'disconnected' | 'needs_attention' | 'unavailable';

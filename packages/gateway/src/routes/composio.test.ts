@@ -117,8 +117,9 @@ describe('Composio Routes', () => {
       const res = await app.request('/composio/apps');
       expect(res.status).toBe(200);
       const body = (await res.json()) as { data: { apps: unknown[]; count: number } };
-      expect(body.data.apps).toHaveLength(2);
-      expect(body.data.count).toBe(2);
+      expect(body.data.apps).toHaveLength(1);
+      expect(body.data.apps).toEqual([expect.objectContaining({ slug: 'gmail', name: 'Gmail' })]);
+      expect(body.data.count).toBe(1);
     });
 
     it('returns 400 when not configured', async () => {
