@@ -92,3 +92,20 @@ Depois da publicação e conferência:
 - Os tamanhos e navegadores são automações e emulações, não testes em aparelhos físicos.
 - A prévia local pelo navegador desta sessão foi bloqueada pelo ambiente. As capturas e a matriz de navegação foram produzidas de fato no GitHub Actions; a landing pública também foi aberta e utilizada no navegador desta sessão.
 - A auditoria automatizada complementa a inspeção visual; não constitui certificação completa de acessibilidade.
+
+## Refinamento da ajuda do login — 12/11/2026
+
+O marcador padrão foi substituído por um SVG de 16 px à direita, com giro suave ao abrir. A área continua usando o controle nativo, acessível por teclado. Foram removidos o rodapé repetido e o excesso de altura do cartão, e o conteúdo de ajuda ganhou uma ligação direta com o atendimento.
+
+A revisão detectou dois casos de instabilidade no WebKit em 360 px. O formulário móvel foi ancorado ao topo e recebeu espaçamentos constantes entre as faixas estreitas. Após a correção, os 24 casos móveis focalizados e a matriz completa de 156 casos do build de produção passaram, sem falhas ou instabilidade. As 12 referências do login foram revistas; as 24 referências do início e perfil foram preservadas.
+
+- Matriz final: https://github.com/QGBALTIGO/astra/actions/runs/43337512093
+- Verificações gerais: https://github.com/QGBALTIGO/astra/actions/runs/43337511885
+- Commit publicado: `acc6867f4979859656f6369050a07fa27c66acc7`.
+- Imagem: `ghcr.io/qgbaltigo/astra:sha-acc6867f4979859656f6369050a07fa27c66acc7`.
+- Deploy Railway: `777a0a28-0469-4aef-b6a0-2c3995a8f9ed`, estado `SUCCESS`.
+- Recuperação anterior: imagem `sha-820bfbf68d7d9814040c6d2e22d0c08e36e5f743`, deploy `113744a9-a34c-4ad6-9ba5-c6a6fc6b796e`.
+
+As correções recentes de envio de código do usuário foram preservadas integralmente. Os scripts e estilos do portal foram comparados com o artefato testado. Na página pública foram executados abertura pelo Enter, fechamento e reabertura por clique, com o SVG na posição esperada. Os testes desta revisão não solicitaram OTPs reais.
+
+![Ajuda refinada no login publicado](packages/ui/verification/astra-interface/login-help-refined.jpg)
