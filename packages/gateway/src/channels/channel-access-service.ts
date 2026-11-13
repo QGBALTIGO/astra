@@ -5,6 +5,7 @@ import {
   type ChannelUserEntity,
   type ChannelUsersRepository,
 } from '../db/repositories/channels/users.js';
+import { whatsappPhoneSpellings } from './whatsapp-phone.js';
 import { LOCAL_OWNER_ID } from '../config/defaults.js';
 import { getOwnerUserId } from '../services/pairing-service.js';
 
@@ -200,7 +201,7 @@ export class ChannelAccessService {
       );
     }
     if (
-      (await this.ownerLookup('whatsapp')) === phoneNumber ||
+      whatsappPhoneSpellings(phoneNumber).includes((await this.ownerLookup('whatsapp')) ?? '') ||
       existing?.ownpilotUserId === LOCAL_OWNER_ID
     ) {
       throw new ChannelAccessError(

@@ -7,6 +7,23 @@ const label = 'Acompanhar no painel';
 const text = '✅ *Entrada registrada*\n\n• *Valor:* R$ 1,00\n• *Data:* 12/11/2026';
 
 describe('Native WhatsApp CTA URL with pinned Baileys SDK', () => {
+  it('renders the dashboard message seen on iPhone with one plain URL and a usable native button', () => {
+    const url = 'https://app.astraacessor.pro/cliente/entrar';
+    const body = 'Para acessar o dashboard, basta clicar no link abaixo:\n\n';
+    for (const target of [url, 'https://astra-gateway-production.up.railway.app/cliente/entrar']) {
+      const payload = buildWhatsAppUrlCtaPayload(body + '[' + target + '](' + target + ')', {
+        label: 'Abrir meu painel',
+        url,
+      });
+      expect(payload.body).toBe(body + url);
+      expect(payload.content.interactiveMessage?.body?.text).toBe(body + url);
+      const button = payload.content.interactiveMessage?.nativeFlowMessage?.buttons?.[0];
+      expect(JSON.parse(button!.buttonParamsJson!)).toMatchObject({
+        display_text: 'Abrir meu painel',
+        url,
+      });
+    }
+  });
   it('encodes a single clickable cta_url button without exposing the URL as text', () => {
     const payload = buildWhatsAppUrlCtaPayload(text, { label, url: URL });
     const generated = generateWAMessageFromContent(

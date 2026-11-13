@@ -1,3 +1,4 @@
+import { whatsappPhoneSpellings } from '../../channels/whatsapp-phone.js';
 import { randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
 
@@ -125,10 +126,10 @@ export class CustomerAccountsRepository extends BaseRepository {
 
   async isPhoneAvailable(phone: string): Promise<boolean> {
     const row = await this.queryOne<{ unavailable: boolean }>(
-      `SELECT (EXISTS (SELECT 1 FROM customer_phone_aliases WHERE phone_number = $1)
-        OR EXISTS (SELECT 1 FROM channel_users WHERE platform = 'whatsapp' AND platform_user_id = $1)
-        OR EXISTS (SELECT 1 FROM system_settings WHERE key = 'owner_whatsapp' AND value = $1)) AS unavailable`,
-      [phone]
+      `SELECT (EXISTS (SELECT 1 FROM customer_phone_aliases WHERE phone_number = ANY($1::text[]))
+        OR EXISTS (SELECT 1 FROM channel_users WHERE platform = 'whatsapp' AND platform_user_id = ANY($1::text[]))
+        OR EXISTS (SELECT 1 FROM system_settings WHERE key = 'owner_whatsapp' AND value = ANY($1::text[]))) AS unavailable`,
+      [whatsappPhoneSpellings(phone)]
     );
     return row?.unavailable === false;
   }
@@ -165,7 +166,12 @@ export class CustomerAccountsRepository extends BaseRepository {
     whatsAppPluginIds?: string[];
   }): Promise<CustomerAccount | null> {
     return this.transaction(async () => {
-      for (const phone of [input.expectedPhone, input.newPhone].sort()) {
+      for (const phone of [
+        ...new Set([
+          ...whatsappPhoneSpellings(input.expectedPhone),
+          ...whatsappPhoneSpellings(input.newPhone),
+        ]),
+      ].sort()) {
         await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [
           `whatsapp-access:${phone}`,
         ]);

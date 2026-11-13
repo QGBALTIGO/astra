@@ -37,11 +37,12 @@ describe('CustomerAuthService', () => {
     changePhone: vi.fn(),
     updateProfile: vi.fn(),
   };
-  const identity = { resolvePhone: vi.fn(), getContext: vi.fn(), isOwnerPhone: vi.fn() };
+  const identity = { resolveLoginPhone: vi.fn(), getContext: vi.fn(), isOwnerPhone: vi.fn() };
   const api = {
     connect: vi.fn(),
     disconnect: vi.fn(),
     sendMessage: vi.fn(),
+    resolveWhatsAppRecipient: vi.fn(),
     getStatus: vi.fn(),
     getPlatform: vi.fn(),
     getBotInfo: vi.fn(),
@@ -81,6 +82,7 @@ describe('CustomerAuthService', () => {
       authVersion: 1,
     };
     status = 'active';
+    api.resolveWhatsAppRecipient.mockImplementation(async (p: string) => p);
     generatedCode = '123456';
     challenges = new Map();
     auth.reserveChallenge.mockImplementation(async (input) => {
@@ -118,7 +120,7 @@ describe('CustomerAuthService', () => {
     auth.beginDelivery.mockResolvedValue(true);
     auth.finishDelivery.mockResolvedValue(undefined);
     auth.deferDelivery.mockResolvedValue(undefined);
-    identity.resolvePhone.mockImplementation(async () => ({
+    identity.resolveLoginPhone.mockImplementation(async () => ({
       accountId: account.id,
       dataUserId: account.dataUserId,
       phoneNumber: account.phoneNumber,
@@ -166,7 +168,7 @@ describe('CustomerAuthService', () => {
     expect(stored.codeCiphertext).not.toContain('123456');
     expect(stored.ipHash).not.toContain('test-ip');
     expect(stored.expiresAt.getTime() - stored.createdAt.getTime()).toBe(300_000);
-    identity.resolvePhone.mockResolvedValue(null);
+    identity.resolveLoginPhone.mockResolvedValue(null);
     const unknown = await service.requestCode('(11) 99999-7777', 'test-ip');
     expect({ ...unknown, challengeId: known.challengeId }).toEqual(known);
     expect(challenges.get(unknown.challengeId)?.accountId).toBeNull();
@@ -174,7 +176,7 @@ describe('CustomerAuthService', () => {
     expect(api.sendMessage).not.toHaveBeenCalled();
   });
   it('does not reattach a retired alias to its historical data', async () => {
-    identity.resolvePhone.mockResolvedValue({
+    identity.resolveLoginPhone.mockResolvedValue({
       isCurrent: false,
       retired: true,
       accountId: 'old-account',
@@ -311,6 +313,34 @@ describe('CustomerAuthService', () => {
       sendBefore: challenges.get(challenge.challengeId)!.expiresAt,
     });
     expect(auth.finishDelivery).toHaveBeenCalledWith(expect.any(String), 'delivery-lease', 'sent');
+  });
+  it.each([
+    ['5567998760123', '556798760123'],
+    ['553898760123', '5538998760123'],
+  ])(
+    'accepts an alternate spelling from request to a single delivery and session',
+    async (stored, alternate) => {
+      account.phoneNumber = stored;
+      api.resolveWhatsAppRecipient.mockResolvedValue(alternate);
+      const challenge = await service.requestCode(alternate, 'ip');
+      expect(challenges.get(challenge.challengeId)?.phoneNumber).toBe(stored);
+      await service.dispatchOtps();
+      expect(api.sendMessage).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ platformChatId: alternate })
+      );
+      expect(
+        (await service.verifyCode(challenge.challengeId, generatedCode, '')).customer.accountId
+      ).toBe(account.id);
+      await expect(
+        service.verifyCode(challenge.challengeId, generatedCode, '')
+      ).rejects.toMatchObject({ status: 401 });
+    }
+  );
+  it('withholds a code if the two spellings resolve to distinct users', async () => {
+    api.resolveWhatsAppRecipient.mockResolvedValue(null);
+    await service.requestCode(phone, 'ip');
+    await service.dispatchOtps();
+    expect(api.sendMessage).not.toHaveBeenCalled();
   });
   it('keeps a leading-zero OTP intact in encrypted storage and plain-text WhatsApp delivery', async () => {
     generatedCode = '000123';

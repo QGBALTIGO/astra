@@ -74,6 +74,12 @@ describe('Astra access intent', () => {
     expect(tryAstraAccessReply(text)).toBeNull();
   });
 
+  it('shows one clean dashboard link for the WhatsApp quick action', () => {
+    const reply = tryAstraAccessReply('Acessar o dashboard');
+    expect(reply?.match(/https:\/\/\S+/g)).toEqual([ASTRA_CUSTOMER_LOGIN_URL]);
+    expect(reply).toContain('*Seu painel do Astra*');
+  });
+
   it('provides the deployed customer route and authorized-phone OTP flow', () => {
     expect(ASTRA_CUSTOMER_LOGIN_URL).toBe('https://app.astraacessor.pro/cliente/entrar');
     expect(ASTRA_SITE_URL).toBe('https://astraacessor.pro');

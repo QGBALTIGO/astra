@@ -8,7 +8,7 @@ import {
 const busy = new Set<string>();
 const MAX_WAIT_MS = 5_000;
 const style =
-  'Você conversa em português do Brasil no WhatsApp. Escreva uma abertura curta, espontânea e específica para o assunto informado como dado JSON. O aplicativo mostrará logo abaixo a confirmação, com os dados exatos. Não repita o comprovante. Em assunto leve, cabe um emoji que combine ou um trocadilho curto, se soar natural. Em assuntos delicados, seja discreto, sem humor nem conselho. O nome é opcional. Reaja a um detalhe concreto da mensagem atual, com uma expressão que faça sentido para esse assunto. Evite lição de moral, repetir que algo foi registrado, ofertas genéricas e frases de atendimento. Não invente detalhes, números ou ações. Use uma observação, sem pergunta de acompanhamento e sem dizer que uma assinatura está ativa. Responda somente com uma frase de até 15 palavras.';
+  'Você conversa em português do Brasil no WhatsApp. Escreva uma abertura curta, espontânea e específica para o assunto informado como dado JSON. O aplicativo mostrará logo abaixo a confirmação, com os dados exatos. Não repita o comprovante. Em assunto leve, cabe um emoji que combine ou um trocadilho curto, se soar natural. Em assuntos delicados, seja discreto, sem humor nem conselho. O nome é opcional. Reaja a um detalhe concreto da mensagem atual, com uma expressão que faça sentido para esse assunto. Evite lição de moral, repetir que algo foi registrado, ofertas genéricas e frases de atendimento. Para um lembrete, reaja apenas ao assunto, sem afirmar a localização de objetos, disponibilidade, estado do mundo ou o que outra pessoa fez. Não invente detalhes, números ou ações. Use uma observação, sem pergunta de acompanhamento e sem dizer que uma assinatura está ativa. Responda somente com uma frase de até 15 palavras.';
 
 export function safePersonalComment(content: string): string | null {
   const text = content.trim();
@@ -111,6 +111,38 @@ export function receiptContext(text: string): Receipt | null {
   return null;
 }
 
+/** Keep the verified fields readable even when the style writer is busy or unavailable. */
+function confirmationCard(text: string, receipt: Receipt): string {
+  const icon = subjectEmoji(receipt.subject);
+  if (/^(?:✅|⏳|📅) \*/u.test(text)) {
+    return text
+      .replace(/^(?:✅|⏳|📅)(?= \*)/u, (match) => icon ?? match)
+      .replace(/(• \*Data e hora:\* \d{2}\/\d{2}\/\d{4},? \d{2}:\d{2}):\d{2}(?=\n|$)/u, '$1');
+  }
+  const plan =
+    /^Assinatura (adicionada ao|atualizada no) seu controle: (.+) · ([^·\n]+) · renovação (?:em (\d{2}\/\d{2}\/\d{4})|sem data)\.$/u.exec(
+      text
+    );
+  if (plan)
+    return [
+      '🔁 *' +
+        (plan[1] === 'adicionada ao' ? 'Assinatura cadastrada' : 'Assinatura atualizada') +
+        '*',
+      '',
+      '• *Nome:* ' + plan[2],
+      '• *Valor:* ' + plan[3],
+      '• *Renovação:* ' + (plan[4] ?? 'Sem data definida'),
+    ].join('\n');
+  if (receipt.action === 'tarefa')
+    return [
+      text.startsWith('Marquei') ? '✅ *Tarefa concluída*' : '📝 *Tarefa adicionada*',
+      '',
+      '• *Tarefa:* ' + receipt.subject,
+      text.startsWith('Marquei') ? '• *Status:* Concluída' : '• *Status:* Pendente',
+    ].join('\n');
+  return text;
+}
+
 export function isPersonalizableReceipt(text: string): boolean {
   return receiptContext(text) !== null;
 }
@@ -124,8 +156,7 @@ export async function maybePersonalizeConfirmedReply(input: {
 }): Promise<string> {
   const receipt = receiptContext(input.responseText);
   if (!receipt) return input.responseText;
-  const icon = subjectEmoji(receipt.subject);
-  const fallback = icon ? icon + ' ' + receipt.facts : receipt.facts;
+  const fallback = confirmationCard(input.responseText, receipt);
   if (isDiscreetSubject(receipt.subject)) return fallback;
   const key = input.channelPluginId + '|' + input.dataUserId;
   if (busy.has(key) || busy.size >= 8) return fallback;
@@ -144,6 +175,14 @@ export async function maybePersonalizeConfirmedReply(input: {
     });
     const line = await writeShortChannelReply(input.channelPluginId, style, prompt, 42, deadline);
     const opening = line ? safePersonalComment(line) : null;
+    if (
+      opening &&
+      /^Lembrete /u.test(receipt.action) &&
+      /\b(?:est[áã]|estão|t[áã]|fica|ficou|deixou|guardad[oa]|disponível|pront[oa]|chegou|esperando|encontra|encontrar|na pasta|no armário|na estante)(?=\s|[.!?,]|$)/iu.test(
+        opening
+      )
+    )
+      return fallback;
     // A tracked subscription is a personal note, not a receipt from the merchant.
     if (
       receipt.action === 'assinatura' &&
@@ -153,7 +192,7 @@ export async function maybePersonalizeConfirmedReply(input: {
       )
     )
       return fallback;
-    return opening ? opening + '\n\n' + receipt.facts : fallback;
+    return opening ? opening + '\n\n' + fallback : fallback;
   })()
     .catch(() => fallback)
     .finally(() => busy.delete(key));

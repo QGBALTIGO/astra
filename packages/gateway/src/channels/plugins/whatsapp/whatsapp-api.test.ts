@@ -54,6 +54,25 @@ describe('WhatsAppChannelAPI', () => {
     vi.clearAllMocks();
   });
 
+  it('checks both mobile spellings and requires a single registered recipient', async () => {
+    const api = new WhatsAppChannelAPI({}, 'channel.whatsapp');
+    const onWhatsApp = vi.fn();
+    Object.assign(api, { sock: { onWhatsApp }, status: 'connected' });
+    const long = '5538998760123',
+      short = '553898760123';
+    const result = (phone: string) => ({ exists: true, jid: phone + '@s.whatsapp.net' });
+    onWhatsApp.mockResolvedValue([result(short), result(short)]);
+    expect(await api.resolveWhatsAppRecipient(long)).toBe(short);
+    expect(onWhatsApp).toHaveBeenCalledWith(long, short);
+    onWhatsApp.mockResolvedValue([result(long)]);
+    expect(await api.resolveWhatsAppRecipient(short)).toBe(long);
+    onWhatsApp.mockResolvedValue([result(short), result(long)]);
+    expect(await api.resolveWhatsAppRecipient(short)).toBeNull();
+    onWhatsApp.mockResolvedValue([result('553833330123')]);
+    expect(await api.resolveWhatsAppRecipient('553833330123')).toBe('553833330123');
+    expect(onWhatsApp).toHaveBeenLastCalledWith('553833330123');
+  });
+
   it('resolves @lid messages to remoteJidAlt when available', () => {
     const api = new WhatsAppChannelAPI({ my_phone: '37253049737' }, 'channel.whatsapp');
     const resolved = (api as any).resolveIncomingJid({

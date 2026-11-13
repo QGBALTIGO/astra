@@ -129,6 +129,33 @@ describe('CustomerIdentityService', () => {
     await service.resolvePhone('37253049737');
     expect(accounts.resolvePhone).toHaveBeenCalledWith('37253049737');
   });
+  it.each(['5567998760123', '5538998760123'])(
+    'accepts both spellings for new and legacy records: %s',
+    async (long) => {
+      const short = long.slice(0, 4) + long.slice(5);
+      for (const stored of [short, long]) {
+        accounts.resolvePhone.mockImplementation(async (p) =>
+          p === stored ? { ...resolution, phoneNumber: stored } : null
+        );
+        users.findByPlatform.mockImplementation(async (_platform, p) =>
+          p === stored
+            ? { ...user, platformUserId: stored, ownpilotUserId: 'whatsapp:' + stored }
+            : null
+        );
+        for (const input of [short, long])
+          expect((await service.resolveLoginPhone(input))?.phoneNumber).toBe(stored);
+      }
+      users.findByPlatform.mockImplementation(async (_platform, p) => ({
+        ...user,
+        platformUserId: p,
+        ownpilotUserId: 'whatsapp:' + p,
+      }));
+      expect(await service.resolveLoginPhone(long)).toBeNull();
+      users.findByPlatform.mockResolvedValue(null);
+      accounts.resolvePhone.mockResolvedValue({ ...resolution, retired: true, isCurrent: false });
+      expect(await service.resolveLoginPhone(short)).toBeNull();
+    }
+  );
   it('requires an active alias for the current phone', async () => {
     accounts.resolvePhone.mockResolvedValue({ ...resolution, isCurrent: false, retired: true });
     expect(await service.getContext(account.id)).toBeNull();

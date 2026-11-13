@@ -20,7 +20,7 @@ import { formatDueReminder } from './response-presentation.js';
 
 const record =
   '✅ *Despesa registrada*\n\n• *Valor:* R$ 42,00\n• *Descrição:* pizza de calabresa\n• *Categoria:* Alimentação\n• *Data:* 13/11/2026';
-const facts = 'Despesa registrada: *R$ 42,00* · pizza de calabresa\nAlimentação · 13/11/2026';
+const card = record.replace('✅', '🍕');
 const input = {
   responseText: record,
   channelPluginId: 'channel.whatsapp',
@@ -40,7 +40,7 @@ afterEach(() => vi.useRealTimers());
 describe('personal writing for private confirmations', () => {
   it('writes a contextual opening and preserves every stored field with zero tool access', async () => {
     expect(await maybePersonalizeConfirmedReply(input)).toBe(
-      'Essa calabresa dispensou apresentações, Kayky! 🍕\n\n' + facts
+      'Essa calabresa dispensou apresentações, Kayky! 🍕\n\n' + card
     );
     const [request] = mocks.complete.mock.calls[0]!;
     expect(request.tools).toBeUndefined();
@@ -95,7 +95,7 @@ describe('personal writing for private confirmations', () => {
     'Paguei essa por você.',
   ])('rejects unsafe model text: %s', async (text) => {
     mocks.complete.mockResolvedValue(say(text));
-    expect(await maybePersonalizeConfirmedReply(input)).toBe('🍕 ' + facts);
+    expect(await maybePersonalizeConfirmedReply(input)).toBe(card);
   });
   it('keeps private details out of the writing prompt and only sends exact facts to the user', async () => {
     const result = await maybePersonalizeConfirmedReply({
@@ -118,8 +118,27 @@ describe('personal writing for private confirmations', () => {
     'Assinatura adicionada ao seu controle: Spotify · R$ 22,90 · renovação em 15/11/2026.',
     '✅ *Compromisso agendado*\n\n• *Assunto:* ensaio\n• *Início:* 13/11/2026, 17:00',
   ])('keeps the saved facts for %s', async (text) => {
-    expect(await maybePersonalizeConfirmedReply({ ...input, responseText: text })).toContain(text);
+    const reply = await maybePersonalizeConfirmedReply({ ...input, responseText: text });
+    for (const detail of text.includes('Spotify')
+      ? ['Spotify', '22,90', '15/11/2026', '*Renovação:*']
+      : text.includes('comprar café')
+        ? ['comprar café', 'Pendente', '*Tarefa:*']
+        : ['ensaio', '17:00', '*Início:*'])
+      expect(reply).toContain(detail);
+    expect(reply).toContain('\n\n');
     expect(mocks.complete).toHaveBeenCalledTimes(1);
+  });
+  it('does not add a fictional location to a reminder', async () => {
+    mocks.complete.mockResolvedValue(
+      say('Ei, o livro do ensaio Jasmim tá na pasta de materiais do projeto!')
+    );
+    const reply = await maybePersonalizeConfirmedReply({
+      ...input,
+      responseText:
+        '✅ *Lembrete agendado*\n\n• *Assunto:* buscar o livro\n• *Data e hora:* 13/11/2026, 11:13:09',
+    });
+    expect(reply).toContain('buscar o livro');
+    expect(reply).not.toContain('pasta');
   });
   it('rejects invented service state from the model for a tracked subscription', async () => {
     const note =
@@ -127,7 +146,9 @@ describe('personal writing for private confirmations', () => {
     mocks.complete.mockResolvedValue(
       say('Tudo bem, seu plano de Spotify tá ativo até o fim do mês! 🎵')
     );
-    expect(await maybePersonalizeConfirmedReply({ ...input, responseText: note })).toBe(note);
+    const reply = await maybePersonalizeConfirmedReply({ ...input, responseText: note });
+    expect(reply).toContain('🔁 *Assinatura cadastrada*\n\n• *Nome:* Spotify');
+    expect(reply).not.toContain('ativo');
   });
 
   it('returns facts on timeout and avoids duplicate writers for a busy customer', async () => {
@@ -141,9 +162,9 @@ describe('personal writing for private confirmations', () => {
     );
     const first = maybePersonalizeConfirmedReply(input);
     await vi.advanceTimersByTimeAsync(1);
-    expect(await maybePersonalizeConfirmedReply(input)).toBe('🍕 ' + facts);
+    expect(await maybePersonalizeConfirmedReply(input)).toBe(card);
     await vi.advanceTimersByTimeAsync(5000);
-    expect(await first).toBe('🍕 ' + facts);
+    expect(await first).toBe(card);
     finish(say('Pizza! 🍕'));
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.complete).toHaveBeenCalledTimes(1);

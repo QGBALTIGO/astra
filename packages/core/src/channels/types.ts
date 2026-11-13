@@ -155,6 +155,8 @@ export interface ChannelPluginAPI {
   logout?(): Promise<void>;
 
   /** Return basic info about the bot account (optional) */
+  /** Look up the unique registered WhatsApp destination before sending a login code. */
+  resolveWhatsAppRecipient?(phone: string): Promise<string | null>;
   getBotInfo?(): { username?: string; firstName?: string } | null;
 }
 

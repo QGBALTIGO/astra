@@ -5,6 +5,7 @@
  * to OwnPilot user IDs for cross-channel identity.
  */
 
+import { whatsappPhoneSpellings } from '../../../channels/whatsapp-phone.js';
 import { randomUUID } from 'node:crypto';
 import { BaseRepository, parseJsonField } from '../base.js';
 import { channelAccessNotificationsRepo } from '../channel-access-notifications.js';
@@ -316,17 +317,28 @@ export class ChannelUsersRepository extends BaseRepository {
     return this.transaction(async () => {
       // A row lock alone cannot serialize the first insert for a phone that
       // does not exist yet. This transaction-scoped lock also covers creation.
-      await this.execute(`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [
-        `whatsapp-access:${input.phoneNumber}`,
-      ]);
-      const previousRow = await this.queryOne<ChannelUserRow>(
-        `SELECT * FROM channel_users WHERE platform = 'whatsapp' AND platform_user_id = $1 FOR UPDATE`,
-        [input.phoneNumber]
+      const candidates = whatsappPhoneSpellings(input.phoneNumber);
+      for (const candidate of [...candidates].sort()) {
+        await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [
+          `whatsapp-access:${candidate}`,
+        ]);
+      }
+      const previousRow = await this.queryOne<ChannelUserRow & { reserved: boolean }>(
+        `SELECT u.*, (EXISTS (SELECT 1 FROM channel_users other WHERE other.platform = 'whatsapp'
+              AND other.platform_user_id = ANY($1::text[]) AND other.id <> u.id
+              AND (other.is_verified OR other.is_blocked OR other.access_source IS NOT NULL))
+            OR EXISTS (SELECT 1 FROM system_settings WHERE key = 'owner_whatsapp' AND value = ANY($1::text[]))
+            OR EXISTS (SELECT 1 FROM customer_phone_aliases WHERE phone_number = ANY($1::text[]) AND retired_at IS NOT NULL)) AS reserved
+         FROM channel_users u WHERE platform = 'whatsapp' AND platform_user_id = ANY($1::text[])
+         ORDER BY is_verified DESC, (platform_user_id = $2) DESC LIMIT 1 FOR UPDATE`,
+        [candidates, input.phoneNumber]
       );
       const previous = previousRow ? rowToEntity(previousRow) : null;
+      if (previousRow?.reserved) return null;
+      const storedPhone = previous?.platformUserId ?? input.phoneNumber;
       if (
         previous &&
-        (previous.ownpilotUserId !== `whatsapp:${input.phoneNumber}` || previous.isBlocked)
+        (previous.ownpilotUserId !== `whatsapp:${storedPhone}` || previous.isBlocked)
       ) {
         return null;
       }
@@ -359,7 +371,10 @@ export class ChannelUsersRepository extends BaseRepository {
         access_expires_at, access_granted_at, access_source, metadata
        ) SELECT $1, $2, 'whatsapp', $3, $4, TRUE, $5::timestamptz, 'admin', 'active',
          $6::timestamptz, $5::timestamptz, $7, $8::jsonb
-       WHERE NOT EXISTS (SELECT 1 FROM customer_phone_aliases WHERE phone_number = $3 AND retired_at IS NOT NULL)
+       WHERE NOT EXISTS (SELECT 1 FROM customer_phone_aliases WHERE phone_number = ANY($9::text[]) AND retired_at IS NOT NULL)
+         AND NOT EXISTS (SELECT 1 FROM system_settings WHERE key = 'owner_whatsapp' AND value = ANY($9::text[]))
+         AND NOT EXISTS (SELECT 1 FROM channel_users WHERE platform = 'whatsapp' AND platform_user_id = ANY($9::text[])
+           AND platform_user_id <> $3 AND (is_verified OR is_blocked OR access_source IS NOT NULL))
        ON CONFLICT (platform, platform_user_id) DO UPDATE SET
         display_name = COALESCE(EXCLUDED.display_name, channel_users.display_name),
         is_verified = TRUE, verified_at = EXCLUDED.verified_at,
@@ -372,13 +387,14 @@ export class ChannelUsersRepository extends BaseRepository {
        RETURNING *`,
         [
           randomUUID(),
-          `whatsapp:${input.phoneNumber}`,
-          input.phoneNumber,
+          `whatsapp:${storedPhone}`,
+          storedPhone,
           input.displayName ?? null,
           input.grantedAt.toISOString(),
           expiresAt?.toISOString() ?? null,
           input.source,
           JSON.stringify({ manualPreauthorized: input.source === 'manual', hasInteracted: false }),
+          candidates,
         ]
       );
       if (!row) return null;

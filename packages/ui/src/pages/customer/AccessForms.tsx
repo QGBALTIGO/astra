@@ -54,7 +54,7 @@ export function CustomerPhoneField({
       </label>
       <p id={id + '-help'} className="ac-field-help">
         {country === 'BR'
-          ? 'Informe o DDD e o número autorizado no Astra.'
+          ? 'Informe o DDD e o número autorizado. Para celular brasileiro, pode digitar com ou sem o nono dígito.'
           : 'Comece com + e o código do país.'}
       </p>
     </div>

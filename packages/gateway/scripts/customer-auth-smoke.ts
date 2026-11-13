@@ -44,6 +44,7 @@ export async function verifyCustomerAuthPersistence(adapter: DatabaseAdapter): P
     'Customer auth smoke requires an isolated database without WhatsApp users, accounts or codes'
   );
   const phone = '5511999990161';
+  const oldSpelling = phone.slice(0, 4) + phone.slice(5);
   const newPhone = '5511999990162';
   const ratePhones = Array.from(
     { length: 21 },
@@ -82,9 +83,12 @@ export async function verifyCustomerAuthPersistence(adapter: DatabaseAdapter): P
     getStatus: () => (connected ? 'connected' : 'disconnected'),
     getPlatform: () => 'whatsapp',
     getBotInfo: () => ({ username: '5567999990110' }),
+    resolveWhatsAppRecipient: async (candidate) => (candidate === phone ? oldSpelling : candidate),
     sendMessage: async (message) => {
       // This is deliberately a local fake, not the registered channel service.
-      assert.ok(allPhones.includes(message.platformChatId));
+      assert.ok(
+        message.platformChatId === oldSpelling || allPhones.includes(message.platformChatId)
+      );
       assert.ok(message.text.includes('*123456*'));
       sends++;
       return `synthetic-delivery-${sends}`;
@@ -142,7 +146,19 @@ export async function verifyCustomerAuthPersistence(adapter: DatabaseAdapter): P
     assert.equal(provisioned.dataUserId, dataUserId);
     assert.equal((await accounts.getByDataUserId(dataUserId))?.phoneNumber, phone);
 
-    const first = await service.requestCode(`+${phone}`, 'synthetic-login-ip');
+    const duplicateGrant = await users.grantWhatsAppAccess({
+      phoneNumber: oldSpelling,
+      source: 'manual',
+      grantedAt: now,
+      expiresAt: new Date(now.getTime() + 30 * 86_400_000),
+    });
+    assert.equal(duplicateGrant?.id, channelUserId);
+    assert.equal((await identity.resolveLoginPhone(oldSpelling))?.accountId, accountId);
+    const first = await service.requestCode(`+${oldSpelling}`, 'synthetic-login-ip');
+    await assert.rejects(
+      service.requestCode(`+${phone}`, 'alternate-retry'),
+      (err: unknown) => (err as { status: number }).status === 429
+    );
     const stored = await adapter.queryOne<{
       code_hash: string;
       code_ciphertext: string;

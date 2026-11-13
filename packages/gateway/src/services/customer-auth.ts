@@ -26,6 +26,7 @@ import {
   type CustomerSessionContext,
 } from './customer-identity.js';
 import { normalizeWhatsAppAccessPhone } from '../channels/channel-access-service.js';
+import { whatsappPhoneSpellings } from '../channels/whatsapp-phone.js';
 import { buildCustomerOtpMessage } from './customer-auth-messages.js';
 import { getLog } from './log.js';
 
@@ -63,7 +64,7 @@ interface AuthDependencies {
     'getById' | 'isPhoneAvailable' | 'changePhone' | 'updateProfile'
   >;
   auth: CustomerAuthRepository;
-  identity: Pick<CustomerIdentityService, 'resolvePhone' | 'getContext' | 'isOwnerPhone'>;
+  identity: Pick<CustomerIdentityService, 'resolveLoginPhone' | 'getContext' | 'isOwnerPhone'>;
   channels: () => Pick<IChannelService, 'getChannel' | 'listChannels'>;
   secret: () => string;
   now: () => Date;
@@ -211,12 +212,17 @@ export class CustomerAuthService {
   async requestCode(phoneInput: string, ip: string): Promise<CustomerChallengeResponse> {
     const phone = normalizePhone(phoneInput);
     this.d.secret();
-    const resolved = await this.d.identity.resolvePhone(phone, { provision: true });
+    const resolved = await this.d.identity.resolveLoginPhone(phone);
     const context =
       resolved?.isCurrent && !resolved.retired
         ? await this.d.identity.getContext(resolved.accountId)
         : null;
-    return this.issue({ purpose: 'login', phone, ip, account: context?.account ?? null });
+    return this.issue({
+      purpose: 'login',
+      phone: context?.account.phoneNumber ?? phone,
+      ip,
+      account: context?.account ?? null,
+    });
   }
 
   private async consume(
@@ -251,7 +257,9 @@ export class CustomerAuthService {
     if (
       !context ||
       context.account.phoneNumber !== challenge.phoneNumber ||
-      context.account.authVersion !== challenge.accountVersion
+      context.account.authVersion !== challenge.accountVersion ||
+      (await this.d.identity.resolveLoginPhone(challenge.phoneNumber))?.accountId !==
+        context.account.id
     )
       throw new CustomerAuthError('Código inválido, vencido ou já utilizado.', 401);
     const { token, session } = this.newSession(userAgent);
@@ -334,7 +342,7 @@ export class CustomerAuthService {
     const context = await this.writableContext(accountId, sessionId);
     const phone = normalizePhone(phoneInput);
     if (
-      phone === context.account.phoneNumber ||
+      whatsappPhoneSpellings(phone).includes(context.account.phoneNumber) ||
       (await this.d.identity.isOwnerPhone(phone)) ||
       !(await this.d.accounts.isPhoneAvailable(phone))
     )
@@ -446,7 +454,11 @@ export class CustomerAuthService {
       return false;
     const context = await this.d.identity.getContext(challenge.accountId);
     if (!context || context.account.authVersion !== challenge.accountVersion) return false;
-    if (challenge.purpose === 'login') return context.account.phoneNumber === challenge.phoneNumber;
+    if (challenge.purpose === 'login') {
+      if (context.account.phoneNumber !== challenge.phoneNumber) return false;
+      const current = await this.d.identity.resolveLoginPhone(challenge.phoneNumber);
+      return !!current?.isCurrent && current.accountId === context.account.id;
+    }
     if (
       !context.customer.access.canWrite ||
       challenge.sourcePhone !== context.account.phoneNumber ||
@@ -489,6 +501,17 @@ export class CustomerAuthService {
             await this.d.auth.finishDelivery(challenge.id, lease, 'cancelled');
             continue;
           }
+          // Resolve both spellings before the sending boundary. WhatsApp may return
+          // the same destination for both; a code must never reach two accounts.
+          let recipient = challenge.phoneNumber;
+          if (whatsappPhoneSpellings(recipient).length > 1) {
+            const identified = await selected.api.resolveWhatsAppRecipient?.(recipient);
+            if (!identified) {
+              await this.d.auth.finishDelivery(challenge.id, lease, 'cancelled');
+              continue;
+            }
+            recipient = identified;
+          }
           const code = this.decryptCode(challenge.codeCiphertext);
           const message = buildCustomerOtpMessage(code, challenge.purpose);
           if (!(await this.d.auth.beginDelivery(challenge.id, lease, this.d.now()))) continue;
@@ -508,7 +531,7 @@ export class CustomerAuthService {
           // Explicit opt-in is reserved for controlled native-copy testing.
           const nativeCopyEnabled = process.env.ASTRA_CUSTOMER_OTP_NATIVE_COPY === 'true';
           await fresh.api.sendMessage({
-            platformChatId: challenge.phoneNumber,
+            platformChatId: recipient,
             text: message.text,
             ...(nativeCopyEnabled ? { copyCode: message.copyCode } : {}),
             sendBefore: challenge.expiresAt,

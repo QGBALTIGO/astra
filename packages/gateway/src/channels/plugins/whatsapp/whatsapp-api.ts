@@ -8,6 +8,7 @@
  * Trust boundary: Baileys group-metadata has a loose metadata shape that does not declare isCommunity, isCommunityAnnounce, or linkedParent. The helpers below read those optional runtime fields without depending on Baileys' narrower TypeScript surface.
  */
 
+import { whatsappPhoneSpellings } from '../../whatsapp-phone.js';
 import makeWASocket, {
   useMultiFileAuthState,
   makeCacheableSignalKeyStore,
@@ -727,7 +728,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         jid,
         accountPhone,
         recoveryDeadline,
-        message.sendBefore
+        message.sendBefore,
+        Boolean(message.replyToId && /^\d+@s\.whatsapp\.net$/u.test(jid))
       );
       if (sock !== this.sock || this.status !== 'connected') {
         throw new Error('WhatsApp disconnected before sending');
@@ -843,6 +845,22 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     );
     if (!avatarUrl || !isCurrent()) return null;
     return { platform: 'whatsapp', platformUserId, displayName: platformUserId, avatarUrl };
+  }
+
+  async resolveWhatsAppRecipient(phone: string): Promise<string | null> {
+    const sock = this.sock;
+    if (!sock || this.status !== 'connected') throw new Error('WhatsApp disconnected');
+    const candidates = whatsappPhoneSpellings(phone);
+    const results = await sock.onWhatsApp(...candidates);
+    if (!results || this.sock !== sock) throw new Error('WhatsApp lookup unavailable');
+    const recipients = new Set<string>();
+    for (const result of results) {
+      if (!result.exists) continue;
+      const number = /^(\d+)@s\.whatsapp\.net$/u.exec(result.jid)?.[1];
+      if (!number || !candidates.includes(number)) return null;
+      recipients.add(number);
+    }
+    return recipients.size === 1 ? [...recipients][0]! : null;
   }
 
   getBotInfo(): { username?: string; firstName?: string } | null {
@@ -1393,15 +1411,16 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   }
 
   /** Enforce rate limits: global 20/min + per-JID 3s gap. Waits if needed. */
-  private async enforceRateLimit(jid: string): Promise<void> {
+  private async enforceRateLimit(jid: string, directReply = false): Promise<void> {
     const now = Date.now();
 
-    // Per-JID rate limit: min 3s between messages to same recipient
+    // An explicit reply to an incoming private message can follow its predecessor sooner.
+    const minGap = directReply ? 750 : RATE_LIMIT_PER_JID_MS;
     const lastSend = this.perJidLastSend.get(jid);
     if (lastSend !== undefined) {
       const elapsed = now - lastSend;
-      if (elapsed < RATE_LIMIT_PER_JID_MS) {
-        const waitMs = RATE_LIMIT_PER_JID_MS - elapsed;
+      if (elapsed < minGap) {
+        const waitMs = minGap - elapsed;
         log.debug('[RateLimit] Recipient throttle', { waitMs });
         await new Promise((r) => setTimeout(r, waitMs));
       }
@@ -1428,11 +1447,12 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     jid: string,
     accountPhone: string,
     recoveryDeadline: number,
-    sendBefore: Date | undefined
+    sendBefore: Date | undefined,
+    directReply: boolean
   ): Promise<WASocket> {
     const operation = this.sendRateLimitQueue.then(async () => {
       assertSendDeadline(sendBefore);
-      await this.enforceRateLimit(jid);
+      await this.enforceRateLimit(jid, directReply);
       const sock = await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
       assertSendDeadline(sendBefore);
       // Reserve before invoking transport: errors may still mean delivery, and
