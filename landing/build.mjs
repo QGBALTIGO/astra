@@ -116,7 +116,7 @@ for (const page of publicPages) {
     .replaceAll('https://astraacessor.pro/"', `https://astraacessor.pro${page.path}"`);
   const html = await compactHtml(
     render(
-      `<!doctype html><html lang="pt-BR"><head>${head}</head><body><a class="skip-link" href="#principal">Pular para o conteúdo</a>${header}<main id="principal">${page.body}</main>${footer}${dialogs}</body></html>`
+      `<!doctype html><html lang="pt-BR"><head>${head}</head><body${page.path === '/demonstracao' ? ' class="demo-page"' : ''}><a class="skip-link" href="#principal">Pular para o conteúdo</a>${header}<main id="principal">${page.body}</main>${footer}${dialogs}</body></html>`
     )
   );
   const path = `${page.path}.html`;
@@ -173,7 +173,7 @@ await writeFile(
   join(dist, 'build.json'),
   JSON.stringify(
     {
-      release: 'assessor-pattern-20261113',
+      release: 'demo-mobile-20261113',
       sha256: sha,
       files: Object.keys(files),
       paths,
@@ -188,7 +188,7 @@ await writeFile(
 );
 console.log(
   JSON.stringify({
-    release: 'assessor-pattern-20261113',
+    release: 'demo-mobile-20261113',
     sha256: sha,
     files: Object.keys(files).length,
     htmlBytes: Buffer.byteLength(index),
