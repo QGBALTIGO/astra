@@ -64,6 +64,34 @@ beforeEach(() => {
   f.remove.mockResolvedValue(true);
 });
 describe('same-ledger finance tools', () => {
+  it('infers food even if the default category was renamed and updates only the requested field', async () => {
+    f.categories.mockResolvedValue([
+      { id: 'out', name: 'Outros', type: 'expense', archived: false, legacyKey: 'other' },
+      { id: 'food', name: 'Comidas', type: 'expense', archived: false, legacyKey: 'food' },
+    ]);
+    const args = { ...data, type: 'expense', description: 'café da manhã' };
+    await executeCustomerFinanceTool('record_transaction', args, 'whatsapp:synthetic-a');
+    expect(f.create).toHaveBeenCalledWith({ ...args, categoryId: 'food' }, expect.any(String));
+    await executeCustomerFinanceTool(
+      'update_transaction',
+      { transaction_id: 'saved', category: 'Comidas' },
+      'whatsapp:synthetic-a'
+    );
+    expect(f.update).toHaveBeenCalledWith('saved', { categoryId: 'food' });
+    await executeCustomerFinanceTool(
+      'record_transaction',
+      { ...args, category: 'Outros' },
+      'whatsapp:synthetic-a'
+    );
+    expect(f.create).toHaveBeenLastCalledWith({ ...args, categoryId: 'out' }, expect.any(String));
+    const invalid = await executeCustomerFinanceTool(
+      'update_transaction',
+      { transaction_id: 'saved', category: 'Inexistente' },
+      'whatsapp:synthetic-a'
+    );
+    expect(invalid.success).toBe(false);
+    expect(f.update).toHaveBeenCalledTimes(1);
+  });
   it('exposes complete typed CRUD and summary', () =>
     expect(CUSTOMER_FINANCE_TOOLS.map((t) => t.name)).toEqual([
       'record_transaction',

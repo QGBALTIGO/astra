@@ -1,3 +1,4 @@
+import { inferExpenseCategory } from '../services/expense-category.js';
 /**
  * Expense Tools — Gateway DB-backed Implementation
  *
@@ -50,7 +51,8 @@ export async function executeExpenseTool(
           date: (args.date as string) ?? dayFor(new Date()),
           amount: args.amount as number,
           currency: (args.currency as string) ?? 'BRL',
-          category: (args.category as string) ?? 'other',
+          category:
+            (args.category as string) ?? inferExpenseCategory(String(args.description ?? '')),
           description: args.description as string,
           paymentMethod: args.paymentMethod as string | undefined,
           tags: args.tags as string[] | undefined,
@@ -76,7 +78,8 @@ export async function executeExpenseTool(
             date: (item.date as string) ?? dayFor(new Date()),
             amount: item.amount as number,
             currency: (item.currency as string) ?? 'BRL',
-            category: (item.category as string) ?? 'other',
+            category:
+              (item.category as string) ?? inferExpenseCategory(String(item.description ?? '')),
             description: item.description as string,
             paymentMethod: item.paymentMethod as string | undefined,
             tags: item.tags as string[] | undefined,

@@ -11,6 +11,7 @@ export interface CustomerCategory {
   type: CustomerTransactionType;
   color: string;
   archived: boolean;
+  legacyKey?: string | null;
 }
 
 export interface CustomerTransaction {
@@ -218,7 +219,14 @@ function validateInput(input: CustomerTransactionInput): CustomerTransactionInpu
 }
 
 function categoryFromRow(row: CategoryRow): CustomerCategory {
-  return { id: row.id, name: row.name, type: row.type, color: row.color, archived: row.archived };
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    color: row.color,
+    archived: row.archived,
+    legacyKey: row.legacy_key,
+  };
 }
 
 function transactionFromRow(row: TransactionRow): CustomerTransaction {

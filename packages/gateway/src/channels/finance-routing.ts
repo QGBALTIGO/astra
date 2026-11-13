@@ -1,3 +1,4 @@
+import { inferExpenseCategory } from '../services/expense-category.js';
 /**
  * Deterministic financing operations for WhatsApp/Telegram. Bypasses LLM
  * rate limits and invalid direct core.* tool calls on unambiguous requests.
@@ -85,18 +86,21 @@ export function parseChannelExpense(input: string): ParsedChannelExpense | null 
   }
 
   const match = text.match(
-    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(?:gastei|paguei|acabei\s+de\s+(?:gastar|pagar))\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:(?:real|reais)\b\s*)?(?:(?:no|na|nos|nas|em|com|pelo|pela|pelos|pelas|de)\s+([\p{L}\p{M}\s'-]+))?[.!]?$/iu
+    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(?:gastei|paguei|acabei\s+de\s+(?:gastar|pagar))\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:(real|reais|centavos?)\b\s*)?(?:(?:no|na|nos|nas|em|com|pelo|pela|pelos|pelas|de)\s+([\p{L}\p{M}\s'-]+))?[.!]?$/iu
   );
   if (!match) return null;
   // Without a description, require the sender to identify the value as money.
-  if (!match[2] && !/(?:r\$|(?:real|reais)\b)/i.test(text)) return null;
+  if (!match[3] && !match[2] && !/r\$/i.test(text)) return null;
   // The legacy financing parser tolerates trailing sentence punctuation.
   // A new automatic expense must instead have an entirely valid amount token.
   if (!/^(?:\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[,.]\d{1,2})?)$/.test(match[1] ?? '')) {
     return null;
   }
-  const amountCents = parseBrlCents(match[1] ?? '');
-  const description = (match[2] ?? 'Despesa').replace(/\s+/g, ' ').trim();
+  const token = match[1]!;
+  const inCents = /^centavo/i.test(match[2] ?? '');
+  if (inCents && !/^(?:\d+|0[,.]\d{1,2})$/.test(token)) return null;
+  const amountCents = inCents && /^\d+$/.test(token) ? Number(token) : parseBrlCents(token);
+  const description = (match[3] ?? 'Despesa').replace(/\s+/g, ' ').trim();
   const detail = normalize(description);
   if (
     !amountCents ||
@@ -110,30 +114,11 @@ export function parseChannelExpense(input: string): ParsedChannelExpense | null 
     return null;
   }
 
-  let category: ExpenseCategory = 'other';
-  if (
-    /\b(?:almoco|jantar|cafe|lanche|padaria|restaurante|mercado|supermercado|ifood|pizza|comida|refeicao|alimentacao)\b/u.test(
-      detail
-    )
-  ) {
-    category = 'food';
-  } else if (
-    /\b(?:uber|taxi|gasolina|combustivel|onibus|metro|transporte|estacionamento|pedagio)\b/u.test(
-      detail
-    )
-  ) {
-    category = 'transport';
-  } else if (/\b(?:farmacia|remedio|medicamento|consulta|dentista|exame|saude)\b/u.test(detail)) {
-    category = 'health';
-  } else if (/\b(?:netflix|spotify|assinatura)\b/u.test(detail)) {
-    category = 'subscription';
-  } else if (/\b(?:internet|energia|luz|agua|telefone)\b/u.test(detail)) {
-    category = 'utilities';
-  }
+  const category = inferExpenseCategory(description);
   // "Paguei 470 de gasolina" is a clear expense, but "paguei 470 de
   // entrada" may modify a financing balance. Only handle "de" when the
   // merchant/purpose already maps to a known expense category.
-  if (/\d[\d.,]*\s*(?:reais?\s+)?de\s+/u.test(normalized) && category === 'other') {
+  if (/\d[\d.,]*\s*(?:(?:reais?|centavos?)\s+)?de\s+/u.test(normalized) && category === 'other') {
     return null;
   }
   return { amountCents, description, category };
