@@ -48,7 +48,7 @@ test('all guided conversations and dashboard views remain accessible at night', 
 }) => {
   await page.goto('/demonstracao');
   for (const s of scenarios) {
-    await page.locator(`[data-scenario="${s.id}"]`).click();
+    await page.getByLabel('Escolha um exemplo').selectOption(s.id);
     await expect(page.locator('#demo-reply')).toHaveText(s.reply);
     await accessible(page, '.demo-workspace');
   }

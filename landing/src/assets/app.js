@@ -6,6 +6,16 @@ const icon = (name) =>
   `<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#${name}"></use></svg>`;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
+// Native dialogs move focus on open. Keep that focus visible for keyboard navigation.
+document.addEventListener('pointerdown', () => {
+  document.documentElement.dataset.pointerFocus = '';
+}, { capture: true, passive: true });
+document.addEventListener('keydown', (event) => {
+  if (!event.metaKey && !event.altKey && !event.ctrlKey) {
+    delete document.documentElement.dataset.pointerFocus;
+  }
+}, true);
+
 // Native dialogs provide an inert background, Escape support and a focus boundary.
 const menu = $('#mobile-menu');
 const menuToggle = $('.menu-toggle');
@@ -14,7 +24,7 @@ function syncScrollLock() {
   document.body.classList.toggle('modal-open', Boolean($('dialog[open]')));
 }
 menuToggle?.addEventListener('click', () => {
-  menuReturn = document.activeElement;
+  menuReturn = menuToggle;
   menu.showModal();
   menuToggle.setAttribute('aria-expanded', 'true');
   syncScrollLock();
@@ -41,6 +51,7 @@ const panel = $('#dashboard-panel');
 if (panel) {
   const tabs = $$('[data-view]');
   let activeScenario = scenarios[0];
+  const chooser = $('#scenario-select');
   let activeView = activeScenario.tab;
   let replayTimer;
   const transaction = (
@@ -51,7 +62,7 @@ if (panel) {
   ) =>
     `<div class="transaction-row${highlight ? ' highlighted' : ''}"><span class="transaction-icon${highlight ? '' : ' muted'}">${icon(symbol)}</span><div><strong>${title}</strong><span>${detail}</span></div><b${positive ? ' class="positive"' : ''}>${positive ? '+' : '−'} ${money(amount)}</b></div>`;
   const heading = (title) =>
-    `<div class="dashboard-view-heading"><div><p class="mini-label">NOVEMBRO · 2026</p><h3>${title}</h3></div><span class="panel-success">${icon('check')} ${activeScenario.cta}</span></div>`;
+    `<div class="dashboard-view-heading"><div><p class="mini-label">NOVEMBRO · 2026</p><h3>${title}</h3></div>${chooser && activeView === activeScenario.tab ? `<span class="panel-success">${icon('check')} ${activeScenario.cta}</span>` : ''}</div>`;
   const agendaItem = (time, title, detail, symbol = 'calendar') =>
     `<div class="agenda-list-item"><time>${time}</time><div><strong>${title}</strong><span>${detail}</span></div>${icon(symbol)}</div>`;
   const goal = () =>
@@ -91,7 +102,15 @@ if (panel) {
       ${agendaItem('17:00', 'Revisar a proposta', '12 de novembro · Tarefa pendente', 'check')}
       ${agendaItem('18:00', 'Pagar a fatura', '12 de novembro · Lembrete no WhatsApp', 'bell')}`;
     }
-    return `${heading('Um espaço que é seu.')}<div class="profile-person"><span class="profile-avatar">MC</span><div><strong>Marina Costa</strong><p>Perfil fictício · Demonstração</p></div></div><div class="profile-setting"><span>Acesso ao painel</span><strong>Código pelo WhatsApp</strong></div><div class="profile-setting"><span>Moeda dos registros</span><strong>Real brasileiro (R$)</strong></div><div class="profile-setting"><span>Preferência de tema</span><strong>Claro, escuro ou sistema</strong></div><p class="profile-note">Esta prévia não permite alterar uma conta. Para consultar e editar seus dados reais, entre no seu painel pessoal.</p>`;
+    return `<div class="profile-preview">
+      <span class="profile-avatar" aria-hidden="true">MC</span>
+      <div><h3>Marina Costa</h3><p>Perfil fictício</p></div>
+    </div>
+    <dl class="profile-details">
+      <div><dt>Acesso ao painel</dt><dd>Código pelo WhatsApp</dd></div>
+      <div><dt>Moeda</dt><dd>Real brasileiro (R$)</dd></div>
+      <div><dt>Opções de tema</dt><dd>Claro, escuro ou sistema</dd></div>
+    </dl>`;
   }
   function showView(view, focusTab = false) {
     if (!panel || !tabs.some((tab) => tab.dataset.view === view)) return;
@@ -121,15 +140,12 @@ if (panel) {
   function playScenario(scenario, animate = true) {
     clearTimeout(replayTimer);
     activeScenario = scenario;
-    $$('[data-scenario]').forEach((button) =>
-      button.setAttribute('aria-pressed', String(button.dataset.scenario === scenario.id))
-    );
+    if (chooser) chooser.value = scenario.id;
     if (!$('#demo-user')) {
       showView(scenario.tab);
       return;
     }
     $('#demo-user').textContent = scenario.user;
-    $('#demo-tag').textContent = scenario.tag;
     $('#demo-status').textContent = '';
     const reply = $('#demo-reply');
     const bubble = $('#demo-reply-bubble');
@@ -161,11 +177,13 @@ if (panel) {
       '<span class="typing" aria-label="Preparando exemplo"><i></i><i></i><i></i></span>';
     replayTimer = setTimeout(finish, 320);
   }
-  $$('[data-scenario]').forEach((button) =>
-    button.addEventListener('click', () =>
-      playScenario(scenarios.find((scenario) => scenario.id === button.dataset.scenario))
-    )
-  );
+  chooser?.addEventListener('change', () => {
+    const scenario = scenarios.find(({ id }) => id === chooser.value);
+    if (scenario) {
+      history.replaceState(null, '', '#' + scenario.id);
+      playScenario(scenario);
+    }
+  });
   $('#replay')?.addEventListener('click', () => playScenario(activeScenario));
   const requested = location.hash.slice(1);
   if ($('#demo-user'))
@@ -492,35 +510,6 @@ document.addEventListener('keydown', (e) => {
     products.open = false;
     products.querySelector('summary')?.focus();
   }
-});
-const composer = $('#demo-composer');
-composer?.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const value = $('#demo-question').value.toLocaleLowerCase('pt-BR');
-  const keys = [
-    [/gastei|gasto|almo|dinheiro|finan/, 'financas'],
-    [/recebi|sal[aá]rio|projeto/, 'trabalho'],
-    [/dentista|agenda|compromisso/, 'agenda'],
-    [/lembra|internet|pagar/, 'lembretes'],
-    [/tarefa|contrato|proposta/, 'tarefas'],
-    [/meta|juntar|guardar/, 'metas'],
-    [/viag|pousada/, 'viagens'],
-    [/estud|ingl[eê]s/, 'estudos'],
-    [/fam[ií]lia|escola/, 'familia'],
-    [/nota|anot|informa/, 'notas'],
-  ];
-  const match = keys.find(([re]) => re.test(value));
-  if (!match) {
-    $('#composer-status').textContent =
-      'Esta é uma simulação com exemplos prontos. Escolha uma das situações abaixo para continuar.';
-    return;
-  }
-  location.hash = match[1];
-  $('#composer-status').textContent =
-    'Abrimos um exemplo ilustrativo relacionado ao assunto. Seu texto não foi enviado nem salvo.';
-  document
-    .querySelector('#scenario-picker')
-    ?.scrollIntoView({ behavior: reducedMotion.matches ? 'instant' : 'smooth', block: 'start' });
 });
 if (['#contato', '#interesse'].includes(location.hash)) openContact();
 const oldAnchors = {

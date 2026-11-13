@@ -4,7 +4,7 @@
 import { SQL } from 'bun';
 import { gzipSync } from 'node:zlib';
 import { createHash, createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
-const RELEASE = 'assessor-pattern-20261113';
+const RELEASE = 'demo-mobile-20261113';
 /* PUBLIC_ASSET_BUNDLE */
 const preview = Bun.env.LANDING_PREVIEW === 'true';
 const schema = preview ? 'astra_landing_preview' : 'astra_landing';

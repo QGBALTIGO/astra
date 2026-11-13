@@ -79,6 +79,36 @@ test('dashboard tabs use roving focus and show coherent data', async ({ page }) 
   await expect(page.locator('#dashboard-panel')).toContainText('3.176,00');
   expect(await page.locator('.dashboard-tabs [role="tab"][tabindex="0"]').count()).toBe(1);
 });
+test('profile values have room and pointer focus stays quiet when opening the menu', async ({
+  page, viewport, hasTouch,
+}) => {
+  for (const path of ['/', '/demonstracao']) {
+    await page.goto(path);
+    const profile = page.getByRole('tab', { name: 'Perfil' });
+    if (hasTouch) await profile.tap();
+    else await profile.click();
+    await expect(profile).toHaveCSS('outline-style', 'none');
+    const rows = page.locator('.profile-details > div');
+    await expect(rows).toHaveCount(3);
+    expect(await rows.evaluateAll((items) => items.every((item) => {
+      const label = item.querySelector('dt').getBoundingClientRect();
+      const value = item.querySelector('dd').getBoundingClientRect();
+      return value.top >= label.bottom + 2 || value.left >= label.right + 4;
+    }))).toBe(true);
+    if (viewport.width >= 960) continue;
+    const toggle = page.getByRole('button', { name: 'Abrir menu' });
+    if (hasTouch) await toggle.tap();
+    else await toggle.click();
+    const close = page.getByRole('button', { name: 'Fechar menu' });
+    await expect(close).toBeFocused();
+    await expect(close).toHaveCSS('outline-style', 'none');
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#mobile-menu :focus')).toHaveCSS('outline-style', 'solid');
+    await page.keyboard.press('Escape');
+    await expect(toggle).toBeFocused();
+    await expect(toggle).toHaveCSS('outline-style', 'solid');
+  }
+});
 test('navigation, products, FAQ and browser history work', async ({ page, viewport }) => {
   if (viewport.width < 960) {
     await page.getByRole('button', { name: 'Abrir menu' }).click();
@@ -153,15 +183,15 @@ test('all guided conversations produce the correct result and dashboard state', 
 }) => {
   await page.goto('/demonstracao');
   for (const s of scenarios) {
-    await page.locator(`[data-scenario="${s.id}"]`).click();
+    await page.getByLabel('Escolha um exemplo').selectOption(s.id);
     await expect(page.locator('#demo-user')).toHaveText(s.user);
     await expect(page.locator('#demo-reply')).toHaveText(s.reply);
     await expect(page.locator('#dashboard-panel')).toContainText(s.cta);
     await expect(page.locator('#tab-' + s.tab)).toHaveAttribute('aria-selected', 'true');
   }
-  await page.locator('[data-scenario="agenda"]').click();
-  await page.locator('[data-scenario="metas"]').click();
-  await page.locator('[data-scenario="trabalho"]').click();
+  await page.getByLabel('Escolha um exemplo').selectOption('agenda');
+  await page.getByLabel('Escolha um exemplo').selectOption('metas');
+  await page.getByLabel('Escolha um exemplo').selectOption('trabalho');
   await expect(page.locator('#dashboard-panel')).toContainText('5.650,00');
   await page.locator('#tab-inicio').click();
   await expect(page.locator('#dashboard-panel')).toContainText('1.582,00');
@@ -178,17 +208,13 @@ test('local topic chooser and linked demonstrations preserve the simulation boun
   await page.goto('/demonstracao#notas');
   await expect(page.locator('#demo-reply')).toContainText('Pousada do Lago');
   await expect(page.locator('#dashboard-panel')).toContainText('recuperada no WhatsApp');
-  await page
-    .getByLabel('Escolha um assunto para explorar')
-    .fill('Quero criar um lembrete para pagar internet');
-  await page.getByRole('button', { name: 'Explorar assunto' }).click();
+  const chooser = page.getByLabel('Escolha um exemplo');
+  await expect(chooser).toHaveValue('notas');
+  await chooser.selectOption('lembretes');
   await expect(page).toHaveURL(/#lembretes$/);
   await expect(page.locator('#demo-reply')).toContainText('internet');
-  await page
-    .getByLabel('Escolha um assunto para explorar')
-    .fill('Uma pergunta que não está nos exemplos');
-  await page.getByRole('button', { name: 'Explorar assunto' }).click();
-  await expect(page.locator('#composer-status')).toContainText('exemplos prontos');
+  await page.reload();
+  await expect(chooser).toHaveValue('lembretes');
   expect(outbound).toEqual([]);
 });
 test('all public destinations, legal pages and error states are complete', async ({ page }) => {

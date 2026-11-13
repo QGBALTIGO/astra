@@ -1,10 +1,156 @@
+import { scenarios } from './assets/scenarios.js';
+
+const exampleTitles = {
+  financas: 'Registrar um gasto',
+  agenda: 'Marcar uma consulta',
+  lembretes: 'Lembrar de pagar uma conta',
+  tarefas: 'Criar uma tarefa',
+  familia: 'Organizar a reunião da escola',
+  trabalho: 'Registrar um recebimento',
+  estudos: 'Programar um lembrete de estudo',
+  metas: 'Acompanhar uma meta',
+  notas: 'Consultar uma nota',
+  viagens: 'Anotar um gasto de viagem',
+};
+
 export const publicPages = [
   {
     path: '/demonstracao',
     title: 'Veja o Astra na prática | Astra',
     description:
       'Explore conversas ilustrativas e acompanhe como uma mensagem vira um registro organizado no Astra.',
-    body: '<section class="subpage-hero container"><p class="eyebrow">EXPLORE SEM CADASTRO</p><h1>Uma conversa.<br>Muitas formas de ajudar.</h1><p>Escolha uma situação e acompanhe o resultado.<br>Simulação guiada, sem IA ao vivo e sem salvar dados.</p></section><section class="demo-topic container"><form id="demo-composer"><label for="demo-question">Escolha um assunto para explorar</label><div><input id="demo-question" maxlength="160" placeholder="Ex.: quero criar um lembrete" autocomplete="off"><button class="icon-button" type="submit" aria-label="Explorar assunto">{{icon:arrow-right}}</button></div><p id="composer-status" role="status">Busca local de exemplos prontos. Nenhuma mensagem é enviada para a IA.</p></form></section><section class="demo-section section-pad" id="demonstracao-interativa" aria-labelledby="demo-title">\n        <div class="container">\n          <div class="section-heading demo-heading">\n            <div>\n              <p class="eyebrow">DEMONSTRAÇÃO GUIADA</p>\n              <h2 id="demo-title">Converse.<br />Veja o que acontece.</h2>\n            </div>\n            <div>\n              <p>Escolha um momento do seu dia.<br />Acompanhe a conversa virando organização.</p>\n              <span class="simulation-badge"\n                >{{icon:cursor}} Demonstração interativa · dados fictícios</span\n              >\n            </div>\n          </div>\n          <div\n            class="scenario-picker"\n            id="scenario-picker"\n            role="group"\n            aria-label="Escolha um exemplo do seu dia"\n          >\n            <button type="button" data-scenario="financas" aria-pressed="true">\n              {{icon:wallet}} Finanças</button\n            ><button type="button" data-scenario="agenda" aria-pressed="false">\n              {{icon:calendar}} Agenda</button\n            ><button type="button" data-scenario="lembretes" aria-pressed="false">\n              {{icon:bell}} Lembretes</button\n            ><button type="button" data-scenario="tarefas" aria-pressed="false">\n              {{icon:check}} Tarefas</button\n            ><button type="button" data-scenario="familia" aria-pressed="false">\n              {{icon:home}} Família</button\n            ><button type="button" data-scenario="trabalho" aria-pressed="false">\n              {{icon:briefcase}} Trabalho</button\n            ><button type="button" data-scenario="estudos" aria-pressed="false">\n              {{icon:book}} Estudos</button\n            ><button type="button" data-scenario="metas" aria-pressed="false">\n              {{icon:target}} Metas</button\n            ><button type="button" data-scenario="notas" aria-pressed="false">{{icon:note}} Notas</button><button type="button" data-scenario="viagens" aria-pressed="false">\n              {{icon:plane}} Viagens\n            </button>\n          </div>\n          <div class="demo-workspace">\n            <div class="demo-conversation">\n              <div class="demo-conversation-top">\n                <span>01 / NO WHATSAPP</span\n                ><button type="button" id="replay" aria-label="Rever conversa">\n                  {{icon:replay}} Rever\n                </button>\n              </div>\n              <div class="chat-header">\n                <img src="/assets/brand-bc825f0438ab.svg" alt="" width="42" height="36" />\n                <div><strong>Astra</strong><span>Exemplo de conversa</span></div>\n              </div>\n              <div class="demo-chat" id="demo-chat">\n                <span class="chat-date">12 DE NOVEMBRO · EXEMPLO</span>\n                <div class="message message-out">\n                  <p id="demo-user">Astra, gastei R$ 42 no almoço de hoje.</p>\n                  <span class="message-time">12:30 {{icon:double-check}}</span>\n                </div>\n                <div class="message message-in" id="demo-reply-bubble">\n                  <p id="demo-reply">\n                    Anotado: R$ 42,00 em Alimentação. Seu almoço já está nos registros.\n                  </p>\n                  <span class="message-time">12:30</span>\n                </div>\n                <p class="demo-result-tag" id="demo-tag">Uma despesa, sem planilha</p>\n              </div>\n              <p class="demo-disclosure">\n                Esta é uma simulação guiada. Nenhuma mensagem é enviada e nenhum dado é salvo.\n              </p>\n            </div>\n            <div class="demo-dashboard">\n              <div class="demo-dashboard-top">\n                <div>\n                  <span class="dashboard-step mini-label">02 / NO SEU PAINEL</span\n                  ><strong>Seu espaço Astra</strong>\n                </div>\n                <span class="demo-label">Dados fictícios</span>\n              </div>\n              <div\n                class="dashboard-tabs"\n                role="tablist"\n                aria-label="Explore as áreas do painel demonstrativo"\n              >\n                <button\n                  type="button"\n                  role="tab"\n                  id="tab-inicio"\n                  aria-controls="dashboard-panel"\n                  aria-selected="false"\n                  tabindex="-1"\n                  data-view="inicio"\n                >\n                  {{icon:home}} Início</button\n                ><button\n                  type="button"\n                  role="tab"\n                  id="tab-transacoes"\n                  aria-controls="dashboard-panel"\n                  aria-selected="true"\n                  tabindex="0"\n                  data-view="transacoes"\n                >\n                  {{icon:wallet}} Transações</button\n                ><button\n                  type="button"\n                  role="tab"\n                  id="tab-categorias"\n                  aria-controls="dashboard-panel"\n                  aria-selected="false"\n                  tabindex="-1"\n                  data-view="categorias"\n                >\n                  {{icon:chart}} Categorias</button\n                ><button\n                  type="button"\n                  role="tab"\n                  id="tab-agenda"\n                  aria-controls="dashboard-panel"\n                  aria-selected="false"\n                  tabindex="-1"\n                  data-view="agenda"\n                >\n                  {{icon:calendar}} Agenda</button\n                ><button\n                  type="button"\n                  role="tab"\n                  id="tab-perfil"\n                  aria-controls="dashboard-panel"\n                  aria-selected="false"\n                  tabindex="-1"\n                  data-view="perfil"\n                >\n                  {{icon:user}} Perfil\n                </button>\n              </div>\n              <div\n                id="dashboard-panel"\n                class="dashboard-panel"\n                role="tabpanel"\n                aria-labelledby="tab-transacoes"\n                tabindex="0"\n              >\n                <div class="dashboard-view-heading">\n                  <div>\n                    <p class="mini-label">NOVEMBRO · 2026</p>\n                    <h3>Seu dinheiro, com contexto.</h3>\n                  </div>\n                  <span class="panel-success">{{icon:check}} Almoço registrado</span>\n                </div>\n                <div class="stat-pair">\n                  <div><span>Entradas registradas</span><strong>R$ 4.800,00</strong></div>\n                  <div><span>Saídas registradas</span><strong>R$ 1.624,00</strong></div>\n                </div>\n                <div class="transaction-row highlighted">\n                  <span class="transaction-icon">{{icon:wallet}}</span>\n                  <div><strong>Almoço</strong><span>Alimentação · Hoje, 12/11</span></div>\n                  <b>− R$ 42,00</b>\n                </div>\n                <div class="transaction-row">\n                  <span class="transaction-icon muted">{{icon:home}}</span>\n                  <div><strong>Aluguel</strong><span>Casa · 05/11</span></div>\n                  <b>− R$ 950,00</b>\n                </div>\n                <div class="transaction-row">\n                  <span class="transaction-icon muted">{{icon:arrow-down-left}}</span>\n                  <div><strong>Salário</strong><span>Receita · 05/11</span></div>\n                  <b class="positive">+ R$ 4.800,00</b>\n                </div>\n                <div class="balance-line">\n                  <span>Saldo dos registros</span><strong>R$ 3.176,00</strong>\n                </div>\n              </div>\n              <div class="demo-dashboard-foot">\n                {{icon:link}} A mesma informação. Um jeito mais claro de ver.\n              </div>\n            </div>\n          </div>\n          <p\n            class="demo-live-status visually-hidden"\n            id="demo-status"\n            role="status"\n            aria-live="polite"\n          ></p>\n          <div class="demo-note">\n            <p>\n              A prévia representa áreas que já existem no Astra.<br />Seus dados reais ficam no seu\n              acesso pessoal.\n            </p>\n            <a class="text-link" href="https://app.astraacessor.pro/cliente/entrar"\n              >Já tenho acesso ao painel {{icon:arrow-up-right}}</a\n            >\n          </div>\n          <noscript\n            ><p class="noscript-note">\n              Ative o JavaScript para trocar os exemplos. A conversa acima é uma demonstração de\n              registro de despesa; os links de assinatura e acesso continuam disponíveis.\n            </p></noscript\n          >\n        </div>\n      </section><section class="closing container"><img class="closing-mark" src="/assets/brand-bc825f0438ab.svg" width="62" height="62" alt=""><h2>Sua próxima mensagem.<br>Uma coisa a menos na cabeça.</h2><p>Finanças, agenda, tarefas e planos.<br>Conte com o Astra nos detalhes do seu dia.</p><a class="button button-dark checkout" href="https://pay.cakto.com.br/CubL455" target="_blank" rel="noopener noreferrer">Quero meu Astra {{icon:arrow-right}}<span class="visually-hidden"> (abre o checkout em outra aba)</span></a><small>R$ 19,90/mês</small></section>',
+    body: `<section class="demo-section container" id="demonstracao-interativa" aria-labelledby="demo-title">
+      <header class="demo-intro">
+        <h1 id="demo-title">O Astra na prática</h1>
+        <p>Veja como uma conversa no WhatsApp aparece no seu painel. Os exemplos usam dados fictícios.</p>
+      </header>
+      <div class="scenario-choice">
+        <label for="scenario-select">Escolha um exemplo</label>
+        <div class="scenario-field">
+          <select id="scenario-select">${scenarios.map(({ id }) => `<option value="${id}">${exampleTitles[id]}</option>`).join('')}</select>
+          {{icon:chevron-down}}
+        </div>
+      </div>
+      <div class="demo-workspace">
+        <section class="demo-conversation" aria-labelledby="conversation-title">
+          <div class="demo-conversation-top">
+            <img src="/assets/brand-bc825f0438ab.svg" alt="" width="35" height="32">
+            <h2 id="conversation-title">Astra no WhatsApp</h2>
+            <button type="button" id="replay" aria-label="Rever conversa">{{icon:replay}} Rever</button>
+          </div>
+          <div class="demo-chat" id="demo-chat">
+            <div class="message message-out">
+              <p id="demo-user">Astra, gastei R$ 42 no almoço de hoje.</p>
+              <span class="message-time">12:30 {{icon:double-check}}</span>
+            </div>
+            <div class="message message-in" id="demo-reply-bubble">
+              <p id="demo-reply">Anotado: R$ 42,00 em Alimentação. Seu almoço já está nos registros.</p>
+              <span class="message-time">12:30</span>
+            </div>
+          </div>
+        </section>
+        <section class="demo-dashboard" aria-labelledby="preview-title">
+          <div class="demo-dashboard-top">{{icon:layout}}<h2 id="preview-title">Prévia do painel</h2></div>
+          <div
+            class="dashboard-tabs"
+            role="tablist"
+            aria-label="Explore as áreas do painel demonstrativo"
+          >
+            <button
+              type="button"
+              role="tab"
+              id="tab-inicio"
+              aria-controls="dashboard-panel"
+              aria-selected="false"
+              tabindex="-1"
+              data-view="inicio"
+            >
+              {{icon:home}} Início</button
+            ><button
+              type="button"
+              role="tab"
+              id="tab-transacoes"
+              aria-controls="dashboard-panel"
+              aria-selected="true"
+              tabindex="0"
+              data-view="transacoes"
+            >
+              {{icon:wallet}} Transações</button
+            ><button
+              type="button"
+              role="tab"
+              id="tab-categorias"
+              aria-controls="dashboard-panel"
+              aria-selected="false"
+              tabindex="-1"
+              data-view="categorias"
+            >
+              {{icon:chart}} Categorias</button
+            ><button
+              type="button"
+              role="tab"
+              id="tab-agenda"
+              aria-controls="dashboard-panel"
+              aria-selected="false"
+              tabindex="-1"
+              data-view="agenda"
+            >
+              {{icon:calendar}} Agenda</button
+            ><button
+              type="button"
+              role="tab"
+              id="tab-perfil"
+              aria-controls="dashboard-panel"
+              aria-selected="false"
+              tabindex="-1"
+              data-view="perfil"
+            >
+              {{icon:user}} Perfil
+            </button>
+          </div>
+          <div
+            id="dashboard-panel"
+            class="dashboard-panel"
+            role="tabpanel"
+            aria-labelledby="tab-transacoes"
+            tabindex="0"
+          >
+            <div class="dashboard-view-heading">
+              <div>
+                <p class="mini-label">NOVEMBRO · 2026</p>
+                <h3>Seu dinheiro, com contexto.</h3>
+              </div>
+              <span class="panel-success">{{icon:check}} Almoço registrado</span>
+            </div>
+            <div class="stat-pair">
+              <div><span>Entradas registradas</span><strong>R$ 4.800,00</strong></div>
+              <div><span>Saídas registradas</span><strong>R$ 1.624,00</strong></div>
+            </div>
+            <div class="transaction-row highlighted">
+              <span class="transaction-icon">{{icon:wallet}}</span>
+              <div><strong>Almoço</strong><span>Alimentação · Hoje, 12/11</span></div>
+              <b>− R$ 42,00</b>
+            </div>
+            <div class="transaction-row">
+              <span class="transaction-icon muted">{{icon:home}}</span>
+              <div><strong>Aluguel</strong><span>Casa · 05/11</span></div>
+              <b>− R$ 950,00</b>
+            </div>
+            <div class="transaction-row">
+              <span class="transaction-icon muted">{{icon:arrow-down-left}}</span>
+              <div><strong>Salário</strong><span>Receita · 05/11</span></div>
+              <b class="positive">+ R$ 4.800,00</b>
+            </div>
+            <div class="balance-line">
+              <span>Saldo dos registros</span><strong>R$ 3.176,00</strong>
+            </div>
+          </div>
+        </section>
+      </div>
+      <p class="visually-hidden" id="demo-status" role="status"></p>
+      <div class="demo-note"><a class="text-link" href="https://app.astraacessor.pro/cliente/entrar">Entrar no meu painel {{icon:arrow-up-right}}</a></div>
+      <noscript><p class="noscript-note">Ative o JavaScript para trocar de exemplo.</p></noscript>
+    </section><section class="closing container"><img class="closing-mark" src="/assets/brand-bc825f0438ab.svg" width="62" height="62" alt=""><h2>Sua próxima mensagem.<br>Uma coisa a menos na cabeça.</h2><p>Finanças, agenda, tarefas e planos.<br>Conte com o Astra nos detalhes do seu dia.</p><a class="button button-dark checkout" href="https://pay.cakto.com.br/CubL455" target="_blank" rel="noopener noreferrer">Quero meu Astra {{icon:arrow-right}}<span class="visually-hidden"> (abre o checkout em outra aba)</span></a><small>R$ 19,90/mês</small></section>`,
   },
   {
     path: '/financas',

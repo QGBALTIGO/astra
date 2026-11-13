@@ -173,7 +173,7 @@ await writeFile(
   join(dist, 'build.json'),
   JSON.stringify(
     {
-      release: 'assessor-pattern-20261113',
+      release: 'demo-mobile-20261113',
       sha256: sha,
       files: Object.keys(files),
       paths,
@@ -188,7 +188,7 @@ await writeFile(
 );
 console.log(
   JSON.stringify({
-    release: 'assessor-pattern-20261113',
+    release: 'demo-mobile-20261113',
     sha256: sha,
     files: Object.keys(files).length,
     htmlBytes: Buffer.byteLength(index),
