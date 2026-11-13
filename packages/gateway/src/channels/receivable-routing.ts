@@ -32,7 +32,16 @@ export function parseReceivablePlans(
 ): ReceivablePlan[] | null {
   let plans: ReceivablePlan[];
   try {
-    plans = JSON.parse(raw.replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\s*\x60{3}$/, ''));
+    const decoded: unknown = JSON.parse(
+      raw.replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\s*\x60{3}$/, '')
+    );
+    if (!Array.isArray(decoded)) return null;
+    plans = decoded.map((row) => {
+      if (!Array.isArray(row)) return row;
+      if (row.length !== 7) throw new Error('Invalid loan tuple');
+      const [borrower, principal, total, installments, startDate, localTime, skipSunday] = row;
+      return { borrower, principal, total, installments, startDate, localTime, skipSunday };
+    }) as ReceivablePlan[];
   } catch {
     return null;
   }
@@ -121,7 +130,7 @@ export async function tryReceivableChannelReply(
       const { writeShortChannelReply } = await import('./short-channel-reply.js');
       const raw = await writeShortChannelReply(
         message.channelPluginId,
-        'Extraia os empréstimos feitos PELO usuário para clientes. Responda somente array JSON com borrower (nome literal completo), principal (valor emprestado em reais), total (total combinado em reais), installments (quantidade), startDate (YYYY-MM-DD), localTime (HH:mm) e skipSunday (boolean). Hoje: ' +
+        'Extraia os empréstimos feitos PELO usuário para clientes. Somente array JSON de arrays, um por pessoa, nesta ordem exata: [nome completo literal, valor emprestado em reais, total a receber em reais, quantidade de parcelas, primeiro dia YYYY-MM-DD, horário HH:mm, pular domingo boolean]. Sem nomes de chaves nem texto extra. Hoje: ' +
           today +
           '. Use somente dados explícitos. Não registre despesas nem recebimento antecipado. Se faltar alguma informação, responda null.',
         message.text,

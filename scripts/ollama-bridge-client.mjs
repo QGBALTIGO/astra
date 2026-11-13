@@ -64,7 +64,13 @@ async function infer(job) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('InvalidJob');
   }
-  const localPayload = { ...payload, model, stream: false, keep_alive: -1 };
+  const localPayload = {
+    ...payload,
+    model,
+    reasoning_effort: payload.reasoning_effort ?? 'none',
+    stream: false,
+    keep_alive: -1,
+  };
   const remaining =
     typeof job.expiresAt === 'number' ? Math.min(42_000, job.expiresAt - Date.now()) : 42_000;
   if (remaining <= 0) throw new Error('ExpiredJob');

@@ -36,6 +36,24 @@ describe('installment receivable requests', () => {
         'America/Cuiaba'
       )
     ).toEqual([first, second, third]);
+    expect(
+      parseReceivablePlans(
+        JSON.stringify(
+          [first, second, third].map((p) => [
+            p.borrower,
+            p.principal,
+            p.total,
+            p.installments,
+            p.startDate,
+            p.localTime,
+            p.skipSunday,
+          ])
+        ),
+        request,
+        '2026-11-13',
+        'America/Cuiaba'
+      )
+    ).toEqual([first, second, third]);
     const dates = receivableDates(first, 'America/Cuiaba');
     expect(dates).toHaveLength(10);
     expect(dates[0]!.toISOString()).toBe('2026-11-14T22:00:00.000Z');
