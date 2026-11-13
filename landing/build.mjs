@@ -116,7 +116,7 @@ for (const page of publicPages) {
     .replaceAll('https://astraacessor.pro/"', `https://astraacessor.pro${page.path}"`);
   const html = await compactHtml(
     render(
-      `<!doctype html><html lang="pt-BR"><head>${head}</head><body><a class="skip-link" href="#principal">Pular para o conteúdo</a>${header}<main id="principal">${page.body}</main>${footer}${dialogs}</body></html>`
+      `<!doctype html><html lang="pt-BR"><head>${head}</head><body${page.path === '/demonstracao' ? ' class="demo-page"' : ''}><a class="skip-link" href="#principal">Pular para o conteúdo</a>${header}<main id="principal">${page.body}</main>${footer}${dialogs}</body></html>`
     )
   );
   const path = `${page.path}.html`;

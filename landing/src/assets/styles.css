@@ -3663,7 +3663,7 @@ dialog::backdrop {
   .single-product h2 {
     font-size: 35px;
   }
-  body:has(.demo-section) .site-header {
+  .demo-page .site-header {
     position: relative;
   }
   .demo-workspace {
