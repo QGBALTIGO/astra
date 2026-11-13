@@ -498,10 +498,10 @@ export function ConnectedAppsPage() {
       <header className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-dark-border">
         <div>
           <h2 className="text-lg font-semibold text-text-primary dark:text-dark-text-primary">
-            Connected Apps
+            Aplicativos conectados
           </h2>
           <p className="text-sm text-text-muted dark:text-dark-text-muted">
-            Manage 500+ app integrations via Composio
+            {composioConfigured ? 'Gerencie os aplicativos conectados via Composio' : 'Catálogo demonstrativo · aguarda configuração do Composio'}
           </p>
         </div>
         <button
@@ -564,7 +564,7 @@ export function ConnectedAppsPage() {
                 color: 'text-emerald-500 bg-emerald-500/10',
                 title: 'Service Discovery',
                 description:
-                  'Browse 500+ available apps and services. Search by name or category to find what you need.',
+                  'Explore os aplicativos disponíveis após a configuração do Composio.',
               },
               {
                 icon: Shield,
@@ -585,7 +585,7 @@ export function ConnectedAppsPage() {
               {
                 title: 'Choose a service',
                 detail:
-                  'Browse the catalog of 500+ available apps and pick the one you want to integrate.',
+                  'Selecione um serviço disponível e autorize com segurança.',
               },
               {
                 title: 'Authorize via OAuth',
@@ -633,7 +633,7 @@ export function ConnectedAppsPage() {
                   <AlertCircle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
                   <div>
                     <div className="font-medium text-text-primary dark:text-dark-text-primary text-sm">
-                      Composio API key not configured
+                      Composio ainda não configurado
                     </div>
                     <p className="text-xs text-text-muted dark:text-dark-text-muted mt-1">
                       Set your Composio API key in{' '}
@@ -677,13 +677,13 @@ export function ConnectedAppsPage() {
               {/* Available Apps — always shown */}
               <div className="flex items-center justify-between mb-3">
                 <div className="text-xs font-medium text-text-muted dark:text-dark-text-muted">
-                  Available Apps {apps.length > 0 && `(${filteredApps.length})`}
+                  {composioConfigured ? 'Aplicativos disponíveis' : 'Aplicativos de exemplo'} {apps.length > 0 && `(${filteredApps.length})`}
                 </div>
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted dark:text-dark-text-muted" />
                   <input
                     type="text"
-                    placeholder="Search apps..."
+                    placeholder="Buscar aplicativos..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-48 pl-8 pr-3 py-1.5 text-xs bg-bg-tertiary dark:bg-dark-bg-tertiary border border-border dark:border-dark-border rounded-lg text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
@@ -709,7 +709,7 @@ export function ConnectedAppsPage() {
               )}
               {filteredApps.length > 50 && (
                 <p className="text-xs text-text-muted dark:text-dark-text-muted text-center mt-3">
-                  Showing 50 of {filteredApps.length} apps. Use search to find specific apps.
+                  Exibindo 50 de {filteredApps.length} aplicativos. Use a busca para encontrar outros.
                 </p>
               )}
             </section>
