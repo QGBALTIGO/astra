@@ -27,10 +27,21 @@ const trailingPunctuation = /[.,;:!?*)\]}_~]+$/u;
 
 /** Rewrite the leading origin of each link, never an embedded URL inside a third-party query. */
 export function currentAstraLinksInText(text: string): string {
-  return text.replace(webLinks, (token) => {
+  const canonical = text.replace(webLinks, (token) => {
     const url = token.replace(trailingPunctuation, '');
     return currentAstraPublicUrl(url) + token.slice(url.length);
   });
+  // WhatsApp shows Markdown link syntax literally. Only flatten an official
+  // login link, never turn an unrelated or disguised destination into a CTA.
+  return canonical.replace(
+    /\[([^\]\n]{1,200})\]\((https:\/\/app\.astraacessor\.pro\/cliente\/entrar)\)/giu,
+    (match, label: string, url: string) => {
+      if (url !== ASTRA_CUSTOMER_LOGIN_URL) return match;
+      if (label === url) return url;
+      if (/https?:|www\.|[<>]/iu.test(label)) return match;
+      return label + ' — ' + url;
+    }
+  );
 }
 
 export function containsCustomerLoginLink(text: string): boolean {

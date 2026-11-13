@@ -283,7 +283,9 @@ describe.skipIf(!port)(
       expect(first).toContain('página 2');
       const second = await msg('Minhas assinaturas página 2');
       expect(second).toContain('Clube / 8');
-      expect(second).toContain(' · #');
+      expect(second).toContain('• *Código:* #');
+      expect(first).toContain('📋 *Suas assinaturas*');
+      expect(first).toMatch(/🔁 \*[^*]+\*\n\n• \*Valor:\*.*\n• \*Renovação:\*/u);
       await Promise.all([
         msg('Cadastre a assinatura Revista por R$ 12,10 em 01/01/2027'),
         repo

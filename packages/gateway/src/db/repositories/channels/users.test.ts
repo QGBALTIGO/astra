@@ -725,6 +725,7 @@ describe('ChannelUsersRepository', () => {
         expiry.toISOString(),
         'manual',
         JSON.stringify({ manualPreauthorized: true, hasInteracted: false }),
+        [phone, '551199991234'],
       ]);
       expect(mockQueueLifecycle).not.toHaveBeenCalled();
     });

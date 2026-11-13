@@ -39,6 +39,7 @@ const DESTINATION =
 const PLACE = `(?:(?:no|em|ao|a|para|pra) )?${DESTINATION}`;
 const LINK = `(?:(?:o|a) )?(?:link|endereco|url)(?: de acesso)? (?:do|da|de|ao|para|pra) ${DESTINATION}`;
 const ACCESS_REQUESTS = [
+  `(?:acessar|abrir) ${DESTINATION}`,
   `(?:onde|como) (?:eu )?(?:(?:posso|faco para) )?(?:acesso|acessar|entro|entrar|abro|abrir|encontro|encontrar) ${PLACE}`,
   `onde (?:esta|fica) ${DESTINATION}`,
   `(?:quero|preciso|gostaria de) (?:acessar|entrar|abrir) ${PLACE}`,
@@ -61,6 +62,12 @@ export function tryAstraAccessReply(text: string): string | null {
     .toLocaleLowerCase('pt-BR')
     .trim()
     .replace(/\s+/g, ' ');
+  if (
+    /^(?:acessar|abrir) (?:o |meu |o meu )?(?:painel|dashboard)(?: do astra)?[.!?]*$/u.test(
+      normalized
+    )
+  )
+    return `🖥️ *Seu painel do Astra*\n\n${ASTRA_CUSTOMER_LOGIN_URL}\n\nEntre com seu WhatsApp e confirme o código de 6 dígitos no painel.`;
   return ACCESS_REQUESTS.some((request) => request.test(normalized)) ? ASTRA_ACCESS_REPLY : null;
 }
 

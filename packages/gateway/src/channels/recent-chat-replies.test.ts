@@ -49,6 +49,27 @@ describe('recalling recent private receipts', () => {
     expect(reply).toContain('R$ 5,00');
     expect(reply).not.toContain('Jasmim');
   });
+  it('gives each topic a distinct heading, a main fact and room for its details', async () => {
+    vi.mocked(writeShortChannelReply).mockResolvedValue('Últimos pedidos confirmados');
+    const history = await quickPrivateReply('channel.whatsapp', 'Resume os últimos pedidos', [
+      {
+        action: 'assinatura',
+        facts:
+          'Assinatura adicionada ao seu controle: Clube das Flores · R$ 12,70 · renovação em 15/12/2026.',
+      },
+      {
+        action: 'Lembrete agendado',
+        facts: 'Lembrete agendado para *13/11/2026, 11:13:09*: buscar o livro.',
+      },
+      {
+        action: 'Despesa registrada',
+        facts: 'Despesa registrada: *R$ 2,65* · café\nAlimentação · 13/11/2026',
+      },
+    ]);
+    expect(history).toBe(
+      '🗂️ *Seus últimos pedidos*\n\n☕ *Gasto*\ncafé\n💵 *R$ 2,65*\nAlimentação · 13/11/2026\n\n⏰ *Lembrete*\nbuscar o livro\n📅 13/11/2026 às *11:13*\n\n🔁 *Assinatura*\nClube das Flores\n💵 *R$ 12,70*\n📅 Renovação em 15/12/2026'
+    );
+  });
   it('keeps the receipts in chronology when asked for several', async () => {
     vi.mocked(writeShortChannelReply).mockResolvedValue('Aqui vai!');
     const reply = await quickPrivateReply('channel.whatsapp', 'Resume os últimos pedidos', prior);

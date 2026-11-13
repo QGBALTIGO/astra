@@ -10,6 +10,7 @@ import {
   channelUserAccessStatus,
   normalizeWhatsAppAccessPhone,
 } from '../channels/channel-access-service.js';
+import { whatsappPhoneSpellings } from '../channels/whatsapp-phone.js';
 import { getOwnerUserId } from './pairing-service.js';
 
 export interface CustomerSessionContext {
@@ -58,10 +59,32 @@ export class CustomerIdentityService {
   }
 
   async isOwnerPhone(phone: string): Promise<boolean> {
-    return (
-      (await this.dependencies.owner('whatsapp')) === phone ||
-      this.dependencies.connectedPhones().includes(phone)
+    const owner = await this.dependencies.owner('whatsapp');
+    const protectedPhones = new Set([owner, ...this.dependencies.connectedPhones()]);
+    return whatsappPhoneSpellings(phone).some((candidate) => protectedPhones.has(candidate));
+  }
+
+  /** Resolve a login spelling to exactly one managed identity, preserving historical account keys. */
+  async resolveLoginPhone(phone: string): Promise<CustomerPhoneResolution | null> {
+    const candidates = whatsappPhoneSpellings(phone);
+    if (await this.isOwnerPhone(phone)) return null;
+    const matches = await Promise.all(
+      candidates.map(async (candidate) => {
+        const [alias, user] = await Promise.all([
+          this.dependencies.accounts.resolvePhone(candidate),
+          this.dependencies.users.findByPlatform('whatsapp', candidate),
+        ]);
+        return { candidate, alias, user };
+      })
     );
+    if (matches.some(({ alias, user }) => alias?.retired || user?.isBlocked)) return null;
+    const managed = matches.filter(
+      ({ alias, user }) =>
+        alias ||
+        (user && (user.isVerified || user.accessSource || user.ownpilotUserId === 'default'))
+    );
+    if (managed.length !== 1) return null;
+    return this.resolvePhone(managed[0]!.candidate, { provision: true });
   }
 
   async resolvePhone(
