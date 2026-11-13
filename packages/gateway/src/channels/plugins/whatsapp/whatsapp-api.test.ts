@@ -68,6 +68,11 @@ describe('WhatsAppChannelAPI', () => {
     expect(await api.resolveWhatsAppRecipient(short)).toBe(long);
     onWhatsApp.mockResolvedValue([result(short), result(long)]);
     expect(await api.resolveWhatsAppRecipient(short)).toBeNull();
+    const getLIDForPN = vi.fn().mockResolvedValue('12345@lid');
+    Object.assign(api, { sock: { onWhatsApp, signalRepository: { lidMapping: { getLIDForPN } } } });
+    expect(await api.resolveWhatsAppRecipient(long)).toBe(short);
+    getLIDForPN.mockResolvedValueOnce('12345@lid').mockResolvedValueOnce('99999@lid');
+    expect(await api.resolveWhatsAppRecipient(long)).toBeNull();
     onWhatsApp.mockResolvedValue([result('553833330123')]);
     expect(await api.resolveWhatsAppRecipient('553833330123')).toBe('553833330123');
     expect(onWhatsApp).toHaveBeenLastCalledWith('553833330123');
