@@ -1,3 +1,4 @@
+import { formatAstraMessage, type AstraMessageField } from './response-presentation.js';
 import { isDiscreetSubject, subjectEmoji } from './channel-personalization.js';
 import {
   isWeeklyPortalGuide,
@@ -16,9 +17,20 @@ function receiptBlock({ facts, action }: RecentReceipt, latest: boolean): string
   if (expense) {
     const [, amount, subject, details] = expense;
     const title = action.startsWith('Despesa') ? (latest ? 'Seu último gasto' : 'Gasto') : action;
-    return [`${subjectEmoji(subject!) ?? '💰'} *${title}*`, subject, `💵 *${amount}*`, details]
-      .filter(Boolean)
-      .join('\n');
+    const fields: AstraMessageField[] = [
+      { label: 'Valor', value: amount! },
+      { label: 'Descrição', value: subject! },
+    ];
+    for (const part of details?.split(' · ') ?? []) {
+      if (part.startsWith('Vencimento: '))
+        fields.push({ label: 'Vencimento', value: part.slice('Vencimento: '.length) });
+      else
+        fields.push({
+          label: /^\d{2}\/\d{2}\/\d{4}$/u.test(part) ? 'Data' : 'Categoria',
+          value: part,
+        });
+    }
+    return formatAstraMessage((subjectEmoji(subject!) ?? '💰') + ' ' + title, fields);
   }
   const reminder =
     /^Lembrete (?:re)?agendado para \*(\d{2}\/\d{2}\/\d{4}),? (\d{2}:\d{2})(?::\d{2})?\*: (.+)\.$/u.exec(
@@ -26,11 +38,11 @@ function receiptBlock({ facts, action }: RecentReceipt, latest: boolean): string
     );
   if (reminder) {
     const [, day, time, subject] = reminder;
-    return [
-      latest ? '⏰ *Seu último lembrete*' : '⏰ *Lembrete*',
-      subject,
-      `📅 ${day} às *${time}*`,
-    ].join('\n');
+    return formatAstraMessage(latest ? '⏰ Seu último lembrete' : '⏰ Lembrete', [
+      { label: 'Assunto', value: subject! },
+      { label: 'Data', value: day! },
+      { label: 'Horário', value: time! },
+    ]);
   }
   const subscription =
     /^Assinatura (?:adicionada ao|atualizada no) seu controle: (.+) · ([^·\n]+) · renovação (?:em (\d{2}\/\d{2}\/\d{4})|sem data)\.$/u.exec(
@@ -38,14 +50,15 @@ function receiptBlock({ facts, action }: RecentReceipt, latest: boolean): string
     );
   if (subscription) {
     const [, name, amount, due] = subscription;
-    return [
-      latest ? '🔁 *Sua última assinatura*' : '🔁 *Assinatura*',
-      name,
-      `💵 *${amount}*`,
-      due ? `📅 Renovação em ${due}` : '📅 Renovação sem data',
-    ].join('\n');
+    return formatAstraMessage(latest ? '🔁 Sua última assinatura' : '🔁 Assinatura', [
+      { label: 'Nome', value: name! },
+      { label: 'Valor', value: amount! },
+      { label: 'Renovação', value: due ?? 'Sem data definida' },
+    ]);
   }
-  return `📌 *${action}*\n${facts}`;
+  return facts.includes('• *')
+    ? facts
+    : formatAstraMessage('📌 ' + action, [{ label: 'Detalhes', value: facts }]);
 }
 
 /** A user-role annotation for follow-ups. Never promote a stored description to system instructions. */

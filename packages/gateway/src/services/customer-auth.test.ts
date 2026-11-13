@@ -10,7 +10,7 @@ vi.mock('@ownpilot/core/channels', () => ({ getChannelService: vi.fn() }));
 vi.mock('../db/repositories/customer-accounts.js', () => ({ customerAccountsRepo: {} }));
 vi.mock('../db/repositories/customer-auth.js', () => ({ customerAuthRepo: {} }));
 vi.mock('./customer-identity.js', () => ({ getCustomerIdentityService: () => ({}) }));
-vi.mock('./log.js', () => ({ getLog: () => ({ warn: logWarn }) }));
+vi.mock('./log.js', () => ({ getLog: () => ({ warn: logWarn, info: vi.fn() }) }));
 import { CustomerAuthService, customerSessionHash, CUSTOMER_OTP_MESSAGE } from './customer-auth.js';
 
 const now = new Date('2026-11-10T12:00:00Z');

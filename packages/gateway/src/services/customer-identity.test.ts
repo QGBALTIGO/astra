@@ -156,6 +156,44 @@ describe('CustomerIdentityService', () => {
       expect(await service.resolveLoginPhone(short)).toBeNull();
     }
   );
+  it('uses the established customer when an admin also preauthorized an unused spelling', async () => {
+    const short = phone.slice(0, 4) + phone.slice(5);
+    accounts.resolvePhone.mockImplementation(async (candidate) =>
+      candidate === phone ? resolution : null
+    );
+    users.findByPlatform.mockImplementation(async (_platform, candidate) => ({
+      ...user,
+      platformUserId: candidate,
+      ownpilotUserId: 'whatsapp:' + candidate,
+      metadata: { hasInteracted: candidate === phone },
+    }));
+    for (const spelling of [short, phone])
+      expect((await service.resolveLoginPhone(spelling))?.accountId).toBe(account.id);
+    expect(accounts.provision).not.toHaveBeenCalled();
+    users.findByPlatform.mockImplementation(async (_platform, candidate) => ({
+      ...user,
+      platformUserId: candidate,
+      ownpilotUserId: 'whatsapp:' + candidate,
+      isBlocked: candidate === short,
+      metadata: { hasInteracted: candidate === phone },
+    }));
+    expect(await service.resolveLoginPhone(short)).toBeNull();
+  });
+  it('chooses the same unused legacy grant for either spelling and honors its shorter validity', async () => {
+    const short = phone.slice(0, 4) + phone.slice(5);
+    accounts.resolvePhone.mockResolvedValue(null);
+    users.findByPlatform.mockImplementation(async (_platform, p) => ({
+      ...user,
+      id: p,
+      platformUserId: p,
+      ownpilotUserId: 'whatsapp:' + p,
+      metadata: { hasInteracted: false },
+      accessExpiresAt: p === phone ? new Date(now.getTime() + 60000) : null,
+    }));
+    accounts.provision.mockImplementation(async (_id, p) => ({ ...account, phoneNumber: p }));
+    for (const p of [phone, short])
+      expect((await service.resolveLoginPhone(p))?.phoneNumber).toBe(phone);
+  });
   it('requires an active alias for the current phone', async () => {
     accounts.resolvePhone.mockResolvedValue({ ...resolution, isCurrent: false, retired: true });
     expect(await service.getContext(account.id)).toBeNull();
