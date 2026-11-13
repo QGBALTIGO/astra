@@ -502,15 +502,37 @@ export class CustomerAuthService {
             continue;
           }
           invoked = true;
-          // The verified WhatsApp native copy action copies only the six digits.
-          // Preserve the one-attempt boundary: an ambiguous relay must never
-          // cause a duplicate OTP or reveal it through logs.
-          await fresh.api.sendMessage({
+          // A text message is the primary OTP delivery. A native-flow copy
+          // button alone can be accepted by WhatsApp without rendering on
+          // some clients, so never make login depend on that protocol.
+          // Each transport is attempted at most once: no retries of an
+          // ambiguous WhatsApp result, and no fallback after a failed text send.
+          const textReceipt = await fresh.api.sendMessage({
             platformChatId: challenge.phoneNumber,
-            ...message,
+            text: message.text,
             sendBefore: challenge.expiresAt,
           });
+          if (!textReceipt) throw new Error('Customer code transport acknowledgement missing');
           await this.d.auth.finishDelivery(challenge.id, lease, 'sent');
+
+          // Optional convenience only: a second, short native copy action.
+          // The OTP is already recorded as sent; failure to render or relay
+          // the button cannot turn a valid text delivery into a failed login.
+          if (message.copyCode && this.d.now().getTime() < challenge.expiresAt.getTime()) {
+            try {
+              if (await this.canDeliver(challenge)) {
+                await fresh.api.sendMessage({
+                  platformChatId: challenge.phoneNumber,
+                  text: `📋 *Copiar código do Astra*\n\n*${code}*\n\nUse o botão abaixo para copiar apenas os seis dígitos.`,
+                  copyCode: message.copyCode,
+                  sendBefore: challenge.expiresAt,
+                });
+              }
+            } catch {
+              // Never repeat a potentially delivered OTP or disclose its value.
+              log.warn('Optional customer code copy button unavailable');
+            }
+          }
         } catch {
           try {
             if (invoked) await this.d.auth.finishDelivery(challenge.id, lease, 'failed');
