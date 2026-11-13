@@ -15,13 +15,13 @@ test('responsive layout and visual regression', async ({ page }) => {
   await noOverflow(page);
   await expect(page).toHaveScreenshot('hero.png');
   await expect(page.locator('.day-chat')).toHaveScreenshot('demo.png', {
-    style: '.site-header,.skip-link{visibility:hidden!important}',
+    stylePath: './tests/browser/capture.css',
   });
   await expect(page.locator('.price-card')).toHaveScreenshot('price.png', {
-    style: '.site-header,.skip-link{visibility:hidden!important}',
+    stylePath: './tests/browser/capture.css',
   });
   await expect(page.locator('.dashboard-frame')).toHaveScreenshot('panel.png', {
-    style: '.site-header,.skip-link{visibility:hidden!important}',
+    stylePath: './tests/browser/capture.css',
   });
   await page.evaluate(() => scrollTo({ top: 0, behavior: 'instant' }));
   await expect(page.locator('.site-header')).not.toHaveClass(/is-floating/);
@@ -255,6 +255,6 @@ test('complete demonstration visual regression', async ({ page }) => {
   await page.evaluate(() => document.fonts.ready);
   await expect(page.locator('#demo-reply')).toHaveText(scenarios[0].reply);
   await expect(page.locator('.demo-workspace')).toHaveScreenshot('full-demo.png', {
-    style: '.site-header,.skip-link{visibility:hidden!important}',
+    stylePath: './tests/browser/capture.css',
   });
 });

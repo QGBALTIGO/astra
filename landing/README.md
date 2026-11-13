@@ -59,3 +59,7 @@ Primary product pages reviewed: [Meu Assessor](https://meuassessor.com/), [Pierr
 Applied principles: concrete examples before long feature lists; a visible relationship between the conversation and the organized result; progressive explanation; one simple plan; calm typography and spacing; direct, Brazilian language. Competitor statistics, financial integrations, endorsements, discounts and testimonials were not transferred to Astra.
 
 The price copy follows the user's final instruction: display R$ 19,90/mês. No automatic access or unverified delivery time is promised. Live AI is not exposed on the public demonstration because there is no validated, public, abuse-limited demo endpoint in scope.
+
+## Verify the public release
+
+After building, run `python3 tests/verify-production.py` from `landing/`. It performs read-only HTTP verification of every generated public file, the release, security headers, sitemap, robots and error response. The expected bytes come from the local build. It never submits a contact form, logs in or opens a payment session.

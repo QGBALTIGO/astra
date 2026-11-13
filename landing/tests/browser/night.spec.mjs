@@ -30,13 +30,13 @@ test('night mode visual regression and accessibility', async ({ page }) => {
   );
   await expect(page).toHaveScreenshot('night-hero.png');
   await expect(page.locator('.day-chat')).toHaveScreenshot('night-demo.png', {
-    style: '.site-header,.skip-link{visibility:hidden!important}',
+    stylePath: './tests/browser/capture.css',
   });
   await expect(page.locator('.price-card')).toHaveScreenshot('night-price.png', {
-    style: '.site-header,.skip-link{visibility:hidden!important}',
+    stylePath: './tests/browser/capture.css',
   });
   await expect(page.locator('.dashboard-frame')).toHaveScreenshot('night-panel.png', {
-    style: '.site-header,.skip-link{visibility:hidden!important}',
+    stylePath: './tests/browser/capture.css',
   });
   await page.evaluate(() => scrollTo({ top: 0, behavior: 'instant' }));
   await expect(page.locator('.site-header')).not.toHaveClass(/is-floating/);
@@ -92,6 +92,6 @@ test('complete demonstration visual regression at night', async ({ page }) => {
   await page.evaluate(() => document.fonts.ready);
   await expect(page.locator('#demo-reply')).toHaveText(scenarios[0].reply);
   await expect(page.locator('.demo-workspace')).toHaveScreenshot('night-full-demo.png', {
-    style: '.site-header,.skip-link{visibility:hidden!important}',
+    stylePath: './tests/browser/capture.css',
   });
 });

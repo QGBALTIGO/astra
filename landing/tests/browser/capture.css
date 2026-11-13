@@ -1,0 +1,5 @@
+/* Isolate component snapshots; full-page captures keep the live navigation. */
+.site-header,
+.skip-link {
+  visibility: hidden !important;
+}
