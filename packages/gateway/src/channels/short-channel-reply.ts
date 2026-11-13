@@ -14,14 +14,15 @@ export async function writeShortChannelReply(
   prompt: string,
   tokens: number,
   deadline: number,
-  responseFormat: 'text' | 'json' = 'text'
+  responseFormat: 'text' | 'json' = 'text',
+  temperature = 0.75
 ): Promise<string | null> {
   const remaining = deadline - Date.now();
   if (remaining <= 0) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      complete(channel, system, prompt, tokens, deadline, responseFormat),
+      complete(channel, system, prompt, tokens, deadline, responseFormat, temperature),
       new Promise<null>((resolve) => {
         timer = setTimeout(() => resolve(null), remaining);
         timer.unref?.();
@@ -38,7 +39,8 @@ async function complete(
   prompt: string,
   tokens: number,
   deadline: number,
-  responseFormat: 'text' | 'json'
+  responseFormat: 'text' | 'json',
+  temperature: number
 ): Promise<string | null> {
   const { provider, model } = await resolveForChannel(channel);
   if (!provider || !model || provider.startsWith('cli-')) return null;
@@ -66,7 +68,7 @@ async function complete(
     model: {
       model,
       maxTokens: tokens,
-      temperature: responseFormat === 'json' ? 0 : 0.75,
+      temperature: responseFormat === 'json' ? 0 : temperature,
       responseFormat,
     },
     messages: [

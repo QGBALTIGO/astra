@@ -18,6 +18,20 @@ beforeEach(() => {
   mock.complete.mockResolvedValue({ ok: true, value: { content: ' {"planos":[]} ' } });
 });
 describe('bounded short channel completion', () => {
+  it('allows lower sampling for factual advice without changing creative openings', async () => {
+    await writeShortChannelReply(
+      'channel.whatsapp',
+      'Oriente sem supor.',
+      'Dúvida fictícia',
+      120,
+      Date.now() + 5000,
+      'text',
+      0.3
+    );
+    expect(mock.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ model: expect.objectContaining({ temperature: 0.3 }) })
+    );
+  });
   it('requests valid JSON without sampling and passes the same deadline to the local bridge', async () => {
     const deadline = Date.now() + 5000;
     expect(
