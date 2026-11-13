@@ -194,6 +194,25 @@ describe('CustomerIdentityService', () => {
     for (const p of [phone, short])
       expect((await service.resolveLoginPhone(p))?.phoneNumber).toBe(phone);
   });
+  it('selects exactly the WhatsApp-confirmed customer among two established accounts', async () => {
+    const short = phone.slice(0, 4) + phone.slice(5);
+    accounts.resolvePhone.mockImplementation(async (p) => ({
+      ...resolution,
+      accountId: p,
+      phoneNumber: p,
+      dataUserId: 'whatsapp:' + p,
+    }));
+    users.findByPlatform.mockImplementation(async (_platform, p) => ({
+      ...user,
+      platformUserId: p,
+      ownpilotUserId: 'whatsapp:' + p,
+      metadata: { hasInteracted: true },
+    }));
+    expect(await service.resolveLoginPhone(short)).toBeNull();
+    for (const spelling of [short, phone])
+      expect((await service.resolveLoginPhone(spelling, async () => short))?.accountId).toBe(short);
+    expect(await service.resolveLoginPhone(short, async () => '5511999990000')).toBeNull();
+  });
   it('requires an active alias for the current phone', async () => {
     accounts.resolvePhone.mockResolvedValue({ ...resolution, isCurrent: false, retired: true });
     expect(await service.getContext(account.id)).toBeNull();

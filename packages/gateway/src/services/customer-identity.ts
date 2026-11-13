@@ -65,7 +65,10 @@ export class CustomerIdentityService {
   }
 
   /** Resolve a login spelling to exactly one managed identity, preserving historical account keys. */
-  async resolveLoginPhone(phone: string): Promise<CustomerPhoneResolution | null> {
+  async resolveLoginPhone(
+    phone: string,
+    verifyRecipient?: () => Promise<string | null>
+  ): Promise<CustomerPhoneResolution | null> {
     const candidates = whatsappPhoneSpellings(phone);
     if (await this.isOwnerPhone(phone)) return null;
     const matches = await Promise.all(
@@ -107,6 +110,14 @@ export class CustomerIdentityService {
       return this.resolvePhone(chosen!.candidate, { provision: true });
     }
     const owners = managed.length === 1 ? managed : established;
+    if (owners.length > 1 && verifyRecipient) {
+      const verifiedRecipient = await verifyRecipient();
+      if (!verifiedRecipient || !candidates.includes(verifiedRecipient)) return null;
+      // Duplicate live customer accounts must never be merged. Route exclusively
+      // to the account matching the number verified by WhatsApp, on both inputs.
+      const owner = owners.find(({ candidate }) => candidate === verifiedRecipient);
+      if (owner) return this.resolvePhone(owner.candidate, { provision: true });
+    }
     if (owners.length !== 1) return null;
     return this.resolvePhone(owners[0]!.candidate, { provision: true });
   }

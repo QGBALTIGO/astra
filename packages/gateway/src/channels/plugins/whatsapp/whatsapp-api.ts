@@ -851,7 +851,17 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     const sock = this.sock;
     if (!sock || this.status !== 'connected') throw new Error('WhatsApp disconnected');
     const candidates = whatsappPhoneSpellings(phone);
-    const results = await sock.onWhatsApp(...candidates);
+    const boundedLookup = sock.onWhatsApp(...candidates);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const results = await Promise.race([
+      boundedLookup,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('WhatsApp lookup timed out')), 4500);
+        timer.unref?.();
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
     if (!results || this.sock !== sock) throw new Error('WhatsApp lookup unavailable');
     const recipients = new Set<string>();
     for (const result of results) {
@@ -860,7 +870,18 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       if (!number || !candidates.includes(number)) return null;
       recipients.add(number);
     }
-    return recipients.size === 1 ? [...recipients][0]! : null;
+    if (recipients.size === 1) return [...recipients][0]!;
+    if (recipients.size !== 2 || !sock.signalRepository?.lidMapping) return null;
+    // Two dial strings may be registered to one WhatsApp account. Only a
+    // matching provider LID proves that either spelling reaches that account.
+    const [first, second] = await Promise.all(
+      [...recipients].map((number) =>
+        sock.signalRepository.lidMapping.getLIDForPN(number + '@s.whatsapp.net')
+      )
+    );
+    return first && first === second && /^\d+@lid$/u.test(first)
+      ? [...recipients].sort()[0]!
+      : null;
   }
 
   getBotInfo(): { username?: string; firstName?: string } | null {

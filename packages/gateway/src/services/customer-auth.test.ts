@@ -336,6 +336,29 @@ describe('CustomerAuthService', () => {
       ).rejects.toMatchObject({ status: 401 });
     }
   );
+  it('rechecks the transport-confirmed account on request, dispatch and consumption for duplicate established grants', async () => {
+    const short = phone.slice(0, 4) + phone.slice(5);
+    identity.resolveLoginPhone.mockImplementation(async (_input, verify) =>
+      (await verify()) === phone
+        ? {
+            accountId: account.id,
+            phoneNumber: phone,
+            dataUserId: account.dataUserId,
+            isCurrent: true,
+            retired: false,
+          }
+        : null
+    );
+    api.resolveWhatsAppRecipient.mockResolvedValue(phone);
+    const challenge = await service.requestCode(short, 'ip');
+    await service.dispatchOtps();
+    expect(api.sendMessage).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ platformChatId: phone })
+    );
+    expect(
+      (await service.verifyCode(challenge.challengeId, generatedCode, '')).customer.accountId
+    ).toBe(account.id);
+  });
   it('withholds a code if the two spellings resolve to distinct users', async () => {
     api.resolveWhatsAppRecipient.mockResolvedValue(null);
     await service.requestCode(phone, 'ip');

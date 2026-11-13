@@ -209,17 +209,29 @@ export class CustomerAuthService {
     return { challengeId: id, expiresIn: 300, retryAfter: 60, message: CUSTOMER_OTP_MESSAGE };
   }
 
+  /** External verification is needed only when local grants do not identify one account. */
+  private async loginIdentity(phone: string) {
+    return this.d.identity.resolveLoginPhone(phone, async () => {
+      const selected = this.connectedChannel();
+      return (await selected?.api.resolveWhatsAppRecipient?.(phone).catch(() => null)) ?? null;
+    });
+  }
+
   async requestCode(phoneInput: string, ip: string): Promise<CustomerChallengeResponse> {
     const phone = normalizePhone(phoneInput);
     this.d.secret();
-    const resolved = await this.d.identity.resolveLoginPhone(phone);
+    const resolved = await this.loginIdentity(phone);
     const context =
       resolved?.isCurrent && !resolved.retired
         ? await this.d.identity.getContext(resolved.accountId)
         : null;
+    if (!resolved || !context)
+      log.info('Customer login did not match an eligible account', {
+        stage: resolved ? 'access' : 'identity',
+      });
     return this.issue({
       purpose: 'login',
-      phone: context?.account.phoneNumber ?? phone,
+      phone: context?.account.phoneNumber ?? whatsappPhoneSpellings(phone).sort()[0]!,
       ip,
       account: context?.account ?? null,
     });
@@ -258,8 +270,7 @@ export class CustomerAuthService {
       !context ||
       context.account.phoneNumber !== challenge.phoneNumber ||
       context.account.authVersion !== challenge.accountVersion ||
-      (await this.d.identity.resolveLoginPhone(challenge.phoneNumber))?.accountId !==
-        context.account.id
+      (await this.loginIdentity(challenge.phoneNumber))?.accountId !== context.account.id
     )
       throw new CustomerAuthError('Código inválido, vencido ou já utilizado.', 401);
     const { token, session } = this.newSession(userAgent);
@@ -456,7 +467,7 @@ export class CustomerAuthService {
     if (!context || context.account.authVersion !== challenge.accountVersion) return false;
     if (challenge.purpose === 'login') {
       if (context.account.phoneNumber !== challenge.phoneNumber) return false;
-      const current = await this.d.identity.resolveLoginPhone(challenge.phoneNumber);
+      const current = await this.loginIdentity(challenge.phoneNumber);
       return !!current?.isCurrent && current.accountId === context.account.id;
     }
     if (
@@ -498,6 +509,7 @@ export class CustomerAuthService {
             continue;
           }
           if (!challenge.codeCiphertext || !(await this.canDeliver(challenge))) {
+            log.info('Customer code withheld after account recheck');
             await this.d.auth.finishDelivery(challenge.id, lease, 'cancelled');
             continue;
           }
