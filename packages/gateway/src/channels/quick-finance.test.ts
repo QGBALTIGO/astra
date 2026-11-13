@@ -18,7 +18,11 @@ vi.mock('../db/repositories/customer-finance.js', async (original) => ({
     updateTransaction = f.update;
   },
 }));
-import { parseQuickFinancePlan, tryQuickFinanceReply } from './quick-finance.js';
+import {
+  explicitFinancePlan,
+  parseQuickFinancePlan,
+  tryQuickFinanceReply,
+} from './quick-finance.js';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 const plan = {
   op: 'list',
@@ -63,6 +67,23 @@ beforeEach(() => {
   f.update.mockResolvedValue({ ...saved, categoryId: 'food', categoryName: 'Alimentação' });
 });
 describe('short AI expense consultation', () => {
+  it('keeps grouped BRL amounts intact and declines multiple different values', () => {
+    expect(
+      explicitFinancePlan('Liste os gastos Café de R$ 1.000,50 de hoje', '2026-11-13')?.amount
+    ).toBe(1000.5);
+    expect(
+      explicitFinancePlan('Liste os gastos Café de R$ 1.000 de hoje', '2026-11-13')?.amount
+    ).toBe(1000);
+    expect(
+      explicitFinancePlan('Liste os gastos Café de R$ 1,00 e R$ 2,00', '2026-11-13')
+    ).toBeNull();
+    expect(
+      parseQuickFinancePlan(
+        JSON.stringify({ ...plan, latest: true }),
+        'Liste os gastos Café de R$ 0,75 de hoje'
+      )?.latest
+    ).toBe(false);
+  });
   it('reads current stored categories and converts timestamps once', async () => {
     const r = await tryQuickFinanceReply(
       message('Liste os gastos Café de R$ 0,75 de hoje'),
