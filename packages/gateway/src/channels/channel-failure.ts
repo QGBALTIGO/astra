@@ -238,14 +238,20 @@ export function channelFailureReply(
 ): string {
   const details = verifiedWriteDetails(receipts, timeZone);
   const operations = channelOperations(receipts);
+  const reminderCancellations = operations.filter(
+    (receipt) =>
+      receipt.name.replace(/__/g, '.').replace(/^core\./, '') === 'cancel_channel_reminder'
+  );
   if (
     details.length &&
-    operations.every(
-      (receipt) =>
-        receipt.name.replace(/__/g, '.').replace(/^core\./, '') === 'cancel_channel_reminder'
+    reminderCancellations.length &&
+    operations.every((receipt) =>
+      /^(?:cancel_channel_reminder|list_channel_reminders)$/.test(
+        receipt.name.replace(/__/g, '.').replace(/^core\./, '')
+      )
     )
   ) {
-    const unconfirmed = operations.length - details.length;
+    const unconfirmed = reminderCancellations.length - details.length;
     return formatAstraMessage(
       '✅ Cancelamento dos lembretes',
       [

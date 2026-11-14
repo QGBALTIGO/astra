@@ -17,6 +17,12 @@ it('reports two confirmed cancellations after a turn-budget failure without clai
     content: '{"error":"not pending"}',
     isError: true,
   });
+  receipts.unshift({
+    name: 'core.list_channel_reminders',
+    arguments: '{}',
+    content: '[]',
+    isError: false,
+  });
   const reply = channelFailureReply('Cancele todos', 'agent_error', receipts);
   expect(reply).toContain('Cancelados:* 2');
   expect(reply).toContain('Sem confirmação:* 1');
