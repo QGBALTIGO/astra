@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PostgresAdapter } from '../adapters/postgres-adapter.js';
 import { CHANNELS_TABLES_SQL } from '../schema/channels.js';
 import { WhatsAppContactDiscoveryRepository } from './whatsapp-contact-discovery.js';
+import { ChannelUsersRepository } from './channels/users.js';
 const port = process.env.ASTRA_AUTH_TEST_PORT;
 let db: PostgresAdapter;
 vi.mock('../adapters/index.js', () => ({ getAdapter: () => db }));
@@ -111,5 +112,27 @@ describe.skipIf(!port)('WhatsApp directory with real isolated PostgreSQL', () =>
       is_verified: false,
       metadata: { hasInteracted: false, discoveredFromLinkedSession: true },
     });
+  });
+  it('lists every imported contact once across pages when hundreds share a timestamp', async () => {
+    const users = new ChannelUsersRepository();
+    const expected = await db.query<{ id: string }>(`SELECT id FROM channel_users
+      WHERE platform='whatsapp' AND ownpilot_user_id='whatsapp:' || platform_user_id`);
+    const ids: string[] = [];
+    for (let offset = 0; offset < expected.length; offset += 100) {
+      const options = {
+        ownpilotUserId: 'owner',
+        includeWhatsAppCustomers: true,
+        platform: 'whatsapp',
+        limit: 100,
+        offset,
+      };
+      const page = await users.list(options);
+      expect((await users.list(options)).map((user) => user.id)).toEqual(
+        page.map((user) => user.id)
+      );
+      ids.push(...page.map((user) => user.id));
+    }
+    expect(ids.length).toBe(expected.length);
+    expect(new Set(ids)).toEqual(new Set(expected.map((row) => row.id)));
   });
 });

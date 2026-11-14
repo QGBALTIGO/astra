@@ -556,7 +556,7 @@ export class ChannelUsersRepository extends BaseRepository {
     const offset = options?.offset ?? 0;
 
     const rows = await this.query<ChannelUserRow>(
-      `SELECT * FROM channel_users ${where} ORDER BY last_seen_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+      `SELECT * FROM channel_users ${where} ORDER BY last_seen_at DESC, id DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
       [...params, limit, offset]
     );
     return rows.map(rowToEntity);
