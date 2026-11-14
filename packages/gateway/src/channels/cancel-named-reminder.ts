@@ -1,5 +1,6 @@
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 import { channelRemindersRepo } from '../db/repositories/channel-reminders.js';
+import { formatAstraMessage } from './response-presentation.js';
 
 export async function tryCancelNamedReminder(
   message: ChannelIncomingMessage,
@@ -52,7 +53,12 @@ export async function tryCancelNamedReminder(
       title,
       receivedAt
     );
-    if (result === 'cancelled') return 'Lembrete cancelado nesta conversa.';
+    if (result === 'cancelled')
+      return formatAstraMessage(
+        '✅ Lembrete cancelado',
+        [{ label: 'Assunto', value: title }],
+        'Não enviarei esse aviso.'
+      );
     if (result === 'ambiguous')
       return 'Encontrei mais de um lembrete com esse título. Qual horário você quer cancelar?';
     return 'Não encontrei um lembrete com esse título que ainda possa ser cancelado nesta conversa.';

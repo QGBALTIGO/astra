@@ -102,6 +102,41 @@ beforeEach(() => {
   }));
 });
 describe('customer bound integration execution', () => {
+  it('keeps the exact event identifier in the proposal without exposing it in the chat', () => {
+    const args = {
+      calendar_id: 'primary',
+      event_id: 'ot5tmcm2r9heh3ch8g85l7isjc',
+      send_updates: 'none',
+    };
+    const text = integrationProposalMessage({
+      app: 'googlecalendar',
+      summary: 'Remover Ensaio Ipê de amanhã às 9h',
+      arguments: args,
+    } as unknown as IntegrationAction);
+    expect(text).toContain('Remover Ensaio Ipê');
+    expect(text).toContain('Não enviar');
+    expect(text).not.toMatch(/event_id|ot5tmcm|Outros detalhes|\{\s*"/);
+    expect(args.event_id).toBe('ot5tmcm2r9heh3ch8g85l7isjc');
+  });
+  it('keeps recipients and nested sheet changes readable before consent', () => {
+    const text = integrationProposalMessage({
+      app: 'googlesheets',
+      summary: 'Atualizar pedidos',
+      arguments: {
+        spreadsheet_id: 'internal-sheet-123',
+        range: 'Pedidos!A1:B2',
+        values: [
+          ['Item', 'Valor'],
+          ['Pão', 21.9],
+        ],
+      },
+    } as unknown as IntegrationAction);
+    expect(text).toContain('Pedidos!A1:B2');
+    expect(text).toContain('Pão');
+    expect(text).toContain('21,9');
+    expect(text).not.toContain('internal-sheet-123');
+    expect(text).not.toContain('Outros detalhes');
+  });
   it.each([undefined, true])(
     'prepares an event without an unsolicited video room (explicit room: %s)',
     async (room) => {

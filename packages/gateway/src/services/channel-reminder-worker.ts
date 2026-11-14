@@ -12,6 +12,7 @@ import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { resolveCustomerPhone } from './customer-identity.js';
 import { formatDueReminder } from '../channels/response-presentation.js';
 import { safeContactFirstName } from '../channels/channel-personalization.js';
+import { ASTRA_CUSTOMER_ORIGIN } from '../config/astra-public-urls.js';
 
 const log = getLog('ChannelReminderWorker');
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -43,8 +44,11 @@ export async function dispatchDueChannelReminders(): Promise<{
         }
         let platformChatId = entry.platformChatId;
         let firstName: string | null = null;
+        const account = entry.userId.startsWith('whatsapp:')
+          ? await customerAccountsRepo.getByDataUserId(entry.userId)
+          : null;
+        const timeZone = account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
         if (api.getPlatform() === 'whatsapp' && entry.userId.startsWith('whatsapp:')) {
-          const account = await customerAccountsRepo.getByDataUserId(entry.userId);
           const phone = account?.phoneNumber ?? entry.userId.slice('whatsapp:'.length);
           const recipient = entry.platformChatId.includes('@')
             ? entry.platformChatId.match(
@@ -80,7 +84,15 @@ export async function dispatchDueChannelReminders(): Promise<{
         }
         const id = await channels.send(entry.channelPluginId, {
           platformChatId,
-          text: formatDueReminder(entry.title, firstName),
+          text: formatDueReminder(entry.title, firstName, { at: entry.remindAt, timeZone }),
+          ...(account
+            ? {
+                urlButton: {
+                  label: 'Ver minha agenda',
+                  url: ASTRA_CUSTOMER_ORIGIN + '/cliente/agenda',
+                },
+              }
+            : {}),
         });
         if (typeof id !== 'string' || !id.trim()) {
           // An empty receipt is ambiguous: the transport may already have sent

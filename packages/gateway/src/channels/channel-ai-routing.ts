@@ -274,6 +274,7 @@ export async function tryScheduleRelativeChannelReminder(
       platformChatId: message.platformChatId,
       channelMessageId: message.id,
       channelMessageTimestamp: message.timestamp?.getTime(),
+      channelRequestText: message.text,
     },
     async () => {
       const result = await executeChannelReminderTool(
@@ -640,6 +641,7 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
         channelMessageTimestamp: message.timestamp?.getTime(),
+        channelRequestText: message.text,
         channelIsPrivate: integrationPrivateChat(message),
         channelConversationOnly: isConversationalOnlyChannelRequest(message.text),
         externalContentGuard: { seen: false },
@@ -820,6 +822,7 @@ async function processDirectAgentInSession(
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
         channelMessageTimestamp: message.timestamp?.getTime(),
+        channelRequestText: interpreted.text,
         onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
         channelIsPrivate: integrationPrivateChat(message),
         channelConversationOnly: conversationOnly,

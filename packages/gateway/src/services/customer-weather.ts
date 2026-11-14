@@ -273,6 +273,6 @@ export async function customerWeather(userId: string, city?: string, remember = 
     kind: 'model_estimate',
     source,
     instruction:
-      'Responda naturalmente em português com emoji discreto, cidade e temperatura estimada agora. Não chame de medição de uma estação. Inclua Fonte: MET Norway · localização © OpenStreetMap e os links de atribuição. Nunca invente sensação térmica nem chuva certa.',
+      'Responda naturalmente em português com emoji discreto, cidade e temperatura estimada agora. Não chame de medição de uma estação. A atribuição e a licença ficam no botão Sobre o clima, acrescentado pelo canal. Não repita fontes ou links no texto. Nunca invente sensação térmica nem chuva certa.',
   };
 }

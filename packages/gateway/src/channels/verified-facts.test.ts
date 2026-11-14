@@ -24,7 +24,7 @@ describe('verified weather and calendar presentation', () => {
     expect(text).toContain('Claro, Kayky!');
     expect(text).toContain('35,3 °C');
     expect(text).toContain('14 km/h');
-    expect(text).toContain('MET Norway');
+    expect(text).not.toMatch(/Fonte:|MET Norway|clima-fontes|https?:/);
     expect(text).not.toMatch(/30,1|33,2|sensação|Open-Meteo|\]\(/);
     expect(safeChannelResponse('Aqui sua cidade já está registrada!\n35 °C', [data])).not.toContain(
       'cidade já está registrada'

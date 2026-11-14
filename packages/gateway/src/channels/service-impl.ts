@@ -11,7 +11,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { InboundFloodGuard } from './flood-guard.js';
 import { GreetingBurstGuard } from './greeting-burst-guard.js';
-import { dashboardActionForConfirmedReply } from './channel-dashboard-action.js';
+import { dashboardActionForConfirmedReply, weatherInfoAction } from './channel-dashboard-action.js';
 import { customerIntegrationsRepo } from '../db/repositories/customer-integrations.js';
 import { integrationProposalMessage } from '../services/customer-integrations.js';
 import { integrationPrivateChat } from './customer-integrations.js';
@@ -1250,7 +1250,8 @@ export class ChannelServiceImpl implements IChannelService {
         containsCustomerLoginLink(responseText)
           ? { label: 'Abrir meu painel', url: ASTRA_CUSTOMER_LOGIN_URL }
           : undefined;
-      const dashboardAction = confirmedAction ?? accessAction;
+      const dashboardAction =
+        confirmedAction ?? accessAction ?? weatherInfoAction(responseText, message.platform);
       const receipt = receiptContext(responseText);
       if (
         receipt &&
@@ -1287,7 +1288,7 @@ export class ChannelServiceImpl implements IChannelService {
           : null;
       if (integrationProposal) responseText = integrationProposalMessage(integrationProposal);
       let sentMessageId: string;
-      if (progress && !replyWithVoice) {
+      if (progress && !replyWithVoice && !dashboardAction) {
         // Replace progress message with final response
         sentMessageId = await progress.finish(responseText);
         // Track message ID for edit/delete support
@@ -1295,7 +1296,7 @@ export class ChannelServiceImpl implements IChannelService {
           progressApi.trackMessage(sentMessageId, message.platformChatId);
         }
       } else {
-        if (progress && replyWithVoice) {
+        if (progress) {
           await progress.cancel().catch((err) => {
             log.debug('Progress cancellation failed before voice reply', { error: err });
           });

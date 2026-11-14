@@ -182,11 +182,26 @@ export function formatReminderConfirmation(
 }
 
 /** Alerts should land on time even when the writing model is busy. */
-export function formatDueReminder(subject: string, firstName?: string | null): string {
+export function formatDueReminder(
+  subject: string,
+  firstName?: string | null,
+  schedule?: { at: Date; timeZone: string }
+): string {
   const title = displayText(subject);
-  if (!title) return '⏰ Chegou a hora do seu lembrete.';
   const icon = subjectEmoji(title) ?? '⏰';
-  return firstName
-    ? `${icon} ${firstName}, você pediu para eu te lembrar: ${title}`
-    : `${icon} Você pediu para eu te lembrar: ${title}`;
+  const fields = title ? [{ label: 'Assunto', value: title }] : [];
+  if (schedule && Number.isFinite(schedule.at.getTime()))
+    fields.push({
+      label: 'Data e hora',
+      value: new Intl.DateTimeFormat('pt-BR', {
+        timeZone: schedule.timeZone,
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }).format(schedule.at),
+    });
+  return formatAstraMessage(
+    `${icon} Hora do seu lembrete`,
+    fields,
+    firstName ? `${displayText(firstName)}, esse é o aviso que você pediu. 💙` : undefined
+  );
 }

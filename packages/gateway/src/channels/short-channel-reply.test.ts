@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mock = vi.hoisted(() => ({ complete: vi.fn(), provider: vi.fn() }));
-vi.mock('@ownpilot/core/agent', () => ({ createProvider: mock.provider }));
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+const mock = vi.hoisted(() => ({ complete: vi.fn(), provider: vi.fn(), fallback: vi.fn() }));
+vi.mock('@ownpilot/core/agent', () => ({
+  createProvider: mock.provider,
+  createFallbackProvider: mock.fallback,
+}));
 vi.mock('../services/llm/model-routing.js', () => ({
   resolveForChannel: async () => ({ provider: 'ollama-local', model: 'local-test' }),
 }));
@@ -15,9 +18,29 @@ import { writeShortChannelReply } from './short-channel-reply.js';
 beforeEach(() => {
   vi.clearAllMocks();
   mock.provider.mockReturnValue({ complete: mock.complete });
+  mock.fallback.mockReturnValue({ complete: mock.complete });
   mock.complete.mockResolvedValue({ ok: true, value: { content: ' {"planos":[]} ' } });
 });
+afterEach(() => vi.unstubAllEnvs());
 describe('bounded short channel completion', () => {
+  it('shares configured free-provider health so personality and summaries do not retry an exhausted primary', async () => {
+    vi.stubEnv('ASTRA_FALLBACK_CHAIN', 'google=gemini-2.5-flash-lite,openrouter=paid-model');
+    await writeShortChannelReply('channel.whatsapp', 'Converse.', 'Café', 42, Date.now() + 5000);
+    expect(mock.fallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sharedCircuitBreaker: true,
+        preferLastSuccessful: true,
+        completionTimeoutMs: expect.any(Number),
+        fallbacks: [
+          expect.objectContaining({
+            id: 'google',
+            defaultModel: { model: 'gemini-2.5-flash-lite' },
+          }),
+        ],
+      })
+    );
+    expect(mock.complete.mock.calls[0]![0]).not.toHaveProperty('tools');
+  });
   it('allows lower sampling for factual advice without changing creative openings', async () => {
     await writeShortChannelReply(
       'channel.whatsapp',

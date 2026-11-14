@@ -7,12 +7,53 @@ vi.mock('../db/repositories/customer-planning.js', async (original) => ({
     changeSubscription = change;
   },
 }));
-import { tryPersonalSubscriptionReply } from './personal-subscriptions.js';
+import {
+  tryPersonalSubscriptionReply,
+  monthlySubscriptionRequest,
+} from './personal-subscriptions.js';
 beforeEach(() => {
   vi.clearAllMocks();
   change.mockResolvedValue({ status: 'inactive' });
 });
 describe('natural personal subscription requests', () => {
+  it('understands a request to remove only the named subscription from the Astra control', async () => {
+    const message = {
+      id: 'test-remove',
+      text: 'Remova a assinatura Revista Ensaio Ipê do meu controle no Astra.',
+      platform: 'whatsapp',
+      channelPluginId: 'test.whatsapp',
+      platformChatId: 'test-user',
+      sender: { platformUserId: 'test-user' },
+      metadata: { isGroup: false },
+      timestamp: new Date(),
+    } as ChannelIncomingMessage;
+    await tryPersonalSubscriptionReply(message, 'synthetic', async () => false);
+    expect(change).toHaveBeenCalledWith(
+      expect.any(String),
+      { action: 'remove', title: 'Revista Ensaio Ipê' },
+      expect.any(Function)
+    );
+  });
+  it.each([
+    ['2026-11-14', '18', '2026-11-18'],
+    ['2026-11-22', '18', '2026-12-18'],
+    ['2026-12-30', '2', '2027-01-02'],
+    ['2028-02-20', '29', '2028-02-29'],
+  ])('resolves an explicitly monthly day from the local customer date %s', (today, day, due) => {
+    expect(
+      monthlySubscriptionRequest(
+        `Anota a assinatura Revista Ensaio Ipê por R$ 12,90 mensais, renovação dia ${day}.`,
+        today
+      )
+    ).toBe('Cadastre a assinatura Revista Ensaio Ipê por R$ 12,90 em ' + due);
+  });
+  it.each([
+    'Anota a assinatura Revista por R$ 12,90 mensais, renovação dia 32.',
+    'Não anota a assinatura Revista por R$ 12,90 mensais, renovação dia 18.',
+    'Anota a assinatura Revista por R$ 12,90 mensais, renovação dia 18. E pague.',
+  ])('does not normalize ambiguous or compound changes: %s', (text) =>
+    expect(monthlySubscriptionRequest(text, '2026-11-14')).toBe(text)
+  );
   it.each(['whatsapp', 'telegram'] as const)(
     'keeps an explicit control request on subscription storage for %s',
     async (platform) => {

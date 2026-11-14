@@ -10,6 +10,34 @@ import {
 } from '../db/repositories/customer-planning.js';
 import { formatAstraMessage } from './response-presentation.js';
 import { channelDataFailure } from './channel-failure.js';
+import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
+import { customerLocalDay } from '../services/customer-date.js';
+
+/** Resolve only an explicit monthly renewal day; never guess missing price/title. */
+export function monthlySubscriptionRequest(text: string, localDay: string): string {
+  const input = text
+    .trim()
+    .replace(/^astra[,!]?\s+/iu, '')
+    .replace(/,?\s+por favor[.!?]?$/iu, '');
+  const match =
+    /^(?:anot[ae]|registr[ae]|cadastr[ae]|cadastre|adicione)\s+(?:a\s+|uma\s+)?assinatura\s+(.{1,120}?)\s+por\s+(r\$\s*[\d.,]+)\s+(?:mensais|por m[êe]s|ao m[êe]s)\s*,?\s*(?:com\s+)?renova[çc][aã]o\s+(?:todo\s+)?dia\s+(\d{1,2})[.!]?$/iu.exec(
+      input
+    );
+  if (!match || !addressableTitle(match[1]!)) return text;
+  const day = Number(match[3]);
+  if (day < 1 || day > 31) return text;
+  const [year, month, today] = localDay.split('-').map(Number) as [number, number, number];
+  const date = new Date(Date.UTC(year, month - 1 + (day < today ? 1 : 0), day));
+  if (date.getUTCDate() !== day) return text;
+  return (
+    'Cadastre a assinatura ' +
+    match[1] +
+    ' por ' +
+    match[2] +
+    ' em ' +
+    date.toISOString().slice(0, 10)
+  );
+}
 
 const HELP =
   'Para acompanhar uma assinatura, envie “Cadastre a assinatura Música por R$ 24,90 com renovação em 15/12/2026”. Depois, use “Minhas assinaturas”, “Atualize a assinatura Música para R$ 29,90” ou “Remova a assinatura Música”.';
@@ -85,6 +113,12 @@ function planningRequest(text: string): string | null {
       text
     );
   if (remove && addressableTitle(remove[1]!)) return 'Remova a assinatura ' + remove[1];
+  const removeFromControl =
+    /^(?:remova|remove|tira|tire|exclua)\s+(?:s[oó]\s+|apenas\s+)?a assinatura (.{1,120}?) do meu (?:controle|planejamento)(?: no Astra)?[.!]?$/iu.exec(
+      text
+    );
+  if (removeFromControl && addressableTitle(removeFromControl[1]!))
+    return 'Remova a assinatura ' + removeFromControl[1];
   return text;
 }
 
@@ -254,7 +288,7 @@ export async function tryPersonalSubscriptionReply(
 ): Promise<string | null> {
   if (message.attachments?.length || !['whatsapp', 'telegram'].includes(message.platform))
     return null;
-  const intent = parseIntent(message.text);
+  let intent = parseIntent(message.text);
   if (!intent) return null;
   if (
     !userId?.trim() ||
@@ -264,6 +298,28 @@ export async function tryPersonalSubscriptionReply(
     (message.platform === 'telegram' && message.metadata?.chatType !== 'private')
   ) {
     return 'Abra uma conversa privada com o Astra para consultar suas assinaturas.';
+  }
+  if (
+    intent.action === 'clarify' &&
+    /\bassinatura\b.*\b(?:mensais|por m[êe]s|ao m[êe]s)\b.*\bdia\s+\d{1,2}[.!]?$/iu.test(
+      message.text
+    )
+  ) {
+    try {
+      const account = await customerAccountsRepo.getByDataUserId(userId);
+      intent =
+        parseIntent(
+          monthlySubscriptionRequest(
+            message.text,
+            customerLocalDay(
+              message.timestamp,
+              account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande'
+            )
+          )
+        ) ?? intent;
+    } catch (error) {
+      return channelDataFailure('subscription', 'write', error);
+    }
   }
   if (intent.action === 'clarify') return HELP;
   if (intent.action === 'explainRenewalReminder')

@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { dashboardActionForConfirmedReply as action } from './channel-dashboard-action.js';
+import {
+  dashboardActionForConfirmedReply as action,
+  weatherInfoAction,
+} from './channel-dashboard-action.js';
 const id = 'whatsapp:5511999999999';
+it.each(['whatsapp', 'telegram'])(
+  'keeps weather attribution accessible without a source footer on %s',
+  (platform) => {
+    expect(
+      weatherInfoAction(
+        '🌤️ *Tempo em Aquidauana*\n\n• *Temperatura:* 35,3 °C · estimativa',
+        platform
+      )
+    ).toEqual({ label: 'Sobre o clima', url: 'https://app.astraacessor.pro/clima-fontes.html' });
+    expect(weatherInfoAction('Não consegui consultar a temperatura.', platform)).toBeUndefined();
+  }
+);
 describe('Portal links after verified confirmations', () => {
   it('links confirmed financial records and reminders to the relevant customer tab', () => {
     expect(action('✅ *Despesa registrada*\n\n• *Valor:* R$ 1,00', id, 'whatsapp')).toEqual({

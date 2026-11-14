@@ -123,8 +123,18 @@ describe('personal writing for private confirmations', () => {
     expect(safePersonalComment('O GPT cuida desse café.')).toBeNull();
     expect(safePersonalComment('Sua conta está zerada!')).toBeNull();
     expect(formatDueReminder('<think>privado</think>pegar o livro', 'Kayky')).toBe(
-      '📚 Kayky, você pediu para eu te lembrar: pegar o livro'
+      '📚 *Hora do seu lembrete*\n\n• *Assunto:* pegar o livro\n\nKayky, esse é o aviso que você pediu. 💙'
     );
+  });
+  it('separates the delivered reminder subject and the customer-local scheduled time', () => {
+    const text = formatDueReminder('buscar a pizza', 'Kayky', {
+      at: new Date('2026-11-15T13:30:00Z'),
+      timeZone: 'America/Cuiaba',
+    });
+    expect(text).toContain('🍕 *Hora do seu lembrete*\n\n');
+    expect(text).toContain('• *Assunto:* buscar a pizza\n• *Data e hora:* 15/11/2026, 09:30');
+    expect(text).toContain('\n\nKayky,');
+    expect(text).not.toContain('13:30');
   });
   it.each([
     'Adicionei “comprar café” à sua lista de tarefas. Ela está pendente.',
