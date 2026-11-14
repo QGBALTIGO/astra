@@ -13,7 +13,7 @@ if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
   });
 }
 
-import { lazy, StrictMode, Suspense } from 'react';
+import { lazy, StrictMode, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { customerEntryPath } from './customer-entry';
 import { installCustomerInputModality } from './pages/customer/interaction';
@@ -55,15 +55,46 @@ window.addEventListener('vite:preloadError', (event) => {
   }
 });
 
+/**
+ * Lightweight, branded shell shown only while the app entry chunk loads.
+ * A matching HTML shell is rendered before React starts, so slow connections
+ * never expose a blank page or unstyled text.
+ */
+function AstraBootScreen() {
+  const [showRecovery, setShowRecovery] = useState(false);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setShowRecovery(true), 12_000);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  return (
+    <main className="astra-boot-screen" role="status" aria-live="polite">
+      <div className="astra-boot-content">
+        <picture className="astra-boot-brand">
+          <source media="(prefers-color-scheme: dark)" srcSet="/astra-logo.svg" />
+          <img src="/astra-logo-light.svg" alt="Astra" width="1400" height="355" />
+        </picture>
+        <div className="astra-boot-track" aria-hidden="true">
+          <span />
+        </div>
+        <p className="astra-boot-message">Preparando seu espaço…</p>
+        {showRecovery ? (
+          <div className="astra-boot-recovery">
+            <p>Está demorando mais que o normal.</p>
+            <button type="button" onClick={() => window.location.reload()}>
+              Tentar novamente
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </main>
+  );
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Suspense
-      fallback={
-        <div role="status" style={{ padding: 32 }}>
-          Carregando o Astra…
-        </div>
-      }
-    >
+    <Suspense fallback={<AstraBootScreen />}>
       <Application />
     </Suspense>
   </StrictMode>

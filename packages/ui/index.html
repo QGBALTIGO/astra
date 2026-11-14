@@ -27,9 +27,22 @@
     />
     <title>Astra | Assistente pessoal</title>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+
+    <link rel="stylesheet" href="/astra-boot.css" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="astra-boot-screen" role="status" aria-live="polite">
+        <div class="astra-boot-content">
+          <picture class="astra-boot-brand">
+            <source media="(prefers-color-scheme: dark)" srcset="/astra-logo.svg" />
+            <img src="/astra-logo-light.svg" alt="Astra" width="1400" height="355" />
+          </picture>
+          <div class="astra-boot-track" aria-hidden="true"><span></span></div>
+          <p class="astra-boot-message">Preparando seu espaço…</p>
+        </div>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
