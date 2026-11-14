@@ -21,7 +21,7 @@ export function requiredChannelWeatherTool(text: string, previousText = ''): str
     );
   const cityPreference =
     !/\bnao\s+(?:guarde|salve|memorize|(?:mude|altere)\s+(?:a\s+|minha\s+)?cidade)\b/.test(input) &&
-    /\b(?:guarde|guardar|salve|salvar|memorize|moro em|morando em|minha cidade (?:e|agora e))\b/.test(
+    /\b(?:guarde|salve|memorize|moro em|morando em|minha cidade (?:e|agora e)|(?:pode|quero|preciso) (?:guardar|salvar))\b/.test(
       input
     ) &&
     /\b(?:cidade|tempo|clima|temperatura|moro|morando)\b/.test(input);

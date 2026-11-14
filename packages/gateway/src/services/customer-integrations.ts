@@ -106,6 +106,34 @@ export function integrationProposalMessage(action: IntegrationAction): string {
       shownKeys.add(key);
     }
   }
+  if (action.app === 'googlecalendar') {
+    const options: Array<[string, string, (value: unknown) => string]> = [
+      ['calendar_id', 'Agenda', (v) => (v === 'primary' ? 'Principal' : String(v))],
+      [
+        'timezone',
+        'Fuso',
+        (v) =>
+          String(v).split('/').at(-1)?.replaceAll('_', ' ').replace('Cuiaba', 'Cuiabá') ??
+          String(v),
+      ],
+      ['create_meeting_room', 'Sala de vídeo', (v) => (v === false ? 'Não criar' : 'Criar')],
+      [
+        'send_updates',
+        'Notificações externas',
+        (v) =>
+          v === 'none'
+            ? 'Não enviar'
+            : v === 'externalOnly'
+              ? 'Somente convidados externos'
+              : 'Enviar aos convidados',
+      ],
+    ];
+    for (const [key, label, display] of options)
+      if (args[key] !== undefined) {
+        fields.push({ label, value: display(args[key]) });
+        shownKeys.add(key);
+      }
+  }
   const remaining = Object.fromEntries(Object.entries(args).filter(([key]) => !shownKeys.has(key)));
   if (Object.keys(remaining).length)
     fields.push({ label: 'Outros detalhes', value: JSON.stringify(remaining, null, 2) });
@@ -464,6 +492,11 @@ export class CustomerIntegrationService {
     const binding = await this.binding(userId, app, connectionId);
     const spec = await this.spec(app, slug),
       args = { ...input };
+    if (app === 'googlecalendar' && slug === 'GOOGLECALENDAR_CREATE_EVENT') {
+      // The provider enables Meet rooms by default; simple events should not.
+      if (args.create_meeting_room === undefined) args.create_meeting_room = false;
+      if (args.timezone === undefined) args.timezone = binding.account.timeZone;
+    }
     if (
       app === 'gmail' &&
       (spec.parameters.properties as Record<string, unknown> | undefined)?.user_id &&

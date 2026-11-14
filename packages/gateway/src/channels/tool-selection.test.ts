@@ -43,6 +43,14 @@ describe('channel finance tool selection', () => {
       'core.get_local_weather'
     );
     expect(requiredChannelWeatherTool('Qual meu próximo lembrete?')).toBeUndefined();
+    expect(
+      requiredChannelWeatherTool(
+        'E agora, qual a temperatura por aqui? Use a cidade que acabei de guardar.'
+      )
+    ).toBe('core.get_local_weather');
+    expect(requiredChannelWeatherTool('Pode guardar Aquidauana como minha cidade do tempo')).toBe(
+      'core.set_weather_city'
+    );
   });
   it.each([
     'Qual a temperatura agora?',
