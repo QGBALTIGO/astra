@@ -296,6 +296,18 @@ export function verifiedWriteDetails(receipts: ChannelToolReceipt[], timeZone?: 
     const result = object(envelope?.result) ?? envelope;
     const saved =
       object(result?.transaction) ?? object(result?.expense) ?? object(result?.task) ?? result;
+    if (
+      normalizeName(receipt.name) === 'cancel_channel_reminder' &&
+      typeof saved?.id === 'string' &&
+      saved.id.trim()
+    ) {
+      details.push(
+        formatAstraMessage('✅ Lembrete cancelado', [
+          { label: 'Situação', value: 'O cancelamento deste aviso foi confirmado.' },
+        ])
+      );
+      continue;
+    }
     const line =
       calendarConfirmation(receipt, ids, timeZone) ??
       (typeof saved?.id === 'string' && saved.id.trim()

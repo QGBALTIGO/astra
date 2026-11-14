@@ -212,6 +212,20 @@ describe('WhatsApp authorization form', () => {
 });
 
 describe('WhatsApp access management', () => {
+  it('distinguishes a session-directory entry from an actual incoming conversation', async () => {
+    await render(
+      panel([
+        user({
+          hasInteracted: false,
+          discoveredFromLinkedSession: true,
+          isVerified: false,
+          accessStatus: 'pending',
+        }),
+      ])
+    );
+    expect(container.textContent).toContain('Encontrado no WhatsApp vinculado');
+    expect(container.textContent).toContain('Pendente');
+  });
   it('requests contact recovery without granting access and refreshes pending rows', async () => {
     const onChanged = vi.fn();
     post.mockResolvedValueOnce({ contactsRecovered: 4, historyRequested: true });

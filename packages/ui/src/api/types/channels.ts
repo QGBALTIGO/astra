@@ -47,6 +47,7 @@ export interface ChannelUser {
   accessStatus?: 'active' | 'expired' | 'revoked' | 'blocked' | 'pending';
   /** False for a number authorized before its first incoming message. */
   hasInteracted?: boolean;
+  discoveredFromLinkedSession?: boolean;
   /** Present when user is in DM pairing flow — shows the code they need to give the owner */
   pendingPairingCode?: string;
   /** ISO timestamp of when pendingPairingCode expires */

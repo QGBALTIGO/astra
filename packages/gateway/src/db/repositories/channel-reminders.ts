@@ -134,6 +134,23 @@ export class ChannelRemindersRepository extends BaseRepository {
     return rows.map(mapReminder);
   }
 
+  async listPendingForChatInRange(
+    userId: string,
+    channelPluginId: string,
+    platformChatId: string,
+    start: Date,
+    end: Date,
+    limit: number
+  ): Promise<ChannelReminder[]> {
+    const rows = await this.query<ReminderRow>(
+      `SELECT * FROM channel_reminders WHERE user_id=$1 AND channel_plugin_id=$2
+       AND platform_chat_id=$3 AND status='pending' AND remind_at >= $4 AND remind_at < $5
+       ORDER BY remind_at ASC,id ASC LIMIT $6`,
+      [userId, channelPluginId, platformChatId, start, end, Math.max(1, Math.min(51, limit))]
+    );
+    return rows.map(mapReminder);
+  }
+
   async cancel(
     id: string,
     userId: string,

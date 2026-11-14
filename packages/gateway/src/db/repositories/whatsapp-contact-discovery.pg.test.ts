@@ -96,4 +96,20 @@ describe.skipIf(!port)('WhatsApp directory with real isolated PostgreSQL', () =>
       )
     ).toEqual({ status: 'pending', is_verified: false });
   });
+  it('labels server-directory contacts as pending without inventing a past incoming conversation', async () => {
+    const repo = new WhatsAppContactDiscoveryRepository();
+    await repo.remember(
+      [{ phone: '244927000099', name: 'Contato da sessão', seenAt: new Date() }],
+      'linked_session'
+    );
+    expect(
+      await db.queryOne(
+        `SELECT status,is_verified,metadata FROM channel_users WHERE platform_user_id='244927000099'`
+      )
+    ).toEqual({
+      status: 'pending',
+      is_verified: false,
+      metadata: { hasInteracted: false, discoveredFromLinkedSession: true },
+    });
+  });
 });
