@@ -134,15 +134,53 @@ describe('WhatsAppChannelAPI', () => {
     expect(onWhatsApp).toHaveBeenLastCalledWith('553833330123');
   });
 
-  it('resolves @lid messages to remoteJidAlt when available', () => {
+  it('resolves @lid messages to remoteJidAlt when available', async () => {
     const api = new WhatsAppChannelAPI({ my_phone: '37253049737' }, 'channel.whatsapp');
-    const resolved = (api as any).resolveIncomingJid({
+    const resolved = await (api as any).resolveIncomingJid({
       remoteJid: '243060956995782@lid',
       remoteJidAlt: '37253049737@s.whatsapp.net',
     });
 
     expect(resolved).toBe('37253049737@s.whatsapp.net');
   });
+
+  it.each(['244927000001', '5581999990101', '558199990101'])(
+    'recognizes a verified international or Brazilian LID without an alternate JID: %s',
+    async (phone) => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      try {
+        mockEmit.mockClear();
+        const api = new WhatsAppChannelAPI({ my_phone: '5511999990102' }, 'channel.whatsapp');
+        const getPNForLID = vi.fn().mockResolvedValue(phone + '@s.whatsapp.net');
+        (api as any).sock = {
+          user: { id: '5511999990102@s.whatsapp.net' },
+          signalRepository: { lidMapping: { getPNForLID } },
+        };
+        await (api as any).handleIncomingMessage({
+          key: { remoteJid: '90000123456789@lid', id: 'mapped-' + phone, fromMe: false },
+          message: { conversation: 'Olá' },
+          messageTimestamp: 1700000000,
+        });
+        expect(getPNForLID).toHaveBeenCalledWith('90000123456789@lid');
+        expect(mockEmit).toHaveBeenCalledTimes(1);
+        expect(mockEmit.mock.calls[0]![0].message.sender.platformUserId).toBe(phone);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  );
+  it.each([null, '90000123456789@lid', 'invalid@s.whatsapp.net'])(
+    'never trusts an unresolved mapping as a customer phone: %s',
+    async (mapped) => {
+      const api = new WhatsAppChannelAPI({ my_phone: '5511999990102' }, 'channel.whatsapp');
+      (api as any).sock = {
+        signalRepository: { lidMapping: { getPNForLID: vi.fn().mockResolvedValue(mapped) } },
+      };
+      expect(await (api as any).resolveIncomingJid({ remoteJid: '90000123456789@lid' })).toBe(
+        '90000123456789@lid'
+      );
+    }
+  );
 
   it('emits self-chat messages when self message arrives as @lid', async () => {
     const api = new WhatsAppChannelAPI({ my_phone: '37253049737' }, 'channel.whatsapp');

@@ -372,7 +372,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       });
 
       // Receive inbound direct messages from other contacts only in explicit multi-user mode.
-      sock.ev.on('messages.upsert', (upsert) => {
+      sock.ev.on('messages.upsert', async (upsert) => {
         if (!isCurrentSocket()) return;
         log.info(
           `[WhatsApp] UPSERT EVENT received — type: ${upsert.type}, count: ${upsert.messages.length}`
@@ -396,7 +396,10 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
             continue;
           }
 
-          const effectiveJid = this.resolveIncomingJid(msg.key);
+          const effectiveJid = await this.resolveIncomingJid(msg.key, sock);
+          if (!isCurrentSocket()) return;
+          // Another upsert can finish the asynchronous mapping lookup first.
+          if (msgId && this.processedMsgIds.has(msgId)) continue;
           const isSelf = this.isSelfChat(effectiveJid);
           const isInboundDM = effectiveJid?.endsWith('@s.whatsapp.net') && !msg.key.fromMe;
           const acceptsGuest = process.env.ASTRA_WHATSAPP_MULTIUSER === 'true' && isInboundDM;
@@ -462,7 +465,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
               const rows: Array<Parameters<typeof messagesRepo.createBatch>[0][number]> = [];
 
               for (const msg of messages) {
-                const remoteJid = this.resolveIncomingJid(msg.key);
+                const remoteJid = await this.resolveIncomingJid(msg.key, sock);
+                if (!isCurrentSocket()) return;
                 if (!remoteJid) continue;
 
                 const isGroup = remoteJid.endsWith('@g.us');
@@ -1548,7 +1552,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       this.sock === sourceSocket && generation === this.connectionGeneration;
     if (!isCurrentSocket()) return;
     log.debug('[WhatsApp] Handling incoming message');
-    const remoteJid = this.resolveIncomingJid(msg.key);
+    const remoteJid = await this.resolveIncomingJid(msg.key, sourceSocket);
+    if (!isCurrentSocket()) return;
     if (!remoteJid) return;
 
     // SAFETY: Only process DMs (@s.whatsapp.net) and groups (@g.us).
@@ -1740,10 +1745,13 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
    * Resolve incoming Baileys JIDs.
    * Prefer remoteJidAlt when WhatsApp sends a temporary @lid identifier.
    */
-  private resolveIncomingJid(key: {
-    remoteJid?: string | null;
-    remoteJidAlt?: string | null;
-  }): string | null {
+  private async resolveIncomingJid(
+    key: {
+      remoteJid?: string | null;
+      remoteJidAlt?: string | null;
+    },
+    socket = this.sock
+  ): Promise<string | null> {
     const remoteJid = typeof key.remoteJid === 'string' ? key.remoteJid : null;
     if (!remoteJid) return null;
     if (!remoteJid.endsWith('@lid')) return remoteJid;
@@ -1754,6 +1762,32 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       return altJid;
     }
 
+    // Some legitimate DMs contain only a LID. Resolve it using Baileys' own
+    // verified identity store; never reinterpret the LID's digits as a phone.
+    const mapping = socket?.signalRepository?.lidMapping;
+    if (!mapping?.getPNForLID) return remoteJid;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const resolved = await Promise.race([
+        mapping.getPNForLID(remoteJid),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), 1500);
+          timer.unref?.();
+        }),
+      ]);
+      if (
+        typeof resolved === 'string' &&
+        /^[1-9]\d{9,14}(?::\d+)?@s\.whatsapp\.net$/u.test(resolved)
+      ) {
+        log.debug('[WhatsApp] Resolved contact using verified identity mapping');
+        return this.normalizeJid(resolved);
+      }
+      log.warn('[WhatsApp] Contact identity mapping unavailable');
+    } catch {
+      log.warn('[WhatsApp] Contact identity mapping lookup failed');
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     return remoteJid;
   }
 

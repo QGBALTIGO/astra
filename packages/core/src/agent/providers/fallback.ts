@@ -362,10 +362,37 @@ export class FallbackProvider implements IProvider {
           deadline
         );
 
-        if (result.ok && request.toolChoice === 'required' && !result.value.toolCalls?.length) {
+        // A provider refusal is meaningful, rather than an empty transport result.
+        if (result.ok && result.value.finishReason === 'content_filter') return result;
+        const calls = result.ok ? (result.value.toolCalls ?? []) : [];
+        let invalidResponse: string | undefined;
+        if (result.ok && request.requiredToolCall) {
+          if (
+            calls.length !== 1 ||
+            calls[0]!.name.replace(/__/g, '.') !== request.requiredToolCall.replace(/__/g, '.')
+          )
+            invalidResponse = 'Provider violated the required tool call contract';
+          else {
+            try {
+              const args: unknown = JSON.parse(calls[0]!.arguments);
+              if (args === null || typeof args !== 'object' || Array.isArray(args))
+                invalidResponse = 'Provider returned invalid required tool arguments';
+            } catch {
+              invalidResponse = 'Provider returned invalid required tool arguments';
+            }
+          }
+        }
+        if (result.ok && request.toolChoice === 'none' && calls.length)
+          invalidResponse = 'Provider returned tools during a text-only completion';
+        if (result.ok && !calls.length && !result.value.content?.trim())
+          invalidResponse = 'Provider returned an empty completion';
+        if (result.ok && request.toolChoice === 'required' && !calls.length)
+          invalidResponse = 'Provider did not perform the required tool call';
+        if (invalidResponse) {
           // A prose-only answer is not a successful live lookup. No tool has
           // executed yet, so trying another configured model cannot replay a write.
-          lastError = new InternalError('Provider did not perform the required tool call');
+          lastError = new InternalError(invalidResponse);
+          log.warn(invalidResponse);
           this.recordFailure(provider, lastError);
           continue;
         }

@@ -174,8 +174,7 @@ export class GoogleProvider implements IProvider {
   readonly type: AIProvider = 'google';
   private readonly providerId = 'google';
   private readonly config: ResolvedProviderConfig;
-  private abortController: AbortController | null = null;
-  private abortTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private readonly activeControllers = new Set<AbortController>();
 
   constructor(config: ResolvedProviderConfig) {
     this.config = config;
@@ -195,14 +194,17 @@ export class GoogleProvider implements IProvider {
   /**
    * Create provider with explicit API key
    */
-  static withApiKey(apiKey: string): GoogleProvider | null {
+  static withApiKey(
+    apiKey: string,
+    overrides: Pick<LegacyProviderConfig, 'timeout' | 'maxRetries'> = {}
+  ): GoogleProvider | null {
     const config = loadProviderConfig('google');
     if (!config) {
       return null;
     }
 
     const { apiKeyEnv: _apiKeyEnv, ...rest } = config;
-    return new GoogleProvider({ ...rest, apiKey });
+    return new GoogleProvider({ ...rest, apiKey, ...overrides });
   }
 
   /**
@@ -252,8 +254,12 @@ export class GoogleProvider implements IProvider {
     // Retry loop with exponential backoff
     let lastError: Error | null = null;
     let delay = RETRY_CONFIG.initialDelayMs;
+    const maxAttempts =
+      this.config.maxRetries === undefined
+        ? RETRY_CONFIG.maxRetries
+        : Math.max(1, Math.floor(this.config.maxRetries) + 1);
 
-    for (let attempt = 1; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const result = await this.executeRequest(request, model, attempt);
 
       if (result.ok) {
@@ -264,14 +270,14 @@ export class GoogleProvider implements IProvider {
       const error = result.error;
       const isRetryable = this.isRetryableError(error);
 
-      if (!isRetryable || attempt === RETRY_CONFIG.maxRetries) {
+      if (!isRetryable || attempt === maxAttempts) {
         return result;
       }
 
       // Log retry attempt
       lastError = error;
-      logRetry(attempt, RETRY_CONFIG.maxRetries, error, delay);
-      log.info(`Retry ${attempt}/${RETRY_CONFIG.maxRetries} after ${delay}ms - ${error.message}`);
+      logRetry(attempt, maxAttempts, error, delay);
+      log.info(`Retry ${attempt}/${maxAttempts} after ${delay}ms`, { category: error.name });
 
       // Wait before retry
       await sleep(delay);
@@ -281,7 +287,7 @@ export class GoogleProvider implements IProvider {
     // Should not reach here, but just in case
     return err(
       new InternalError(
-        `Google request failed after ${RETRY_CONFIG.maxRetries} retries: ${lastError?.message}`
+        `Google request failed after ${maxAttempts} attempts: ${lastError?.message}`
       )
     );
   }
@@ -342,6 +348,7 @@ export class GoogleProvider implements IProvider {
       logRequest(googleDebugInfo);
     }
 
+    const operation = this.createAbortContext();
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -350,13 +357,10 @@ export class GoogleProvider implements IProvider {
           'x-goog-api-key': this.config.apiKey!,
         },
         body: JSON.stringify(body),
-        signal: this.createAbortSignal(),
+        signal: operation.signal,
       });
 
       const durationMs = Date.now() - startTime;
-
-      // Clear the timeout since the request completed (success or error response)
-      this.clearAbortTimeout();
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -441,10 +445,10 @@ export class GoogleProvider implements IProvider {
       });
     } catch (error) {
       const elapsed = Date.now() - startTime;
+      if (operation.signal.aborted && operation.signal.reason === 'cancelled')
+        return err(new ValidationError('Google request cancelled'));
 
       if (error instanceof Error && error.name === 'AbortError') {
-        // Clear the timeout since we're handling the abort
-        this.clearAbortTimeout();
         const timeout = this.config.timeout ?? 30000;
         logResponse(
           buildResponseDebugInfo('google', model, elapsed, {
@@ -454,9 +458,6 @@ export class GoogleProvider implements IProvider {
         return err(new TimeoutError('Google request', timeout));
       }
 
-      // Clear the timeout for other errors too
-      this.clearAbortTimeout();
-
       const errorMessage = getErrorMessage(error);
       logResponse(
         buildResponseDebugInfo('google', model, elapsed, {
@@ -465,6 +466,8 @@ export class GoogleProvider implements IProvider {
       );
 
       return err(new InternalError(`Google request failed: ${errorMessage}`));
+    } finally {
+      operation.clear();
     }
   }
 
@@ -499,6 +502,7 @@ export class GoogleProvider implements IProvider {
     googleStreamDebugInfo.payload = calculatePayloadBreakdown(body as Record<string, unknown>);
     logRequest(googleStreamDebugInfo);
 
+    const operation = this.createAbortContext();
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -507,11 +511,8 @@ export class GoogleProvider implements IProvider {
           'x-goog-api-key': this.config.apiKey!,
         },
         body: JSON.stringify(body),
-        signal: this.createAbortSignal(),
+        signal: operation.signal,
       });
-
-      // Clear the timeout once we have a response
-      this.clearAbortTimeout();
 
       if (!response.ok || !response.body) {
         const errorText = await response.text().catch(() => '');
@@ -579,8 +580,9 @@ export class GoogleProvider implements IProvider {
         }
       }
     } catch (error) {
-      this.clearAbortTimeout();
       yield err(new InternalError(`Google stream failed: ${getErrorMessage(error)}`));
+    } finally {
+      operation.clear();
     }
   }
 
@@ -608,36 +610,22 @@ export class GoogleProvider implements IProvider {
    * Cancel ongoing request
    */
   cancel(): void {
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
+    for (const controller of this.activeControllers) controller.abort('cancelled');
   }
 
-  private createAbortSignal(): AbortSignal {
-    // Clear any pending timeout from previous request to prevent it from
-    // aborting this new request (fixes race condition bug)
-    this.clearAbortTimeout();
-
-    this.abortController = new AbortController();
-    // 30 second timeout per attempt - with 3 retries this gives ~90s total
+  private createAbortContext(): { signal: AbortSignal; clear: () => void } {
+    const controller = new AbortController();
+    this.activeControllers.add(controller);
     const timeout = this.config.timeout ?? 30000;
-
-    this.abortTimeoutId = setTimeout(() => {
-      this.abortController?.abort();
-    }, timeout);
-
-    return this.abortController.signal;
-  }
-
-  /**
-   * Clear the abort timeout to prevent race conditions between requests
-   */
-  private clearAbortTimeout(): void {
-    if (this.abortTimeoutId !== null) {
-      clearTimeout(this.abortTimeoutId);
-      this.abortTimeoutId = null;
-    }
+    const timer = setTimeout(() => controller.abort(), timeout);
+    timer.unref?.();
+    return {
+      signal: controller.signal,
+      clear: () => {
+        clearTimeout(timer);
+        this.activeControllers.delete(controller);
+      },
+    };
   }
 
   private buildGeminiRequest(request: CompletionRequest) {
@@ -877,7 +865,10 @@ export class GoogleProvider implements IProvider {
  */
 export function createGoogleProvider(config?: LegacyProviderConfig): GoogleProvider | null {
   if (config?.apiKey) {
-    return GoogleProvider.withApiKey(config.apiKey);
+    return GoogleProvider.withApiKey(config.apiKey, {
+      ...(config.timeout !== undefined ? { timeout: config.timeout } : {}),
+      ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
+    });
   }
   return GoogleProvider.fromEnv();
 }

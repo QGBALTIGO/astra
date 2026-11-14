@@ -64,6 +64,35 @@ function setup(extra: Record<string, unknown> = {}) {
   return { primary, backup, config, provider: new FallbackProvider(config) };
 }
 describe('opt-in channel fallback latency', () => {
+  it('preserves a provider moderation refusal without retrying it as an empty response', async () => {
+    const { provider, primary, backup } = setup();
+    primary.complete.mockResolvedValue(
+      ok({ content: '', finishReason: 'content_filter' }) as never
+    );
+    expect((await provider.complete({ ...request, toolChoice: 'none' })).ok).toBe(true);
+    expect(backup.complete).not.toHaveBeenCalled();
+  });
+  it('keeps 500 customer contexts distinct while sharing an exhausted provider cooldown', async () => {
+    const { provider, config, primary, backup } = setup();
+    await provider.complete(request);
+    backup.complete.mockImplementation(
+      async (input) => ok({ content: String(input?.metadata?.conversationId) }) as never
+    );
+    const results = await Promise.all(
+      Array.from({ length: 500 }, (_, i) =>
+        new FallbackProvider(config).complete({
+          ...request,
+          toolChoice: 'none',
+          metadata: { conversationId: 'customer-' + i },
+        })
+      )
+    );
+    expect(primary.complete).toHaveBeenCalledTimes(1);
+    results.forEach((result, i) => {
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.content).toBe('customer-' + i);
+    });
+  });
   it('keeps the healthy model after a normal pause instead of replaying exhausted providers', async () => {
     vi.useFakeTimers();
     const { provider, config, primary, backup } = setup();
@@ -86,6 +115,57 @@ describe('opt-in channel fallback latency', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.toolCalls?.[0]?.name).toBe('weather');
     expect(backup.complete).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    [
+      { id: 'a', name: 'core.list_transactions', arguments: '{}' },
+      { id: 'b', name: 'core.list_transactions', arguments: '{}' },
+    ],
+    [{ id: 'a', name: 'core.record_transaction', arguments: '{}' }],
+    [{ id: 'a', name: 'core.list_transactions', arguments: '{broken' }],
+    [{ id: 'a', name: 'core.list_transactions', arguments: 'null' }],
+  ])('tries a backup before returning a rejected first-tool response: %j', async (...toolCalls) => {
+    const { provider, primary, backup } = setup();
+    primary.complete.mockResolvedValue(ok({ content: '', toolCalls }) as never);
+    backup.complete.mockResolvedValue(
+      ok({
+        content: '',
+        toolCalls: [{ id: 'valid', name: 'core__list_transactions', arguments: '{}' }],
+      }) as never
+    );
+    const result = await provider.complete({
+      ...request,
+      toolChoice: 'required',
+      requiredToolCall: 'core.list_transactions',
+    } as CompletionRequest);
+    expect(result.ok).toBe(true);
+    expect(backup.complete).toHaveBeenCalledTimes(1);
+    if (result.ok) expect(result.value.toolCalls?.[0]?.id).toBe('valid');
+  });
+  it.each([
+    { content: '  ', toolCalls: [] },
+    { content: '', toolCalls: [{ id: 'unexpected', name: 'write', arguments: '{}' }] },
+  ])('recovers unusable text-only responses without executing tools: %j', async (answer) => {
+    const { provider, primary, backup } = setup();
+    primary.complete.mockResolvedValue(ok(answer) as never);
+    const result = await provider.complete({ ...request, toolChoice: 'none' });
+    expect(result.ok).toBe(true);
+    expect(backup.complete).toHaveBeenCalledTimes(1);
+    if (result.ok) expect(result.value.content).toBe('Resposta da IA');
+  });
+  it('preserves legitimate parallel tool calls without a single-call contract', async () => {
+    const { provider, primary, backup } = setup();
+    primary.complete.mockResolvedValue(
+      ok({
+        content: '',
+        toolCalls: [
+          { id: 'a', name: 'read', arguments: '{}' },
+          { id: 'b', name: 'read', arguments: '{}' },
+        ],
+      }) as never
+    );
+    expect((await provider.complete({ ...request, toolChoice: 'required' })).ok).toBe(true);
+    expect(backup.complete).not.toHaveBeenCalled();
   });
   it('shares an exhausted model cooldown between customer agents', async () => {
     const { provider, config, primary, backup } = setup();

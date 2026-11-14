@@ -74,6 +74,7 @@ import { channelAccessNotificationsRepo } from '../db/repositories/channel-acces
 import { buildAccessMessage } from './channel-access-messages.js';
 import { getWhatsAppAccessMessageSettings } from './channel-access-message-settings.js';
 import { resolveCustomerPhone } from '../services/customer-identity.js';
+import { resolveInboundWhatsAppSpelling } from './whatsapp-inbound-identity.js';
 import {
   channelSessionsRepo,
   type ChannelSessionsRepository,
@@ -458,6 +459,12 @@ export class ChannelServiceImpl implements IChannelService {
    */
   async processIncomingMessage(message: ChannelIncomingMessage): Promise<void> {
     if (this.floodGuard.shouldDrop(message.channelPluginId, message.sender.platformUserId)) return;
+    message = await resolveInboundWhatsAppSpelling(message, {
+      findUser: (phone) => this.usersRepo.findByPlatform('whatsapp', phone),
+      resolvePhone: resolveCustomerPhone,
+      owner: () => getOwnerUserId('whatsapp'),
+      api: this.getChannel(message.channelPluginId),
+    });
     if (message.platform === 'whatsapp' && message.metadata?.isGroup !== true) {
       const key = JSON.stringify([
         'private-turn',

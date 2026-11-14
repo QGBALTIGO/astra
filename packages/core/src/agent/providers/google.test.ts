@@ -114,6 +114,87 @@ function makeGeminiResponse(overrides: Record<string, unknown> = {}) {
 // --- Tests ---
 
 describe('GoogleProvider', () => {
+  it.each([429, 503])(
+    'honors a zero retry budget for HTTP %s without waiting to repeat',
+    async (status) => {
+      const provider = new GoogleProvider(makeMockConfig({ maxRetries: 0 }));
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status,
+        text: async () => 'temporary upstream failure',
+      });
+      const result = await provider.complete(makeRequest());
+      expect(result.ok).toBe(false);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    }
+  );
+  it('keeps timeout ownership separate for concurrent requests on one provider', async () => {
+    vi.useFakeTimers();
+    try {
+      const provider = new GoogleProvider(makeMockConfig({ timeout: 20, maxRetries: 0 }));
+      let finishFirst!: (value: unknown) => void;
+      mockFetch.mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            finishFirst = r;
+          })
+      );
+      mockFetch.mockImplementationOnce(
+        (_url: unknown, options: { signal: AbortSignal }) =>
+          new Promise((_r, reject) =>
+            options.signal.addEventListener('abort', () =>
+              reject(new DOMException('Timed out', 'AbortError'))
+            )
+          )
+      );
+      const first = provider.complete(makeRequest()),
+        second = provider.complete(makeRequest());
+      finishFirst({ ok: true, status: 200, json: async () => makeGeminiResponse() });
+      expect((await first).ok).toBe(true);
+      await vi.advanceTimersByTimeAsync(20);
+      expect((await second).ok).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('keeps the deadline active while the response body is being read', async () => {
+    vi.useFakeTimers();
+    try {
+      const provider = new GoogleProvider(makeMockConfig({ timeout: 20, maxRetries: 0 }));
+      mockFetch.mockImplementation((_url: unknown, options: { signal: AbortSignal }) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            new Promise((_r, reject) =>
+              options.signal.addEventListener('abort', () =>
+                reject(new DOMException('Timed out', 'AbortError'))
+              )
+            ),
+        })
+      );
+      const pending = provider.complete(makeRequest());
+      await vi.advanceTimersByTimeAsync(20);
+      expect((await pending).ok).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('does not retry a request explicitly cancelled by the caller', async () => {
+    const provider = new GoogleProvider(makeMockConfig({ maxRetries: 2 }));
+    mockFetch.mockImplementation(
+      (_url: unknown, options: { signal: AbortSignal }) =>
+        new Promise((_r, reject) =>
+          options.signal.addEventListener('abort', () =>
+            reject(new DOMException('Cancelled', 'AbortError'))
+          )
+        )
+    );
+    const pending = provider.complete(makeRequest());
+    provider.cancel();
+    expect((await pending).ok).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
   it('honors required tool choice using Gemini ANY mode', async () => {
     const provider = new GoogleProvider(makeMockConfig());
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => makeGeminiResponse() });
@@ -390,7 +471,7 @@ describe('GoogleProvider', () => {
   });
 
   describe('cancel', () => {
-    it('aborts the current request and returns TimeoutError', async () => {
+    it('aborts the current request without restarting it as a timeout', async () => {
       const provider = new GoogleProvider(makeMockConfig());
 
       vi.useFakeTimers();
@@ -417,23 +498,14 @@ describe('GoogleProvider', () => {
       // Cancel the request
       provider.cancel();
 
-      // Advance timers to flush retry delays (AbortError is retryable, so all 3 retries fire)
-      // Each retry also creates a new AbortController (not cancelled), but the fetch
-      // is also rejected on abort from the internal timeout. We need to flush all retries.
-      await vi.advanceTimersByTimeAsync(1000);
-      await vi.advanceTimersByTimeAsync(2000);
-      await vi.advanceTimersByTimeAsync(4000);
-      // Also flush the internal abort timeouts (30s each)
-      await vi.advanceTimersByTimeAsync(30000);
-      await vi.advanceTimersByTimeAsync(30000);
-
       const result = await promise;
       vi.useRealTimers();
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.constructor.name).toBe('TimeoutError');
+        expect(result.error.constructor.name).toBe('ValidationError');
       }
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
     it('does not throw when called without an active request', () => {

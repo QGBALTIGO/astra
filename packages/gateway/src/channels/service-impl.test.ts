@@ -1398,6 +1398,28 @@ describe('ChannelServiceImpl', () => {
         });
       }
 
+      it.each(['244927000001', '5581999990101', '558199990101'])(
+        'sends the pending access greeting to an inbound international or Brazilian contact: %s',
+        async (contactPhone) => {
+          customer = {
+            ...customer,
+            platformUserId: contactPhone,
+            ownpilotUserId: 'whatsapp:' + contactPhone,
+          };
+          message = {
+            ...message,
+            platformChatId: contactPhone,
+            sender: { ...message.sender, platformUserId: contactPhone },
+          };
+          reserve('pending_welcome');
+          await service.processIncomingMessage(message);
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ platformChatId: contactPhone })
+          );
+          expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        }
+      );
+
       it.each([
         ['pending_welcome', 'Olá, *Marina*!', true],
         ['pending_wait', 'Oi, *Marina*! Recebi sua mensagem.', true],
