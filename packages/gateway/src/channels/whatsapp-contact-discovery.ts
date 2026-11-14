@@ -12,6 +12,8 @@ export interface WhatsAppHistoryContactInput {
   }>;
   contacts?: ReadonlyArray<{
     id?: string | null;
+    lid?: string;
+    phoneNumber?: string;
     name?: string | null;
     notify?: string | null;
     verifiedName?: string | null;
@@ -34,9 +36,21 @@ export async function discoverWhatsAppHistoryContacts(
   current: () => boolean
 ): Promise<WhatsAppContactObservation[]> {
   const names = new Map<string, string>();
+  const phoneByLid = new Map<string, string>();
+  const ambiguous = new Set<string>();
   for (const c of input.contacts ?? []) {
     const name = c.name || c.notify || c.verifiedName;
     if (c.id && name) names.set(c.id, name);
+    const lid = c.lid ?? (c.id?.endsWith('@lid') ? c.id : undefined);
+    const phone = c.phoneNumber ?? (c.id?.endsWith('@s.whatsapp.net') ? c.id : undefined);
+    if (lid?.endsWith('@lid') && phone && /^[1-9]\d{9,14}(?::\d+)?@s\.whatsapp\.net$/.test(phone)) {
+      if (phoneByLid.has(lid) && phoneByLid.get(lid) !== phone) ambiguous.add(lid);
+      phoneByLid.set(lid, phone);
+      if (name) {
+        names.set(lid, name);
+        names.set(phone, name);
+      }
+    }
   }
   const candidates = new Map<
     string,
@@ -54,7 +68,10 @@ export async function discoverWhatsAppHistoryContacts(
     const previous = candidates.get(jid);
     if (!previous || previous.seenAt < seenAt)
       candidates.set(jid, {
-        key: { remoteJid: jid, remoteJidAlt: alt },
+        key: {
+          remoteJid: jid,
+          remoteJidAlt: alt ?? (ambiguous.has(jid) ? undefined : phoneByLid.get(jid)),
+        },
         name: name || names.get(jid),
         seenAt,
       });

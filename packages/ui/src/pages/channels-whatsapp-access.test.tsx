@@ -216,7 +216,7 @@ describe('WhatsApp access management', () => {
     const onChanged = vi.fn();
     post.mockResolvedValueOnce({ contactsRecovered: 4, historyRequested: true });
     await render(
-      panel([user({ isVerified: false, status: 'pending', accessStatus: 'pending' })], {
+      panel([user({ isVerified: false, accessStatus: 'pending' })], {
         onChanged,
       })
     );

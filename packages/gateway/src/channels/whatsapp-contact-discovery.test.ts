@@ -6,6 +6,38 @@ const self = (jid: string) => jid === '5511999990000@s.whatsapp.net';
 const current = () => true;
 const time = 1794690000;
 describe('WhatsApp historical contact inventory', () => {
+  it('uses authenticated contact phone/LID pairs and rejects conflicting phone pairs', async () => {
+    const resolve = vi.fn(async (key) => key.remoteJidAlt ?? key.remoteJid ?? null);
+    const rows = await discoverWhatsAppHistoryContacts(
+      {
+        messages: [],
+        chats: [
+          { id: '900000000001@lid', conversationTimestamp: time },
+          { id: '900000000002@lid', conversationTimestamp: time },
+        ],
+        contacts: [
+          {
+            id: '900000000001@lid',
+            phoneNumber: '244927000001@s.whatsapp.net',
+            name: 'Contato Angola',
+          },
+          { id: '900000000002@lid', phoneNumber: '5581999990101@s.whatsapp.net' },
+          { id: '900000000002@lid', phoneNumber: '5581999990102@s.whatsapp.net' },
+        ],
+      },
+      resolve,
+      stamp,
+      self,
+      current
+    );
+    expect(rows).toEqual([
+      { phone: '244927000001', name: 'Contato Angola', seenAt: new Date(time * 1000) },
+    ]);
+    expect(resolve).toHaveBeenCalledWith({
+      remoteJid: '900000000002@lid',
+      remoteJidAlt: undefined,
+    });
+  });
   it('discovers Brazilian and foreign chats without needing a message body or authorizing them', async () => {
     const input = {
       chats: [
