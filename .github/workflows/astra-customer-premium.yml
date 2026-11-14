@@ -5,6 +5,12 @@ on:
   pull_request:
     paths: ['packages/ui/**', '.github/workflows/astra-customer-premium.yml']
   workflow_dispatch:
+    inputs:
+      refresh_visual_baselines:
+        description: 'Regenerate visual references after an intentional design change, then verify them'
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -34,12 +40,10 @@ jobs:
         env:
           ASTRA_AXE_SCRIPT: ${{ github.workspace }}/landing/node_modules/axe-core/axe.min.js
         run: |
-          if [ -d packages/ui/e2e/customer-premium-snapshots ]; then
-            pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts
-          else
+          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.refresh_visual_baselines }}" = "true" ] || [ ! -d packages/ui/e2e/customer-premium-snapshots ]; then
             pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts --update-snapshots
-            pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts
           fi
+          pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
