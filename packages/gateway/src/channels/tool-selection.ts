@@ -100,6 +100,17 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     .toLowerCase();
   const tools = new Set<string>();
   const add = (...names: string[]) => names.forEach((name) => tools.add(`core.${name}`));
+  if (
+    /\b(?:google|gmail|drive|planilh\w*|todoist|notion|trello|conexo\w*|integra\w*|sincroniz\w*|e-?mails?)\b/.test(
+      input
+    )
+  )
+    add(
+      'connected_apps_status',
+      'search_connected_actions',
+      'run_connected_action',
+      'sync_connected_app'
+    );
   // "Receita" means both income and a cooking recipe in Portuguese. Keep
   // cooking requests out of financial tool selection.
   const mentionsFinancialIncome =

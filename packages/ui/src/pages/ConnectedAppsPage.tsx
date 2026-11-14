@@ -43,7 +43,7 @@ function StatusBadge({ status }: { status: string }) {
   const style = STATUS_STYLES[status] ?? FALLBACK_STATUS;
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full ${style.bg} ${style.text}`}
+      className={`inline-flex self-start items-center gap-1 px-2 py-0.5 text-xs rounded-full ${style.bg} ${style.text}`}
     >
       {status === 'ACTIVE' && <Check className="w-3 h-3" />}
       {status === 'FAILED' && <AlertCircle className="w-3 h-3" />}
@@ -56,95 +56,83 @@ function StatusBadge({ status }: { status: string }) {
 // Composio Connected App Card
 // =============================================================================
 
-function ConnectedAppCard({
-  connection,
-  onDisconnect,
-  onRefresh,
-  isRefreshing,
-}: {
-  connection: ComposioConnection;
-  onDisconnect: () => void;
-  onRefresh: () => void;
-  isRefreshing: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between p-4 bg-bg-secondary dark:bg-dark-bg-secondary border border-border dark:border-dark-border rounded-xl">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
-          {connection.appName.slice(0, 2).toUpperCase()}
-        </div>
-        <div>
-          <div className="font-medium text-text-primary dark:text-dark-text-primary capitalize">
-            {connection.appName}
-          </div>
-          <StatusBadge status={connection.status} />
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        {connection.status === 'EXPIRED' && (
-          <button
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="p-2 text-text-muted dark:text-dark-text-muted hover:text-primary transition-colors"
-            title="Reconectar conta"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
-        )}
-        <button
-          onClick={onDisconnect}
-          className="p-2 text-text-muted dark:text-dark-text-muted hover:text-error transition-colors"
-          title="Desconectar"
-        >
-          <Unlink className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// =============================================================================
-// Available Composio App Card
-// =============================================================================
-
 function AvailableAppCard({
   app,
   isConnecting,
   disabled,
   onConnect,
+  connection,
+  onDisconnect,
 }: {
   app: ComposioApp;
   isConnecting: boolean;
   disabled?: boolean;
   onConnect: () => void;
+  connection?: ComposioConnection;
+  onDisconnect: () => void;
 }) {
   return (
-    <div className="flex flex-col p-4 bg-bg-secondary dark:bg-dark-bg-secondary border border-border dark:border-dark-border rounded-xl">
+    <div className="flex flex-col gap-3 p-5 bg-bg-secondary dark:bg-dark-bg-secondary border border-border dark:border-dark-border rounded-2xl min-w-0 shadow-sm">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-8 h-8 rounded-lg bg-bg-tertiary dark:bg-dark-bg-tertiary flex items-center justify-center text-text-muted dark:text-dark-text-muted text-xs font-semibold">
-          {app.name.slice(0, 2).toUpperCase()}
+          {(
+            {
+              googlecalendar: 'AG',
+              gmail: 'GM',
+              googledrive: 'DR',
+              googlesheets: 'PL',
+              todoist: 'TD',
+              notion: 'NO',
+              trello: 'TR',
+            } as Record<string, string>
+          )[app.slug] ?? app.name.slice(0, 2).toUpperCase()}
         </div>
         <div className="font-medium text-text-primary dark:text-dark-text-primary text-sm">
           {app.name}
         </div>
       </div>
+      {connection && <StatusBadge status={connection.status} />}
       {app.description && (
         <p className="text-xs text-text-muted dark:text-dark-text-muted mb-3 line-clamp-2">
           {app.description}
         </p>
       )}
-      <button
-        onClick={onConnect}
-        disabled={isConnecting || disabled}
-        className="mt-auto flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
-      >
-        {isConnecting ? (
-          <RefreshCw className="w-3 h-3 animate-spin" />
-        ) : (
-          <Link className="w-3 h-3" />
-        )}
-        {disabled ? 'Configuração pendente' : isConnecting ? 'Conectando…' : 'Conectar conta'}
-      </button>
+      {connection?.status === 'ACTIVE' ? (
+        <button
+          onClick={onDisconnect}
+          aria-label={'Desconectar ' + app.name}
+          className="mt-auto inline-flex items-center justify-center gap-2 rounded-lg border border-border dark:border-dark-border px-3 py-2 text-xs text-text-muted hover:text-error"
+        >
+          <Unlink className="w-3.5 h-3.5" />
+          Desconectar conta
+        </button>
+      ) : (
+        <button
+          onClick={onConnect}
+          disabled={isConnecting || disabled}
+          className="mt-auto flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+        >
+          {isConnecting ? (
+            <RefreshCw className="w-3 h-3 animate-spin" />
+          ) : (
+            <Link className="w-3 h-3" />
+          )}
+          {disabled
+            ? 'Configuração pendente'
+            : isConnecting
+              ? 'Conectando…'
+              : connection?.status === 'INITIATED'
+                ? 'Continuar autorização'
+                : connection
+                  ? 'Reconectar conta'
+                  : 'Conectar conta'}
+        </button>
+      )}
+      {connection?.status === 'INITIATED' && (
+        <p className="text-xs text-text-muted dark:text-dark-text-muted">
+          Conclua a autorização para liberar esta conta.
+        </p>
+      )}
     </div>
   );
 }
@@ -188,7 +176,6 @@ export function ConnectedAppsPage() {
   const [apps, setApps] = useState<ComposioApp[]>([]);
   const [search, setSearch] = useState('');
   const [connectingApp, setConnectingApp] = useState<string | null>(null);
-  const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [catalogReady, setCatalogReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -282,29 +269,20 @@ export function ConnectedAppsPage() {
     }
   };
 
-  const handleRefresh = async (connectionId: string) => {
-    setRefreshingId(connectionId);
-    try {
-      const connection = connections.find((item) => item.id === connectionId);
-      if (!connection) throw new Error('Conexão não encontrada.');
-      await handleConnect(connection.appName);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Não foi possível reconectar.');
-    } finally {
-      setRefreshingId(null);
-    }
-  };
-
   // =========================================================================
   // Derived state — merge dynamic + static catalogs, dedupe by slug
   // =========================================================================
 
-  const connectedSlugs = new Set(
-    connections.filter((c) => c.status === 'ACTIVE').map((c) => c.appName.toLowerCase())
-  );
+  const connectionFor = (slug: string) => {
+    const matches = connections.filter((c) => c.appName.toLowerCase() === slug.toLowerCase());
+    return (
+      matches.find((c) => c.status === 'ACTIVE') ??
+      matches.find((c) => c.status === 'INITIATED') ??
+      matches[0]
+    );
+  };
 
   const filteredApps = apps.filter((app) => {
-    if (connectedSlugs.has(app.slug.toLowerCase())) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     return (
@@ -486,26 +464,6 @@ export function ConnectedAppsPage() {
                 </div>
               )}
 
-              {/* Connected Apps */}
-              {connections.length > 0 && (
-                <div className="mb-4">
-                  <div className="text-xs font-medium text-text-muted dark:text-dark-text-muted mb-2">
-                    Suas conexões ({connections.length})
-                  </div>
-                  <div className="space-y-2">
-                    {connections.map((conn) => (
-                      <ConnectedAppCard
-                        key={conn.id}
-                        connection={conn}
-                        onDisconnect={() => handleDisconnect(conn.id, conn.appName)}
-                        onRefresh={() => handleRefresh(conn.id)}
-                        isRefreshing={refreshingId === conn.id}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Available Apps — always shown */}
               <div className="flex items-center justify-between mb-3">
                 <div className="text-xs font-medium text-text-muted dark:text-dark-text-muted">
@@ -538,6 +496,11 @@ export function ConnectedAppsPage() {
                     <AvailableAppCard
                       key={app.slug}
                       app={app}
+                      connection={connectionFor(app.slug)}
+                      onDisconnect={() => {
+                        const connection = connectionFor(app.slug);
+                        if (connection) void handleDisconnect(connection.id, app.name);
+                      }}
                       isConnecting={connectingApp === app.slug}
                       disabled={!composioConfigured || !catalogReady || connectingApp !== null}
                       onConnect={() => handleConnect(app.slug)}

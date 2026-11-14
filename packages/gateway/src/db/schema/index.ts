@@ -6,6 +6,7 @@
  */
 
 import { getLog } from '../../services/log.js';
+import { CUSTOMER_INTEGRATIONS_TABLES_SQL } from './customer-integrations.js';
 import { FINANCE_TABLES_SQL, FINANCE_MIGRATIONS_SQL, FINANCE_INDEXES_SQL } from './finance.js';
 import { EDGE_TABLES_SQL, EDGE_INDEXES_SQL } from './edge.js';
 import {
@@ -79,6 +80,7 @@ export const SCHEMA_SQL = [
   UI_SESSIONS_TABLES_SQL,
   CUSTOMER_ACCOUNTS_TABLES_SQL,
   CUSTOMER_PORTAL_TABLES_SQL,
+  CUSTOMER_INTEGRATIONS_TABLES_SQL,
 ].join('\n');
 
 /**

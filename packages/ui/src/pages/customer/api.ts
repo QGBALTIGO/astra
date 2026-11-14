@@ -178,6 +178,19 @@ export const customerApi = {
     request<CustomerIntegrations>('/integrations', { signal }),
   connectedApps: (signal?: AbortSignal) =>
     request<CustomerConnectedAppsResponse>('/connected-apps', { signal }),
+  syncApp: (app: CustomerAppSlug) =>
+    request<{ updated: boolean; cached?: boolean; lastSyncedAt?: string | null }>(
+      '/connected-apps/' + app + '/sync',
+      { method: 'POST', body: {} }
+    ),
+  telegramLink: () =>
+    request<{ command: string; expiresAt: string; botUrl?: string | null }>(
+      '/connected-apps/telegram-link',
+      {
+        method: 'POST',
+        body: {},
+      }
+    ),
   connectApp: (app: CustomerAppSlug) =>
     request<{ redirectUrl: string }>('/connected-apps/connect', {
       method: 'POST',

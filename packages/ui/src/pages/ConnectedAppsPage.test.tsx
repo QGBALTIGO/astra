@@ -54,6 +54,32 @@ afterEach(() => {
 });
 
 describe('real connection states', () => {
+  it('keeps a single card per app even with repeated pending authorizations', async () => {
+    svc.status.mockResolvedValue({ configured: true, recommendedApps: recommended });
+    svc.connections.mockResolvedValue({
+      connections: [
+        { id: 'old', appName: 'googlecalendar', status: 'INITIATED' },
+        { id: 'older', appName: 'googlecalendar', status: 'INITIATED' },
+      ],
+    });
+    const page = await renderPage();
+    expect(page.textContent?.match(/Google Agenda/g)).toHaveLength(1);
+    expect(page.textContent).not.toContain('Suas conexões (');
+    expect(page.textContent?.match(/Em autorização/g)).toHaveLength(1);
+  });
+  it('shows active status ahead of stale pending attempts', async () => {
+    svc.status.mockResolvedValue({ configured: true, recommendedApps: recommended });
+    svc.connections.mockResolvedValue({
+      connections: [
+        { id: 'pending', appName: 'googlecalendar', status: 'INITIATED' },
+        { id: 'owned', appName: 'googlecalendar', status: 'ACTIVE' },
+      ],
+    });
+    const page = await renderPage();
+    expect(page.textContent).toContain('Conectado');
+    expect(page.textContent).not.toContain('Em autorização');
+    expect(page.querySelector('[aria-label="Desconectar Google Agenda"]')).not.toBeNull();
+  });
   it('shows setup requirements and disables authorization until configured', async () => {
     const page = await renderPage();
     expect(page.textContent).toContain('Prepare as conexões gratuitas');

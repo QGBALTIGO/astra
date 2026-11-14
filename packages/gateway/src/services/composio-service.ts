@@ -8,6 +8,7 @@
 import { getConfigCenter } from '@ownpilot/core/services';
 import { getLog } from './log.js';
 import { ASTRA_CUSTOMER_ORIGIN } from '../config/astra-public-urls.js';
+import { CUSTOMER_INTEGRATION_ACTIONS } from '../config/customer-integration-actions.js';
 import {
   ASTRA_CONNECTED_APP_SLUGS,
   type AstraConnectedAppSlug,
@@ -26,7 +27,7 @@ interface ComposioApp {
   categories?: string[];
 }
 
-interface ComposioConnection {
+export interface ComposioConnection {
   id: string;
   appName: string;
   status: string;
@@ -41,6 +42,16 @@ interface ComposioActionInfo {
   appName: string;
   parameters?: Record<string, unknown>;
   tags?: string[];
+}
+
+export interface IntegrationActionSpec {
+  slug: string;
+  name: string;
+  description: string;
+  appName: string;
+  parameters: Record<string, unknown>;
+  tags: string[];
+  version: string;
 }
 
 interface ComposioConnectionRequest {
@@ -176,21 +187,148 @@ class ComposioService {
     const tools = client.tools as { getRawComposioTools: (q: unknown) => Promise<unknown> };
 
     const filters: Record<string, unknown> = { search: query, limit: Math.min(limit, 25) };
-    if (appName) filters.toolkit = appName;
+    if (appName) filters.toolkits = [appName];
 
-    const response = (await tools.getRawComposioTools(filters)) as { items?: unknown[] };
+    const response = (await tools.getRawComposioTools(filters)) as unknown;
+    const items = Array.isArray(response)
+      ? response
+      : ((response as { items?: unknown[] })?.items ?? []);
 
-    return (response.items || []).map((item: unknown) => {
+    return items.map((item: unknown) => {
       const t = item as Record<string, unknown>;
       return {
         slug: toStr(t.slug),
         name: toStr(t.name) || toStr(t.slug),
         description: toStr(t.description),
-        appName: toStr(t.appName) || toStr(t.toolkit),
-        parameters: t.parameters as Record<string, unknown> | undefined,
+        appName:
+          toStr(t.appName) || toStr((t.toolkit as { slug?: unknown })?.slug) || toStr(t.toolkit),
+        parameters: (t.inputParameters ?? t.parameters) as Record<string, unknown> | undefined,
         tags: Array.isArray(t.tags) ? t.tags.map((tag) => toStr(tag)) : undefined,
       };
     });
+  }
+
+  /** Metadata never executes tools and never uses the operator's connected accounts. */
+  async integrationActionSpecs(
+    app: AstraConnectedAppSlug,
+    _query?: string,
+    slug?: string
+  ): Promise<IntegrationActionSpec[]> {
+    const client = (await this.getClient()) as {
+      tools: { getRawComposioTools(query: unknown): Promise<unknown> };
+    };
+    if (slug && !CUSTOMER_INTEGRATION_ACTIONS[app].includes(slug)) return [];
+    const response = await client.tools.getRawComposioTools({
+      tools: slug ? [slug] : [...CUSTOMER_INTEGRATION_ACTIONS[app]],
+    });
+    const rows = Array.isArray(response)
+      ? response
+      : ((response as { items?: unknown[] })?.items ?? []);
+    return rows.flatMap((row) => {
+      const t = row as Record<string, unknown>;
+      const toolkit =
+        typeof t.toolkit === 'object' && t.toolkit
+          ? toStr((t.toolkit as Record<string, unknown>).slug)
+          : toStr(t.toolkit) || toStr(t.appName);
+      if (
+        toolkit !== app ||
+        t.isDeprecated === true ||
+        (Array.isArray(t.tags) && t.tags.includes('deprecated')) ||
+        !CUSTOMER_INTEGRATION_ACTIONS[app].includes(toStr(t.slug))
+      )
+        return [];
+      return [
+        {
+          slug: toStr(t.slug),
+          name: toStr(t.name),
+          description: toStr(t.description),
+          appName: toolkit,
+          parameters: (t.inputParameters ?? t.parameters ?? {}) as Record<string, unknown>,
+          tags: Array.isArray(t.tags) ? t.tags.map((tag) => toStr(tag)) : [],
+          version: toStr(t.version),
+        },
+      ];
+    });
+  }
+
+  /** One exact action and an explicitly owned connection; no default-account or Instant fallback. */
+  async executeCustomerSession(
+    ownerId: string,
+    app: AstraConnectedAppSlug,
+    connectionId: string,
+    slug: string,
+    args: Record<string, unknown>,
+    onRequestStart?: () => void,
+    requestDeadline?: number
+  ): Promise<unknown> {
+    if (
+      !/^astra-customer:[A-Za-z0-9_-]{3,128}$/.test(ownerId) ||
+      !slug.startsWith(app.toUpperCase() + '_') ||
+      !/^[A-Za-z0-9_-]{3,128}$/.test(connectionId)
+    )
+      throw new Error('Invalid customer integration binding');
+    const deadline = Math.min(requestDeadline ?? Number.POSITIVE_INFINITY, Date.now() + 10000);
+    const client = (await this.getClient()) as {
+      create(userId: string, config: unknown): Promise<{ sessionId: string }>;
+    };
+    if (Date.now() >= deadline)
+      throw Object.assign(new Error('Integration deadline passed before session creation'), {
+        name: 'INTEGRATION_NOT_SENT',
+      });
+    const session = await client.create(ownerId, {
+      toolkits: [app],
+      connectedAccounts: { [app]: connectionId },
+      tools: { [app]: [slug] },
+      manageConnections: { enable: false },
+      workbench: { enable: false },
+    });
+    if (Date.now() >= deadline || !/^[A-Za-z0-9_-]{3,128}$/.test(session.sessionId))
+      throw Object.assign(new Error('Session was not ready before deadline'), {
+        name: 'INTEGRATION_NOT_SENT',
+      });
+    // Do not use the SDK's retrying execute path for customer writes. The app
+    // records one attempt; an uncertain response must never silently send twice.
+    const apiKey = this.getApiKey();
+    if (!apiKey)
+      throw Object.assign(new Error('Integration credential unavailable'), {
+        name: 'INTEGRATION_NOT_SENT',
+      });
+    onRequestStart?.();
+    const response = await fetch(
+      'https://backend.composio.dev/api/v3.1/tool_router/session/' + session.sessionId + '/execute',
+      {
+        method: 'POST',
+        redirect: 'error',
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool_slug: slug, arguments: args }),
+      }
+    );
+    if (!response.ok)
+      throw Object.assign(new Error('Integration request did not succeed'), {
+        name: response.status < 500 ? 'INTEGRATION_REJECTED' : 'INTEGRATION_UNCERTAIN',
+      });
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('Integration response unavailable');
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      total += part.value.length;
+      if (total > 500000) {
+        await reader.cancel();
+        throw new Error('Integration response too large');
+      }
+      chunks.push(part.value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
   }
 
   /**

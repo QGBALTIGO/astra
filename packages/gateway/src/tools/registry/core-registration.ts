@@ -12,6 +12,11 @@
  */
 
 import type { ToolRegistry } from '@ownpilot/core/tools';
+import { getExecContext } from '@ownpilot/core/agent';
+import {
+  CUSTOMER_INTEGRATION_TOOLS,
+  executeCustomerIntegrationTool,
+} from '../customer-integration-tools.js';
 import {
   DYNAMIC_TOOL_DEFINITIONS,
   MEMORY_TOOLS,
@@ -99,6 +104,11 @@ import {
  */
 export function registerGatewayTools(tools: ToolRegistry, userId: string, trace: boolean): void {
   const groups: ToolGroup[] = [
+    {
+      definitions: CUSTOMER_INTEGRATION_TOOLS,
+      executor: executeCustomerIntegrationTool,
+      needsUserId: true,
+    },
     { definitions: MEMORY_TOOLS, executor: executeMemoryTool, needsUserId: true },
     { definitions: FINANCING_TOOLS, executor: executeFinancingTool, needsUserId: true },
     {
@@ -202,6 +212,18 @@ export function registerGatewayTools(tools: ToolRegistry, userId: string, trace:
     for (const toolDef of group.definitions) {
       const qName = qualifyToolName(toolDef.name, 'core');
       tools.register({ ...toolDef, name: qName }, async (args): Promise<CoreToolResult> => {
+        if (
+          getExecContext()?.externalContentGuard?.seen &&
+          !/^(?:get_|list_|search_|query_|summarize_|calculate_|connected_apps_status$|run_connected_action$|sync_connected_app$)/.test(
+            toolDef.name
+          )
+        ) {
+          return toToolResult({
+            success: false,
+            error:
+              'Depois de consultar conteúdo externo, envie uma nova mensagem com a alteração que deseja fazer.',
+          });
+        }
         const startTime = trace
           ? traceToolCallStart(toolDef.name, args as Record<string, unknown>)
           : 0;
@@ -223,6 +245,15 @@ export function registerGatewayTools(tools: ToolRegistry, userId: string, trace:
   for (const toolDef of CHANNEL_REMINDER_TOOLS) {
     const qName = qualifyToolName(toolDef.name, 'core');
     tools.register({ ...toolDef, name: qName }, async (args): Promise<CoreToolResult> => {
+      if (
+        getExecContext()?.externalContentGuard?.seen &&
+        !/^(?:get_|list_|search_)/.test(toolDef.name)
+      )
+        return toToolResult({
+          success: false,
+          error:
+            'Envie uma nova mensagem para criar ou alterar um lembrete após a consulta externa.',
+        });
       const result = await executeChannelReminderTool(
         toolDef.name,
         args as Record<string, unknown>,

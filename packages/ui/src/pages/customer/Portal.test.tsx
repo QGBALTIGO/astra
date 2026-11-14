@@ -93,7 +93,7 @@ describe('customer financial workspace', () => {
     expect(dom.container.querySelector('[role="dialog"]')?.textContent).not.toContain('36,39');
     expect(dom.button('Editar e mostrar valor')).toBeDefined();
   });
-  it('preserves filters and scroll while moving through the five tabs', async () => {
+  it('preserves filters and scroll while moving through the six tabs', async () => {
     await mount('/cliente/transacoes');
     await dom.fill(dom.field('Buscar transações'), 'almoço');
     await dom.click(dom.button('Despesas'));
@@ -110,7 +110,7 @@ describe('customer financial workspace', () => {
       expect.objectContaining({ search: 'almoço', type: 'expense', page: 1 }),
       expect.any(AbortSignal)
     );
-    expect(dom.container.querySelectorAll('nav a')).toHaveLength(5);
+    expect(dom.container.querySelectorAll('nav a')).toHaveLength(6);
   });
   it('creates an exact decimal expense once and reuses the same idempotency key after a lost response', async () => {
     await mount('/cliente/transacoes');

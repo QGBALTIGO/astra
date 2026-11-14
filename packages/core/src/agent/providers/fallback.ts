@@ -21,6 +21,7 @@ import type {
 } from '../types.js';
 import { type IProvider, createProvider, type ProviderHealthResult } from '../provider.js';
 import { logError, logRetry } from '../debug.js';
+import { createHash } from 'node:crypto';
 
 /**
  * Circuit breaker states
@@ -32,6 +33,36 @@ interface CircuitBreakerEntry {
   failureCount: number;
   lastFailureTime: number;
   lastSuccessTime: number;
+  reopenAt?: number;
+  probeUntil?: number;
+}
+const sharedCircuits = new Map<string, CircuitBreakerEntry>();
+const sharedPreferred = new Map<string, { index: number; at: number }>();
+const fingerprint = (value: unknown) =>
+  createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
+/** Retry hints are durations, never credentials or user content. */
+export function providerCooldownMs(error: Error | undefined, baseline: number): number {
+  const explicit = (error as (Error & { retryAfterMs?: number }) | undefined)?.retryAfterMs;
+  if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit > 0)
+    return Math.min(86400000, Math.max(1000, explicit));
+  const text = error?.message ?? '';
+  const hint =
+    /try again in\s+(?:(\d+(?:\.\d+)?)h)?\s*(?:(\d+(?:\.\d+)?)m)?\s*(?:(\d+(?:\.\d+)?)s)?/i.exec(
+      text
+    );
+  if (hint && (hint[1] || hint[2] || hint[3]))
+    return Math.min(
+      86400000,
+      Math.max(
+        1000,
+        (Number(hint[1] ?? 0) * 3600 + Number(hint[2] ?? 0) * 60 + Number(hint[3] ?? 0)) * 1000 +
+          1000
+      )
+    );
+  if (/free-models-per-day|tokens per day|\bTPD\b/i.test(text))
+    return Math.max(baseline, 15 * 60000);
+  return baseline;
 }
 
 /** Circuit breaker defaults */
@@ -52,6 +83,11 @@ export interface FallbackProviderConfig {
   circuitBreakerThreshold?: number;
   /** Cooldown in ms before retesting an open circuit (default: 60000) */
   circuitBreakerCooldown?: number;
+  /** Opt-in shared provider/model/credential health for channel agents. */
+  sharedCircuitBreaker?: boolean;
+  preferLastSuccessful?: boolean;
+  /** Deadline for one non-streaming completion including all fallback attempts. */
+  completionTimeoutMs?: number;
   /** Callback when fallback is triggered */
   onFallback?: (failedProvider: AIProvider, error: Error, nextProvider: AIProvider) => void;
 }
@@ -70,6 +106,8 @@ export class FallbackProvider implements IProvider {
   private readonly circuits = new Map<string, CircuitBreakerEntry>();
   private readonly failureThreshold: number;
   private readonly cooldownMs: number;
+  private readonly availabilityIds: string[];
+  private readonly groupKey: string;
 
   constructor(config: FallbackProviderConfig) {
     this.config = {
@@ -89,6 +127,17 @@ export class FallbackProvider implements IProvider {
     this.type = config.primary.provider;
     this.fallbacks = config.fallbacks.map((fc) => createProvider(fc));
     this.orderedConfigs = [primaryConfig, ...config.fallbacks];
+    this.availabilityIds = this.orderedConfigs.map((c) =>
+      fingerprint([
+        c.id ?? c.provider,
+        c.provider,
+        c.baseUrl ?? '',
+        c.defaultModel?.model ?? '',
+        c.apiKey ?? c.resolvedAuth?.value ?? '',
+        c.headers ?? {},
+      ])
+    );
+    this.groupKey = fingerprint(this.availabilityIds);
     this.failureThreshold = config.circuitBreakerThreshold ?? CIRCUIT_FAILURE_THRESHOLD;
     this.cooldownMs = config.circuitBreakerCooldown ?? CIRCUIT_COOLDOWN_MS;
   }
@@ -114,11 +163,18 @@ export class FallbackProvider implements IProvider {
     // OpenAI-compatible transports all report the same type. Identifying a
     // circuit by type would let one broken API block every healthy backup.
     const index = this.getAllProviders().indexOf(provider);
-    const circuitId = index < 0 ? `unknown:${provider.type}` : `slot:${index}`;
-    let entry = this.circuits.get(circuitId);
+    const circuitId =
+      this.config.sharedCircuitBreaker && index >= 0
+        ? this.availabilityIds[index]!
+        : index < 0
+          ? `unknown:${provider.type}`
+          : `slot:${index}`;
+    const circuits = this.config.sharedCircuitBreaker ? sharedCircuits : this.circuits;
+    let entry = circuits.get(circuitId);
     if (!entry) {
       entry = { state: 'closed', failureCount: 0, lastFailureTime: 0, lastSuccessTime: 0 };
-      this.circuits.set(circuitId, entry);
+      if (circuits.size >= 256) circuits.delete(circuits.keys().next().value!);
+      circuits.set(circuitId, entry);
     }
     return entry;
   }
@@ -129,14 +185,19 @@ export class FallbackProvider implements IProvider {
     if (circuit.state === 'closed') return false;
     if (circuit.state === 'open') {
       // Check if cooldown has elapsed → transition to half-open
-      if (Date.now() - circuit.lastFailureTime >= this.cooldownMs) {
+      if (Date.now() >= (circuit.reopenAt ?? circuit.lastFailureTime + this.cooldownMs)) {
         circuit.state = 'half-open';
+        if (this.config.sharedCircuitBreaker) circuit.probeUntil = Date.now() + 10000;
         log.info(`CircuitBreaker ${provider.type}: open → half-open (cooldown elapsed)`);
         return false; // allow one test request
       }
       return true; // still open, skip
     }
-    // half-open: allow request through
+    if (this.config.sharedCircuitBreaker) {
+      if ((circuit.probeUntil ?? 0) > Date.now()) return true;
+      circuit.probeUntil = Date.now() + 10000;
+    }
+    // half-open: allow one recovery probe through
     return false;
   }
 
@@ -148,12 +209,37 @@ export class FallbackProvider implements IProvider {
     circuit.state = 'closed';
     circuit.failureCount = 0;
     circuit.lastSuccessTime = Date.now();
+    circuit.reopenAt = undefined;
+    circuit.probeUntil = undefined;
+    if (this.config.preferLastSuccessful) {
+      const previous = sharedPreferred.get(this.groupKey),
+        now = Date.now(),
+        index = this.getAllProviders().indexOf(provider);
+      if (!previous || previous.index !== index || now - previous.at >= 300000) {
+        if (sharedPreferred.size >= 64)
+          sharedPreferred.delete(sharedPreferred.keys().next().value!);
+        sharedPreferred.set(this.groupKey, { index, at: now });
+      }
+    }
   }
 
-  private recordFailure(provider: IProvider): void {
+  private recordFailure(provider: IProvider, error?: Error): void {
+    if (
+      this.config.sharedCircuitBreaker &&
+      error &&
+      (error instanceof ValidationError ||
+        /\b400\b|context[_ -]length[_ -]exceeded|maximum context length/i.test(error.message))
+    )
+      return;
     const circuit = this.getCircuit(provider);
     circuit.failureCount++;
     circuit.lastFailureTime = Date.now();
+    circuit.probeUntil = undefined;
+    circuit.reopenAt =
+      circuit.lastFailureTime +
+      (this.config.sharedCircuitBreaker
+        ? providerCooldownMs(error, this.cooldownMs)
+        : this.cooldownMs);
 
     if (circuit.state === 'half-open') {
       // Failed during test → re-open
@@ -175,6 +261,44 @@ export class FallbackProvider implements IProvider {
   private getAllProviders(): IProvider[] {
     return [this.primary, ...this.fallbacks];
   }
+  private preferHealthy<T extends { origIndex: number }>(entries: T[]): T[] {
+    const preferred = this.config.preferLastSuccessful ? sharedPreferred.get(this.groupKey) : null;
+    return preferred && Date.now() - preferred.at < 300000
+      ? entries.sort(
+          (a, b) =>
+            Number(b.origIndex === preferred.index) - Number(a.origIndex === preferred.index)
+        )
+      : entries;
+  }
+  private async completeWithinBudget(
+    provider: IProvider,
+    request: CompletionRequest,
+    index: number,
+    deadline: number
+  ) {
+    if (!this.config.completionTimeoutMs) return provider.complete(request);
+    const remaining = Math.min(
+      deadline - Date.now(),
+      this.orderedConfigs[index]?.timeout ?? Number.POSITIVE_INFINITY
+    );
+    if (remaining <= 0)
+      throw new TimeoutError('channel response budget', this.config.completionTimeoutMs);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        provider.complete(request),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new TimeoutError('channel provider attempt', remaining)),
+            remaining
+          );
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
 
   /**
    * Check if any provider is ready
@@ -192,9 +316,11 @@ export class FallbackProvider implements IProvider {
     // Keep each provider's ORIGINAL index (into orderedConfigs) through the
     // readiness filter, so the per-fallback model swap maps to the right config
     // even when some providers are filtered out.
-    const providers = this.getAllProviders()
-      .map((provider, origIndex) => ({ provider, origIndex }))
-      .filter((e) => e.provider.isReady());
+    const providers = this.preferHealthy(
+      this.getAllProviders()
+        .map((provider, origIndex) => ({ provider, origIndex }))
+        .filter((e) => e.provider.isReady())
+    );
 
     if (providers.length === 0) {
       return err(new ValidationError('No providers are configured or ready'));
@@ -206,8 +332,13 @@ export class FallbackProvider implements IProvider {
     }
 
     let lastError: InternalError | TimeoutError | ValidationError | null = null;
+    const deadline = Date.now() + (this.config.completionTimeoutMs ?? Number.POSITIVE_INFINITY);
 
     for (let i = 0; i < providers.length; i++) {
+      if (Date.now() >= deadline) {
+        lastError = new TimeoutError('channel response budget', this.config.completionTimeoutMs!);
+        break;
+      }
       const entry = providers[i];
       if (!entry) continue;
       const provider = entry.provider;
@@ -218,12 +349,17 @@ export class FallbackProvider implements IProvider {
         continue;
       }
 
-      this.currentProviderIndex = i;
+      this.currentProviderIndex = entry.origIndex;
 
       try {
         log.info(`Trying provider ${i + 1}/${providers.length}: ${provider.type}`);
 
-        const result = await provider.complete(this.requestForProvider(request, entry.origIndex));
+        const result = await this.completeWithinBudget(
+          provider,
+          this.requestForProvider(request, entry.origIndex),
+          entry.origIndex,
+          deadline
+        );
 
         if (result.ok) {
           this.recordSuccess(provider);
@@ -239,7 +375,7 @@ export class FallbackProvider implements IProvider {
 
         log.warn(`Provider ${provider.type} failed: ${errorMessage}`);
         logError(provider.type, result.error, 'Fallback triggered');
-        this.recordFailure(provider);
+        this.recordFailure(provider, result.error);
 
         // Check if we should try next provider
         if (i < providers.length - 1 && this.shouldFallback(result.error)) {
@@ -259,7 +395,7 @@ export class FallbackProvider implements IProvider {
         lastError = new InternalError(errorObj.message);
         log.error(`Provider ${provider.type} threw exception: ${errorObj.message}`);
         logError(provider.type, errorObj, 'Exception during fallback');
-        this.recordFailure(provider);
+        this.recordFailure(provider, errorObj);
       }
     }
 
@@ -274,9 +410,11 @@ export class FallbackProvider implements IProvider {
   async *stream(
     request: CompletionRequest
   ): AsyncGenerator<Result<StreamChunk, InternalError>, void, unknown> {
-    const providers = this.getAllProviders()
-      .map((provider, origIndex) => ({ provider, origIndex }))
-      .filter((e) => e.provider.isReady());
+    const providers = this.preferHealthy(
+      this.getAllProviders()
+        .map((provider, origIndex) => ({ provider, origIndex }))
+        .filter((e) => e.provider.isReady())
+    );
 
     if (providers.length === 0) {
       yield err(new InternalError('No providers are configured or ready'));
@@ -300,7 +438,7 @@ export class FallbackProvider implements IProvider {
         continue;
       }
 
-      this.currentProviderIndex = i;
+      this.currentProviderIndex = entry.origIndex;
       let hasYielded = false;
 
       try {
@@ -336,7 +474,7 @@ export class FallbackProvider implements IProvider {
         // If error occurred, try next provider
         if (hasError && lastError) {
           log.warn(`Stream: Provider ${provider.type} failed: ${lastError.message}`);
-          this.recordFailure(provider);
+          this.recordFailure(provider, lastError);
 
           // If we already sent chunks to the client, do NOT retry with another
           // provider — the client would see duplicate/overlapping content.
@@ -367,7 +505,7 @@ export class FallbackProvider implements IProvider {
       } catch (error) {
         const errorObj = error instanceof Error ? error : new Error(String(error));
         log.error(`Stream: Provider ${provider.type} threw exception: ${errorObj.message}`);
-        this.recordFailure(provider);
+        this.recordFailure(provider, errorObj);
 
         // A failed network stream after sending output is not replayable:
         // doing so could concatenate two responses or duplicate tool calls.

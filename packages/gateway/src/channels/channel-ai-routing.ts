@@ -10,6 +10,7 @@ import { tryReceivableChannelReply } from './receivable-routing.js';
  */
 
 import { randomUUID } from 'node:crypto';
+import { integrationPrivateChat, tryIntegrationConfirmation } from './customer-integrations.js';
 import { pricingByExactKey } from '@ownpilot/core/costs';
 import { runInExecContext } from '@ownpilot/core/agent';
 import type { ChannelIncomingMessage, ChannelPluginAPI } from '@ownpilot/core/channels';
@@ -356,6 +357,14 @@ function tryAuthorizedChannelShortcut(
     const hasMedia = Boolean(message.attachments?.length);
     expenseDuplicateGuard.observe(key, hasMedia ? '' : message.text);
     if (hasMedia) return null;
+    const integrationReply = await tryIntegrationConfirmation(message, userId);
+    if (integrationReply) return integrationReply;
+    if (
+      /\b(?:google|gmail|drive|planilh\w*|todoist|notion|trello|conex[õo]\w*|sincroniz\w*|e-?mails?)\b/i.test(
+        message.text
+      )
+    )
+      return null;
     const passwordAdvice = channelPasswordAdvice(message.platform, message.text);
     if (passwordAdvice) return passwordAdvice;
     return (
@@ -631,6 +640,9 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
         channelMessageTimestamp: message.timestamp?.getTime(),
+        channelIsPrivate: integrationPrivateChat(message),
+        channelConversationOnly: isConversationalOnlyChannelRequest(message.text),
+        externalContentGuard: { seen: false },
       },
       () =>
         bus.process(normalized, {
@@ -809,6 +821,9 @@ async function processDirectAgentInSession(
         channelMessageId: message.id,
         channelMessageTimestamp: message.timestamp?.getTime(),
         onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
+        channelIsPrivate: integrationPrivateChat(message),
+        channelConversationOnly: conversationOnly,
+        externalContentGuard: { seen: false },
       },
       () =>
         conversationOnly

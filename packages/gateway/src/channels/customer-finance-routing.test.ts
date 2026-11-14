@@ -83,6 +83,23 @@ beforeEach(() => {
 });
 
 describe('explicit financial parsing', () => {
+  it('understands the reported receipt with a payer but no preposition', () => {
+    expect(parseChannelFinanceRecord('Recebi 500 reais Lucas Riquelme')).toMatchObject({
+      type: 'income',
+      status: 'settled',
+      amountCents: 50000,
+      description: 'Lucas Riquelme',
+    });
+    expect(parseChannelFinanceRecord('Recebi R$ 500 Lucas Riquelme')).toMatchObject({
+      type: 'income',
+      amountCents: 50000,
+      description: 'Lucas Riquelme',
+    });
+    expect(parseChannelFinanceRecord('Recebi 500 Lucas Riquelme')).toBeNull();
+    expect(
+      parseChannelFinanceRecord('Recebi 500 reais Lucas Riquelme e paguei outra conta')
+    ).toBeNull();
+  });
   it.each([
     ['Acabei de ganhar 1 real', 100],
     ['Acabei de ganhar 20 reais', 2000],

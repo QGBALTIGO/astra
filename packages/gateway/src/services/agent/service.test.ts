@@ -85,6 +85,8 @@ vi.mock('@ownpilot/core/tools', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   class MockToolRegistry {
     has = vi.fn(() => true);
+    getNames = vi.fn(() => []);
+    unregister = vi.fn();
     setConfigCenter = vi.fn();
   }
   return {
@@ -1400,15 +1402,15 @@ describe('getOrCreateChatAgent', () => {
     );
     const config = mockCreateAgent.mock.calls.at(-1)?.[0] as
       (ChatAgentTestConfig & { provider: { timeout: number } }) | undefined;
-    expect(config?.provider.timeout).toBe(52_000);
+    expect(config?.provider.timeout).toBe(8_000);
     expect(mockCreateAgent.mock.calls.at(-1)?.[0].provider.headers['X-Astra-Timeout-Ms']).toBe(
-      '52000'
+      '8000'
     );
     expect(config?.model.maxTokens).toBe(1536);
     expect(config?.memory.maxTokens).toBe(3072);
   });
 
-  it('lets local tool calls finish before switching to a configured backup', async () => {
+  it('bounds local attempts and shares provider recovery across channel agents', async () => {
     mockCreateAgent.mockReturnValue(makeMockAgent().agent);
     mockGetProviderApiKey.mockResolvedValue('test-key');
     mockLoadProviderConfig.mockReturnValue({ baseUrl: 'https://test.invalid/v1' });
@@ -1429,14 +1431,14 @@ describe('getOrCreateChatAgent', () => {
       expect.objectContaining({
         primary: expect.objectContaining({
           id: 'ollama-local',
-          timeout: 14000,
+          timeout: 2500,
           maxRetries: 0,
-          headers: expect.objectContaining({ 'X-Astra-Timeout-Ms': '14000' }),
+          headers: expect.objectContaining({ 'X-Astra-Timeout-Ms': '2500' }),
         }),
         fallbacks: expect.arrayContaining([
           expect.objectContaining({
             id: 'groq',
-            timeout: 20000,
+            timeout: 3000,
             defaultModel: { model: 'openai/gpt-oss-20b', maxTokens: 768 },
           }),
         ]),

@@ -11,7 +11,7 @@ import {
   ShieldCheck,
   Sun,
 } from '../../components/icons';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { formatWhatsAppPhone } from '../channels-access-helpers';
 import { customerApi, downloadCustomerExport } from './api';
 import {
@@ -32,7 +32,6 @@ import {
 import { useCustomerQuery } from './hooks';
 import { CustomerPhoneChange } from './PhoneChange';
 import { CustomerPlanAccess } from './PlanAccess';
-import { CustomerConnectedApps } from './ConnectedApps';
 import type { Customer, CustomerSession, CustomerTheme } from './types';
 
 export function CustomerProfile({
@@ -53,6 +52,15 @@ export function CustomerProfile({
   onSignOut: () => Promise<void>;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  useEffect(() => {
+    if (
+      active &&
+      (new URLSearchParams(location.search).get('integracoes') === '1' ||
+        location.hash === '#conexoes')
+    )
+      navigate('/cliente/conexoes', { replace: true });
+  }, [active, location.search, location.hash, navigate]);
   const profile = useCustomerQuery(
     'profile',
     (signal) => customerApi.profile(signal),
@@ -238,48 +246,6 @@ export function CustomerProfile({
               <p className="ac-field-help">Para renovar, fale com o administrador do seu acesso.</p>
             )}
           </section>
-          <section className="ac-card">
-            <div className="ac-card-heading">
-              <div>
-                <h2>Integrações</h2>
-                <p>Conexões disponíveis para sua conta.</p>
-              </div>
-              <Globe aria-hidden="true" />
-            </div>
-            {integrations.error ? (
-              <CustomerError error={integrations.error} onRetry={integrations.retry} />
-            ) : integrations.loading && !integrations.data ? (
-              <CustomerSkeleton />
-            ) : integrations.data ? (
-              <>
-                {integrations.data.whatsapp ? (
-                  <div className="ac-integration">
-                    <MessageSquare aria-hidden="true" />
-                    <div>
-                      <h3>WhatsApp</h3>
-                      <span className="ac-status">
-                        {integrations.data.whatsapp.status === 'connected'
-                          ? 'Conectado'
-                          : integrations.data.whatsapp.status === 'disconnected'
-                            ? 'Desconectado'
-                            : 'Indisponível'}
-                      </span>
-                      <p>
-                        {integrations.data.whatsapp.connected
-                          ? 'Seus registros enviados ao Astra também aparecem neste painel.'
-                          : 'O canal está indisponível no momento. Seus registros continuam disponíveis no painel.'}
-                      </p>
-                    </div>
-                  </div>
-                ) : null}
-                <CustomerConnectedApps
-                  active={active}
-                  canWrite={current.access.canWrite}
-                  onChanged={onChanged}
-                />
-              </>
-            ) : null}
-          </section>
         </div>
         <div className="ac-profile-column">
           <section className="ac-card">
@@ -403,6 +369,51 @@ export function CustomerProfile({
           </button>
         </div>
       </div>
+      <section className="ac-card ac-profile-connections" id="conexoes">
+        <div className="ac-card-heading">
+          <div>
+            <h2>Integrações</h2>
+            <p>Conexões disponíveis para sua conta.</p>
+          </div>
+          <Globe aria-hidden="true" />
+        </div>
+        {integrations.error ? (
+          <CustomerError error={integrations.error} onRetry={integrations.retry} />
+        ) : integrations.loading && !integrations.data ? (
+          <CustomerSkeleton />
+        ) : integrations.data ? (
+          <>
+            {integrations.data.whatsapp ? (
+              <div className="ac-integration">
+                <MessageSquare aria-hidden="true" />
+                <div>
+                  <h3>WhatsApp</h3>
+                  <span className="ac-status">
+                    {integrations.data.whatsapp.status === 'connected'
+                      ? 'Conectado'
+                      : integrations.data.whatsapp.status === 'disconnected'
+                        ? 'Desconectado'
+                        : 'Indisponível'}
+                  </span>
+                  <p>
+                    {integrations.data.whatsapp.connected
+                      ? 'Seus registros enviados ao Astra também aparecem neste painel.'
+                      : 'O canal está indisponível no momento. Seus registros continuam disponíveis no painel.'}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className="ac-button ac-button--secondary"
+              onClick={() => navigate('/cliente/conexoes')}
+            >
+              Gerenciar minhas conexões
+              <ExternalLink aria-hidden="true" />
+            </button>
+          </>
+        ) : null}
+      </section>
       {editing ? (
         <ProfileEditor
           customer={current}
