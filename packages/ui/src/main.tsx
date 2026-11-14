@@ -55,7 +55,6 @@ window.addEventListener('vite:preloadError', (event) => {
   }
 });
 
-
 /**
  * Lightweight, branded shell shown only while the app entry chunk loads.
  * A matching HTML shell is rendered before React starts, so slow connections
