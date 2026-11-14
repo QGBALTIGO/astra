@@ -33,24 +33,45 @@ const plain = (value: unknown, limit = 250) =>
     : '';
 export function digestEmails(input: unknown, depth = 0): Mail[] {
   if (depth > 5 || !input || typeof input !== 'object') return [];
-  if (Array.isArray(input))
-    return input.slice(0, 10).flatMap((value) => {
-      if (!value || typeof value !== 'object') return [];
-      const row = value as Record<string, unknown>;
-      const payload = row.payload as
-        { headers?: Array<{ name?: string; value?: string }> } | undefined;
-      const headers = payload?.headers ?? row.headers;
-      const header = (name: string) =>
-        Array.isArray(headers)
-          ? (headers as Array<{ name?: string; value?: string }>).find(
-              (h) => h.name?.toLowerCase() === name
-            )?.value
-          : undefined;
-      const subject = plain(row.subject ?? header('subject')) || 'Sem assunto';
-      const snippet = plain(row.snippet ?? row.preview ?? row.messageText ?? row.body, 1000);
-      if (!row.id && !row.messageId && !snippet) return [];
-      return [{ subject, from: plain(row.sender ?? row.from ?? header('from'), 100), snippet }];
-    });
+  if (Array.isArray(input)) {
+    const seen = new Set<string>();
+    return input
+      .slice(0, 20)
+      .flatMap((value) => {
+        if (!value || typeof value !== 'object') return [];
+        const row = value as Record<string, unknown>;
+        const payload = row.payload as
+          { headers?: Array<{ name?: string; value?: string }> } | undefined;
+        const headers = payload?.headers ?? row.headers;
+        const header = (name: string) =>
+          Array.isArray(headers)
+            ? (headers as Array<{ name?: string; value?: string }>).find(
+                (h) => h.name?.toLowerCase() === name
+              )?.value
+            : undefined;
+        const preview =
+          row.preview && typeof row.preview === 'object'
+            ? (row.preview as Record<string, unknown>)
+            : {};
+        const subject = plain(row.subject ?? preview.subject ?? header('subject')) || 'Sem assunto';
+        const snippet = plain(
+          [row.snippet, preview.body, row.messageText, row.preview, row.body].find(
+            (v) => typeof v === 'string' && v.trim()
+          ),
+          1000
+        );
+        if (!row.id && !row.messageId && !snippet) return [];
+        const from = plain(row.sender ?? row.from ?? header('from'), 100);
+        const thread =
+          typeof row.threadId === 'string' && row.threadId
+            ? row.threadId
+            : from.toLowerCase() + '|' + subject.toLowerCase().replace(/^(?:re|fwd?|enc):\s*/, '');
+        if (seen.has(thread)) return [];
+        seen.add(thread);
+        return [{ subject, from, snippet }];
+      })
+      .slice(0, 10);
+  }
   const row = input as Record<string, unknown>;
   for (const key of [
     'messages',
@@ -80,7 +101,9 @@ export async function buildEmailDigest(
     'GMAIL_FETCH_EMAILS',
     {
       user_id: 'me',
-      max_results: 10,
+      max_results: 20,
+      verbose: false,
+      include_payload: false,
       query:
         'in:inbox newer_than:1d -category:promotions -category:social {is:important is:starred category:primary}',
     },
@@ -109,7 +132,9 @@ export async function buildEmailDigest(
   let selected: Array<{ index: number; excerpt?: string }> = [];
   if (ranked)
     try {
-      const parsed = JSON.parse(ranked) as { items?: Array<{ index: number; excerpt?: string }> };
+      const parsed = JSON.parse(ranked.trim().replace(/^```(?:json)?\s*|\s*```$/gi, '')) as {
+        items?: Array<{ index: number; excerpt?: string }>;
+      };
       const seen = new Set<number>();
       selected = (Array.isArray(parsed.items) ? parsed.items : [])
         .filter((item) => {

@@ -224,6 +224,10 @@ try {
     const digestStarted = performance.now();
     const digest = await buildEmailDigest(userId, pluginId, gmail.id);
     assert.match(digest, /Seus e-mails importantes/);
+    assert.ok(
+      digest.includes('• *Resumo:*') || digest.includes('Não encontrei mensagens recentes'),
+      'Non-empty Gmail digests must include readable message previews'
+    );
     assert.doesNotMatch(digest, /message_id|event_id|untrustedExternalData|"messages"\s*:/);
     metrics.push({
       step: 'gmail_digest_readonly_source',
