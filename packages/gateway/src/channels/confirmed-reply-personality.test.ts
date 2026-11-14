@@ -126,6 +126,22 @@ describe('personal writing for private confirmations', () => {
       '📚 *Hora do seu lembrete*\n\n• *Assunto:* pegar o livro\n\nKayky, esse é o aviso que você pediu. 💙'
     );
   });
+  it('persists removal/cancellation facts for the next turn without inventing another operation', async () => {
+    const text =
+      'Removi Clube Ensaio Ipê do seu controle no Astra. Para encerrar a cobrança, solicite o cancelamento ao fornecedor.';
+    expect(receiptContext(text)).toEqual({
+      subject: 'Clube Ensaio Ipê',
+      action: 'assinatura removida',
+      facts:
+        'Assinatura removida do controle do Astra: Clube Ensaio Ipê. Essa remoção não cancela cobranças no fornecedor.',
+    });
+    expect(await maybePersonalizeConfirmedReply({ ...input, responseText: text })).toBe(text);
+    expect(
+      receiptContext(
+        '✅ *Lembrete cancelado*\n\n• *Assunto:* Ensaio Ipê\n\nNão enviarei esse aviso.'
+      )?.action
+    ).toBe('Lembrete cancelado');
+  });
   it('separates the delivered reminder subject and the customer-local scheduled time', () => {
     const text = formatDueReminder('buscar a pizza', 'Kayky', {
       at: new Date('2026-11-15T13:30:00Z'),

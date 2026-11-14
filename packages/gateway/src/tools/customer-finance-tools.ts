@@ -19,7 +19,7 @@ const fields = {
   category: {
     type: 'string',
     description:
-      'Nome da categoria, quando indicado pela pessoa. Para novos gastos, a categoria também pode ser inferida pela descrição.',
+      'Nome da categoria somente quando indicado pela pessoa. Omita quando não houver categoria explícita: o servidor classifica pelo item. Não confunda o estabelecimento com o item comprado.',
   },
   amount: { type: 'number', description: 'Valor positivo em reais, até duas casas decimais.' },
   type: {
@@ -126,6 +126,18 @@ function transactionStatus(value: unknown): CustomerTransactionInput['status'] {
   return value;
 }
 
+function categoryWasNamed(categories: CustomerCategory[], explicit: unknown): boolean {
+  const context = getExecContext();
+  const request = context?.channelPluginId ? context.channelRequestText : undefined;
+  if (!request) return true;
+  const fold = (value: string) =>
+    value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+  const name = fold(text(explicit, 'a categoria'));
+  const matched = categories.find((c) => fold(c.name) === name || c.legacyKey === name);
+  return [name, matched ? fold(matched.name) : '']
+    .filter(Boolean)
+    .some((term) => fold(request).includes(term));
+}
 function selectCategory(
   categories: CustomerCategory[],
   type: CustomerTransactionInput['type'],
@@ -139,11 +151,16 @@ function selectCategory(
     const name = fold(text(explicit, 'a categoria'));
     const matched =
       active.find((c) => fold(c.name) === name) ?? active.find((c) => c.legacyKey === name);
-    if (!matched)
-      throw new CustomerFinanceError(
-        'Não encontrei essa categoria ativa para esse tipo de lançamento.'
-      );
-    return matched;
+    // A model-generated category is not a user override. Preserve explicit
+    // portal/API categories and categories actually named in the chat request.
+    const named = categoryWasNamed(active, explicit);
+    if (named) {
+      if (!matched)
+        throw new CustomerFinanceError(
+          'Não encontrei essa categoria ativa para esse tipo de lançamento.'
+        );
+      return matched;
+    }
   }
   const inferred = type === 'expense' ? inferExpenseCategory(description) : 'other';
   const category =
@@ -273,12 +290,17 @@ export async function executeCustomerFinanceTool(
       if (args.status !== undefined) patch.status = transactionStatus(args.status);
       if (args.type !== undefined) patch.type = transactionType(args.type);
       if (args.category !== undefined || (patch.type && patch.type !== current.type)) {
-        patch.categoryId = selectCategory(
-          await repo.listCategories(),
-          patch.type ?? current.type,
-          patch.description ?? current.description ?? '',
-          args.category
-        ).id;
+        const categories = await repo.listCategories();
+        if (
+          (patch.type && patch.type !== current.type) ||
+          categoryWasNamed(categories, args.category)
+        )
+          patch.categoryId = selectCategory(
+            categories,
+            patch.type ?? current.type,
+            patch.description ?? current.description ?? '',
+            args.category
+          ).id;
       }
       if (!Object.keys(patch).length)
         throw new CustomerFinanceError('Informe a correção desejada.');

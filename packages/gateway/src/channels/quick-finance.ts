@@ -147,6 +147,7 @@ export async function tryQuickFinanceReply(
     message.attachments?.length ||
     message.text.length > 650 ||
     isConversationalOnlyChannelRequest(message.text) ||
+    /\b(?:total|totalize|som[ae]|somar|juntos|juntas)\b/.test(input) ||
     !/\b(?:gastos?|despesas?|lancamentos?|financeiro|transacoes)\b/.test(input) ||
     !/\b(?:liste|listar|mostre|consulte|consultar|qual|quais|quanto|mude|altere|corrija|troque|categoria)\b/.test(
       input

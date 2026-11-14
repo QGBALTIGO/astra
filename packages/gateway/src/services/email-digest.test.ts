@@ -61,6 +61,39 @@ beforeEach(() => {
   m.write.mockResolvedValue('{"items":[{"index":1,"excerpt":"O pedido de pão chega às 8h."}]}');
 });
 describe('customer email digests', () => {
+  it('reads Composio preview objects and groups repeated messages from the same thread', () => {
+    const source = {
+      messages: [
+        {
+          messageId: 'a',
+          threadId: 'thread-a',
+          sender: 'Pessoa fictícia',
+          subject: 'Prazo amanhã',
+          messageText: '',
+          preview: { body: 'Envie a proposta amanhã às 9h.' },
+        },
+        {
+          messageId: 'b',
+          threadId: 'thread-a',
+          sender: 'Pessoa fictícia',
+          subject: 'Re: Prazo amanhã',
+          preview: { body: 'Outra resposta no mesmo assunto.' },
+        },
+        {
+          messageId: 'c',
+          threadId: 'thread-b',
+          sender: 'Equipe fictícia',
+          subject: 'Reunião',
+          preview: { body: 'Sua reunião é às 10h.' },
+        },
+      ],
+    };
+    const items = digestEmails(source);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.snippet).toBe('Envie a proposta amanhã às 9h.');
+    expect(items[1]?.snippet).toBe('Sua reunião é às 10h.');
+    expect(JSON.stringify(items)).not.toMatch(/thread-a|thread-b|messageId/);
+  });
   it.each([
     ['Todo dia às 8h30', 8, 30],
     ['às 8 da noite', 20, 0],
@@ -157,7 +190,7 @@ describe('customer email digests', () => {
       'GMAIL_FETCH_EMAILS',
       expect.objectContaining({
         user_id: 'me',
-        max_results: 10,
+        max_results: 20,
         query: expect.stringContaining('-category:promotions'),
       }),
       undefined,

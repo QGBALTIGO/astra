@@ -66,6 +66,15 @@ beforeEach(() => {
   ]);
   f.update.mockResolvedValue({ ...saved, categoryId: 'food', categoryName: 'Alimentação' });
 });
+it.each([
+  'Quanto ficou o total só dos gastos do Ensaio Ipê: pão, café, estacionamento, suco e guardanapos?',
+  'Some os gastos com café e pão',
+  'Quanto deram juntos meus gastos com café e pão?',
+])('does not replace a requested total with a list of cards: %s', async (text) => {
+  expect(await tryQuickFinanceReply(message(text), 'synthetic', async () => true)).toBeNull();
+  expect(f.write).not.toHaveBeenCalled();
+  expect(f.list).not.toHaveBeenCalled();
+});
 describe('short AI expense consultation', () => {
   it('corrects an explicit amount on one stored expense while AI writes only the personality line', async () => {
     f.write.mockResolvedValue('Café com os detalhes em dia.');

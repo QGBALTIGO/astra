@@ -102,6 +102,21 @@ beforeEach(() => {
   }));
 });
 describe('customer bound integration execution', () => {
+  it.each([
+    ['2026-11-15T11:20:00', '15/11/2026, 11:20'],
+    ['2026-11-15T15:20:00Z', '15/11/2026, 11:20'],
+  ])(
+    'shows event proposal times in the customer timezone without technical ISO dates: %s',
+    (start, display) => {
+      const text = integrationProposalMessage({
+        app: 'googlecalendar',
+        summary: 'Criar evento fictício',
+        arguments: { start_datetime: start, timezone: 'America/Cuiaba' },
+      } as unknown as IntegrationAction);
+      expect(text).toContain(display);
+      expect(text).not.toContain(start);
+    }
+  );
   it('keeps the exact event identifier in the proposal without exposing it in the chat', () => {
     const args = {
       calendar_id: 'primary',

@@ -5,6 +5,7 @@ const f = vi.hoisted(() => ({
     platformChatId: 'synthetic-chat',
     channelMessageId: 'synthetic-message',
     channelMessageTimestamp: Date.parse('2026-11-11T02:00:00Z'),
+    channelRequestText: undefined as string | undefined,
   },
   account: vi.fn(),
   owner: vi.fn(),
@@ -47,6 +48,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   f.ctx.channelMessageId = 'synthetic-message';
   f.ctx.channelMessageTimestamp = Date.parse('2026-11-11T02:00:00Z');
+  f.ctx.channelRequestText = undefined;
   f.account.mockResolvedValue({ timeZone: 'America/Campo_Grande' });
   f.categories.mockResolvedValue([
     { id: 'in', name: 'Outras entradas', type: 'income', archived: false },
@@ -64,6 +66,64 @@ beforeEach(() => {
   f.remove.mockResolvedValue(true);
 });
 describe('same-ledger finance tools', () => {
+  it('does not change category while correcting only the price if the model added an unrequested category', async () => {
+    f.ctx.channelRequestText = 'Corrige só o valor do suco para R$ 12,20.';
+    await executeCustomerFinanceTool(
+      'update_transaction',
+      { transaction_id: 'saved', amount: 12.2, category: 'Outros' },
+      'whatsapp:synthetic-a'
+    );
+    expect(f.update).toHaveBeenCalledWith('saved', { amount: 12.2 });
+  });
+  it.each([
+    [
+      'Gastei R$ 6,80 de guardanapos Ensaio Ipê na lanchonete.',
+      'Guardanapos Ensaio Ipê (Hamburgueria)',
+      'Alimentação',
+      'shop',
+    ],
+    [
+      'Gastei R$ 11,20 com suco Ensaio Ipê para a equipe.',
+      'suco Ensaio Ipê para a equipe',
+      'Outros',
+      'food',
+    ],
+  ])(
+    'does not treat a model-guessed category as an explicit customer choice: %s',
+    async (request, description, category, expected) => {
+      f.ctx.channelRequestText = request;
+      f.categories.mockResolvedValue([
+        { id: 'out', name: 'Outros', legacyKey: 'other', type: 'expense', archived: false },
+        { id: 'food', name: 'Alimentação', legacyKey: 'food', type: 'expense', archived: false },
+        { id: 'shop', name: 'Compras', legacyKey: 'shopping', type: 'expense', archived: false },
+      ]);
+      await executeCustomerFinanceTool(
+        'record_transaction',
+        { ...data, type: 'expense', description, category },
+        'whatsapp:synthetic-a'
+      );
+      expect(f.create).toHaveBeenCalledWith(
+        expect.objectContaining({ categoryId: expected }),
+        expect.any(String)
+      );
+    }
+  );
+  it('keeps a category actually named by the customer as an explicit override', async () => {
+    f.ctx.channelRequestText = 'Registre meu suco na categoria Outros.';
+    f.categories.mockResolvedValue([
+      { id: 'out', name: 'Outros', legacyKey: 'other', type: 'expense', archived: false },
+      { id: 'food', name: 'Alimentação', legacyKey: 'food', type: 'expense', archived: false },
+    ]);
+    await executeCustomerFinanceTool(
+      'record_transaction',
+      { ...data, type: 'expense', description: 'Suco', category: 'Outros' },
+      'whatsapp:synthetic-a'
+    );
+    expect(f.create).toHaveBeenCalledWith(
+      expect.objectContaining({ categoryId: 'out' }),
+      expect.any(String)
+    );
+  });
   it('infers food even if the default category was renamed and updates only the requested field', async () => {
     f.categories.mockResolvedValue([
       { id: 'out', name: 'Outros', type: 'expense', archived: false, legacyKey: 'other' },

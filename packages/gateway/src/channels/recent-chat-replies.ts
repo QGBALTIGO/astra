@@ -93,6 +93,14 @@ export async function quickPrivateReply(
   text: string,
   receipts: RecentReceipt[]
 ): Promise<string | null> {
+  if (
+    receipts[0]?.action === 'assinatura removida' &&
+    text.length < 350 &&
+    /\b(?:cancelou|cancelad[ao]|s[oó] tirou|s[oó] removeu)\b/iu.test(text) &&
+    /\b(?:cobrança|fornecedor)\b/iu.test(text) &&
+    !/\b(?:se|talvez|exemplo)\b/iu.test(text)
+  )
+    return 'Só removi essa assinatura do seu planejamento aqui no Astra. Não cancelei a cobrança no fornecedor; para encerrar a cobrança, você precisa solicitar isso diretamente a ele.';
   const adviceOnly =
     /\b(?:s[oó] quero (?:uma orientaç[aã]o|uma sugest[aã]o)|s[oó] estamos conversando sobre esse exemplo|apenas orientaç[aã]o)\b/iu.test(
       text

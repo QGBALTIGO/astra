@@ -6,7 +6,13 @@ export function inferExpenseCategory(description: string): ExpenseCategory {
   if (/\b(?:cafeteiras?|(?:maquinas?|moedores?|filtros?) (?:de |para )cafe)\b/u.test(text))
     return 'shopping';
   if (
-    /\b(?:almoco|jantar|cafes?|cafezinhos?|cafeterias?|lanche|padaria|restaurante|mercado|supermercado|ifood|pizza|comida|refeicao|alimentacao)\b/u.test(
+    /\b(?:guardanapos?|embalagens?|papel toalha|copos? descartaveis?|talheres? descartaveis?)\b/u.test(
+      text
+    )
+  )
+    return 'shopping';
+  if (
+    /\b(?:almoco|jantar|cafes?|cafezinhos?|cafeterias?|sucos?|refrigerantes?|chas?|sanduiches?|hamburguer|hamburgueres|paes|pao|lanche|padaria|restaurante|mercado|supermercado|ifood|pizza|comida|refeicao|alimentacao)\b/u.test(
       text
     )
   )
