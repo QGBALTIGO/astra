@@ -632,6 +632,53 @@ function createAgentWithMockProvider(
 }
 
 describe('Agent processConversation (via chat)', () => {
+  it('requires only the audited first tool and restores normal choice after its result', async () => {
+    const { agent, provider } = createAgentWithMockProvider();
+    vi.mocked(provider.complete).mockResolvedValueOnce(
+      ok({
+        id: 'first',
+        model: 'test',
+        content: '',
+        finishReason: 'tool_calls',
+        createdAt: new Date(),
+        toolCalls: [{ id: 'call', name: 'test_tool', arguments: '{}' }],
+      })
+    );
+    expect((await agent.chat('Consult the live data', { requiredFirstTool: 'test_tool' })).ok).toBe(
+      true
+    );
+    expect(vi.mocked(provider.complete).mock.calls[0]![0]).toMatchObject({
+      toolChoice: 'required',
+      tools: [{ name: 'test_tool' }],
+    });
+    expect(vi.mocked(provider.complete).mock.calls[1]![0].toolChoice).toBe('auto');
+    expect((await agent.chat('Hello again')).ok).toBe(true);
+  });
+  it('rejects invented text when a real first lookup was required, without saving it', async () => {
+    const { agent, provider } = createAgentWithMockProvider();
+    const result = await agent.chat('Temperature now', { requiredFirstTool: 'test_tool' });
+    expect(result.ok).toBe(false);
+    expect(provider.complete).toHaveBeenCalledTimes(1);
+    expect(agent.getConversation().messages.some((m) => m.role === 'assistant')).toBe(false);
+  });
+  it('does not execute a different tool or expose an unavailable required tool', async () => {
+    const { agent, provider, tools } = createAgentWithMockProvider();
+    const execute = vi.spyOn(tools, 'execute');
+    vi.mocked(provider.complete).mockResolvedValueOnce(
+      ok({
+        id: 'first',
+        model: 'test',
+        content: '',
+        finishReason: 'tool_calls',
+        createdAt: new Date(),
+        toolCalls: [{ id: 'call', name: 'wrong_tool', arguments: '{}' }],
+      })
+    );
+    expect((await agent.chat('Lookup', { requiredFirstTool: 'test_tool' })).ok).toBe(false);
+    expect(execute).not.toHaveBeenCalled();
+    expect((await agent.chat('Lookup', { requiredFirstTool: 'unregistered' })).ok).toBe(false);
+    expect(provider.complete).toHaveBeenCalledTimes(1);
+  });
   beforeEach(() => {
     vi.restoreAllMocks();
     mockProviderOverride = null;

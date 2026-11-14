@@ -6,6 +6,19 @@ import { describe, it, expect } from 'vitest';
 import { whatsappNormalizer } from './whatsapp.js';
 
 describe('whatsappNormalizer', () => {
+  it('turns source links into WhatsApp-readable URLs without duplicated markup', () => {
+    const [text] = whatsappNormalizer.normalizeOutgoing(
+      'Fonte: [MET Norway](https://api.met.no/) · [https://example.com/a](https://example.com/a).'
+    );
+    expect(text).toBe('Fonte: MET Norway: https://api.met.no/ · https://example.com/a.');
+  });
+  it('preserves URL parentheses and separate adjacent links', () => {
+    expect(
+      whatsappNormalizer.normalizeOutgoing(
+        '[A](https://example.com/Foo_(bar))[B](https://example.org/)'
+      )[0]
+    ).toBe('A: https://example.com/Foo_(bar)B: https://example.org/');
+  });
   describe('platform', () => {
     it('has platform = whatsapp', () => {
       expect(whatsappNormalizer.platform).toBe('whatsapp');

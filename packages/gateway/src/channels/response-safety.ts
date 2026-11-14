@@ -1,5 +1,6 @@
 /** Final channel boundary: model text is not proof of a database write. */
 import { stripInternalTags } from './normalizers/base.js';
+import { verifiedChannelFacts } from './verified-facts.js';
 import {
   formatAstraMessage,
   formatReminderConfirmation,
@@ -334,6 +335,8 @@ export function safeChannelResponse(
   receipts: ChannelToolReceipt[],
   context: { timeZone?: string; requestText?: string } = {}
 ): string {
+  const verified = verifiedChannelFacts(text, receipts, context);
+  if (verified) return verified;
   const ids = internalIds(receipts);
   const calendar = new Map<ChannelToolReceipt, string | null>();
   for (const receipt of receipts) {

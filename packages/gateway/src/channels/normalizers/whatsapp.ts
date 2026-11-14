@@ -32,6 +32,10 @@ function normalizeWhatsAppFormatting(text: string): string {
  */
 function markdownToWhatsApp(text: string): string {
   return text
+    .replace(
+      /\[([^\]\n]+)\]\((https?:\/\/[^\s<>()]+(?:\([^\s<>()]*\)[^\s<>()]*)*)\)/g,
+      (_match, label: string, url: string) => (label === url ? url : `${label}: ${url}`)
+    )
     .replace(/\*\*(.+?)\*\*/g, '*$1*') // **bold** → *bold*
     .replace(/__(.+?)__/g, '_$1_') // __italic__ → _italic_
     .replace(/~~(.+?)~~/g, '~$1~'); // ~~strike~~ → ~strike~

@@ -64,6 +64,17 @@ function setup(extra: Record<string, unknown> = {}) {
   return { primary, backup, config, provider: new FallbackProvider(config) };
 }
 describe('opt-in channel fallback latency', () => {
+  it('tries another model when a required live lookup receives only invented prose', async () => {
+    const { provider, primary, backup } = setup();
+    primary.complete.mockResolvedValue(ok({ content: 'The temperature is 30 C' }) as never);
+    backup.complete.mockResolvedValue(
+      ok({ content: '', toolCalls: [{ id: 'lookup', name: 'weather', arguments: '{}' }] }) as never
+    );
+    const result = await provider.complete({ ...request, toolChoice: 'required' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.toolCalls?.[0]?.name).toBe('weather');
+    expect(backup.complete).toHaveBeenCalledTimes(1);
+  });
   it('shares an exhausted model cooldown between customer agents', async () => {
     const { provider, config, primary, backup } = setup();
     await provider.complete(request);
