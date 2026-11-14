@@ -6,6 +6,7 @@ import { CustomerPlanningRepository } from '../db/repositories/customer-planning
 import { CUSTOMER_PORTAL_TABLES_SQL } from '../db/schema/customer-portal.js';
 import { processDirectAgent, processViaBus } from './channel-ai-routing.js';
 import { tryPersonalSubscriptionReply } from './personal-subscriptions.js';
+import { executeCustomerPlanningTool } from '../tools/customer-planning-tools.js';
 
 // The same fixed loopback-only test role and database used by the verification suite.
 const port = process.env.ASTRA_AUTH_TEST_PORT;
@@ -86,6 +87,52 @@ describe.skipIf(!port)(
       }
     });
 
+    it('isolates simultaneous AI subscription lookups in the real planning database', async () => {
+      const users = ['planning-ai-a-' + randomUUID(), 'planning-ai-b-' + randomUUID()];
+      await Promise.all(
+        users.map((user, i) =>
+          new CustomerPlanningRepository(user).create({
+            kind: 'subscription',
+            title: 'Revista Café',
+            amount: 12.9 + i * 10,
+            nextDueDate: '2026-12-18',
+            notes: 'private note for ' + user,
+          })
+        )
+      );
+      const results = await Promise.all(
+        users.map((user) =>
+          executeCustomerPlanningTool(
+            'list_customer_subscriptions',
+            { search: 'CAFE', userId: users[1] },
+            user
+          )
+        )
+      );
+      expect(results[0]).toMatchObject({
+        success: true,
+        result: {
+          total: 1,
+          subscriptions: [{ title: 'Revista Café', amount: 12.9, nextDueDate: '2026-12-18' }],
+        },
+      });
+      expect(results[1]).toMatchObject({
+        success: true,
+        result: {
+          total: 1,
+          subscriptions: [{ title: 'Revista Café', amount: 22.9 }],
+        },
+      });
+      expect(JSON.stringify(results)).not.toMatch(/private note|planning-ai-[ab]/);
+      expect(
+        await executeCustomerPlanningTool(
+          'list_customer_subscriptions',
+          {},
+          'planning-ai-empty-' + randomUUID()
+        )
+      ).toMatchObject({ success: true, result: { total: 0, subscriptions: [] } });
+      expect(await new CustomerPlanningRepository(users[0]!).list()).toHaveLength(1);
+    });
     it.each(['whatsapp', 'telegram'] as const)(
       'handles monthly subscription requests as spoken in the %s conversation',
       async (platform) => {

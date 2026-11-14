@@ -119,6 +119,26 @@ function createNextResult(overrides?: Partial<MessageProcessingResult>): Message
 // ---------------------------------------------------------------------------
 
 describe('createAgentExecutionMiddleware', () => {
+  it.each(['whatsapp', 'telegram'])(
+    'requires saved subscription facts for a follow-up on %s',
+    async (platform) => {
+      const agent = createAgent({
+        chat: vi.fn().mockResolvedValue({ ok: false, error: { message: 'test-only failure' } }),
+      });
+      await createAgentExecutionMiddleware()(
+        createMessage({
+          content: 'E a assinatura da revista, qual valor ficou e quando renova?',
+          metadata: { source: 'channel', platform },
+        }),
+        createContext({ store: { agent } }),
+        vi.fn()
+      );
+      expect(agent.setAdditionalTools).toHaveBeenCalledWith(['core.list_customer_subscriptions']);
+      expect(agent.chat.mock.calls[0]![1].requiredFirstTool).toBe(
+        'core.list_customer_subscriptions'
+      );
+    }
+  );
   it('requires a verified city write for the screenshot request and never reports a reminder error', async () => {
     const agent = createAgent({
       chat: vi

@@ -47,6 +47,7 @@ import {
   isConversationalOnlyChannelRequest,
   needsConversationalRewrite,
   recentChannelText,
+  requiredChannelSubscriptionTool,
 } from './tool-selection.js';
 import { restoreChannelHistory } from './restore-history.js';
 import { withRecentReceiptContext } from './recent-chat-replies.js';
@@ -840,9 +841,14 @@ async function processDirectAgentInSession(
                 }),
               }
             )
-          : agent.chat(
-              withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts)
-            )
+          : requiredChannelSubscriptionTool(interpreted.text)
+            ? agent.chat(
+                withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts),
+                { requiredFirstTool: requiredChannelSubscriptionTool(interpreted.text) }
+              )
+            : agent.chat(
+                withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts)
+              )
     ).finally(() => agent.clearAdditionalTools?.());
   } catch (error) {
     const reason = channelFailureKind(error instanceof Error ? error.message : '');

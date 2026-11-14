@@ -45,6 +45,7 @@ import { CUSTOMER_INTEGRATION_TOOLS } from '../../tools/customer-integration-too
 import { CUSTOMER_WEATHER_TOOLS } from '../../tools/customer-weather-tools.js';
 import { FINANCING_TOOLS } from '../../tools/financing-tools.js';
 import { CUSTOMER_FINANCE_TOOLS } from '../../tools/customer-finance-tools.js';
+import { CUSTOMER_PLANNING_TOOLS } from '../../tools/customer-planning-tools.js';
 import {
   registerGatewayTools,
   registerDynamicTools,
@@ -565,6 +566,7 @@ async function createChatAgentInstance(
       ...CHANNEL_REMINDER_TOOLS.map((def) => `core.${def.name}`),
       ...FINANCING_TOOLS.map((def) => `core.${def.name}`),
       ...CUSTOMER_FINANCE_TOOLS.map((def) => `core.${def.name}`),
+      ...CUSTOMER_PLANNING_TOOLS.map((def) => `core.${def.name}`),
       ...CUSTOMER_INTEGRATION_TOOLS.map((def) => `core.${def.name}`),
       ...CUSTOMER_WEATHER_TOOLS.map((def) => `core.${def.name}`),
       'search_tools',
@@ -605,6 +607,7 @@ async function createChatAgentInstance(
       ? [
           ...FINANCING_TOOLS,
           ...CUSTOMER_FINANCE_TOOLS,
+          ...CUSTOMER_PLANNING_TOOLS,
           ...CUSTOMER_INTEGRATION_TOOLS,
           ...CUSTOMER_WEATHER_TOOLS,
         ]
