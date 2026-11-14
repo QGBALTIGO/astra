@@ -59,6 +59,7 @@ import { tryCancelNamedReminder } from './cancel-named-reminder.js';
 import { tryVerifyCalendarSlot } from './calendar-lookup.js';
 import { tryChannelCalendarMutation } from './calendar-mutation.js';
 import { tryListTodaysReminders } from './today-reminders.js';
+import { tryWeekReminderConversation } from './week-reminders.js';
 import { expenseConfirmationKey, expenseDuplicateGuard } from './expense-duplicate-guard.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 import { withContactStyleContext } from './channel-personalization.js';
@@ -379,6 +380,9 @@ function tryAuthorizedChannelShortcut(
         canProcessChannelMessage(message, isAccessAllowed)
       )) ??
       (await tryAgendaOverview(message, userId)) ??
+      (await tryWeekReminderConversation(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
       (await tryListTodaysReminders(message, userId)) ??
       (await tryCancelNamedReminder(message, userId)) ??
       (message.platform === 'whatsapp' || message.platform === 'telegram'

@@ -7,6 +7,7 @@ import {
   isWeeklyPortalGuide,
 } from './astra-access.js';
 import { channelOperations } from './receipt-state.js';
+import { formatAstraMessage } from './response-presentation.js';
 import {
   CHANNEL_UNVERIFIED_REPLY,
   verifiedWriteDetails,
@@ -237,6 +238,33 @@ export function channelFailureReply(
 ): string {
   const details = verifiedWriteDetails(receipts, timeZone);
   const operations = channelOperations(receipts);
+  const reminderCancellations = operations.filter(
+    (receipt) =>
+      receipt.name.replace(/__/g, '.').replace(/^core\./, '') === 'cancel_channel_reminder'
+  );
+  if (
+    details.length &&
+    reminderCancellations.length &&
+    operations.every((receipt) =>
+      /^(?:cancel_channel_reminder|list_channel_reminders)$/.test(
+        receipt.name.replace(/__/g, '.').replace(/^core\./, '')
+      )
+    )
+  ) {
+    const unconfirmed = reminderCancellations.length - details.length;
+    return formatAstraMessage(
+      '✅ Cancelamento dos lembretes',
+      [
+        { label: 'Cancelados', value: String(details.length) },
+        ...(unconfirmed
+          ? [{ label: 'Restantes', value: 'Consulte a lista atual para conferir' }]
+          : []),
+      ],
+      unconfirmed
+        ? 'Uma parte foi concluída. Consulte os lembretes que restaram antes de repetir o pedido.'
+        : 'Os cancelamentos acima foram confirmados.'
+    );
+  }
   if (details.length) {
     if (operations.length > details.length)
       details.push('Sobre a outra parte do pedido, ainda não tenho confirmação.');

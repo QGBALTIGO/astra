@@ -4,6 +4,31 @@ import { CHANNEL_UNVERIFIED_REPLY, type ChannelToolReceipt } from './response-sa
 import { isConversationalOnlyChannelRequest } from './tool-selection.js';
 import { tryAstraAccessReply } from './astra-access.js';
 
+it('reports two confirmed cancellations after a turn-budget failure without claiming all were cancelled', () => {
+  const receipts: ChannelToolReceipt[] = ['a', 'b'].map((id) => ({
+    name: 'core.cancel_channel_reminder',
+    arguments: JSON.stringify({ reminder_id: id }),
+    content: JSON.stringify({ message: 'Lembrete cancelado.', id }),
+    isError: false,
+  }));
+  receipts.push({
+    name: 'core.cancel_channel_reminder',
+    arguments: '{"reminder_id":"c"}',
+    content: '{"error":"not pending"}',
+    isError: true,
+  });
+  receipts.unshift({
+    name: 'core.list_channel_reminders',
+    arguments: '{}',
+    content: '[]',
+    isError: false,
+  });
+  const reply = channelFailureReply('Cancele todos', 'agent_error', receipts);
+  expect(reply).toContain('Cancelados:* 2');
+  expect(reply).toContain('Restantes:* Consulte a lista atual');
+  expect(reply).not.toContain('Não consegui terminar');
+});
+
 describe('browser onboarding during a provider failure', () => {
   const question =
     'Quero organizar minha semana pelo Astra. Para fazer isso pelo navegador, onde entro e por onde vale começar?';

@@ -9,6 +9,7 @@
  */
 
 import { whatsappPhoneSpellings } from '../../whatsapp-phone.js';
+import { readWhatsAppServerContacts } from './whatsapp-server-contacts.js';
 import {
   discoverWhatsAppHistoryContacts,
   type WhatsAppHistoryContactInput,
@@ -1141,7 +1142,23 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       await import('../../../db/repositories/whatsapp-contact-discovery.js');
     if (this.sock !== sock || this.status !== 'connected')
       throw new Error('O WhatsApp reconectou. Tente a sincronização novamente.');
-    const contactsRecovered = await whatsAppContactDiscoveryRepo.recoverStoredInbound();
+    let contactsRecovered = await whatsAppContactDiscoveryRepo.recoverStoredInbound();
+    try {
+      const current = () => this.sock === sock && this.status === 'connected';
+      const directory = await readWhatsAppServerContacts(
+        sock,
+        current,
+        (key) => this.resolveIncomingJid(key, sock),
+        (jid) => this.isSelfChat(jid)
+      );
+      if (!current()) throw new Error('O WhatsApp reconectou. Tente a sincronização novamente.');
+      contactsRecovered += await whatsAppContactDiscoveryRepo.remember(directory, 'linked_session');
+      log.info('WhatsApp linked-session directory reconciled', { count: directory.length });
+    } catch {
+      // Existing local contacts remain available; the primary-device history
+      // request below is an independent fallback, not a reason to lose them.
+      log.warn('WhatsApp linked-session directory unavailable; requesting device history');
+    }
     if (this.sock !== sock || this.status !== 'connected')
       throw new Error('O WhatsApp reconectou. Tente a sincronização novamente.');
     // Native peer-data control request, not a chat message or a new login.

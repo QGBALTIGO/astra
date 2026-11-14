@@ -86,6 +86,9 @@ export function serializeChannelUser(user: ChannelUserEntity, whatsAppOwner: str
     accessSource: user.accessSource ?? null,
     accessStatus: channelUserAccessStatus(user),
     hasInteracted: user.metadata?.hasInteracted !== false,
+    ...(user.metadata?.discoveredFromLinkedSession === true
+      ? { discoveredFromLinkedSession: true }
+      : {}),
     isOwner:
       user.ownpilotUserId === LOCAL_OWNER_ID ||
       (user.platform === 'whatsapp' && user.platformUserId === whatsAppOwner),
