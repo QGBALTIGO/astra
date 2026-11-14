@@ -6,6 +6,7 @@
  */
 
 import { withRecentReceiptContext } from '../../channels/recent-chat-replies.js';
+import { verifiedChannelFacts } from '../../channels/verified-facts.js';
 import { randomUUID } from 'node:crypto';
 import type { MessageMiddleware, StreamCallbacks } from '@ownpilot/core/services';
 import { getExecContext, runInExecContext, type ContentPart } from '@ownpilot/core/agent';
@@ -23,6 +24,7 @@ import {
   isConversationalOnlyChannelRequest,
   needsConversationalRewrite,
   recentChannelText,
+  requiredChannelWeatherTool,
 } from '../../channels/tool-selection.js';
 
 import {
@@ -44,6 +46,10 @@ export function userFacingAgentError(
   timeZone?: string
 ): string {
   if (message.metadata?.source !== 'channel') return 'Error: ' + details;
+  const verified = verifiedChannelFacts('', receipts, { timeZone, requestText: message.content });
+  if (verified) return verified;
+  if (requiredChannelWeatherTool(message.content))
+    return 'Não consegui consultar o tempo agora. Pode tentar de novo em instantes?';
   return channelFailureReply(message.content, channelFailureKind(details), receipts, timeZone);
 }
 
@@ -113,6 +119,10 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
           : channelToolsForMessage(message.content, recentChannelText(agent.getConversation()))
         : ctx.get<string[]>('directTools');
     const stream = ctx.get<StreamCallbacks>('stream');
+    const requiredWeather =
+      message.metadata.source === 'channel' && !conversationOnly
+        ? requiredChannelWeatherTool(message.content, recentChannelText(agent.getConversation()))
+        : undefined;
 
     // Expose direct tools if requested
     if (directTools?.length && agent.setAdditionalTools) {
@@ -145,6 +155,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
 
     try {
       const chatOptions: Record<string, unknown> = {};
+      if (requiredWeather) chatOptions.requiredFirstTool = requiredWeather;
 
       // Add thinking config if provided
       const thinking = ctx.get<{
@@ -223,16 +234,47 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         chatContent = parts;
       }
 
-      const result =
+      const invoke = (
+        content: string | readonly ContentPart[],
+        options: Record<string, unknown>
+      ) =>
         message.metadata.source === 'channel'
-          ? await runInExecContext(
+          ? runInExecContext(
               {
                 ...getExecContext(),
                 onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
               },
-              () => agent.chat(chatContent, chatOptions)
+              () => agent.chat(content, options)
             )
-          : await agent.chat(chatContent, chatOptions);
+          : agent.chat(content, options);
+      let result = await invoke(chatContent, chatOptions);
+      if (
+        result.ok &&
+        requiredWeather === 'core.set_weather_city' &&
+        /\b(?:temperatura|tempo|clima)\b/i.test(message.content) &&
+        !channelReceipts.some((r) => r.name.endsWith('get_local_weather')) &&
+        channelReceipts.some((r) => {
+          if (!r.name.endsWith('set_weather_city') || r.isError) return false;
+          try {
+            const value = JSON.parse(r.content);
+            return value.success !== false && (value.result ?? value).saved === true;
+          } catch {
+            return false;
+          }
+        })
+      ) {
+        const firstUsage = result.value?.usage;
+        result = await invoke(
+          'A cidade deste pedido já foi guardada com sucesso. Consulte agora a temperatura usando a cidade salva, sem salvar novamente nem alterar lembretes.',
+          { ...chatOptions, requiredFirstTool: 'core.get_local_weather' }
+        );
+        if (firstUsage && result.value?.usage)
+          result.value.usage = {
+            promptTokens: firstUsage.promptTokens + result.value.usage.promptTokens,
+            completionTokens: firstUsage.completionTokens + result.value.usage.completionTokens,
+            totalTokens: firstUsage.totalTokens + result.value.usage.totalTokens,
+          };
+      }
 
       // Clear direct tools after chat
       if (directTools?.length && agent.clearAdditionalTools) {
@@ -340,6 +382,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
           durationMs,
           toolExecutions: channelReceipts.length,
           toolFailures: channelReceipts.filter((r) => r.isError).length,
+          toolSequence: channelReceipts.map((r) => ({ name: r.name, failed: r.isError })),
         });
       }
       const responseMessage: NormalizedMessage = {

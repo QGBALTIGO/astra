@@ -1,5 +1,39 @@
 import { isAstraAccessAnswerRequested } from './astra-access.js';
 
+export function requiredChannelWeatherTool(text: string, previousText = ''): string | undefined {
+  if (isConversationalOnlyChannelRequest(text)) return undefined;
+  const clean = (value: string) =>
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  const input = clean(text),
+    previous = clean(previousText);
+  if (
+    /\b(?:forno|assar|fritar|febre|corporal|termometro|geladeira|freezer|ferver|ebulicao|agua|feijao|arroz|bolo|oleo)\b/.test(
+      input
+    )
+  )
+    return undefined;
+  const weather =
+    /\b(?:temperatura|tempretura|tempratura|temperature|clima|previsao|chover|chuva)\b|\b(?:como (?:esta|ta) o tempo|tempo (?:agora|hoje|aqui|em))\b/.test(
+      input
+    );
+  const cityPreference =
+    !/\bnao\s+(?:guarde|salve|memorize|(?:mude|altere)\s+(?:a\s+|minha\s+)?cidade)\b/.test(input) &&
+    /\b(?:guarde|guardar|salve|salvar|memorize|moro em|morando em|minha cidade (?:e|agora e))\b/.test(
+      input
+    ) &&
+    /\b(?:cidade|tempo|clima|temperatura|moro|morando)\b/.test(input);
+  if (cityPreference) return 'core.set_weather_city';
+  const cityAnswer =
+    /\b(?:qual cidade|em qual cidade|cidade e (?:o )?estado)\b/.test(previous.slice(-500)) &&
+    /^[\p{L}\p{M}\s,.'()–-]{2,100}$/u.test(text.trim()) &&
+    !/\b(?:nao|cancelar|oi|sim|obrigad\w*)\b/.test(input);
+  if (cityAnswer && !weather) return 'core.set_weather_city';
+  return weather ? 'core.get_local_weather' : undefined;
+}
+
 /** Only clear, non-action opinion questions bypass financial tool discovery. */
 export function isConversationalOnlyChannelQuestion(text: string): boolean {
   const normalized = text
@@ -100,6 +134,7 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     .toLowerCase();
   const tools = new Set<string>();
   const add = (...names: string[]) => names.forEach((name) => tools.add(`core.${name}`));
+  if (requiredChannelWeatherTool(text, previousText)) add('get_local_weather', 'set_weather_city');
   if (
     /\b(?:temperatura|clima|calor|frio|chuva|chover|previsao|weather|cidade|moro|morando)\b/.test(
       input

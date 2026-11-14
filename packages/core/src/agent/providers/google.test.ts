@@ -114,6 +114,37 @@ function makeGeminiResponse(overrides: Record<string, unknown> = {}) {
 // --- Tests ---
 
 describe('GoogleProvider', () => {
+  it('honors required tool choice using Gemini ANY mode', async () => {
+    const provider = new GoogleProvider(makeMockConfig());
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => makeGeminiResponse() });
+    await provider.complete(
+      makeRequest({
+        tools: [
+          {
+            name: 'weather',
+            description: 'Weather lookup',
+            parameters: { type: 'object', properties: {} },
+          },
+        ],
+        toolChoice: 'required',
+      })
+    );
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
+    expect(body.toolConfig).toEqual({ functionCallingConfig: { mode: 'ANY' } });
+    await provider.complete(
+      makeRequest({
+        tools: [
+          {
+            name: 'weather',
+            description: 'Weather lookup',
+            parameters: { type: 'object', properties: {} },
+          },
+        ],
+        toolChoice: 'auto',
+      })
+    );
+    expect(JSON.parse(mockFetch.mock.calls[1]![1].body as string).toolConfig).toBeUndefined();
+  });
   let mockFetch: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {

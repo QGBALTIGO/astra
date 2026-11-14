@@ -3,6 +3,7 @@ import {
   channelToolsForMessage,
   isConversationalOnlyChannelRequest,
   recentChannelText,
+  requiredChannelWeatherTool,
 } from './tool-selection.js';
 
 const financeTools = [
@@ -14,6 +15,35 @@ const financeTools = [
 ];
 
 describe('channel finance tool selection', () => {
+  it.each([
+    'Para este teste, guarde Aquidauana, Mato Grosso do Sul como minha cidade para consultar o tempo e me diga a temperatura agora. Preserve o fuso dos meus lembretes.',
+    'Guarde Cuiabá como minha cidade do clima',
+  ])('requires saving the stated weather city, not reading reminders: %s', (text) => {
+    expect(requiredChannelWeatherTool(text)).toBe('core.set_weather_city');
+  });
+  it('requires a lookup for weather, but not cooking temperature or unrelated messages', () => {
+    expect(requiredChannelWeatherTool('Qual a temperatura em Aquidauana?')).toBe(
+      'core.get_local_weather'
+    );
+    expect(
+      requiredChannelWeatherTool(
+        'Aquidauana, Mato Grosso do Sul',
+        'Qual cidade e estado você está agora?'
+      )
+    ).toBe('core.set_weather_city');
+    expect(requiredChannelWeatherTool('Qual temperatura uso no forno?')).toBeUndefined();
+    expect(requiredChannelWeatherTool('Qual a temperatura da água para o feijão?')).toBeUndefined();
+    expect(requiredChannelWeatherTool('Qual é minha cidade do clima?')).toBe(
+      'core.get_local_weather'
+    );
+    expect(
+      requiredChannelWeatherTool('Não guarde esta cidade, só consulte o clima em Cuiabá')
+    ).toBe('core.get_local_weather');
+    expect(requiredChannelWeatherTool('Qual a tempretura em Aquidauana?')).toBe(
+      'core.get_local_weather'
+    );
+    expect(requiredChannelWeatherTool('Qual meu próximo lembrete?')).toBeUndefined();
+  });
   it.each([
     'Qual a temperatura agora?',
     'Como tá o tempo aqui?',

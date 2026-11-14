@@ -119,6 +119,87 @@ function createNextResult(overrides?: Partial<MessageProcessingResult>): Message
 // ---------------------------------------------------------------------------
 
 describe('createAgentExecutionMiddleware', () => {
+  it('requires a verified city write for the screenshot request and never reports a reminder error', async () => {
+    const agent = createAgent({
+      chat: vi
+        .fn()
+        .mockResolvedValue({ ok: false, error: { message: 'Maximum turns exceeded (6)' } }),
+    });
+    const text =
+      'Para este teste, guarde Aquidauana, Mato Grosso do Sul como minha cidade para consultar o tempo e me diga a temperatura agora. Preserve o fuso dos meus lembretes.';
+    const result = await createAgentExecutionMiddleware()(
+      createMessage({ content: text, metadata: { source: 'channel', platform: 'whatsapp' } }),
+      createContext({ store: { agent } }),
+      vi.fn()
+    );
+    expect(agent.chat.mock.calls[0]![1].requiredFirstTool).toBe('core.set_weather_city');
+    expect(result.response.content).toContain('consultar o tempo');
+    expect(result.response.content).not.toContain('lembretes');
+  });
+  it('finishes a requested temperature lookup after a confirmed city save without saving twice', async () => {
+    const chat = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        getExecContext()?.onToolResult?.({
+          name: 'core.set_weather_city',
+          isError: false,
+          content: JSON.stringify({
+            success: true,
+            result: { saved: true, city: 'Aquidauana', region: 'MS' },
+          }),
+        });
+        return {
+          ok: true,
+          value: {
+            id: 'save',
+            content: 'Cidade salva!',
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          },
+        };
+      })
+      .mockImplementationOnce(async () => {
+        getExecContext()?.onToolResult?.({
+          name: 'core.get_local_weather',
+          isError: false,
+          content: JSON.stringify({
+            success: true,
+            result: {
+              city: 'Aquidauana',
+              region: 'MS',
+              temperatureC: 35.3,
+              kind: 'model_estimate',
+            },
+          }),
+        });
+        return {
+          ok: true,
+          value: {
+            id: 'read',
+            content: 'Claro, Kayky!\n30 °C',
+            usage: { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+          },
+        };
+      });
+    const agent = createAgent({ chat });
+    const ctx = createContext({ store: { agent } });
+    const result = await createAgentExecutionMiddleware()(
+      createMessage({
+        content: 'Guarde Aquidauana como minha cidade e diga a temperatura',
+        metadata: { source: 'channel', platform: 'whatsapp' },
+      }),
+      ctx,
+      vi.fn()
+    );
+    expect(chat).toHaveBeenCalledTimes(2);
+    expect(chat.mock.calls[1]![1].requiredFirstTool).toBe('core.get_local_weather');
+    expect(result.response.content).toContain('35,3 °C');
+    expect(result.response.content).not.toContain('30 °C');
+    expect(ctx.set).toHaveBeenCalledWith('usage', {
+      promptTokens: 3,
+      completionTokens: 3,
+      totalTokens: 6,
+    });
+  });
   let middleware: ReturnType<typeof createAgentExecutionMiddleware>;
 
   beforeEach(() => {

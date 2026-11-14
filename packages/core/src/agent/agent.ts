@@ -27,6 +27,8 @@ import { getErrorMessage } from '../services/error-utils.js';
 interface AgentChatOptions {
   /** Omit tool schemas and reject unsolicited tool calls for a text-only turn. */
   toolChoice?: 'none';
+  /** Require one audited tool on the first round, then resume normal reasoning. */
+  requiredFirstTool?: string;
   stream?: boolean;
   onChunk?: (chunk: StreamChunk) => void;
   /** Callback to approve/reject tool calls before execution */
@@ -332,13 +334,23 @@ export class Agent {
         );
       }
 
+      const requiredFirstTool = turnCount === 1 ? options?.requiredFirstTool : undefined;
+      const exposedTools = this.getTools();
+      const firstDefinition = requiredFirstTool
+        ? exposedTools.find((tool) => tool.name === requiredFirstTool)
+        : undefined;
+      if (requiredFirstTool && (!firstDefinition || options?.toolChoice === 'none'))
+        return err(new ValidationError('Required first tool is unavailable'));
       // Build completion request
       const request = {
         messages,
         model: this.config.model,
         ...(options?.toolChoice === 'none'
           ? {}
-          : { tools: this.getTools(), toolChoice: 'auto' as const }),
+          : {
+              tools: firstDefinition ? [firstDefinition] : exposedTools,
+              toolChoice: firstDefinition ? ('required' as const) : ('auto' as const),
+            }),
         stream: options?.stream ?? false,
         thinking: options?.thinking,
         metadata: {
@@ -379,6 +391,14 @@ export class Agent {
       if (options?.toolChoice === 'none' && response.toolCalls?.length) {
         return err(new ValidationError('Unexpected tool call during a text-only turn'));
       }
+      if (
+        requiredFirstTool &&
+        (response.toolCalls?.length !== 1 ||
+          response.toolCalls.some(
+            (call) => call.name.replace(/__/g, '.') !== requiredFirstTool.replace(/__/g, '.')
+          ))
+      )
+        return err(new ValidationError('Required first tool was not called'));
 
       // Store bridge conversation ID for session resume across bridge restarts
       if (response.responseMetadata?.bridgeConversationId) {

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fontes do clima · Astra</title>
+    <meta name="description" content="Entenda de onde vêm as informações do tempo no Astra." />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        background: #080e19;
+        color: #e8eef9;
+      }
+      body {
+        margin: 0;
+        padding: 40px 20px;
+        line-height: 1.65;
+      }
+      main {
+        max-width: 660px;
+        margin: auto;
+      }
+      .brand {
+        color: #75b7ff;
+        font-weight: 700;
+        text-decoration: none;
+      }
+      h1 {
+        font-size: clamp(1.7rem, 5vw, 2.4rem);
+        line-height: 1.2;
+        margin: 24px 0;
+      }
+      h2 {
+        font-size: 1.1rem;
+        margin-top: 28px;
+      }
+      p {
+        color: #b9c6db;
+      }
+      a {
+        color: #8bc5ff;
+        text-underline-offset: 3px;
+      }
+      section {
+        border-top: 1px solid #26334a;
+        margin-top: 24px;
+      }
+      a:focus-visible {
+        outline: 3px solid #8bc5ff;
+        outline-offset: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="brand" href="/cliente">Astra · Seu assessor pessoal</a>
+      <h1>De onde vem o tempo que você consulta</h1>
+      <p>
+        A temperatura apresentada pelo Astra é uma estimativa de um modelo meteorológico para a
+        cidade escolhida. Ela pode ser diferente da medição de um termômetro próximo de você.
+      </p>
+      <section>
+        <h2>Previsão: MET Norway</h2>
+        <p>
+          Dados do <a href="https://api.met.no/">Instituto Meteorológico Norueguês (MET Norway)</a>,
+          publicados sob a licença
+          <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Atribuição 4.0</a
+          >. O Astra resume e traduz as condições e arredonda os valores para facilitar a leitura.
+          Essas adaptações não indicam endosso do instituto.
+        </p>
+      </section>
+      <section>
+        <h2>Cidades: OpenStreetMap</h2>
+        <p>
+          Localização de cidades com dados ©
+          <a href="https://www.openstreetmap.org/copyright">colaboradores do OpenStreetMap</a>, sob
+          a licença <a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL</a>. A busca usa o
+          Nominatim, com cache e respeito à sua
+          <a href="https://operations.osmfoundation.org/policies/nominatim/">política de uso</a>.
+        </p>
+      </section>
+      <section>
+        <h2>Sua cidade, do seu jeito</h2>
+        <p>
+          Você informa a cidade pelo chat e pode mudá-la quando quiser. A preferência do clima é
+          individual e não altera o fuso dos seus lembretes. Consultar o tempo em outra cidade
+          ocasionalmente também não muda sua preferência.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
