@@ -403,7 +403,8 @@ describe('agent-tools helpers', () => {
     it('wraps executor with tracing when trace=true', async () => {
       const registeredExecutors: Array<(args: unknown) => Promise<unknown>> = [];
       const mockToolRegistry = {
-        register: vi.fn((_def: unknown, executor: unknown) => {
+        register: vi.fn((def: { name: string }, executor: unknown) => {
+          if (def.name !== 'store_memory') return;
           registeredExecutors.push(executor as (args: unknown) => Promise<unknown>);
         }),
         unregister: vi.fn(),
@@ -415,6 +416,7 @@ describe('agent-tools helpers', () => {
       mockExecuteMemoryTool.mockResolvedValue({ success: true, result: 'stored' });
       registerGatewayTools(mockToolRegistry as any, 'test-user', true);
 
+      expect(registeredExecutors).toHaveLength(1);
       if (registeredExecutors.length > 0) {
         await registeredExecutors[0]!({ key: 'test' });
         expect(mockTraceToolCallStart).toHaveBeenCalled();
@@ -425,7 +427,8 @@ describe('agent-tools helpers', () => {
     it('does not trace when trace=false', async () => {
       const registeredExecutors: Array<(args: unknown) => Promise<unknown>> = [];
       const mockToolRegistry = {
-        register: vi.fn((_def: unknown, executor: unknown) => {
+        register: vi.fn((def: { name: string }, executor: unknown) => {
+          if (def.name !== 'store_memory') return;
           registeredExecutors.push(executor as (args: unknown) => Promise<unknown>);
         }),
         unregister: vi.fn(),
@@ -437,6 +440,7 @@ describe('agent-tools helpers', () => {
       mockExecuteMemoryTool.mockResolvedValue({ success: true, result: 'stored' });
       registerGatewayTools(mockToolRegistry as any, 'test-user', false);
 
+      expect(registeredExecutors).toHaveLength(1);
       if (registeredExecutors.length > 0) {
         await registeredExecutors[0]!({ key: 'test' });
         expect(mockTraceToolCallStart).not.toHaveBeenCalled();
@@ -449,7 +453,8 @@ describe('agent-tools helpers', () => {
         (args: unknown) => Promise<{ content: string; isError?: boolean }>
       > = [];
       const mockToolRegistry = {
-        register: vi.fn((_def: unknown, executor: unknown) => {
+        register: vi.fn((def: { name: string }, executor: unknown) => {
+          if (def.name !== 'store_memory') return;
           registeredExecutors.push(executor as any);
         }),
         unregister: vi.fn(),
@@ -461,6 +466,7 @@ describe('agent-tools helpers', () => {
       mockExecuteMemoryTool.mockResolvedValue({ success: false, error: 'Memory full' });
       registerGatewayTools(mockToolRegistry as any, 'test-user', false);
 
+      expect(registeredExecutors).toHaveLength(1);
       if (registeredExecutors.length > 0) {
         const result = await registeredExecutors[0]!({ key: 'test' });
         expect(result.content).toBe('Memory full');
@@ -473,7 +479,8 @@ describe('agent-tools helpers', () => {
         (args: unknown) => Promise<{ content: string; isError?: boolean }>
       > = [];
       const mockToolRegistry = {
-        register: vi.fn((_def: unknown, executor: unknown) => {
+        register: vi.fn((def: { name: string }, executor: unknown) => {
+          if (def.name !== 'store_memory') return;
           registeredExecutors.push(executor as any);
         }),
         unregister: vi.fn(),
@@ -485,6 +492,7 @@ describe('agent-tools helpers', () => {
       mockExecuteMemoryTool.mockResolvedValue({ success: false });
       registerGatewayTools(mockToolRegistry as any, 'test-user', false);
 
+      expect(registeredExecutors).toHaveLength(1);
       if (registeredExecutors.length > 0) {
         const result = await registeredExecutors[0]!({ key: 'test' });
         expect(result.content).toBe('Unknown error');
@@ -497,7 +505,8 @@ describe('agent-tools helpers', () => {
         (args: unknown) => Promise<{ content: string; isError?: boolean }>
       > = [];
       const mockToolRegistry = {
-        register: vi.fn((_def: unknown, executor: unknown) => {
+        register: vi.fn((def: { name: string }, executor: unknown) => {
+          if (def.name !== 'store_memory') return;
           registeredExecutors.push(executor as any);
         }),
         unregister: vi.fn(),
@@ -509,6 +518,7 @@ describe('agent-tools helpers', () => {
       mockExecuteMemoryTool.mockResolvedValue({ success: true, result: { data: 'value' } });
       registerGatewayTools(mockToolRegistry as any, 'test-user', false);
 
+      expect(registeredExecutors).toHaveLength(1);
       if (registeredExecutors.length > 0) {
         const result = await registeredExecutors[0]!({ key: 'test' });
         expect(JSON.parse(result.content)).toEqual({ data: 'value' });
