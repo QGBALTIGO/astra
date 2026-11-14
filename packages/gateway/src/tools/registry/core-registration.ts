@@ -36,6 +36,10 @@ import { CHANNEL_REMINDER_TOOLS, executeChannelReminderTool } from '../channel-r
 import { FINANCING_TOOLS, executeFinancingTool } from '../financing-tools.js';
 import { CUSTOMER_FINANCE_TOOLS, executeCustomerFinanceTool } from '../customer-finance-tools.js';
 import {
+  CUSTOMER_PLANNING_TOOLS,
+  executeCustomerPlanningTool,
+} from '../customer-planning-tools.js';
+import {
   executeCustomToolTool,
   executeActiveCustomTool,
   getActiveCustomToolDefinitions,
@@ -120,6 +124,11 @@ export function registerGatewayTools(tools: ToolRegistry, userId: string, trace:
     {
       definitions: CUSTOMER_FINANCE_TOOLS,
       executor: executeCustomerFinanceTool,
+      needsUserId: true,
+    },
+    {
+      definitions: CUSTOMER_PLANNING_TOOLS,
+      executor: executeCustomerPlanningTool,
       needsUserId: true,
     },
     { definitions: GOAL_TOOLS, executor: executeGoalTool, needsUserId: true },

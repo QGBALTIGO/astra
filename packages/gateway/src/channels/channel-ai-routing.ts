@@ -47,6 +47,7 @@ import {
   isConversationalOnlyChannelRequest,
   needsConversationalRewrite,
   recentChannelText,
+  requiredChannelSubscriptionTool,
 } from './tool-selection.js';
 import { restoreChannelHistory } from './restore-history.js';
 import { withRecentReceiptContext } from './recent-chat-replies.js';
@@ -841,7 +842,10 @@ async function processDirectAgentInSession(
               }
             )
           : agent.chat(
-              withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts)
+              withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts),
+              requiredChannelSubscriptionTool(interpreted.text)
+                ? { requiredFirstTool: requiredChannelSubscriptionTool(interpreted.text) }
+                : undefined
             )
     ).finally(() => agent.clearAdditionalTools?.());
   } catch (error) {

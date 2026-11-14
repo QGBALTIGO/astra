@@ -5,6 +5,7 @@ import {
   recentChannelText,
   requiredChannelWeatherTool,
   requiredChannelEmailDigestTool,
+  requiredChannelSubscriptionTool,
 } from './tool-selection.js';
 
 const financeTools = [
@@ -14,6 +15,29 @@ const financeTools = [
   'core.delete_transaction',
   'core.financial_summary',
 ];
+it.each([
+  'E a assinatura da revista, qual valor ficou e quando renova?',
+  'Qual o preço da assinatura da música?',
+  'Mostre minhas assinaturas',
+  'Tenho alguma assinatura?',
+])('uses subscription planning after an expense conversation: %s', (text) => {
+  expect(requiredChannelSubscriptionTool(text)).toBe('core.list_customer_subscriptions');
+  expect(channelToolsForMessage(text, 'Pizza registrada. Valor R$ 7,90. Alimentação.')).toEqual([
+    'core.list_customer_subscriptions',
+  ]);
+});
+it.each([
+  'Quanto gastei com a assinatura?',
+  'Atualize a assinatura Revista para R$ 12,90',
+  'Qual o valor da assinatura e crie um lembrete?',
+  'A assinatura vale a pena?',
+  'Como funciona a assinatura do Astra?',
+  'Pague a assinatura',
+  'Qual assinatura e quais gastos tenho?',
+  'Qual a temperatura e valor da assinatura?',
+])('does not force a subscription read for another operation: %s', (text) => {
+  expect(requiredChannelSubscriptionTool(text)).toBeUndefined();
+});
 it.each([
   'Todo dia às 8h me mande um resumo dos emails importantes.',
   'Cancele meu resumo diário de e-mails.',

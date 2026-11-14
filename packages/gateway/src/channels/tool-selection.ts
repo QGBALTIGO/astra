@@ -1,6 +1,27 @@
 import { isAstraAccessAnswerRequested } from './astra-access.js';
 import { isFinanceReadOnlyRequest } from './finance-intent.js';
 
+/** Read saved subscription facts rather than searching payment transactions. */
+export function requiredChannelSubscriptionTool(text: string): string | undefined {
+  if (isConversationalOnlyChannelRequest(text)) return undefined;
+  const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  if (
+    !/\bassinaturas?\b/.test(input) ||
+    /\b(?:astra|google|gmail|e-?mail|exemplo|hipotetico|simulacao|temperatura|clima|lembretes?|gastos?|gastei|paguei|pagamentos?|despesas?|lancamentos?|transacoes)\b/.test(
+      input
+    ) ||
+    /\b(?:cadastr\w*|assin(?:ar|e)|registr\w*|anot\w*|adicion\w*|atualiz\w*|alter\w*|corrig\w*|corrij\w*|remov\w*|exclu\w*|apag\w*|cancel\w*|agend\w*|lembr\w*|avise|avisar|crie|criar|mude|mudar)\b/.test(
+      input
+    )
+  )
+    return undefined;
+  return /\b(?:qual|quais|quanto|quando|valor|preco|renova|vence|minhas|tenho|liste|lista|listar|mostre|mostra|ver|consulte)\b/.test(
+    input
+  )
+    ? 'core.list_customer_subscriptions'
+    : undefined;
+}
+
 export function requiredChannelEmailDigestTool(
   text: string,
   previousText = ''
@@ -160,6 +181,10 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     .toLowerCase();
   const tools = new Set<string>();
   const add = (...names: string[]) => names.forEach((name) => tools.add(`core.${name}`));
+  if (/\bassinaturas?\b/.test(input)) add('list_customer_subscriptions');
+  // A subscription lookup needs current planning facts, not the preceding
+  // expense's mutation tools. The AI still resolves the reference and writes the reply.
+  if (requiredChannelSubscriptionTool(text)) return ['core.list_customer_subscriptions'];
   if (requiredChannelWeatherTool(text, previousText)) add('get_local_weather', 'set_weather_city');
   if (
     /\b(?:temperatura|clima|calor|frio|chuva|chover|previsao|weather|cidade|moro|morando)\b/.test(
