@@ -1,5 +1,6 @@
 /** Final channel boundary: model text is not proof of a database write. */
 import { stripInternalTags } from './normalizers/base.js';
+import { isFinanceReadOnlyRequest } from './finance-intent.js';
 import { verifiedChannelFacts } from './verified-facts.js';
 import {
   formatAstraMessage,
@@ -335,6 +336,23 @@ export function safeChannelResponse(
   receipts: ChannelToolReceipt[],
   context: { timeZone?: string; requestText?: string } = {}
 ): string {
+  // A saved row returned by a lookup is evidence of an existing item, never a
+  // new registration. Keep the model's prose and details but label it clearly.
+  if (
+    isFinanceReadOnlyRequest(context.requestText ?? '') &&
+    ['list_transactions', 'financial_summary', 'list_expenses', 'expense_summary'].some((name) =>
+      successfulChannelTools(receipts).has(name)
+    ) &&
+    !channelOperations(receipts).some((receipt) =>
+      /^(?:record_transaction|update_transaction|delete_transaction|add_expense|batch_add_expenses|update_expense|delete_expense)$/.test(
+        normalizeName(receipt.name)
+      )
+    )
+  )
+    text = text.replace(
+      /^[ \t]*(?:(?:✅|⏳)\s*)?\*?(?:Despesa|Entrada|Valor a (?:pagar|receber)) (?:já )?registrad[oa]\*?[ \t]*$/gimu,
+      '🔎 *Lançamento encontrado*'
+    );
   const verified = verifiedChannelFacts(text, receipts, context);
   if (verified) return verified;
   const ids = internalIds(receipts);

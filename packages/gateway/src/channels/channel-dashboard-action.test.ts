@@ -17,6 +17,18 @@ it.each(['whatsapp', 'telegram'])(
   }
 );
 describe('Portal links after verified confirmations', () => {
+  it('links an existing financial lookup without calling it a new registration', () => {
+    expect(
+      action(
+        'Aqui está, Kayky.\n\n🔎 *Lançamento encontrado*\n\n• *Valor:* R$ 4,60',
+        id,
+        'whatsapp'
+      )
+    ).toEqual({
+      label: 'Ver meus lançamentos',
+      url: 'https://app.astraacessor.pro/cliente/transacoes',
+    });
+  });
   it('offers the ledger after an uncertain financial result without implying a successful write', () => {
     expect(
       action(

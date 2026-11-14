@@ -8,6 +8,34 @@ import {
 import { formatTransactionConfirmation } from './response-presentation.js';
 
 const id = 'f01834d8-a411-4ed6-947c-d35d410184bb';
+it.each([
+  'Despesa registrada',
+  '✅ *Despesa registrada*',
+  '✅ *Entrada já registrada*',
+  '⏳ *Valor a pagar registrado*',
+])('presents an existing financial item as a lookup: %s', (heading) => {
+  const read: ChannelToolReceipt = {
+    name: 'core.list_transactions',
+    arguments: '{}',
+    isError: false,
+    content: JSON.stringify({
+      success: true,
+      result: { transactions: [{ id, type: 'expense', amount: 4.6, description: 'Guardanapos' }] },
+    }),
+  };
+  const answer = safeChannelResponse(
+    'Aqui está, Kayky.\n\n' + heading + '\n\n• *Valor:* R$ 4,60\n• *Descrição:* Guardanapos',
+    [read],
+    { requestText: 'Mostre o gasto de guardanapos de R$ 4,60.' }
+  );
+  expect(answer).toContain('Aqui está, Kayky.');
+  expect(answer).toContain('🔎 *Lançamento encontrado*');
+  expect(answer).toContain('• *Valor:* R$ 4,60');
+  expect(answer).not.toMatch(/registrad[oa]/i);
+  expect(
+    safeChannelResponse(heading, [{ ...read, isError: true }], { requestText: 'Mostre meu gasto' })
+  ).not.toContain('Lançamento encontrado');
+});
 const reminder = (status = 'pending'): ChannelToolReceipt => ({
   name: 'core.schedule_channel_reminder',
   arguments: '',
