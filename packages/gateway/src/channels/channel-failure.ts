@@ -256,7 +256,9 @@ export function channelFailureReply(
       '✅ Cancelamento dos lembretes',
       [
         { label: 'Cancelados', value: String(details.length) },
-        ...(unconfirmed ? [{ label: 'Sem confirmação', value: String(unconfirmed) }] : []),
+        ...(unconfirmed
+          ? [{ label: 'Restantes', value: 'Consulte a lista atual para conferir' }]
+          : []),
       ],
       unconfirmed
         ? 'Uma parte foi concluída. Consulte os lembretes que restaram antes de repetir o pedido.'

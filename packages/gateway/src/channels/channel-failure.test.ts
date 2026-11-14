@@ -25,7 +25,7 @@ it('reports two confirmed cancellations after a turn-budget failure without clai
   });
   const reply = channelFailureReply('Cancele todos', 'agent_error', receipts);
   expect(reply).toContain('Cancelados:* 2');
-  expect(reply).toContain('Sem confirmação:* 1');
+  expect(reply).toContain('Restantes:* Consulte a lista atual');
   expect(reply).not.toContain('Não consegui terminar');
 });
 
