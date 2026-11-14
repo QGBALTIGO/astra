@@ -6,8 +6,21 @@ const svc = vi.hoisted(() => ({
   getCustomerConnections: vi.fn(),
   authorizeCustomerToolkit: vi.fn(),
   disconnectCustomerToolkit: vi.fn(),
+  sync: vi.fn(),
+  token: vi.fn(),
+  snapshot: vi.fn(),
+  link: vi.fn(),
 }));
 vi.mock('../../services/composio-service.js', () => ({ composioService: svc }));
+vi.mock('../../db/repositories/customer-integrations.js', () => ({
+  customerIntegrationsRepo: { snapshot: svc.snapshot, reserveTelegramLink: svc.link },
+}));
+vi.mock('../../services/customer-integrations.js', () => ({
+  customerIntegrationService: { sync: svc.sync },
+}));
+vi.mock('../../channels/auth/verification.js', () => ({
+  getChannelVerificationService: () => ({ generateToken: svc.token }),
+}));
 const { customerConnectedAppsRoutes } = await import('./connected-apps.js');
 
 const customer = {
@@ -46,6 +59,10 @@ describe('customer Google connections', () => {
     svc.getCustomerConnections.mockResolvedValue([]);
     svc.authorizeCustomerToolkit.mockResolvedValue('https://connect.composio.dev/link/test-auth');
     svc.disconnectCustomerToolkit.mockResolvedValue(true);
+    svc.sync.mockResolvedValue({ updated: true });
+    svc.snapshot.mockResolvedValue(null);
+    svc.link.mockResolvedValue(undefined);
+    svc.token.mockResolvedValue({ token: 'SYNTHETIC', expiresAt: new Date() });
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -161,5 +178,41 @@ describe('customer Google connections', () => {
       'astra-customer:account-a',
       'ca_own'
     );
+  });
+  it('synchronizes only the authenticated data owner', async () => {
+    const response = await post(createApp(), '/connected-apps/gmail/sync', {
+      userId: 'foreign',
+      connectionId: 'foreign',
+    });
+    expect(response.status).toBe(200);
+    expect(svc.sync).toHaveBeenCalledExactlyOnceWith(customer.dataUserId, 'gmail');
+  });
+  it('does not synchronize for expired access', async () => {
+    expect(
+      (
+        await post(
+          createApp({ ...customer.access, canWrite: false }),
+          '/connected-apps/gmail/sync',
+          {}
+        )
+      ).status
+    ).toBe(403);
+    expect(svc.sync).not.toHaveBeenCalled();
+  });
+  it('generates a Telegram token for its own identity without accepting user IDs', async () => {
+    expect(
+      (await post(createApp(), '/connected-apps/telegram-link', { userId: 'foreign' })).status
+    ).toBe(200);
+    expect(svc.token).toHaveBeenCalledExactlyOnceWith(customer.dataUserId, {
+      platform: 'telegram',
+      ttlMinutes: 10,
+      type: 'token',
+    });
+  });
+  it('preserves sync failures as friendly failures', async () => {
+    svc.sync.mockRejectedValue(new Error('401 bearer secret'));
+    const response = await post(createApp(), '/connected-apps/gmail/sync', {});
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toMatch(/secret|bearer|401/);
   });
 });

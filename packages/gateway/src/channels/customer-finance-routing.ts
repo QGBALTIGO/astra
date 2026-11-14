@@ -75,7 +75,7 @@ export function parseChannelFinanceRecord(input: string): ChannelFinanceRecord |
     text = text.slice(0, dateSuffix.index).trim();
   }
   const match =
-    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(recebi|ganhei|acabei\s+de\s+(?:receber|ganhar|gastar|pagar)|vou\s+receber|tenho\s+a\s+receber|vou\s+pagar|tenho\s+a\s+pagar|tenho|gastei|paguei)\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:(?:real|reais)\b\s*)?(?:(a\s+receber|a\s+pagar)\b\s*)?(?:(?:de|do|da|dos|das|em|no|na|nos|nas|com|por|pelo|pela|pelos|pelas)\s+([\p{L}\p{M}\s'-]+))?[.!]?$/iu.exec(
+    /^(?:astra[,!:]?\s+)?(?:(?:anot[ae]|registr[ae])\s+(?:que\s+)?)?(?:eu\s+)?(recebi|ganhei|acabei\s+de\s+(?:receber|ganhar|gastar|pagar)|vou\s+receber|tenho\s+a\s+receber|vou\s+pagar|tenho\s+a\s+pagar|tenho|gastei|paguei)\s+(?:r\$\s*)?(\d[\d.,]*)\s*(?:(?:real|reais)\b\s*)?(?:(a\s+receber|a\s+pagar)\b\s*)?(?:(?:de|do|da|dos|das|em|no|na|nos|nas|com|por|pelo|pela|pelos|pelas)\s+([\p{L}\p{M}\s'-]+)|([\p{L}\p{M}\s'-]+))?[.!]?$/iu.exec(
       text
     );
   if (!match) return null;
@@ -89,6 +89,17 @@ export function parseChannelFinanceRecord(input: string): ChannelFinanceRecord |
     /\b(?:recebi|ganhei|ganhar|receber)\b/.test(action) || /receber/.test(state)
       ? 'income'
       : 'expense';
+  // In spoken shorthand the payer can follow an explicit monetary amount.
+  // Keep ambiguous counts and expense wording on the AI interpretation path.
+  if (
+    match[5] &&
+    (type !== 'income' ||
+      !/(?:r\$|(?:real|reais)\b)/i.test(text) ||
+      /^(?:de|do|da|dos|das|em|no|na|nos|nas|com|por|pelo|pela|pelos|pelas)(?:\s|$)/iu.test(
+        match[5]
+      ))
+  )
+    return null;
   // Completed expense statements without an explicit day keep the established
   // expense parser and provider-id key. This module extends its date support.
   if (type === 'expense' && !pending && !dateText) return null;
@@ -102,8 +113,9 @@ export function parseChannelFinanceRecord(input: string): ChannelFinanceRecord |
     return null;
   // A completed monetary statement does not need a merchant or income source.
   // Keep a neutral label when the user did not provide one; never infer a payer.
-  const description = match[4]
-    ? match[4].replace(/\s+/g, ' ').trim()
+  const providedDescription = match[4] ?? match[5];
+  const description = providedDescription
+    ? providedDescription.replace(/\s+/g, ' ').trim()
     : pending
       ? type === 'income'
         ? 'Valor a receber'

@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   UserCircle,
   X,
+  Globe,
 } from '../../components/icons';
 import { CUSTOMER_SESSION_EXPIRED, CustomerApiError, customerApi } from './api';
 import { CustomerAvatar, CustomerBrand, CustomerError, CustomerSkeleton } from './components';
@@ -37,6 +38,7 @@ import { CustomerTransactions, TransactionDetail } from './Transactions';
 import { CustomerCategories } from './Categories';
 import { CustomerAgenda } from './Agenda';
 import { CustomerProfile } from './Profile';
+import { CustomerConnectedApps } from './ConnectedApps';
 import type {
   Customer,
   CustomerTab,
@@ -49,6 +51,7 @@ const NAVIGATION = [
   { id: 'transacoes', path: '/cliente/transacoes', label: 'Transações', icon: Receipt },
   { id: 'categorias', path: '/cliente/categorias', label: 'Categorias', icon: Layers },
   { id: 'agenda', path: '/cliente/agenda', label: 'Agenda', icon: Calendar },
+  { id: 'conexoes', path: '/cliente/conexoes', label: 'Conexões', icon: Globe },
   { id: 'perfil', path: '/cliente/perfil', label: 'Perfil', icon: UserCircle },
 ] as const;
 
@@ -439,6 +442,26 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
                   setCreateTransaction(true);
                 }}
               />
+            ) : null}
+          </div>
+          <div className="ac-tab-panel" hidden={activeTab !== 'conexoes'}>
+            {visible('conexoes') ? (
+              <div className="ac-page">
+                <header className="ac-page-heading">
+                  <div>
+                    <p className="ac-eyebrow">TUDO CONECTADO, DO SEU JEITO</p>
+                    <h1>Conexões</h1>
+                    <p>Seus aplicativos, organizados com o seu Astra.</p>
+                  </div>
+                </header>
+                <section className="ac-card" id="conexoes">
+                  <CustomerConnectedApps
+                    active={activeTab === 'conexoes'}
+                    canWrite={customer.access.canWrite}
+                    onChanged={changed}
+                  />
+                </section>
+              </div>
             ) : null}
           </div>
           <div className="ac-tab-panel" hidden={activeTab !== 'perfil'}>

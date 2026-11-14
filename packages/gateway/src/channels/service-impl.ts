@@ -12,6 +12,10 @@ import { timingSafeEqual } from 'node:crypto';
 import { InboundFloodGuard } from './flood-guard.js';
 import { GreetingBurstGuard } from './greeting-burst-guard.js';
 import { dashboardActionForConfirmedReply } from './channel-dashboard-action.js';
+import { customerIntegrationsRepo } from '../db/repositories/customer-integrations.js';
+import { integrationProposalMessage } from '../services/customer-integrations.js';
+import { integrationPrivateChat } from './customer-integrations.js';
+import { customerTelegramLinkReply } from './customer-telegram-link.js';
 import {
   ASTRA_CUSTOMER_LOGIN_URL,
   containsCustomerLoginLink,
@@ -1272,6 +1276,16 @@ export class ChannelServiceImpl implements IChannelService {
           return;
         }
       }
+      const integrationProposal =
+        process.env.ASTRA_CUSTOMER_OAUTH_ENABLED === 'true' && integrationPrivateChat(message)
+          ? await customerIntegrationsRepo.forMessage(
+              dataUserId,
+              message.channelPluginId,
+              message.platformChatId,
+              message.id
+            )
+          : null;
+      if (integrationProposal) responseText = integrationProposalMessage(integrationProposal);
       let sentMessageId: string;
       if (progress && !replyWithVoice) {
         // Replace progress message with final response
@@ -1295,6 +1309,13 @@ export class ChannelServiceImpl implements IChannelService {
         });
       }
 
+      if (integrationProposal)
+        await customerIntegrationsRepo.markPromptSent(
+          integrationProposal.id,
+          dataUserId,
+          message.channelPluginId,
+          message.platformChatId
+        );
       // Quality events contain no message text and dedupe against transport logs.
       await recordOutboundQuality(message.channelPluginId, sentMessageId, responseText);
 
@@ -1653,6 +1674,23 @@ export class ChannelServiceImpl implements IChannelService {
     const api = this.getChannel(message.channelPluginId);
 
     // Try pairing key claim first
+    const customerReply = await customerTelegramLinkReply(message, submittedKey, (token) =>
+      this.verificationService.verifyToken(
+        token,
+        message.platform,
+        message.sender.platformUserId,
+        message.sender.displayName,
+        message.sender.username
+      )
+    );
+    if (customerReply) {
+      await api?.sendMessage({
+        platformChatId: message.platformChatId,
+        text: customerReply,
+        replyToId: message.id,
+      });
+      return;
+    }
     const claim = await claimOwnership(
       message.channelPluginId,
       message.platform,

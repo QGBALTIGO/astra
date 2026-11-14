@@ -2,7 +2,7 @@
  * Composio Service Tests
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -55,6 +55,67 @@ import { composioService } from './composio-service.js';
 // ---------------------------------------------------------------------------
 
 describe('ComposioService', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+  describe('customer action execution', () => {
+    it('pins a single app, action and customer account with connection management disabled', async () => {
+      mockConfigServicesRepo.getFieldValue.mockReturnValue('test-key');
+      mockComposioInstance.create.mockResolvedValue({ sessionId: 'session_exact' });
+      const request = vi.fn(
+        async (_url: unknown, _init?: RequestInit) =>
+          new Response(JSON.stringify({ successful: true, data: { id: 'test-event' } }), {
+            status: 200,
+          })
+      );
+      vi.stubGlobal('fetch', request);
+      await composioService.executeCustomerSession(
+        'astra-customer:account-a',
+        'googlecalendar',
+        'ca_own',
+        'GOOGLECALENDAR_CREATE_EVENT',
+        { summary: 'Fictício' }
+      );
+      expect(mockComposioInstance.create).toHaveBeenCalledWith('astra-customer:account-a', {
+        toolkits: ['googlecalendar'],
+        connectedAccounts: { googlecalendar: 'ca_own' },
+        tools: { googlecalendar: ['GOOGLECALENDAR_CREATE_EVENT'] },
+        manageConnections: { enable: false },
+        workbench: { enable: false },
+      });
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(mockComposioInstance.tools.execute).not.toHaveBeenCalled();
+      expect(JSON.parse(request.mock.calls[0]?.[1]?.body as string)).toEqual({
+        tool_slug: 'GOOGLECALENDAR_CREATE_EVENT',
+        arguments: { summary: 'Fictício' },
+      });
+    });
+    it('does not retry an uncertain mutation', async () => {
+      mockConfigServicesRepo.getFieldValue.mockReturnValue('test-key');
+      mockComposioInstance.create.mockResolvedValue({ sessionId: 'session_exact' });
+      const request = vi.fn(
+        async (_url: unknown, _init?: RequestInit) => new Response('', { status: 503 })
+      );
+      vi.stubGlobal('fetch', request);
+      await expect(
+        composioService.executeCustomerSession(
+          'astra-customer:account-a',
+          'gmail',
+          'ca_own',
+          'GMAIL_SEND_EMAIL',
+          {}
+        )
+      ).rejects.toMatchObject({ name: 'INTEGRATION_UNCERTAIN' });
+      expect(request).toHaveBeenCalledTimes(1);
+    });
+    it('refuses an operator identity before creating a session', async () => {
+      await expect(
+        composioService.executeCustomerSession('default', 'gmail', 'ca_own', 'GMAIL_SEND_EMAIL', {})
+      ).rejects.toThrow();
+      expect(mockComposioInstance.create).not.toHaveBeenCalled();
+    });
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     composioService.resetClient();
@@ -179,7 +240,7 @@ describe('ComposioService', () => {
       await composioService.searchActions('send', 'gmail', 5);
       expect(mockComposioInstance.tools.getRawComposioTools).toHaveBeenCalledWith({
         search: 'send',
-        toolkit: 'gmail',
+        toolkits: ['gmail'],
         limit: 5,
       });
     });

@@ -66,7 +66,7 @@ describe('customer WhatsApp login', () => {
     api.session.mockResolvedValue({ customer: customerFixture });
     await dom.submit();
     expect(api.verifyCode).toHaveBeenLastCalledWith('challenge-initial', '123456');
-    expect(dom.container.querySelectorAll('nav a')).toHaveLength(5);
+    expect(dom.container.querySelectorAll('nav a')).toHaveLength(6);
   });
   it('prevents duplicate OTP requests and preserves input on API failure', async () => {
     await login();

@@ -1,4 +1,4 @@
-export type CustomerTab = 'inicio' | 'transacoes' | 'categorias' | 'agenda' | 'perfil';
+export type CustomerTab = 'inicio' | 'transacoes' | 'categorias' | 'agenda' | 'conexoes' | 'perfil';
 export type CustomerTheme = 'light' | 'dark' | 'system';
 export interface Customer {
   accountId: string;
@@ -31,12 +31,16 @@ export interface CustomerConnectedApp {
   description?: string;
   slug: CustomerAppSlug;
   name: string;
-  status: 'connected' | 'disconnected' | 'needs_attention' | 'unavailable';
+  status: 'connected' | 'disconnected' | 'needs_attention' | 'unavailable' | 'pending';
   connectionId: string | null;
+  lastSyncedAt?: string | null;
+  itemCount?: number;
+  syncIssue?: string | null;
 }
 export interface CustomerConnectedAppsResponse {
   configured: boolean;
   apps: CustomerConnectedApp[];
+  timeZone?: string;
 }
 
 export interface CustomerIntegrations {

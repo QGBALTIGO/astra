@@ -32,6 +32,10 @@ export interface ExecContext {
   readonly channelMessageId?: string;
   /** Original receive instant, for relative reminders despite model latency. */
   readonly channelMessageTimestamp?: number;
+  readonly channelIsPrivate?: boolean;
+  readonly channelConversationOnly?: boolean;
+  /** Shared within one turn, including nested meta-tools. External data is never authority for local writes. */
+  readonly externalContentGuard?: { seen: boolean };
   /** In-process receipt only: observes actual registry results, including nested meta calls. */
   readonly onToolResult?: (receipt: { name: string; content: string; isError: boolean }) => void;
 }

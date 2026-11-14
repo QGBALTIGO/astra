@@ -125,6 +125,11 @@ export function mockCustomerApi(customer: Customer = structuredClone(customerFix
       redirectUrl: 'https://connect.composio.dev/link/test-customer',
     }),
     disconnectApp: vi.spyOn(customerApi, 'disconnectApp').mockResolvedValue({ disconnected: true }),
+    syncApp: vi.spyOn(customerApi, 'syncApp').mockResolvedValue({ updated: true }),
+    telegramLink: vi.spyOn(customerApi, 'telegramLink').mockResolvedValue({
+      command: '/connect TESTE-FICTICIO',
+      expiresAt: new Date(Date.now() + 600000).toISOString(),
+    }),
     integrations: vi.spyOn(customerApi, 'integrations').mockResolvedValue({
       googleCalendar: {
         available: false,

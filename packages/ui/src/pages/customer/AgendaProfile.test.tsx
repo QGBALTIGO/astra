@@ -135,6 +135,7 @@ describe('customer profile', () => {
     await mount('/cliente/perfil');
     expect(dom.container.textContent).toContain('WhatsApp');
     expect(dom.container.textContent).toContain('Conectado');
+    await dom.navigate('Conexões');
     expect(dom.container.textContent).toContain('Aguardando ativação');
     expect(dom.container.textContent).toContain('Gmail');
     const connectButtons = Array.from(
