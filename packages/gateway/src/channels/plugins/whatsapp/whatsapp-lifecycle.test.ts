@@ -536,10 +536,12 @@ describe('WhatsApp connection lifecycle', () => {
     await api.connect();
     sockets[0]!.emit('connection.update', { connection: 'open' });
     sockets[0]!.emit('messages.upsert', message(nextPhone, 'same-id', true));
+    await vi.waitFor(() => expect(receivedMessages()).toHaveLength(1));
     await api.disconnect();
     await api.connect();
     sockets[1]!.emit('connection.update', { connection: 'open' });
     sockets[1]!.emit('messages.upsert', message(nextPhone, 'same-id', true));
+    await Promise.resolve();
     expect(receivedMessages()).toHaveLength(1);
 
     await api.logout();
@@ -547,9 +549,44 @@ describe('WhatsApp connection lifecycle', () => {
     await api.connect();
     sockets[2]!.emit('connection.update', { connection: 'open' });
     sockets[2]!.emit('messages.upsert', message(nextPhone, 'same-id', true));
-    expect(receivedMessages()).toHaveLength(2);
+    await vi.waitFor(() => expect(receivedMessages()).toHaveLength(2));
   });
 
+  it('deduplicates concurrent upserts after an asynchronous identity lookup', async () => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const pending = deferred<string | null>();
+    Object.assign(sockets[0]!.socket, {
+      signalRepository: { lidMapping: { getPNForLID: vi.fn(() => pending.promise) } },
+    });
+    const incoming = message('90000123456789', 'async-duplicate');
+    incoming.messages[0]!.key.remoteJid = '90000123456789@lid';
+    sockets[0]!.emit('messages.upsert', incoming);
+    sockets[0]!.emit('messages.upsert', incoming);
+    pending.resolve('244927000001@s.whatsapp.net');
+    await vi.waitFor(() => expect(receivedMessages()).toHaveLength(1));
+  });
+  it('discards an identity lookup that completes after the connected account changes', async () => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const pending = deferred<string | null>();
+    Object.assign(sockets[0]!.socket, {
+      signalRepository: { lidMapping: { getPNForLID: vi.fn(() => pending.promise) } },
+    });
+    const incoming = message('90000123456789', 'old-account-lookup');
+    incoming.messages[0]!.key.remoteJid = '90000123456789@lid';
+    sockets[0]!.emit('messages.upsert', incoming);
+    await api.logout();
+    await api.connect();
+    sockets[1]!.emit('connection.update', { connection: 'open' });
+    pending.resolve('244927000001@s.whatsapp.net');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(receivedMessages()).toHaveLength(0);
+  });
   it('does not send a queued reply through a different connected account', async () => {
     const api = newApi();
     await api.connect();
@@ -649,6 +686,7 @@ describe('WhatsApp connection lifecycle', () => {
     const incoming = message(nextPhone, 'private-protocol-id', true);
     incoming.messages[0]!.message.conversation = 'Código particular 938471';
     sockets[0]!.emit('messages.upsert', incoming);
+    await vi.waitFor(() => expect(receivedMessages()).toHaveLength(1));
     const logged = JSON.stringify(mocks.info.mock.calls);
     expect(logged).not.toContain(nextPhone);
     expect(logged).not.toContain('private-protocol-id');

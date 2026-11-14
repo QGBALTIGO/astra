@@ -1201,6 +1201,36 @@ describe('ChannelServiceImpl', () => {
       mockUsersRepo.findByPlatform.mockResolvedValue(customer);
     });
 
+    it.each(['blocked', 'expired', 'retired'])(
+      'does not redirect a private delivery to a restricted alternate spelling: %s',
+      async (restriction) => {
+        const alternate = phone.slice(0, 4) + phone.slice(5);
+        Object.assign(channelPlugin.api, { resolveWhatsAppRecipient: vi.fn() });
+        mockUsersRepo.findByPlatform.mockImplementation(async (_platform, p) =>
+          p === phone
+            ? customer
+            : {
+                ...customer,
+                platformUserId: alternate,
+                ownpilotUserId: 'whatsapp:' + alternate,
+                isBlocked: restriction === 'blocked',
+                accessExpiresAt: restriction === 'expired' ? new Date(0) : null,
+              }
+        );
+        mockResolveCustomerPhone.mockImplementation(async (p) => ({
+          accountId: 'account-' + p,
+          dataUserId: 'whatsapp:' + p,
+          phoneNumber: p,
+          isCurrent: !(p === alternate && restriction === 'retired'),
+          retired: p === alternate && restriction === 'retired',
+        }));
+        await expect(
+          service.send('channel.whatsapp', { platformChatId: phone, text: 'Private reminder' })
+        ).rejects.toThrow('restrição de acesso');
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+      }
+    );
+
     it.each(['send', 'broadcast', 'broadcastAll'])(
       'blocks %s when a known grant has expired',
       async (method) => {
@@ -1397,6 +1427,28 @@ describe('ChannelServiceImpl', () => {
           cycle: inboundAccessCycle(customer),
         });
       }
+
+      it.each(['244927000001', '5581999990101', '558199990101'])(
+        'sends the pending access greeting to an inbound international or Brazilian contact: %s',
+        async (contactPhone) => {
+          customer = {
+            ...customer,
+            platformUserId: contactPhone,
+            ownpilotUserId: 'whatsapp:' + contactPhone,
+          };
+          message = {
+            ...message,
+            platformChatId: contactPhone,
+            sender: { ...message.sender, platformUserId: contactPhone },
+          };
+          reserve('pending_welcome');
+          await service.processIncomingMessage(message);
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ platformChatId: contactPhone })
+          );
+          expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        }
+      );
 
       it.each([
         ['pending_welcome', 'Olá, *Marina*!', true],

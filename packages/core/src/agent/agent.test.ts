@@ -649,9 +649,11 @@ describe('Agent processConversation (via chat)', () => {
     );
     expect(vi.mocked(provider.complete).mock.calls[0]![0]).toMatchObject({
       toolChoice: 'required',
+      requiredToolCall: 'test_tool',
       tools: [{ name: 'test_tool' }],
     });
     expect(vi.mocked(provider.complete).mock.calls[1]![0].toolChoice).toBe('auto');
+    expect(vi.mocked(provider.complete).mock.calls[1]![0].requiredToolCall).toBeUndefined();
     expect((await agent.chat('Hello again')).ok).toBe(true);
   });
   it('rejects invented text when a real first lookup was required, without saving it', async () => {

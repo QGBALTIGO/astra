@@ -470,6 +470,8 @@ export interface CompletionRequest {
   readonly tools?: readonly ToolDefinition[];
   /** Tool choice behavior */
   readonly toolChoice?: 'auto' | 'none' | 'required' | { name: string };
+  /** Internal pre-execution contract: exactly one call to this tool, with object arguments. */
+  readonly requiredToolCall?: string;
   /** Whether to stream the response */
   readonly stream?: boolean;
   /** User identifier for rate limiting */

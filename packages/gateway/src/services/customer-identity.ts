@@ -170,7 +170,11 @@ export class CustomerIdentityService {
     const account = await d.accounts.getById(accountId);
     if (!account || account.dataUserId === 'default' || !account.dataUserId.startsWith('whatsapp:'))
       return null;
-    const user = await d.users.getById(account.channelUserId);
+    const [user, alias, ownerPhone] = await Promise.all([
+      d.users.getById(account.channelUserId),
+      d.accounts.resolvePhone(account.phoneNumber),
+      this.isOwnerPhone(account.phoneNumber),
+    ]);
     if (
       !user ||
       user.platform !== 'whatsapp' ||
@@ -179,7 +183,7 @@ export class CustomerIdentityService {
       !user.isVerified ||
       user.isBlocked ||
       user.status !== 'active' ||
-      (await this.isOwnerPhone(account.phoneNumber))
+      ownerPhone
     )
       return null;
     const status = channelUserAccessStatus(user, d.now());
@@ -188,7 +192,6 @@ export class CustomerIdentityService {
       (user.accessExpiresAt != null && !Number.isFinite(user.accessExpiresAt.getTime()))
     )
       return null;
-    const alias = await d.accounts.resolvePhone(account.phoneNumber);
     if (!alias?.isCurrent || alias.accountId !== account.id) return null;
     return {
       account,

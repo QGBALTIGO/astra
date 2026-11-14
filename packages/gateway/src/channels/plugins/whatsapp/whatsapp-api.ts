@@ -207,6 +207,10 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // Anti-ban: rate limiting
   private globalSendTimes: number[] = [];
   private perJidLastSend = new Map<string, number>();
+  private readonly verifiedRecipientPhones = new Map<
+    string,
+    { phone: string; expiresAt: number }
+  >();
   /** Admit sends atomically so concurrent replies cannot bypass the limits. */
   private sendRateLimitQueue: Promise<void> = Promise.resolve();
 
@@ -372,7 +376,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       });
 
       // Receive inbound direct messages from other contacts only in explicit multi-user mode.
-      sock.ev.on('messages.upsert', (upsert) => {
+      sock.ev.on('messages.upsert', async (upsert) => {
         if (!isCurrentSocket()) return;
         log.info(
           `[WhatsApp] UPSERT EVENT received — type: ${upsert.type}, count: ${upsert.messages.length}`
@@ -396,7 +400,10 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
             continue;
           }
 
-          const effectiveJid = this.resolveIncomingJid(msg.key);
+          const effectiveJid = await this.resolveIncomingJid(msg.key, sock);
+          if (!isCurrentSocket()) return;
+          // Another upsert can finish the asynchronous mapping lookup first.
+          if (msgId && this.processedMsgIds.has(msgId)) continue;
           const isSelf = this.isSelfChat(effectiveJid);
           const isInboundDM = effectiveJid?.endsWith('@s.whatsapp.net') && !msg.key.fromMe;
           const acceptsGuest = process.env.ASTRA_WHATSAPP_MULTIUSER === 'true' && isInboundDM;
@@ -462,7 +469,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
               const rows: Array<Parameters<typeof messagesRepo.createBatch>[0][number]> = [];
 
               for (const msg of messages) {
-                const remoteJid = this.resolveIncomingJid(msg.key);
+                const remoteJid = await this.resolveIncomingJid(msg.key, sock);
+                if (!isCurrentSocket()) return;
                 if (!remoteJid) continue;
 
                 const isGroup = remoteJid.endsWith('@g.us');
@@ -691,7 +699,17 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     );
     await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
 
-    const jid = this.toJid(message.platformChatId);
+    let recipient = message.platformChatId;
+    if (/^[1-9]\d{9,14}$/u.test(recipient)) {
+      const cached = this.verifiedRecipientPhones.get(recipient);
+      if (cached && cached.expiresAt > Date.now()) recipient = cached.phone;
+      else if (this.sock?.onWhatsApp && whatsappPhoneSpellings(recipient).length === 2) {
+        // Resolve the delivery address without changing the customer's durable
+        // identity. A lookup never retries an actual send.
+        recipient = (await this.resolveWhatsAppRecipient(recipient).catch(() => null)) ?? recipient;
+      }
+    }
+    const jid = this.toJid(recipient);
     if (interactivePayload && !/^\d{7,15}@s\.whatsapp\.net$/.test(jid)) {
       throw new Error(
         copyPayload
@@ -872,7 +890,11 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       if (!number || !candidates.includes(number)) return null;
       recipients.add(number);
     }
-    if (recipients.size === 1) return [...recipients][0]!;
+    if (recipients.size === 1) {
+      const recipient = [...recipients][0]!;
+      this.rememberRecipientPhones(candidates, recipient);
+      return recipient;
+    }
     if (recipients.size !== 2 || !sock.signalRepository?.lidMapping) return null;
     // Two dial strings may be registered to one WhatsApp account. Only a
     // matching provider LID proves that either spelling reaches that account.
@@ -881,9 +903,12 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         sock.signalRepository.lidMapping.getLIDForPN(number + '@s.whatsapp.net')
       )
     );
-    return first && first === second && /^\d+@lid$/u.test(first)
-      ? [...recipients].sort()[0]!
-      : null;
+    if (this.sock !== sock || this.status !== 'connected')
+      throw new Error('WhatsApp lookup unavailable');
+    if (!first || first !== second || !/^\d+@lid$/u.test(first)) return null;
+    const recipient = [...recipients].sort()[0]!;
+    this.rememberRecipientPhones(candidates, recipient);
+    return recipient;
   }
 
   getBotInfo(): { username?: string; firstName?: string } | null {
@@ -1164,6 +1189,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     this.processedMsgIds.clear();
     this.globalSendTimes = [];
     this.perJidLastSend.clear();
+    this.verifiedRecipientPhones.clear();
     this.msgRetryCounterCache.flushAll();
     this.userDevicesCache.flushAll();
     this.lastHistoryFetchTime = null;
@@ -1548,7 +1574,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       this.sock === sourceSocket && generation === this.connectionGeneration;
     if (!isCurrentSocket()) return;
     log.debug('[WhatsApp] Handling incoming message');
-    const remoteJid = this.resolveIncomingJid(msg.key);
+    const remoteJid = await this.resolveIncomingJid(msg.key, sourceSocket);
+    if (!isCurrentSocket()) return;
     if (!remoteJid) return;
 
     // SAFETY: Only process DMs (@s.whatsapp.net) and groups (@g.us).
@@ -1572,6 +1599,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     // For DMs, sender is derived from remoteJid
     const participantJid = isGroup ? msg.key.participant! : remoteJid;
     const phone = this.phoneFromJid(participantJid);
+    if (isDM && /^[1-9]\d{9,14}$/u.test(phone)) this.rememberRecipientPhones([phone], phone);
 
     if (!isGroup && !this.isSelfChat(remoteJid)) {
       // Only real inbound WhatsApp DMs can create a customer conversation.
@@ -1724,6 +1752,13 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // ==========================================================================
 
   /** Convert a phone number or chat ID to a WhatsApp JID. */
+  private rememberRecipientPhones(candidates: string[], phone: string): void {
+    for (const candidate of candidates)
+      this.verifiedRecipientPhones.set(candidate, { phone, expiresAt: Date.now() + 5 * 60000 });
+    while (this.verifiedRecipientPhones.size > 1000)
+      this.verifiedRecipientPhones.delete(this.verifiedRecipientPhones.keys().next().value!);
+  }
+
   private toJid(chatId: string): string {
     if (chatId.includes('@')) return chatId;
     // Strip any non-digit characters for phone numbers
@@ -1740,10 +1775,13 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
    * Resolve incoming Baileys JIDs.
    * Prefer remoteJidAlt when WhatsApp sends a temporary @lid identifier.
    */
-  private resolveIncomingJid(key: {
-    remoteJid?: string | null;
-    remoteJidAlt?: string | null;
-  }): string | null {
+  private async resolveIncomingJid(
+    key: {
+      remoteJid?: string | null;
+      remoteJidAlt?: string | null;
+    },
+    socket = this.sock
+  ): Promise<string | null> {
     const remoteJid = typeof key.remoteJid === 'string' ? key.remoteJid : null;
     if (!remoteJid) return null;
     if (!remoteJid.endsWith('@lid')) return remoteJid;
@@ -1754,6 +1792,32 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       return altJid;
     }
 
+    // Some legitimate DMs contain only a LID. Resolve it using Baileys' own
+    // verified identity store; never reinterpret the LID's digits as a phone.
+    const mapping = socket?.signalRepository?.lidMapping;
+    if (!mapping?.getPNForLID) return remoteJid;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const resolved = await Promise.race([
+        mapping.getPNForLID(remoteJid),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), 1500);
+          timer.unref?.();
+        }),
+      ]);
+      if (
+        typeof resolved === 'string' &&
+        /^[1-9]\d{9,14}(?::\d+)?@s\.whatsapp\.net$/u.test(resolved)
+      ) {
+        log.debug('[WhatsApp] Resolved contact using verified identity mapping');
+        return this.normalizeJid(resolved);
+      }
+      log.warn('[WhatsApp] Contact identity mapping unavailable');
+    } catch {
+      log.warn('[WhatsApp] Contact identity mapping lookup failed');
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     return remoteJid;
   }
 

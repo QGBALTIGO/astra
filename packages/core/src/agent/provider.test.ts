@@ -176,9 +176,16 @@ describe('createProvider', () => {
 
     const provider = createProvider(config);
 
-    expect(GoogleProvider.withApiKey).toHaveBeenCalledWith('test-google-key');
+    expect(GoogleProvider.withApiKey).toHaveBeenCalledWith('test-google-key', {});
     expect(provider).toBeDefined();
     expect(provider.isReady()).toBe(true);
+  });
+  it('forwards channel deadlines and zero retry budget to the native Google provider', () => {
+    createProvider({ provider: 'google', apiKey: 'test-google-key', timeout: 3000, maxRetries: 0 });
+    expect(GoogleProvider.withApiKey).toHaveBeenCalledWith('test-google-key', {
+      timeout: 3000,
+      maxRetries: 0,
+    });
   });
 
   it('falls back to OpenAI when Google withApiKey returns null', () => {
@@ -191,7 +198,7 @@ describe('createProvider', () => {
 
     const provider = createProvider(config);
 
-    expect(GoogleProvider.withApiKey).toHaveBeenCalledWith('test-google-key');
+    expect(GoogleProvider.withApiKey).toHaveBeenCalledWith('test-google-key', {});
     expect(provider).toBeDefined();
     // Falls back to OpenAI provider
     expect(provider.isReady()).toBe(true);
@@ -204,7 +211,7 @@ describe('createProvider', () => {
 
     createProvider(config);
 
-    expect(GoogleProvider.withApiKey).toHaveBeenCalledWith('');
+    expect(GoogleProvider.withApiKey).toHaveBeenCalledWith('', {});
   });
 });
 

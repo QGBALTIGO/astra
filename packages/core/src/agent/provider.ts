@@ -123,7 +123,10 @@ export function createProvider(config: ProviderConfig): IProvider {
       return new AnthropicProvider(config);
     case 'google': {
       // Use native Google/Gemini provider for proper thoughtSignature support
-      const googleProvider = GoogleProvider.withApiKey(config.apiKey ?? '');
+      const googleProvider = GoogleProvider.withApiKey(config.apiKey ?? '', {
+        ...(config.timeout !== undefined ? { timeout: config.timeout } : {}),
+        ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
+      });
       if (googleProvider) {
         return googleProvider;
       }

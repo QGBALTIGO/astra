@@ -134,15 +134,53 @@ describe('WhatsAppChannelAPI', () => {
     expect(onWhatsApp).toHaveBeenLastCalledWith('553833330123');
   });
 
-  it('resolves @lid messages to remoteJidAlt when available', () => {
+  it('resolves @lid messages to remoteJidAlt when available', async () => {
     const api = new WhatsAppChannelAPI({ my_phone: '37253049737' }, 'channel.whatsapp');
-    const resolved = (api as any).resolveIncomingJid({
+    const resolved = await (api as any).resolveIncomingJid({
       remoteJid: '243060956995782@lid',
       remoteJidAlt: '37253049737@s.whatsapp.net',
     });
 
     expect(resolved).toBe('37253049737@s.whatsapp.net');
   });
+
+  it.each(['244927000001', '5581999990101', '558199990101'])(
+    'recognizes a verified international or Brazilian LID without an alternate JID: %s',
+    async (phone) => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      try {
+        mockEmit.mockClear();
+        const api = new WhatsAppChannelAPI({ my_phone: '5511999990102' }, 'channel.whatsapp');
+        const getPNForLID = vi.fn().mockResolvedValue(phone + '@s.whatsapp.net');
+        (api as any).sock = {
+          user: { id: '5511999990102@s.whatsapp.net' },
+          signalRepository: { lidMapping: { getPNForLID } },
+        };
+        await (api as any).handleIncomingMessage({
+          key: { remoteJid: '90000123456789@lid', id: 'mapped-' + phone, fromMe: false },
+          message: { conversation: 'Olá' },
+          messageTimestamp: 1700000000,
+        });
+        expect(getPNForLID).toHaveBeenCalledWith('90000123456789@lid');
+        expect(mockEmit).toHaveBeenCalledTimes(1);
+        expect(mockEmit.mock.calls[0]![0].message.sender.platformUserId).toBe(phone);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  );
+  it.each([null, '90000123456789@lid', 'invalid@s.whatsapp.net'])(
+    'never trusts an unresolved mapping as a customer phone: %s',
+    async (mapped) => {
+      const api = new WhatsAppChannelAPI({ my_phone: '5511999990102' }, 'channel.whatsapp');
+      (api as any).sock = {
+        signalRepository: { lidMapping: { getPNForLID: vi.fn().mockResolvedValue(mapped) } },
+      };
+      expect(await (api as any).resolveIncomingJid({ remoteJid: '90000123456789@lid' })).toBe(
+        '90000123456789@lid'
+      );
+    }
+  );
 
   it('emits self-chat messages when self message arrives as @lid', async () => {
     const api = new WhatsAppChannelAPI({ my_phone: '37253049737' }, 'channel.whatsapp');
@@ -295,6 +333,43 @@ describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
 
   const oldLogin = 'https://astra-gateway-production.up.railway.app/cliente/entrar';
   const newLogin = 'https://app.astraacessor.pro/cliente/entrar';
+  it('delivers a canonical customer reply through its verified ninth-digit spelling, including after cache reset', async () => {
+    const { api, socket } = prepare();
+    const full = '5581999990101',
+      short = '558199990101';
+    const onWhatsApp = vi
+      .fn()
+      .mockResolvedValue([{ exists: true, jid: short + '@s.whatsapp.net' }]);
+    Object.assign(socket, { onWhatsApp });
+    expect(await api.resolveWhatsAppRecipient(short)).toBe(short);
+    await api.sendMessage({ platformChatId: full, text: 'Resposta da conta canônica' });
+    expect(socket.sendMessage.mock.calls[0]?.[0]).toBe(short + '@s.whatsapp.net');
+    expect(onWhatsApp).toHaveBeenCalledTimes(1);
+    (api as any).clearAccountCaches();
+    await api.sendMessage({ platformChatId: full, text: 'Lembrete depois da reconexão' });
+    expect(socket.sendMessage.mock.calls[1]?.[0]).toBe(short + '@s.whatsapp.net');
+    expect(onWhatsApp).toHaveBeenCalledTimes(2);
+  });
+  it('keeps the exact intended phone when its other spelling is a different WhatsApp account', async () => {
+    const { api, socket } = prepare();
+    const full = '5581999990101',
+      short = '558199990101';
+    Object.assign(socket, {
+      onWhatsApp: vi.fn().mockResolvedValue([
+        { exists: true, jid: full + '@s.whatsapp.net' },
+        { exists: true, jid: short + '@s.whatsapp.net' },
+      ]),
+      signalRepository: {
+        lidMapping: {
+          getLIDForPN: vi.fn(async (p: string) =>
+            p === full + '@s.whatsapp.net' ? '10001@lid' : '10002@lid'
+          ),
+        },
+      },
+    });
+    await api.sendMessage({ platformChatId: full, text: 'Apenas ao destinatário exato' });
+    expect(socket.sendMessage.mock.calls[0]?.[0]).toBe(full + '@s.whatsapp.net');
+  });
   it('delivers the readable public login and matching native button together after historical model output', async () => {
     const { api, socket } = prepare();
     await api.sendMessage({

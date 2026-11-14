@@ -350,6 +350,7 @@ export class Agent {
           : {
               tools: firstDefinition ? [firstDefinition] : exposedTools,
               toolChoice: firstDefinition ? ('required' as const) : ('auto' as const),
+              ...(firstDefinition ? { requiredToolCall: firstDefinition.name } : {}),
             }),
         stream: options?.stream ?? false,
         thinking: options?.thinking,

@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - 'scripts/astra-simulation-lab/**'
+      - 'packages/core/src/agent/**'
+      - 'packages/gateway/src/routes/customer/**'
+      - 'packages/gateway/src/middleware/customer-*'
+      - 'packages/gateway/src/services/customer-identity*'
+      - 'packages/gateway/scripts/customer-capacity-burst.ts'
       - 'packages/gateway/src/channels/**'
       - 'packages/gateway/src/db/repositories/channel-reminders*'
       - 'packages/gateway/src/db/repositories/channels/**'
@@ -22,6 +27,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  customer-http-capacity:
+    name: 500 customers through HTTP and PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: astra_capacity_ci_only
+          POSTGRES_DB: astratest_capacity_104
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astratest -d astratest_capacity_104"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ownpilot/core build
+      - name: Verify real authenticated HTTP flows at 10, 50, 100, 250 and 500 concurrent customers
+        env:
+          ASTRA_CAPACITY_LAB: '1'
+          NODE_ENV: test
+          DATABASE_URL: ''
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: '5432'
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: astra_capacity_ci_only
+          POSTGRES_DB: astratest_capacity_104
+          OWNPILOT_DATA_DIR: ${{ runner.temp }}/astra-capacity
+          LOG_LEVEL: error
+        run: pnpm --filter @ownpilot/gateway exec node --import tsx scripts/customer-capacity-burst.ts "${RUNNER_TEMP}/astra-http-capacity.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: astra-http-real-pg-500
+          path: ${{ runner.temp }}/astra-http-capacity.json
+          retention-days: 7
+          if-no-files-found: error
   synthetic-corpus:
     name: Generate and validate 100k synthetic scenarios
     runs-on: ubuntu-24.04

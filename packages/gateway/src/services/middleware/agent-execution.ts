@@ -311,6 +311,15 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         ctx.set('error', result.error);
         log.warn('Agent returned a processing error', {
           reason: channelFailureKind(result.error?.message ?? ''),
+          failureCode: /Required first tool is unavailable/.test(result.error?.message ?? '')
+            ? 'required_tool_unavailable'
+            : /Required first tool was not called/.test(result.error?.message ?? '')
+              ? 'required_tool_contract'
+              : /Unexpected tool call during a text-only turn/.test(result.error?.message ?? '')
+                ? 'unexpected_tool_call'
+                : /Empty conversation context/.test(result.error?.message ?? '')
+                  ? 'empty_context'
+                  : 'provider_or_agent_failure',
           budget: /Maximum turns exceeded/.test(result.error?.message ?? '')
             ? 'turns'
             : /Tool call limit exceeded/.test(result.error?.message ?? '')

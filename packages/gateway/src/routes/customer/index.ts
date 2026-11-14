@@ -8,9 +8,11 @@ import { customerDataRoutes } from './data.js';
 import { customerConnectedAppsRoutes } from './connected-apps.js';
 import { requireCustomerSession } from '../../middleware/customer-session.js';
 import { apiError } from '../helpers.js';
+import { admitCustomerRequest } from '../../middleware/customer-admission.js';
 
 /** Mount before owner authentication; this router terminates every customer path. */
 export const customerRoutes = new Hono();
+customerRoutes.use('*', admitCustomerRequest);
 customerRoutes.route('/auth', customerAuthRoutes);
 customerRoutes.use('*', requireCustomerSession);
 customerRoutes.route('/', customerAccountRoutes);
