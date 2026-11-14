@@ -553,6 +553,34 @@ export function safeChannelResponse(
       reminderConfirmation([receipt]) ??
       taskConfirmation(receipt, ids)
   );
+  // A lookup used to find the record is supporting context for a correction.
+  // It must not make the final receipt fall back to the model's unstructured text.
+  const correction =
+    /\b(?:corrig\w*|atualiz\w*|altere|altera|mude|muda|na verdade)\b/iu.test(
+      context.requestText ?? ''
+    ) &&
+    !/\b(?:quanto|total|saldo|resumo|liste|mostre|também|tambem)\b/iu.test(
+      context.requestText ?? ''
+    );
+  const financialChanges = operations.filter((r) =>
+    /^(?:update_transaction|update_expense)$/.test(normalizeName(r.name))
+  );
+  if (
+    correction &&
+    !unsupported &&
+    !failures.length &&
+    financialChanges.length === 1 &&
+    operations.every(
+      (r) =>
+        r === financialChanges[0] ||
+        /^(?:list_transactions|list_expenses|search_tools|get_tool_help)$/.test(
+          normalizeName(r.name)
+        )
+    )
+  ) {
+    const confirmed = transactionConfirmation(financialChanges[0]!, ids);
+    if (confirmed) return confirmed;
+  }
   // Format known action results without another model call. Only replace the
   // complete reply when every operation is represented, so an unrelated query
   // or a partial failure is never lost behind one successful confirmation.

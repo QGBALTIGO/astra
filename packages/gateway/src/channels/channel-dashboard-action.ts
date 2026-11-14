@@ -2,6 +2,15 @@
 import type { ChannelOutgoingMessage } from '@ownpilot/core/channels';
 import { ASTRA_CUSTOMER_ORIGIN, currentAstraPublicUrl } from '../config/astra-public-urls.js';
 type DashboardAction = NonNullable<ChannelOutgoingMessage['urlButton']>;
+export function weatherInfoAction(text: string, platform: string): DashboardAction | undefined {
+  if (
+    !['whatsapp', 'telegram'].includes(platform) ||
+    !/🌤️ \*Tempo em [^\n]+\*/u.test(text) ||
+    !/• \*Temperatura:\* [^\n]+°C · estimativa/u.test(text)
+  )
+    return undefined;
+  return { label: 'Sobre o clima', url: ASTRA_CUSTOMER_ORIGIN + '/clima-fontes.html' };
+}
 function getOrigin(candidate: string | undefined): string {
   if (!candidate) return ASTRA_CUSTOMER_ORIGIN;
   try {

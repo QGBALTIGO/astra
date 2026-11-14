@@ -180,6 +180,31 @@ CREATE TABLE IF NOT EXISTS channel_daily_greetings (
 );
 
 -- Quick captures (inbox for quick thoughts/ideas)
+CREATE TABLE IF NOT EXISTS channel_email_digests (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  platform TEXT NOT NULL CHECK(platform IN ('whatsapp','telegram')),
+  channel_plugin_id TEXT NOT NULL,
+  platform_chat_id TEXT NOT NULL,
+  connection_id TEXT NOT NULL,
+  time_zone TEXT NOT NULL,
+  hour SMALLINT NOT NULL CHECK(hour BETWEEN 0 AND 23),
+  minute SMALLINT NOT NULL CHECK(minute BETWEEN 0 AND 59),
+  next_run_at TIMESTAMPTZ NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  version BIGINT NOT NULL DEFAULT 1,
+  claim_token TEXT,
+  last_attempt_at TIMESTAMPTZ,
+  last_delivered_at TIMESTAMPTZ,
+  last_delivery_id TEXT,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id,channel_plugin_id,platform_chat_id)
+);
+CREATE INDEX IF NOT EXISTS idx_channel_email_digests_due
+  ON channel_email_digests(next_run_at) WHERE active=TRUE;
+
 CREATE TABLE IF NOT EXISTS captures (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL DEFAULT 'default',

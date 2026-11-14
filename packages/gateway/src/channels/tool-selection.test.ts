@@ -4,6 +4,7 @@ import {
   isConversationalOnlyChannelRequest,
   recentChannelText,
   requiredChannelWeatherTool,
+  requiredChannelEmailDigestTool,
 } from './tool-selection.js';
 
 const financeTools = [
@@ -13,6 +14,27 @@ const financeTools = [
   'core.delete_transaction',
   'core.financial_summary',
 ];
+it.each([
+  'Todo dia às 8h me mande um resumo dos emails importantes.',
+  'Cancele meu resumo diário de e-mails.',
+  'Qual horário está meu resumo diário de Gmail?',
+])('requires a real email routine result: %s', (text) =>
+  expect(requiredChannelEmailDigestTool(text)).toBe('core.manage_email_digest')
+);
+it.each([
+  'Não ative o resumo diário de emails, só explique.',
+  'Qual a temperatura?',
+  'Exemplo: resumo diario de emails às 8h',
+])('does not treat a hypothetical or unrelated request as permission: %s', (text) =>
+  expect(requiredChannelEmailDigestTool(text)).toBeUndefined()
+);
+it('handles the clock-only answer after asking for a digest time', () =>
+  expect(
+    requiredChannelEmailDigestTool(
+      'às 8h',
+      'Consigo separar seus e-mails importantes todos os dias. 📬 Em qual horário você quer receber o resumo?'
+    )
+  ).toBe('core.manage_email_digest'));
 
 describe('channel finance tool selection', () => {
   it.each([

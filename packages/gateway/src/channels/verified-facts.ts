@@ -2,7 +2,6 @@ import type { ChannelToolReceipt } from './response-safety.js';
 import { formatAstraMessage } from './response-presentation.js';
 import { integrationItems } from '../services/customer-integration-data.js';
 import { requiredChannelWeatherTool } from './tool-selection.js';
-import { ASTRA_CUSTOMER_ORIGIN } from '../config/astra-public-urls.js';
 
 const plain = (value: unknown) =>
   typeof value === 'string' ? value.replace(/[\r\n*_`<>]/g, ' ').trim() : '';
@@ -44,6 +43,12 @@ export function verifiedChannelFacts(
   receipts: ChannelToolReceipt[],
   context: { timeZone?: string; requestText?: string } = {}
 ): string | undefined {
+  const digest = receipts.findLast((r) =>
+    /^(?:core[._])?manage_email_digest$/.test(r.name.replace(/__/g, '.'))
+  );
+  const digestResult = digest ? result(digest) : null;
+  if (digestResult?.kind === 'email_digest' && typeof digestResult.reply === 'string')
+    return digestResult.reply;
   const weatherReceipts = receipts.filter((r) =>
     /^(?:core[._])?(?:get_local_weather|set_weather_city)$/.test(r.name.replace(/__/g, '.'))
   );
@@ -75,13 +80,7 @@ export function verifiedChannelFacts(
       fields.push({ label: 'Vento', value: data.windKmH + ' km/h' });
     return (
       opening(text) +
-      formatAstraMessage(
-        '🌤️ Tempo em ' + city,
-        fields,
-        'Fonte: MET Norway · © OpenStreetMap\nFontes e licença: ' +
-          ASTRA_CUSTOMER_ORIGIN +
-          '/clima-fontes.html'
-      ) +
+      formatAstraMessage('🌤️ Tempo em ' + city, fields) +
       (saved ? '\n\nCidade guardada para as próximas consultas.' : '')
     );
   }

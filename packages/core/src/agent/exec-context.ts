@@ -32,6 +32,8 @@ export interface ExecContext {
   readonly channelMessageId?: string;
   /** Original receive instant, for relative reminders despite model latency. */
   readonly channelMessageTimestamp?: number;
+  /** Original customer request, for checking explicit scheduled-notification consent. */
+  readonly channelRequestText?: string;
   readonly channelIsPrivate?: boolean;
   readonly channelConversationOnly?: boolean;
   /** Shared within one turn, including nested meta-tools. External data is never authority for local writes. */

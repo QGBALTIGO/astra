@@ -1,5 +1,30 @@
 import { isAstraAccessAnswerRequested } from './astra-access.js';
 
+export function requiredChannelEmailDigestTool(
+  text: string,
+  previousText = ''
+): string | undefined {
+  if (isConversationalOnlyChannelRequest(text)) return undefined;
+  const input = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (
+    /\b(?:nao (?:ative|agende|programe|crie)|so explique|apenas explique|exemplo|hipotetico)\b/.test(
+      input
+    )
+  )
+    return undefined;
+  const dailyEmail =
+    /\b(?:gmail|e-?mails?)\b/.test(input) &&
+    /\bresumo\b/.test(input) &&
+    /\b(?:diario|diariamente|todo dia|todos os dias|toda manha)\b/.test(input);
+  const timeAnswer =
+    /em qual horário você quer receber o resumo/i.test(previousText.slice(-500)) &&
+    /^\s*(?:[aà]s?\s*)?\d{1,2}(?:(?:h|:)\d{0,2})?\s*(?:horas?)?[.!]?\s*$/i.test(text);
+  return dailyEmail || timeAnswer ? 'core.manage_email_digest' : undefined;
+}
+
 export function requiredChannelWeatherTool(text: string, previousText = ''): string | undefined {
   if (isConversationalOnlyChannelRequest(text)) return undefined;
   const clean = (value: string) =>
@@ -149,6 +174,7 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
   )
     add(
       'connected_apps_status',
+      'manage_email_digest',
       'search_connected_actions',
       'run_connected_action',
       'sync_connected_app'

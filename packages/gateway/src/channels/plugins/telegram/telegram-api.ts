@@ -11,7 +11,7 @@ import { Bot, InputFile } from 'grammy';
 import type { Message } from 'grammy/types';
 import { TelegramApprovalHandler } from './approval-handler.js';
 import { TelegramProgressManager } from './progress-manager.js';
-import { publishChannelMessage, renderUrlButtonAsText } from '../../utils/url-button.js';
+import { publishChannelMessage } from '../../utils/url-button.js';
 import { currentAstraLinksInText } from '../../../config/astra-public-urls.js';
 import { downloadTelegramAttachments } from './file-handler.js';
 import { channelAssetStore } from '../../../services/channel-asset-store.js';
@@ -671,7 +671,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
     const voiceOptions = (message.options?.telegram as { asVoice?: boolean } | undefined) ?? {};
 
     // Convert Markdown → Telegram HTML when parse_mode is HTML
-    let textToSend = renderUrlButtonAsText(message);
+    let textToSend = message.text;
     if (this.config.parse_mode === 'HTML') {
       textToSend = markdownToTelegramHtml(textToSend);
     }
@@ -691,6 +691,11 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
 
     for (let i = 0; i < parts.length; i++) {
       const options: Record<string, unknown> = {};
+      if (i === parts.length - 1 && message.urlButton) {
+        options.reply_markup = {
+          inline_keyboard: [[{ text: message.urlButton.label, url: message.urlButton.url }]],
+        };
+      }
 
       // Parse mode
       if (this.config.parse_mode) {
@@ -740,6 +745,10 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
     for (let i = 0; i < attachments.length; i++) {
       const attachment = attachments[i]!;
       const options: Record<string, unknown> = {};
+      if (!parts.length && i === attachments.length - 1 && message.urlButton)
+        options.reply_markup = {
+          inline_keyboard: [[{ text: message.urlButton.label, url: message.urlButton.url }]],
+        };
 
       if (i === 0 && !lastMessageId && message.replyToId) {
         const msgId = message.replyToId.includes(':')

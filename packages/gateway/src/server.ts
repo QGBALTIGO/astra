@@ -472,6 +472,9 @@ async function main() {
   const { startDailyGreetingWorker, stopDailyGreetingWorker } =
     await import('./services/daily-greeting-worker.js');
   startDailyGreetingWorker();
+  const { startEmailDigestWorker, stopEmailDigestWorker } =
+    await import('./services/email-digest-worker.js');
+  startEmailDigestWorker();
   const { startChannelAccessNotificationWorker, stopChannelAccessNotificationWorker } =
     await import('./services/channel-access-notification-worker.js');
   startChannelAccessNotificationWorker();
@@ -896,6 +899,7 @@ async function main() {
 
     // Stop scheduled channel notifications before disconnecting database.
     stopDailyGreetingWorker();
+    stopEmailDigestWorker();
     stopChannelReminderWorker();
     stopChannelAccessNotificationWorker();
     stopCustomerOtpWorker();

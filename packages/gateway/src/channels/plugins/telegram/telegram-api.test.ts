@@ -74,7 +74,13 @@ describe('TelegramChannelAPI voice attachments', () => {
     });
     const sent = bot.api.sendMessage.mock.calls[0]![1];
     expect(sent).toContain('https://astraacessor.pro/privacidade.');
-    expect(sent).toContain('https://app.astraacessor.pro/cliente/entrar?utm=aviso#hoje');
+    expect(bot.api.sendMessage.mock.calls[0]![2]).toMatchObject({
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Painel', url: 'https://app.astraacessor.pro/cliente/entrar?utm=aviso#hoje' }],
+        ],
+      },
+    });
     expect(sent).toContain('https://pay.cakto.com.br/CubL455');
     expect(sent).not.toMatch(/railway\.app|vercel\.app/);
   });

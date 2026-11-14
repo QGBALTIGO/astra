@@ -220,6 +220,15 @@ try {
     });
     assert.ok(inbox.source);
     metrics.push({ step: 'gmail_read', ms: Math.round(performance.now() - t) });
+    const { buildEmailDigest } = await mod('services/email-digest.ts');
+    const digestStarted = performance.now();
+    const digest = await buildEmailDigest(userId, pluginId, gmail.id);
+    assert.match(digest, /Seus e-mails importantes/);
+    assert.doesNotMatch(digest, /message_id|event_id|untrustedExternalData|"messages"\s*:/);
+    metrics.push({
+      step: 'gmail_digest_readonly_source',
+      ms: Math.round(performance.now() - digestStarted),
+    });
   }
   const pinned = connections.find((c) => c.appName === 'googlecalendar');
   await assert.rejects(

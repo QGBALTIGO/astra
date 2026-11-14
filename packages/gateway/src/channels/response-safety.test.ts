@@ -418,6 +418,37 @@ describe('Channel responses use persisted facts without internal details', () =>
     }
   );
 
+  it('uses the persisted correction card when a lookup preceded the update', () => {
+    const receipts: ChannelToolReceipt[] = [
+      {
+        name: 'core.list_transactions',
+        arguments: '{}',
+        isError: false,
+        content: JSON.stringify({ transactions: [{ id, type: 'expense', amount: 23.7 }] }),
+      },
+      {
+        name: 'core.update_transaction',
+        arguments: '{}',
+        isError: false,
+        content: JSON.stringify({
+          transaction: {
+            id,
+            type: 'expense',
+            amount: 21.9,
+            description: 'Pão Ensaio Ipê',
+            categoryName: 'Alimentação',
+            date: '2026-11-14',
+          },
+        }),
+      },
+    ];
+    const reply = safeChannelResponse('Saída atualizada\nValor: R$ 21,90', [...receipts], {
+      requestText: 'Corrige esse pão: na verdade foram R$ 21,90.',
+    });
+    expect(reply).toContain('✅ *Despesa atualizada*');
+    expect(reply).toContain('• *Valor:* R$ 21,90');
+    expect(reply).toContain('• *Descrição:* Pão Ensaio Ipê');
+  });
   it('formats only the latest state of an idempotent or corrected ledger row', () => {
     const recorded: ChannelToolReceipt = {
       name: 'core.record_transaction',

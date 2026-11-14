@@ -89,17 +89,24 @@ export function integrationProposalMessage(action: IntegrationAction): string {
     start_time: 'Início',
     end_datetime: 'Fim',
     end_time: 'Fim',
+    location: 'Local',
+    attendees: 'Convidados',
+    due_date: 'Prazo',
+    due_datetime: 'Prazo',
+    priority: 'Prioridade',
+    range: 'Intervalo',
+    values: 'Valores',
+    rows: 'Linhas',
+    properties: 'Campos',
+    labels: 'Marcadores',
+    url: 'Link',
   };
   const seen = new Set<string>();
   const shownKeys = new Set<string>();
   for (const [key, label] of Object.entries(show)) {
     const value = args[key];
     if (value === undefined || seen.has(label)) continue;
-    const display = Array.isArray(value)
-      ? value.filter((v) => typeof v === 'string').join(', ')
-      : typeof value === 'string'
-        ? value
-        : '';
+    const display = proposalValue(value);
     if (display) {
       fields.push({ label, value: display.replace(/[\r*_`]/g, '') });
       seen.add(label);
@@ -108,7 +115,7 @@ export function integrationProposalMessage(action: IntegrationAction): string {
   }
   if (action.app === 'googlecalendar') {
     const options: Array<[string, string, (value: unknown) => string]> = [
-      ['calendar_id', 'Agenda', (v) => (v === 'primary' ? 'Principal' : String(v))],
+      ['calendar_id', 'Agenda', (v) => (v === 'primary' ? 'Principal' : 'Agenda selecionada')],
       [
         'timezone',
         'Fuso',
@@ -134,14 +141,48 @@ export function integrationProposalMessage(action: IntegrationAction): string {
         shownKeys.add(key);
       }
   }
-  const remaining = Object.fromEntries(Object.entries(args).filter(([key]) => !shownKeys.has(key)));
-  if (Object.keys(remaining).length)
-    fields.push({ label: 'Outros detalhes', value: JSON.stringify(remaining, null, 2) });
+  // Provider routing identifiers stay in the durable proposal, never in the chat.
+  // Human-readable values remain reviewable, including nested task/sheet fields.
+  for (const [key, value] of Object.entries(args)) {
+    if (shownKeys.has(key) || internalProposalKey(key)) continue;
+    const display = proposalValue(value);
+    if (display) fields.push({ label: proposalLabel(key), value: display });
+  }
   return formatAstraMessage(
     '🔎 Confirma esta alteração?',
     fields,
     'Responda “sim” para confirmar ou “cancelar” para desistir.'
   );
+}
+
+const internalProposalKey = (key: string) =>
+  /(?:^|_)(?:id|ids|token|key|cursor|etag|version|fields|format|supports_all_drives|supports_team_drives)$|(?:Id|Ids)$|authorization|credentials/i.test(
+    key
+  );
+const proposalLabel = (key: string) => {
+  const label = key.replace(/([a-z])([A-Z])/g, '$1 $2').replaceAll('_', ' ');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+};
+function proposalValue(value: unknown, depth = 0): string {
+  if (depth > 12 || value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.replace(/[\r*_`]/g, '');
+  if (typeof value === 'number') return value.toLocaleString('pt-BR');
+  if (typeof value === 'boolean') return value ? 'Sim' : 'Não';
+  if (Array.isArray(value))
+    return value
+      .map((v) => proposalValue(v, depth + 1))
+      .filter(Boolean)
+      .join(' · ');
+  if (typeof value === 'object')
+    return Object.entries(value)
+      .filter(([key]) => !internalProposalKey(key))
+      .map(([key, v]) => {
+        const text = proposalValue(v, depth + 1);
+        return text ? proposalLabel(key) + ': ' + text : '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  return '';
 }
 
 export class CustomerIntegrationService {

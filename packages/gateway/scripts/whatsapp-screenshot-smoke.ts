@@ -779,7 +779,20 @@ try {
           delivery.at <= saved[index]!.remindAt.getTime() + 7_000,
           'Reminder exceeded the worker tolerance'
         );
-        assert.equal(delivery.text, '⏰ Você pediu para eu te lembrar: vê o pc');
+        assert.match(
+          delivery.text,
+          /^⏰ \*Hora do seu lembrete\*\n\n• \*Assunto:\* vê o pc\n• \*Data e hora:\* /
+        );
+        assert.ok(
+          delivery.text.includes(
+            new Intl.DateTimeFormat('pt-BR', {
+              timeZone: 'America/Campo_Grande',
+              dateStyle: 'short',
+              timeStyle: 'short',
+            }).format(saved[index]!.remindAt)
+          ),
+          'Delivered reminder must show its saved customer-local time'
+        );
         assert.ok(delivery.receipt);
         const before = (await reminders(customer)).length;
         const replay = await invoke(index === 0 ? 'bus' : 'direct', customer, messages[index]!);

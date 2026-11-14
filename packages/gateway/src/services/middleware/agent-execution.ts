@@ -25,6 +25,7 @@ import {
   needsConversationalRewrite,
   recentChannelText,
   requiredChannelWeatherTool,
+  requiredChannelEmailDigestTool,
 } from '../../channels/tool-selection.js';
 
 import {
@@ -50,6 +51,8 @@ export function userFacingAgentError(
   if (verified) return verified;
   if (requiredChannelWeatherTool(message.content))
     return 'Não consegui consultar o tempo agora. Pode tentar de novo em instantes?';
+  if (requiredChannelEmailDigestTool(message.content))
+    return 'Não consegui confirmar seu resumo de e-mails agora. Pode me pedir para conferir a rotina em instantes?';
   return channelFailureReply(message.content, channelFailureKind(details), receipts, timeZone);
 }
 
@@ -155,7 +158,15 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
 
     try {
       const chatOptions: Record<string, unknown> = {};
-      if (requiredWeather) chatOptions.requiredFirstTool = requiredWeather;
+      const requiredFirst =
+        requiredWeather ??
+        (message.metadata.source === 'channel' && !conversationOnly
+          ? requiredChannelEmailDigestTool(
+              message.content,
+              recentChannelText(agent.getConversation())
+            )
+          : undefined);
+      if (requiredFirst) chatOptions.requiredFirstTool = requiredFirst;
 
       // Add thinking config if provided
       const thinking = ctx.get<{
