@@ -9,6 +9,10 @@
  */
 
 import { whatsappPhoneSpellings } from '../../whatsapp-phone.js';
+import {
+  discoverWhatsAppHistoryContacts,
+  type WhatsAppHistoryContactInput,
+} from '../../whatsapp-contact-discovery.js';
 import makeWASocket, {
   useMultiFileAuthState,
   makeCacheableSignalKeyStore,
@@ -225,6 +229,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // History sync tracking — promise queue serializes concurrent batches (Node.js can context-switch at await)
   private historySyncQueue: Promise<void> = Promise.resolve();
   private lastHistoryFetchTime: number | null = null;
+  private lastContactSyncRequest = 0;
 
   // Group listing cache (5 min TTL — prevents excessive groupFetchAllParticipating calls)
   private groupsCache: WhatsAppGroupSummary[] | null = null;
@@ -389,7 +394,16 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
           }
         }
 
-        if (upsert.type !== 'notify') return;
+        if (upsert.type !== 'notify') {
+          // Offline/history deliveries must populate the authorization directory,
+          // but must never replay old commands or send old welcome messages.
+          void this.rememberHistoryContacts(
+            { messages: upsert.messages },
+            sock,
+            isCurrentSocket
+          ).catch(() => log.warn('Could not update the WhatsApp contact directory'));
+          return;
+        }
         for (const msg of upsert.messages) {
           log.debug('[WhatsApp] Processing message', { fromMe: msg.key.fromMe === true });
 
@@ -455,6 +469,12 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
                 `[WhatsApp] History sync received — type: ${syncTypeName}, messages: ${messages.length}, chats: ${chats?.length ?? 0}, contacts: ${contacts?.length ?? 0}, progress: ${progress ?? 'N/A'}%, isLatest: ${isLatest ?? 'N/A'}`
               );
 
+              await this.rememberHistoryContacts(
+                { messages, chats, contacts },
+                sock,
+                isCurrentSocket
+              );
+              if (!isCurrentSocket()) return;
               if (messages.length === 0) {
                 log.info('[WhatsApp] History sync batch empty — skipping');
                 return;
@@ -482,7 +502,23 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
                 // Skip our own outbound messages (except self-chat)
                 const isSelf = this.isSelfChat(remoteJid);
-                if (!isSelf) continue;
+                if (!isSelf) {
+                  // Inventory import is not permission to execute an old message
+                  // if a reconnect subsequently replays it as a live notification.
+                  if (
+                    isDM &&
+                    !msg.key.fromMe &&
+                    process.env.ASTRA_WHATSAPP_MULTIUSER === 'true' &&
+                    msg.key.id
+                  ) {
+                    this.processedMsgIds.add(msg.key.id);
+                    if (this.processedMsgIds.size > PROCESSED_MSG_IDS_CAP) {
+                      const oldest = this.processedMsgIds.values().next().value;
+                      if (oldest !== undefined) this.processedMsgIds.delete(oldest);
+                    }
+                  }
+                  continue;
+                }
 
                 const messageId = msg.key.id ?? '';
                 if (!messageId) continue;
@@ -1059,6 +1095,82 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       `[WhatsApp] On-demand history fetch requested — group: ${groupJid}, count: ${count}, sessionId: ${sessionId}`
     );
     return sessionId;
+  }
+
+  private async rememberHistoryContacts(
+    input: WhatsAppHistoryContactInput,
+    sock: WASocket,
+    current: () => boolean
+  ): Promise<void> {
+    if (process.env.ASTRA_WHATSAPP_MULTIUSER !== 'true' || !current()) return;
+    const observations = await discoverWhatsAppHistoryContacts(
+      input,
+      (key) => this.resolveIncomingJid(key, sock),
+      (value) => providerTimestamp(value as Parameters<typeof providerTimestamp>[0]) ?? null,
+      (jid) => this.isSelfChat(jid),
+      current
+    );
+    if (!observations.length || !current()) return;
+    const { whatsAppContactDiscoveryRepo } =
+      await import('../../../db/repositories/whatsapp-contact-discovery.js');
+    if (!current()) return;
+    const count = await whatsAppContactDiscoveryRepo.remember(observations);
+    log.info('WhatsApp historical contacts reconciled', { count });
+    try {
+      wsGateway.broadcast('data:changed', {
+        entity: 'channel',
+        action: 'updated',
+        id: this.pluginId,
+      });
+    } catch {
+      /* startup */
+    }
+  }
+
+  /** Explicit owner action: merge stored contacts and ask the linked phone for older chats. */
+  async synchronizeContacts(): Promise<{ contactsRecovered: number; historyRequested: boolean }> {
+    const sock = this.sock;
+    if (!sock || this.status !== 'connected' || process.env.ASTRA_WHATSAPP_MULTIUSER !== 'true')
+      throw new Error('Conecte o WhatsApp antes de sincronizar os contatos.');
+    if (Date.now() - this.lastContactSyncRequest < 60_000)
+      throw new Error(
+        'A sincronização já foi solicitada. Aguarde um minuto antes de tentar novamente.'
+      );
+    this.lastContactSyncRequest = Date.now();
+    const { whatsAppContactDiscoveryRepo } =
+      await import('../../../db/repositories/whatsapp-contact-discovery.js');
+    if (this.sock !== sock || this.status !== 'connected')
+      throw new Error('O WhatsApp reconectou. Tente a sincronização novamente.');
+    const contactsRecovered = await whatsAppContactDiscoveryRepo.recoverStoredInbound();
+    if (this.sock !== sock || this.status !== 'connected')
+      throw new Error('O WhatsApp reconectou. Tente a sincronização novamente.');
+    // Native peer-data control request, not a chat message or a new login.
+    const request = sock.sendPeerDataOperationMessage({
+      peerDataOperationRequestType:
+        proto.Message.PeerDataOperationRequestType.FULL_HISTORY_SYNC_ON_DEMAND,
+      fullHistorySyncOnDemandRequest: { requestMetadata: { requestId: crypto.randomUUID() } },
+    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        request,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  'A solicitação de histórico não foi confirmada. Confira os contatos carregados antes de tentar novamente.'
+                )
+              ),
+            10_000
+          );
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    return { contactsRecovered, historyRequested: true };
   }
 
   /**

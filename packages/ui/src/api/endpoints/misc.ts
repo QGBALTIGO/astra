@@ -443,6 +443,10 @@ export const channelsApi = {
       : apiClient.get<ChannelUsersPage>(`/channels/${channelId}/users`),
   authorizeWhatsAppUser: (body: AuthorizeWhatsAppUserInput) =>
     apiClient.post<{ user: ChannelUser }>('/channels/auth/users', body),
+  synchronizeWhatsAppContacts: () =>
+    apiClient.post<{ contactsRecovered: number; historyRequested: boolean }>(
+      '/channels/channel.whatsapp/contacts/sync'
+    ),
   renewUserAccess: (userId: string, durationDays = 30) =>
     apiClient.post<{ user: ChannelUser }>(`/channels/auth/users/${userId}/renew`, { durationDays }),
   revokeUserAccess: (userId: string) =>

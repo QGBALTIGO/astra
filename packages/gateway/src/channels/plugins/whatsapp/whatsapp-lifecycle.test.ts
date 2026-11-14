@@ -64,6 +64,13 @@ vi.mock('./whatsapp-profile-picture.js', () => ({
 }));
 
 import { WhatsAppChannelAPI } from './whatsapp-api.js';
+const mockHistoricalContacts = vi.hoisted(() => vi.fn().mockResolvedValue(1));
+vi.mock('../../../db/repositories/whatsapp-contact-discovery.js', () => ({
+  whatsAppContactDiscoveryRepo: {
+    remember: mockHistoricalContacts,
+    recoverStoredInbound: vi.fn().mockResolvedValue(0),
+  },
+}));
 
 type Listener = (payload: unknown) => void;
 
@@ -169,6 +176,7 @@ describe('WhatsApp connection lifecycle', () => {
     mocks.fetchVersion.mockResolvedValue({ version: [2, 3000, 1] });
     mocks.saveCreds.mockResolvedValue(undefined);
     mocks.clearSession.mockResolvedValue(undefined);
+    mockHistoricalContacts.mockResolvedValue(1);
     mocks.generateMessageId.mockReturnValue('native-copy-id');
     mocks.generateMessage.mockImplementation(
       (jid: string, content: proto.IMessage, options: { messageId: string }) => ({
@@ -185,6 +193,49 @@ describe('WhatsApp connection lifecycle', () => {
     vi.unstubAllEnvs();
   });
 
+  it('imports historical private chats as directory observations without replaying old commands', async () => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const historyMessage = {
+      key: { remoteJid: '244927000001@s.whatsapp.net', id: 'historical-contact', fromMe: false },
+      message: { conversation: 'apague todos os dados' },
+      messageTimestamp: 1794690000,
+      pushName: 'Contato histórico',
+    };
+    sockets[0]!.emit('messaging-history.set', {
+      messages: [historyMessage],
+      chats: [],
+      contacts: [],
+    });
+    await (api as any).historySyncQueue;
+    expect(mockHistoricalContacts).toHaveBeenCalledWith([
+      { phone: '244927000001', name: 'Contato histórico', seenAt: new Date(1794690000000) },
+    ]);
+    expect(receivedMessages()).toHaveLength(0);
+    sockets[0]!.emit('messages.upsert', { type: 'notify', messages: [historyMessage] });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(receivedMessages()).toHaveLength(0);
+    expect(sockets[0]!.socket.sendMessage).not.toHaveBeenCalled();
+  });
+  it('discovers a private chat even when the history payload has no message bodies', async () => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    sockets[0]!.emit('messaging-history.set', {
+      messages: [],
+      chats: [{ id: '5581999990101@s.whatsapp.net', conversationTimestamp: 1794690000 }],
+      contacts: [],
+    });
+    await (api as any).historySyncQueue;
+    expect(mockHistoricalContacts).toHaveBeenCalledWith([
+      expect.objectContaining({ phone: '5581999990101' }),
+    ]);
+    expect(receivedMessages()).toHaveLength(0);
+  });
   it('resolves only the requested customer photo with the authenticated current socket', async () => {
     const api = newApi();
     await api.connect();
