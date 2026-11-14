@@ -257,6 +257,12 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
         ctx.set('error', result.error);
         log.warn('Agent returned a processing error', {
           reason: channelFailureKind(result.error?.message ?? ''),
+          budget: /Maximum turns exceeded/.test(result.error?.message ?? '')
+            ? 'turns'
+            : /Tool call limit exceeded/.test(result.error?.message ?? '')
+              ? 'tools'
+              : undefined,
+          toolSequence: channelReceipts.map((r) => ({ name: r.name, failed: r.isError })),
           provider,
           model,
           durationMs,

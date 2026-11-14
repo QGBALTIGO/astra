@@ -102,6 +102,32 @@ beforeEach(() => {
   }));
 });
 describe('customer bound integration execution', () => {
+  it.each(['criar evento', 'agendar compromisso', 'marcar evento'])(
+    'returns only the relevant calendar schema for %s',
+    async (query) => {
+      mocks.connections.mockResolvedValue([
+        { id: 'ca_a', appName: 'googlecalendar', status: 'ACTIVE' },
+      ]);
+      mocks.specs.mockResolvedValue([
+        { ...read, appName: 'googlecalendar', slug: 'GOOGLECALENDAR_EVENTS_LIST' },
+        { ...write, appName: 'googlecalendar', slug: 'GOOGLECALENDAR_CREATE_EVENT' },
+        { ...write, appName: 'googlecalendar', slug: 'GOOGLECALENDAR_DELETE_EVENT' },
+        { ...write, appName: 'googlecalendar', slug: 'GOOGLECALENDAR_UPDATE_EVENT' },
+      ]);
+      const results = await service.discover('customer-a', 'googlecalendar', query);
+      expect(results.map((r) => r.action)).toEqual(['GOOGLECALENDAR_CREATE_EVENT']);
+      expect(mocks.execute).not.toHaveBeenCalled();
+    }
+  );
+  it('returns the send schema without unrelated draft schemas', async () => {
+    mocks.specs.mockResolvedValue([
+      { ...write, slug: 'GMAIL_CREATE_EMAIL_DRAFT' },
+      { ...write, slug: 'GMAIL_SEND_EMAIL' },
+    ]);
+    expect(
+      (await service.discover('customer-a', 'gmail', 'enviar mensagem')).map((r) => r.action)
+    ).toEqual(['GMAIL_SEND_EMAIL']);
+  });
   it.each([true, false])(
     'mirrors a confirmed calendar deletion while preserving local edits (%s)',
     async (canRemove) => {

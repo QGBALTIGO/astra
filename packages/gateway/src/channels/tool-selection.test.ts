@@ -14,6 +14,25 @@ const financeTools = [
 ];
 
 describe('channel finance tool selection', () => {
+  it.each([
+    'Qual a temperatura agora?',
+    'Como tá o tempo aqui?',
+    'Moro em Cuiabá, MT',
+    'Minha cidade agora é Belo Horizonte',
+    'Vai chover?',
+  ])('exposes current weather and city preference tools for %s', (text) => {
+    expect(channelToolsForMessage(text)).toEqual(
+      expect.arrayContaining(['core.get_local_weather', 'core.set_weather_city'])
+    );
+  });
+  it('retains the weather intent when the customer answers only the city', () => {
+    expect(
+      channelToolsForMessage('Cuiabá, Mato Grosso', 'Qual a temperatura? Em qual cidade você está?')
+    ).toContain('core.set_weather_city');
+    expect(channelToolsForMessage('Quanto tempo falta para minha reunião?')).not.toContain(
+      'core.get_local_weather'
+    );
+  });
   it('keeps 500 hypothetical profiles away from earlier real operations even after the short writer fails', () => {
     for (let i = 0; i < 500; i++) {
       const text = `Cenário fictício P${i}. Sou Pessoa ${i}, ${18 + (i % 64)} anos. Hoje marquei dois compromissos no mesmo horário. O que você precisa saber para ajudar a remarcar? Só estamos conversando sobre esse exemplo.`;
