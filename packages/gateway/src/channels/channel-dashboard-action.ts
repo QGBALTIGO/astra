@@ -40,6 +40,11 @@ export function dashboardActionForConfirmedReply(
   if (/^⏳ \*Não consegui confirmar esse gasto\*/u.test(text))
     return { label: 'Conferir meus lançamentos', url: origin + '/cliente/transacoes' };
   if (
+    /(?:^|\n)🔎 \*Lançamento encontrado\*/u.test(text) &&
+    /(?:^|\n)• \*Valor:\* (?:R\$|[A-Z]{2,3}\$|€|£)/u.test(text)
+  )
+    return { label: 'Ver meus lançamentos', url: origin + '/cliente/transacoes' };
+  if (
     /^(?:✅|⏳) \*(?:Entrada|Despesa|Valor a (?:pagar|receber)) (?:já )?(?:registrad[ao]|atualizad[ao])\*/u.test(
       text
     ) &&
