@@ -361,6 +361,13 @@ export class FallbackProvider implements IProvider {
           deadline
         );
 
+        if (result.ok && request.toolChoice === 'required' && !result.value.toolCalls?.length) {
+          // A prose-only answer is not a successful live lookup. No tool has
+          // executed yet, so trying another configured model cannot replay a write.
+          lastError = new InternalError('Provider did not perform the required tool call');
+          this.recordFailure(provider, lastError);
+          continue;
+        }
         if (result.ok) {
           this.recordSuccess(provider);
           if (i > 0) {

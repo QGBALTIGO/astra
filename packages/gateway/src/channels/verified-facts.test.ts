@@ -26,6 +26,9 @@ describe('verified weather and calendar presentation', () => {
     expect(text).toContain('14 km/h');
     expect(text).toContain('MET Norway');
     expect(text).not.toMatch(/30,1|33,2|sensação|Open-Meteo|\]\(/);
+    expect(safeChannelResponse('Aqui sua cidade já está registrada!\n35 °C', [data])).not.toContain(
+      'cidade já está registrada'
+    );
   });
   it('does not accept a temperature or city-save claim without a matching receipt', () => {
     const context = { requestText: 'Guarde Aquidauana como minha cidade e diga a temperatura' };

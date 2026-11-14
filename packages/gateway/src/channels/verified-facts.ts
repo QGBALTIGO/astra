@@ -20,7 +20,9 @@ function opening(text: string): string {
   const first = text.trim().split(/\n/)[0]?.trim() ?? '';
   return first.length <= 100 &&
     /^(?:Oi|Olá|Claro|Certo|Fechado|Vamos|Aqui|Pode deixar)\b/i.test(first) &&
-    !/\d|°|salv|guard|calor|quente|frio|chuv|nuv|temp|clima|sensação|fonte/i.test(first)
+    !/\d|°|salv|guard|registr|confirm|anot|memoriz|criei|agend|cidade|calor|quente|frio|chuv|nuv|temp|clima|sensação|fonte/i.test(
+      first
+    )
     ? first + '\n\n'
     : '';
 }
