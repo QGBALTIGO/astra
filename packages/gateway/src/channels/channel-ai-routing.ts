@@ -841,12 +841,14 @@ async function processDirectAgentInSession(
                 }),
               }
             )
-          : agent.chat(
-              withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts),
-              requiredChannelSubscriptionTool(interpreted.text)
-                ? { requiredFirstTool: requiredChannelSubscriptionTool(interpreted.text) }
-                : undefined
-            )
+          : requiredChannelSubscriptionTool(interpreted.text)
+            ? agent.chat(
+                withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts),
+                { requiredFirstTool: requiredChannelSubscriptionTool(interpreted.text) }
+              )
+            : agent.chat(
+                withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts)
+              )
     ).finally(() => agent.clearAdditionalTools?.());
   } catch (error) {
     const reason = channelFailureKind(error instanceof Error ? error.message : '');
