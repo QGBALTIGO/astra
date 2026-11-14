@@ -553,6 +553,44 @@ channelRoutes.get('/:id/qr', (c) => {
 /**
  * GET /:id/users - List channel users, including customers authorized before their first message
  */
+channelRoutes.post('/:id/contacts/sync', requireChannelAccessAdmin, async (c) => {
+  if (c.req.param('id') !== 'channel.whatsapp')
+    return apiError(
+      c,
+      { code: ERROR_CODES.INVALID_INPUT, message: 'Essa sincronização é exclusiva do WhatsApp.' },
+      400
+    );
+  const api = hasChannelService() ? getChannelService().getChannel(c.req.param('id')) : undefined;
+  if (!api || !('synchronizeContacts' in api) || typeof api.synchronizeContacts !== 'function')
+    return apiError(
+      c,
+      {
+        code: ERROR_CODES.SERVICE_UNAVAILABLE,
+        message: 'A sincronização de contatos não está disponível agora.',
+      },
+      503
+    );
+  try {
+    return apiResponse(c, await api.synchronizeContacts());
+  } catch (error) {
+    const safe =
+      error instanceof Error &&
+      /^(?:Conecte o WhatsApp|A sincronização já|O WhatsApp reconectou|A solicitação de histórico)/.test(
+        error.message
+      );
+    return apiError(
+      c,
+      {
+        code: ERROR_CODES.SERVICE_UNAVAILABLE,
+        message: safe
+          ? error.message
+          : 'Não foi possível sincronizar os contatos agora. Tente novamente em instantes.',
+      },
+      503
+    );
+  }
+});
+
 channelRoutes.get('/:id/users', requireChannelAccessAdmin, async (c) => {
   const pluginId = c.req.param('id');
   const platform = pluginId.split('.')[1] ?? '';

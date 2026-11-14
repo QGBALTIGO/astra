@@ -4,6 +4,13 @@ const mockEmit = vi.hoisted(() => vi.fn());
 const mockGenerateNative = vi.hoisted(() => vi.fn());
 const mockNativeMessageId = vi.hoisted(() => vi.fn(() => 'native-cta-id'));
 const mockRecordOutboundQuality = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const contactsRepo = vi.hoisted(() => ({
+  remember: vi.fn().mockResolvedValue(0),
+  recoverStoredInbound: vi.fn().mockResolvedValue(3),
+}));
+vi.mock('../../../db/repositories/whatsapp-contact-discovery.js', () => ({
+  whatsAppContactDiscoveryRepo: contactsRepo,
+}));
 vi.mock('../../../services/outbound-quality.js', () => ({
   recordOutboundQuality: mockRecordOutboundQuality,
 }));
@@ -20,7 +27,10 @@ vi.mock('@whiskeysockets/baileys', async (importOriginal) => ({
   generateWAMessageFromContent: mockGenerateNative,
   generateMessageIDV2: mockNativeMessageId,
   Browsers: { appropriate: vi.fn() },
-  proto: { HistorySync: { HistorySyncType: {} } },
+  proto: {
+    HistorySync: { HistorySyncType: {} },
+    Message: { PeerDataOperationRequestType: { FULL_HISTORY_SYNC_ON_DEMAND: 6 } },
+  },
 }));
 
 vi.mock('@hapi/boom', () => ({ Boom: class Boom extends Error {} }));
@@ -59,6 +69,47 @@ vi.mock('../../../services/channel-asset-store.js', () => ({
 }));
 
 describe('WhatsAppChannelAPI', () => {
+  it('requests old chats through the existing authenticated socket without chat sends or new login', async () => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    try {
+      const api = new WhatsAppChannelAPI({}, 'channel.whatsapp');
+      const peer = vi.fn().mockResolvedValue('history-request');
+      const send = vi.fn();
+      Object.assign(api, {
+        sock: { sendPeerDataOperationMessage: peer, sendMessage: send },
+        status: 'connected',
+      });
+      expect(await api.synchronizeContacts()).toEqual({
+        contactsRecovered: 3,
+        historyRequested: true,
+      });
+      expect(peer).toHaveBeenCalledWith({
+        peerDataOperationRequestType: 6,
+        fullHistorySyncOnDemandRequest: { requestMetadata: { requestId: expect.any(String) } },
+      });
+      expect(send).not.toHaveBeenCalled();
+      await expect(api.synchronizeContacts()).rejects.toThrow('já foi solicitada');
+      expect(peer).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('does not make a history request after the account socket changed during recovery', async () => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    try {
+      const api = new WhatsAppChannelAPI({}, 'channel.whatsapp');
+      const peer = vi.fn();
+      Object.assign(api, { sock: { sendPeerDataOperationMessage: peer }, status: 'connected' });
+      contactsRepo.recoverStoredInbound.mockImplementationOnce(async () => {
+        Object.assign(api, { sock: null });
+        return 0;
+      });
+      await expect(api.synchronizeContacts()).rejects.toThrow('reconectou');
+      expect(peer).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('bounds a stuck media download even when the provider ignores cancellation', async () => {
     vi.useFakeTimers();
     try {

@@ -1447,6 +1447,11 @@ describe('ChannelServiceImpl', () => {
             expect.objectContaining({ platformChatId: contactPhone })
           );
           expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+          expect(mockWsGateway.broadcast).toHaveBeenCalledWith('data:changed', {
+            entity: 'channel',
+            action: 'updated',
+            id: 'channel.whatsapp',
+          });
         }
       );
 

@@ -212,6 +212,29 @@ describe('WhatsApp authorization form', () => {
 });
 
 describe('WhatsApp access management', () => {
+  it('requests contact recovery without granting access and refreshes pending rows', async () => {
+    const onChanged = vi.fn();
+    post.mockResolvedValueOnce({ contactsRecovered: 4, historyRequested: true });
+    await render(
+      panel([user({ isVerified: false, status: 'pending', accessStatus: 'pending' })], {
+        onChanged,
+      })
+    );
+    await click(button('Sincronizar contatos'));
+    expect(post).toHaveBeenCalledWith('/channels/channel.whatsapp/contacts/sync');
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(onChanged).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain('1 aguardando autorização');
+    expect(container.textContent).toContain('Histórico solicitado ao WhatsApp');
+  });
+  it('keeps a sync failure visible and allows a later retry without hiding existing contacts', async () => {
+    post.mockRejectedValueOnce(new Error('O celular está offline.'));
+    await render(panel([user()]));
+    await click(button('Sincronizar contatos'));
+    expect(container.textContent).toContain('O celular está offline.');
+    expect(container.textContent).toContain('Ana');
+    expect(button('Sincronizar contatos').disabled).toBe(false);
+  });
   it('opens authorization from the empty list', async () => {
     await render(panel([]));
     expect(container.textContent).toContain('Nenhum número cadastrado ainda');

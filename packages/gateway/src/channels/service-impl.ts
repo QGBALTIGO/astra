@@ -629,6 +629,17 @@ export class ChannelServiceImpl implements IChannelService {
             await this.usersRepo.updateStatus(channelUser.id, 'pending');
           }
         }
+        // The access gate returns before the normal message broadcast. Notify
+        // the owner directory here so first-time pending numbers appear live.
+        try {
+          wsGateway.broadcast('data:changed', {
+            entity: 'channel',
+            action: 'updated',
+            id: message.channelPluginId,
+          });
+        } catch {
+          /* The pending record is already durable. */
+        }
         await this.sendInboundAccessNotice(message, channelUser, 'inactive');
         return;
       }

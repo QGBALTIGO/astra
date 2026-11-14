@@ -72,6 +72,32 @@ export function WhatsAppAccessPanel({
   const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
   const actionRef = useRef(false);
   const [clockRevision, refreshClock] = useState(0);
+  const [syncingContacts, setSyncingContacts] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
+  const syncRef = useRef(false);
+  const synchronizeContacts = async () => {
+    if (syncRef.current) return;
+    syncRef.current = true;
+    setSyncingContacts(true);
+    setSyncMessage('');
+    try {
+      await channelsApi.synchronizeWhatsAppContacts();
+      setSyncMessage(
+        'Histórico solicitado ao WhatsApp. Os contatos disponíveis aparecerão nesta lista. As autorizações existentes foram preservadas.'
+      );
+      onChanged();
+    } catch (error) {
+      setSyncMessage(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível sincronizar os contatos agora. Tente novamente.'
+      );
+      onChanged(); // locally recovered contacts may be available even if the phone is offline.
+    } finally {
+      syncRef.current = false;
+      setSyncingContacts(false);
+    }
+  };
   const now = Date.now();
   let nextExpiry = Infinity;
   for (const user of users) {
@@ -151,19 +177,46 @@ export function WhatsAppAccessPanel({
             Acesso ao WhatsApp
           </h3>
           <p className="mt-1 max-w-md text-xs leading-relaxed text-text-muted dark:text-dark-text-muted">
-            Autorize quem pode conversar com o Astra e acompanhe a validade.
+            Todos os contatos conhecidos aparecem aqui para você autorizar ou bloquear. Novos
+            contatos recebem a mensagem padrão de acesso.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setAuthorization({})}
-          disabled={Boolean(busyAction)}
-          className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
-        >
-          <Plus className="h-4 w-4" />
-          Autorizar número
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={synchronizeContacts}
+            disabled={syncingContacts || Boolean(busyAction)}
+            className={actionClass}
+          >
+            <RefreshCw className={syncingContacts ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+            {syncingContacts ? 'Sincronizando…' : 'Sincronizar contatos'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setAuthorization({})}
+            disabled={Boolean(busyAction)}
+            className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4" />
+            Autorizar número
+          </button>
+        </div>
       </div>
+      {syncMessage && (
+        <p
+          role="status"
+          className="rounded-lg bg-bg-secondary p-3 text-xs leading-relaxed text-text-secondary dark:bg-dark-bg-secondary dark:text-dark-text-secondary"
+        >
+          {syncMessage}
+        </p>
+      )}
+      {!isLoading && users.length > 0 && (
+        <p className="text-xs text-text-muted dark:text-dark-text-muted">
+          {users.length} contatos carregados ·{' '}
+          {users.filter((user) => getWhatsAppAccessState(user, now) === 'pending').length}{' '}
+          aguardando autorização{hasMore ? ' · há mais contatos abaixo' : ''}
+        </p>
+      )}
 
       {isLoading ? (
         <div className="rounded-xl border border-border p-4 dark:border-dark-border">
