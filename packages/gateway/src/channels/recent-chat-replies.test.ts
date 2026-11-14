@@ -12,6 +12,29 @@ const prior = [
   { action: 'Despesa registrada', facts: 'R$ 5,00 · café' },
 ];
 describe('recalling recent private receipts', () => {
+  it('does not resurrect a removed subscription while explaining merchant billing', async () => {
+    vi.mocked(writeShortChannelReply).mockClear();
+    const receipts = [
+      {
+        action: 'assinatura removida',
+        facts:
+          'Assinatura removida do controle do Astra: Clube Ensaio Ipê. Essa remoção não cancela cobranças no fornecedor.',
+      },
+      ...prior,
+    ];
+    const reply = await quickPrivateReply(
+      'channel.whatsapp',
+      'Isso cancelou a cobrança no fornecedor ou só tirou a assinatura do meu planejamento?',
+      receipts
+    );
+    expect(reply).toContain('Só removi');
+    expect(reply).toContain('Não cancelei a cobrança no fornecedor');
+    expect(reply).not.toContain('continua registrada');
+    expect(withRecentReceiptContext('Isso cancelou a cobrança?', receipts)).toContain(
+      'Assinatura removida'
+    );
+    expect(writeShortChannelReply).not.toHaveBeenCalled();
+  });
   it('keeps advice within the assessor role and explicit exercises tool-free even with quoted commands', async () => {
     vi.mocked(writeShortChannelReply).mockClear();
     vi.mocked(writeShortChannelReply).mockResolvedValue(

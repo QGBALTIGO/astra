@@ -50,6 +50,22 @@ function withoutSafeIntro(text: string): string | null {
 export function receiptContext(text: string): Receipt | null {
   const withoutIntro = withoutSafeIntro(text);
   if (withoutIntro) return receiptContext(withoutIntro);
+  const removedSubscription =
+    /^Removi (.+) do seu controle no Astra\. Para encerrar a cobrança, solicite o cancelamento ao fornecedor\.$/u.exec(
+      text
+    );
+  if (removedSubscription)
+    return {
+      subject: removedSubscription[1]!,
+      action: 'assinatura removida',
+      facts: `Assinatura removida do controle do Astra: ${removedSubscription[1]}. Essa remoção não cancela cobranças no fornecedor.`,
+    };
+  const cancelledReminder =
+    /^✅ \*Lembrete cancelado\*\n\n• \*Assunto:\* ([^\n]+)\n\nNão enviarei esse aviso\.$/u.exec(
+      text
+    );
+  if (cancelledReminder)
+    return { subject: cancelledReminder[1]!, action: 'Lembrete cancelado', facts: text };
   const simple =
     /^(?:Adicionei “([^”\n]+)” à sua lista de tarefas\. Ela está pendente\.|Marquei como concluída a tarefa “([^”\n]+)”\.|Assinatura (?:adicionada ao|atualizada no) seu controle: ([^·\n]+) · [^\n]+\.)$/u.exec(
       text
@@ -174,6 +190,8 @@ export async function maybePersonalizeConfirmedReply(input: {
   if (withoutIntro && receiptContext(withoutIntro)) return input.responseText;
   const receipt = receiptContext(input.responseText);
   if (!receipt) return input.responseText;
+  if (receipt.action === 'assinatura removida' || receipt.action === 'Lembrete cancelado')
+    return input.responseText;
   const fallback = confirmationCard(input.responseText, receipt);
   if (isDiscreetSubject(receipt.subject)) return fallback;
   const key = input.channelPluginId + '|' + input.dataUserId;
