@@ -37,10 +37,77 @@ vi.mock('../ws/server.js', () => ({
 import {
   parseBrlCents,
   parseChannelExpense,
+  expenseContinuationText,
   parseFinancingIntent,
   tryExpenseRecordChannelReply,
   tryFinancingChannelReply,
 } from './finance-routing.js';
+describe('short expense continuations', () => {
+  const base = {
+    platform: 'whatsapp' as const,
+    platformChatId: 'synthetic-chat',
+    metadata: {
+      isGroup: false,
+      astraRecentReceipts: [
+        { action: 'assinatura', facts: 'Plano fictício' },
+        { action: 'Despesa registrada', facts: 'Suco fictício' },
+      ],
+    },
+  };
+  it.each(['whatsapp', 'telegram'] as const)(
+    'continues the latest expense across another domain on %s',
+    (platform) => {
+      const text = 'E mais R$ 4,60 de guardanapos Ensaio Bambu na lanchonete.';
+      const message = {
+        ...base,
+        platform,
+        text,
+        metadata: { ...base.metadata, chatType: 'private' },
+      };
+      expect(expenseContinuationText(message)).toBe(
+        'Gastei R$ 4,60 de guardanapos Ensaio Bambu na lanchonete.'
+      );
+      expect(parseChannelExpense(expenseContinuationText(message))).toMatchObject({
+        amountCents: 460,
+        category: 'shopping',
+      });
+    }
+  );
+  it.each(['Entrada registrada', 'Valor a pagar registrado', 'Valor a receber registrado'])(
+    'does not change an income or pending continuation into a paid expense: %s',
+    (action) => {
+      const text = 'E mais R$ 4,60 de guardanapos';
+      expect(
+        expenseContinuationText({
+          ...base,
+          text,
+          metadata: {
+            ...base.metadata,
+            astraRecentReceipts: [
+              { action, facts: 'outro movimento' },
+              ...base.metadata.astraRecentReceipts,
+            ],
+          },
+        })
+      ).toBe(text);
+    }
+  );
+  it.each([
+    'E mais R$ 4,60 de guardanapos?',
+    'E mais R$ 4,60 de guardanapos amanhã.',
+    'E mais R$ 4,60 de assinatura mensal.',
+    'E mais R$ 4,60 de guardanapos, mas não anote.',
+  ])('does not turn a question, future bill or negation into a new expense: %s', (text) =>
+    expect(expenseContinuationText({ ...base, text })).toBe(text)
+  );
+  it('requires an actual private expense receipt instead of guessing from a bare amount', () => {
+    const text = 'E mais R$ 4,60 de guardanapos';
+    expect(expenseContinuationText({ ...base, text, metadata: { isGroup: false } })).toBe(text);
+    expect(
+      expenseContinuationText({ ...base, text, metadata: { ...base.metadata, isGroup: true } })
+    ).toBe(text);
+  });
+});
 
 const message = {
   id: 'wa-msg-123',

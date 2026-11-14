@@ -66,6 +66,22 @@ beforeEach(() => {
   f.remove.mockResolvedValue(true);
 });
 describe('same-ledger finance tools', () => {
+  it.each(['record_transaction', 'update_transaction', 'delete_transaction'])(
+    'blocks %s when the original channel message only requested a lookup',
+    async (name) => {
+      f.ctx.channelRequestText = 'Mostre o gasto guardanapos Ensaio Bambu de R$ 4,60.';
+      expect(
+        await executeCustomerFinanceTool(
+          name,
+          { ...data, transaction_id: 'saved' },
+          'whatsapp:synthetic-a'
+        )
+      ).toMatchObject({ success: false, error: expect.stringContaining('apenas uma consulta') });
+      expect(f.create).not.toHaveBeenCalled();
+      expect(f.update).not.toHaveBeenCalled();
+      expect(f.remove).not.toHaveBeenCalled();
+    }
+  );
   it('does not change category while correcting only the price if the model added an unrequested category', async () => {
     f.ctx.channelRequestText = 'Corrige só o valor do suco para R$ 12,20.';
     await executeCustomerFinanceTool(

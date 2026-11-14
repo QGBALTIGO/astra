@@ -1,4 +1,5 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
+import { isFinanceReadOnlyRequest } from '../channels/finance-intent.js';
 /** User-scoped tools for the same income/expense ledger used by the customer portal. */
 import { createHash } from 'node:crypto';
 import { getExecContext } from '@ownpilot/core/agent';
@@ -198,6 +199,15 @@ export async function executeCustomerFinanceTool(
   userId?: string
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   if (!userId) return { success: false, error: 'Usuário autenticado obrigatório.' };
+  if (
+    ['record_transaction', 'update_transaction', 'delete_transaction'].includes(toolName) &&
+    isFinanceReadOnlyRequest(getExecContext()?.channelRequestText ?? '')
+  )
+    return {
+      success: false,
+      error:
+        'Este pedido é apenas uma consulta. Use list_transactions ou financial_summary; não registre, altere ou exclua lançamentos.',
+    };
   const repo = new CustomerFinanceRepository(userId);
   try {
     if (toolName === 'list_transactions') {

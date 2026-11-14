@@ -27,6 +27,7 @@ import {
   requiredChannelWeatherTool,
   requiredChannelEmailDigestTool,
 } from '../../channels/tool-selection.js';
+import { requiredFinanceReadTool } from '../../channels/finance-intent.js';
 
 import {
   channelFailureKind,
@@ -161,10 +162,10 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
       const requiredFirst =
         requiredWeather ??
         (message.metadata.source === 'channel' && !conversationOnly
-          ? requiredChannelEmailDigestTool(
+          ? (requiredChannelEmailDigestTool(
               message.content,
               recentChannelText(agent.getConversation())
-            )
+            ) ?? requiredFinanceReadTool(message.content))
           : undefined);
       if (requiredFirst) chatOptions.requiredFirstTool = requiredFirst;
 

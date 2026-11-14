@@ -17,6 +17,18 @@ it.each(['whatsapp', 'telegram'])(
   }
 );
 describe('Portal links after verified confirmations', () => {
+  it('offers the ledger after an uncertain financial result without implying a successful write', () => {
+    expect(
+      action(
+        '⏳ *Não consegui confirmar esse gasto*\n\nConfira seus lançamentos em Transações no painel antes de reenviar, para evitar duplicidade.',
+        id,
+        'whatsapp'
+      )
+    ).toEqual({
+      label: 'Conferir meus lançamentos',
+      url: 'https://app.astraacessor.pro/cliente/transacoes',
+    });
+  });
   it('links confirmed financial records and reminders to the relevant customer tab', () => {
     expect(action('✅ *Despesa registrada*\n\n• *Valor:* R$ 1,00', id, 'whatsapp')).toEqual({
       label: 'Acompanhar no painel',

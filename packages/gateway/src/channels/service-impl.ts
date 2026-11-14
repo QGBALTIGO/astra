@@ -1158,13 +1158,14 @@ export class ChannelServiceImpl implements IChannelService {
       let responseText: string;
       const privateText =
         !message.attachments?.length &&
-        message.platform === 'whatsapp' &&
-        message.metadata?.isGroup !== true;
+        (message.platform === 'whatsapp' || message.platform === 'telegram') &&
+        integrationPrivateChat(message);
       let recent: RecentReceipt[] = [];
       if (
         privateText &&
         session.conversationId &&
         (asksAboutRecentReceipts(message.text) ||
+          /^\s*(?:astra[,!:]?\s+)?e\s+(?:mais|tamb[eé]m)\s+r\$/iu.test(message.text) ||
           /\b(?:essa|esse|isso|esses|essas|ela|ele|anterior|últim[oa]|acabei|mesm[oa]|dela|dele)\b/iu.test(
             message.text
           ))
