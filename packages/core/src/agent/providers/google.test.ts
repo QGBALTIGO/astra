@@ -825,6 +825,146 @@ describe('GoogleProvider', () => {
       }
     });
 
+    it.each(['gemini-3.6-flash', 'gemini-3.5-flash-lite'])(
+      'keeps foreign tool history usable during failover to %s',
+      async (model) => {
+        const provider = new GoogleProvider(makeMockConfig());
+        mockFetch.mockImplementation(async (_url, init) => {
+          const body = JSON.parse(init.body),
+            parts = body.contents.flatMap((c: { parts: Record<string, unknown>[] }) => c.parts);
+          if (parts.some((p: Record<string, unknown>) => p.functionCall && !p.thoughtSignature))
+            return {
+              ok: false,
+              status: 400,
+              text: async () => 'Function call is missing a thought_signature',
+            };
+          return { ok: true, status: 200, json: async () => makeGeminiResponse() };
+        });
+        const response = await provider.complete(
+          makeRequest({
+            model: { model },
+            messages: [
+              { role: 'user', content: 'Consulte meu Gmail' },
+              {
+                role: 'assistant',
+                content: '',
+                toolCalls: [
+                  {
+                    id: 'foreign',
+                    name: 'core.search_connected_actions',
+                    arguments: '{"app":"gmail"}',
+                  },
+                ],
+              },
+              {
+                role: 'tool',
+                content: '',
+                toolResults: [
+                  {
+                    toolCallId: 'foreign',
+                    content: '{"action":"GMAIL_FETCH_EMAILS","allowed":true}',
+                  },
+                ],
+              },
+            ],
+          })
+        );
+        expect(response.ok).toBe(true);
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+        expect(JSON.stringify(body.contents)).toContain('GMAIL_FETCH_EMAILS');
+        expect(JSON.stringify(body.contents)).toContain('core.search_connected_actions');
+        expect(JSON.stringify(body.contents)).not.toContain('"functionCall"');
+        expect(JSON.stringify(body.contents)).not.toContain('"functionResponse"');
+      }
+    );
+    it('preserves signed native Gemini calls and their tool results', async () => {
+      const provider = new GoogleProvider(makeMockConfig());
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => makeGeminiResponse(),
+      });
+      await provider.complete(
+        makeRequest({
+          model: { model: 'gemini-3.6-flash' },
+          messages: [
+            { role: 'user', content: 'Consultar agenda' },
+            {
+              role: 'assistant',
+              content: '',
+              toolCalls: [
+                {
+                  id: 'native',
+                  name: 'list_events',
+                  arguments: '{}',
+                  metadata: { thoughtSignature: 'opaque-original' },
+                },
+              ],
+            },
+            {
+              role: 'tool',
+              content: '',
+              toolResults: [{ toolCallId: 'native', content: '{"events":[]}' }],
+            },
+          ],
+        })
+      );
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.contents[1].parts).toContainEqual({
+        functionCall: { name: 'list_events', args: {} },
+        thoughtSignature: 'opaque-original',
+      });
+      expect(body.contents[2].parts).toContainEqual(
+        expect.objectContaining({
+          functionResponse: { name: 'list_events', response: { result: '{"events":[]}' } },
+        })
+      );
+    });
+    it('keeps legacy non-thinking model function history unchanged', async () => {
+      const provider = new GoogleProvider(makeMockConfig());
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => makeGeminiResponse(),
+      });
+      await provider.complete(
+        makeRequest({
+          messages: [
+            {
+              role: 'assistant',
+              content: '',
+              toolCalls: [{ id: 'legacy', name: 'list_events', arguments: '{}' }],
+            },
+          ],
+        })
+      );
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body).contents[0].parts).toContainEqual({
+        functionCall: { name: 'list_events', args: {} },
+      });
+    });
+    it('preserves orphaned legacy results as data instead of unmatched native responses', async () => {
+      const provider = new GoogleProvider(makeMockConfig());
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => makeGeminiResponse(),
+      });
+      await provider.complete(
+        makeRequest({
+          model: { model: 'gemini-3.6-flash' },
+          messages: [
+            {
+              role: 'tool',
+              content: '',
+              toolResults: [{ toolCallId: 'legacy', content: '{"found":true}' }],
+            },
+          ],
+        })
+      );
+      const contents = JSON.stringify(JSON.parse(mockFetch.mock.calls[0][1].body).contents);
+      expect(contents).toContain('found');
+      expect(contents).not.toContain('functionResponse');
+    });
     it('sends system instruction in request body', async () => {
       const provider = new GoogleProvider(makeMockConfig());
       mockFetch.mockResolvedValue({
