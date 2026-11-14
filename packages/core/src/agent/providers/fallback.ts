@@ -38,6 +38,7 @@ interface CircuitBreakerEntry {
 }
 const sharedCircuits = new Map<string, CircuitBreakerEntry>();
 const sharedPreferred = new Map<string, { index: number; at: number }>();
+const HEALTHY_PREFERENCE_MS = 60 * 60 * 1000;
 const fingerprint = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -215,7 +216,7 @@ export class FallbackProvider implements IProvider {
       const previous = sharedPreferred.get(this.groupKey),
         now = Date.now(),
         index = this.getAllProviders().indexOf(provider);
-      if (!previous || previous.index !== index || now - previous.at >= 300000) {
+      if (!previous || previous.index !== index || now > previous.at) {
         if (sharedPreferred.size >= 64)
           sharedPreferred.delete(sharedPreferred.keys().next().value!);
         sharedPreferred.set(this.groupKey, { index, at: now });
@@ -263,7 +264,7 @@ export class FallbackProvider implements IProvider {
   }
   private preferHealthy<T extends { origIndex: number }>(entries: T[]): T[] {
     const preferred = this.config.preferLastSuccessful ? sharedPreferred.get(this.groupKey) : null;
-    return preferred && Date.now() - preferred.at < 300000
+    return preferred && Date.now() - preferred.at < HEALTHY_PREFERENCE_MS
       ? entries.sort(
           (a, b) =>
             Number(b.origIndex === preferred.index) - Number(a.origIndex === preferred.index)

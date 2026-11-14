@@ -102,6 +102,58 @@ beforeEach(() => {
   }));
 });
 describe('customer bound integration execution', () => {
+  it.each([undefined, true])(
+    'prepares an event without an unsolicited video room (explicit room: %s)',
+    async (room) => {
+      mocks.connections.mockResolvedValue([
+        { id: 'ca_a', appName: 'googlecalendar', status: 'ACTIVE' },
+      ]);
+      mocks.specs.mockResolvedValue([
+        {
+          ...write,
+          appName: 'googlecalendar',
+          slug: 'GOOGLECALENDAR_CREATE_EVENT',
+          parameters: {
+            type: 'object',
+            properties: {
+              summary: { type: 'string' },
+              timezone: { type: 'string' },
+              create_meeting_room: { type: 'boolean' },
+            },
+            required: ['summary'],
+          },
+        },
+      ]);
+      const input: Record<string, unknown> = { summary: 'Evento fictício' };
+      if (room !== undefined) input.create_meeting_room = room;
+      const prepared = await runInExecContext(
+        { ...privateContext, externalContentGuard: { seen: false } },
+        () =>
+          service.run(
+            'customer-a',
+            'googlecalendar',
+            'GOOGLECALENDAR_CREATE_EVENT',
+            input,
+            'Criar evento fictício'
+          )
+      );
+      expect(prepared).toMatchObject({ confirmationRequired: true });
+      expect(mocks.repo.propose).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: {
+            summary: 'Evento fictício',
+            timezone: 'America/Cuiaba',
+            create_meeting_room: room ?? false,
+          },
+        })
+      );
+      expect(prepared).toHaveProperty(
+        'reply',
+        expect.stringContaining(room ? 'Criar' : 'Não criar')
+      );
+      expect(mocks.execute).not.toHaveBeenCalled();
+    }
+  );
   it.each(['criar evento', 'agendar compromisso', 'marcar evento'])(
     'returns only the relevant calendar schema for %s',
     async (query) => {
