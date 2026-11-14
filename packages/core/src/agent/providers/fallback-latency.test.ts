@@ -64,6 +64,18 @@ function setup(extra: Record<string, unknown> = {}) {
   return { primary, backup, config, provider: new FallbackProvider(config) };
 }
 describe('opt-in channel fallback latency', () => {
+  it('keeps the healthy model after a normal pause instead of replaying exhausted providers', async () => {
+    vi.useFakeTimers();
+    const { provider, config, primary, backup } = setup();
+    await provider.complete(request);
+    vi.setSystemTime(Date.now() + 6 * 60000);
+    await new FallbackProvider(config).complete(request);
+    expect(primary.complete).toHaveBeenCalledTimes(1);
+    expect(backup.complete).toHaveBeenCalledTimes(2);
+    vi.setSystemTime(Date.now() + 61 * 60000);
+    await new FallbackProvider(config).complete(request);
+    expect(primary.complete).toHaveBeenCalledTimes(2);
+  });
   it('tries another model when a required live lookup receives only invented prose', async () => {
     const { provider, primary, backup } = setup();
     primary.complete.mockResolvedValue(ok({ content: 'The temperature is 30 C' }) as never);
