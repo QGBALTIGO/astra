@@ -1,4 +1,5 @@
 import { isAstraAccessAnswerRequested } from './astra-access.js';
+import { isFinanceReadOnlyRequest } from './finance-intent.js';
 
 export function requiredChannelEmailDigestTool(
   text: string,
@@ -228,6 +229,17 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     add('add_calendar_event', 'list_calendar_events');
   if (/\b(?:nome|memoria|memorize|guarde|preferencia|lembra)\b/.test(input))
     add('create_memory', 'search_memories');
+  if (isFinanceReadOnlyRequest(text))
+    for (const name of [
+      'record_transaction',
+      'update_transaction',
+      'delete_transaction',
+      'add_expense',
+      'batch_add_expenses',
+      'update_expense',
+      'delete_expense',
+    ])
+      tools.delete('core.' + name);
   return [...tools];
 }
 

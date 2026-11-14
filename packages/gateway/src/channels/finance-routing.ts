@@ -1,4 +1,5 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
+import { isFinanceReadOnlyRequest } from './finance-intent.js';
 /**
  * Deterministic financing operations for WhatsApp/Telegram. Bypasses LLM
  * rate limits and invalid direct core.* tool calls on unambiguous requests.
@@ -125,6 +126,39 @@ export function parseChannelExpense(input: string): ParsedChannelExpense | null 
 }
 
 /** Record a fully specified expense even when every LLM provider is busy. */
+/** Carry only the expense intent across domains, never the previous amount or item. */
+export function expenseContinuationText(
+  message: Pick<ChannelIncomingMessage, 'text'> &
+    Partial<Pick<ChannelIncomingMessage, 'platform' | 'platformChatId' | 'sender' | 'metadata'>>
+): string {
+  const original = message.text.trim().replace(/^astra[,!:]?\s+/iu, '');
+  if (
+    !/^e\s+(?:mais|tamb[eé]m)\s+r\$\s*\d/iu.test(original) ||
+    /[?;\r\n]|\b(?:n[aã]o|nunca|talvez|se|exemplo|simule|cancele|corrija|altere|assinatura|mensais|renova[cç][aã]o|vencimento|amanh[aã]|ontem|hoje|dia|total|quanto)\b/iu.test(
+      original
+    )
+  )
+    return message.text;
+  const privateChat =
+    message.platform === 'whatsapp'
+      ? message.metadata?.isGroup !== true && !message.platformChatId?.endsWith('@g.us')
+      : message.platform === 'telegram' &&
+        (message.metadata?.chatType === 'private' ||
+          (!!message.platformChatId && message.platformChatId === message.sender?.platformUserId));
+  if (!privateChat || !Array.isArray(message.metadata?.astraRecentReceipts)) return message.text;
+  const financial = message.metadata.astraRecentReceipts
+    .map((row: unknown) =>
+      row && typeof row === 'object' && 'action' in row && typeof row.action === 'string'
+        ? row.action
+        : ''
+    )
+    .find((action: string) => /^(?:Despesa|Entrada|Valor a (?:pagar|receber))\b/iu.test(action));
+  if (!/^Despesa (?:j[aá] )?(?:registrada|atualizada)$/iu.test(financial ?? ''))
+    return message.text;
+  const candidate = original.replace(/^e\s+(?:mais|tamb[eé]m)\s+/iu, 'Gastei ');
+  return parseChannelExpense(candidate) ? candidate : message.text;
+}
+
 export async function tryExpenseRecordChannelReply(
   message: Pick<
     ChannelIncomingMessage,
@@ -133,6 +167,8 @@ export async function tryExpenseRecordChannelReply(
     Partial<Pick<ChannelIncomingMessage, 'platform' | 'metadata' | 'sender'>>,
   userId: string
 ): Promise<string | null> {
+  if (isFinanceReadOnlyRequest(message.text))
+    return tryCustomerFinancialChannelReply(message, userId);
   const pendingKey = expenseConfirmationKey(userId, message);
   const undo =
     /^(?:apague|remova|exclua) (?:apenas |somente )?o gasto de hoje de r\$\s*(\d{1,8}(?:,\d{2})?) com (?:a descrição )?["“]([^"”\r\n]{2,160})["”][.!]?$/iu.exec(
@@ -199,9 +235,13 @@ export async function tryExpenseRecordChannelReply(
   if (answer?.kind === 'same') {
     return 'Entendi, era o mesmo gasto. Mantive apenas o lançamento original, sem criar outro.';
   }
+  const expenseText = expenseContinuationText(message);
   const customerFinanceReply = answer
     ? null
-    : await tryCustomerFinancialChannelReply(message, userId);
+    : await tryCustomerFinancialChannelReply(
+        expenseText === message.text ? message : { ...message, text: expenseText },
+        userId
+      );
   if (customerFinanceReply !== null) return customerFinanceReply;
   const intent =
     answer?.kind === 'other'
@@ -210,7 +250,7 @@ export async function tryExpenseRecordChannelReply(
           category: answer.draft.category,
           description: answer.draft.description,
         }
-      : parseChannelExpense(message.text);
+      : parseChannelExpense(expenseText);
   if (!intent) return null;
   if (
     !userId?.trim() ||

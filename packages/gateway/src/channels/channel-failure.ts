@@ -269,6 +269,9 @@ export function channelFailureReply(
     reply = 'Quero te orientar direito. Ainda não consegui conferir como isso funciona.';
   else if (domain && (reading || write || attemptedWrite))
     reply = guidance[domain][reading ? 'read' : 'write'];
+  else if (domain === 'finance')
+    reply =
+      '⏳ *Não consegui confirmar esse gasto*\n\nConfira seus lançamentos em Transações no painel antes de reenviar, para evitar duplicidade.';
   else if (domain) reply = 'Fiquei sem a resposta completa por aqui. ' + guidance[domain].check;
   else if (
     !attemptedWrite &&

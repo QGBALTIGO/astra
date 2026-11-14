@@ -1,4 +1,5 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
+import { isFinanceReadOnlyRequest } from './finance-intent.js';
 /** Explicit income/pending transactions and queries without an LLM call. */
 import { createHash } from 'node:crypto';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
@@ -177,7 +178,9 @@ export async function tryCustomerFinancialChannelReply(
   dataUserId: string
 ): Promise<string | null> {
   const normalized = normalize(message.text);
-  const record = parseChannelFinanceRecord(message.text);
+  const record = isFinanceReadOnlyRequest(message.text)
+    ? null
+    : parseChannelFinanceRecord(message.text);
   const settlement =
     /^(?:astra[,!:]?\s+)?(?:marque|marcar|confirme|confirmar)\s+(?:como\s+)?(paga|pago|recebida|recebido)\s+(?:a\s+)?pend[eê]ncia\s+([\p{L}\p{M}\s'-]+)[.!]?$/iu.exec(
       message.text.trim()

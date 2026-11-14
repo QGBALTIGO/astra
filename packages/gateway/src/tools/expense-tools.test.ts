@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { runInExecContext } from '@ownpilot/core/agent';
 const mockAccount = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock('../db/repositories/customer-accounts.js', () => ({
   customerAccountsRepo: { getByDataUserId: mockAccount },
@@ -30,6 +31,24 @@ beforeEach(() => {
 });
 
 describe('executeExpenseTool', () => {
+  it.each(['add_expense', 'batch_add_expenses', 'update_expense', 'delete_expense'])(
+    'blocks %s for a financial lookup before touching the ledger',
+    async (toolName) => {
+      const result = await runInExecContext(
+        { channelRequestText: 'Mostre o gasto guardanapos Ensaio Bambu de R$ 4,60.' },
+        () =>
+          executeExpenseTool(toolName, { amount: 4.6, expense_id: 'saved' }, 'whatsapp:synthetic')
+      );
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.stringContaining('apenas uma consulta'),
+      });
+      expect(mockRepo.create).not.toHaveBeenCalled();
+      expect(mockRepo.update).not.toHaveBeenCalled();
+      expect(mockRepo.delete).not.toHaveBeenCalled();
+    }
+  );
+
   it('uses a WhatsApp customer timezone for creation and today totals', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-11-11T02:00:00Z'));

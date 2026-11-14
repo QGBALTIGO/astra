@@ -1,4 +1,6 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
+import { getExecContext } from '@ownpilot/core/agent';
+import { isFinanceReadOnlyRequest } from '../channels/finance-intent.js';
 /**
  * Expense Tools — Gateway DB-backed Implementation
  *
@@ -36,6 +38,15 @@ export async function executeExpenseTool(
   args: Record<string, unknown>,
   userId = 'default'
 ): Promise<ToolExecutionResult> {
+  if (
+    ['add_expense', 'batch_add_expenses', 'update_expense', 'delete_expense'].includes(toolName) &&
+    isFinanceReadOnlyRequest(getExecContext()?.channelRequestText ?? '')
+  )
+    return {
+      success: false,
+      error:
+        'Este pedido é apenas uma consulta. Consulte os gastos sem criar, alterar ou excluir registros.',
+    };
   try {
     const repo = new ExpensesRepository(userId);
     const customerScope = userId.startsWith('whatsapp:');

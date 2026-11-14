@@ -146,7 +146,6 @@ describe('channel finance tool selection', () => {
     'Acabei de receber R$ 0,01',
     'Acabei de gastar 1 real',
     'Acabei de pagar 1 real',
-    'Quais foram meus gastos?',
     'Quais pagamentos estão pendentes?',
     'Minha fatura está correta?',
     'Meu salário foi recebido?',
@@ -156,6 +155,23 @@ describe('channel finance tool selection', () => {
     expect(tools).toEqual(expect.arrayContaining(financeTools));
     expect(tools).not.toContain('core.add_expense');
     expect(tools).not.toContain('core.execute_shell');
+  });
+
+  it.each([
+    'Quais foram meus gastos?',
+    'Mostre o gasto de guardanapos de R$ 4,60.',
+    'Quanto recebi hoje?',
+  ])('only exposes financial reads for %s', (text) => {
+    const tools = channelToolsForMessage(text);
+    expect(tools).toEqual(
+      expect.arrayContaining(['core.list_transactions', 'core.financial_summary'])
+    );
+    for (const write of [
+      'core.record_transaction',
+      'core.update_transaction',
+      'core.delete_transaction',
+    ])
+      expect(tools).not.toContain(write);
   });
 
   it.each([
