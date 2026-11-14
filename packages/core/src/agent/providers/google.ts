@@ -704,6 +704,11 @@ export class GoogleProvider implements IProvider {
 
   private buildGeminiContents(messages: readonly Message[], model: string) {
     const requiresSignatures = Number(/(?:^|\/)gemini-(\d+)/i.exec(model)?.[1] ?? 0) >= 3;
+    const resultIds = new Set(
+      messages
+        .filter((m) => m.role === 'tool')
+        .flatMap((m) => m.toolResults?.map((r) => r.toolCallId) ?? [])
+    );
     // Build maps of tool call IDs to their thoughtSignatures and function names
     const toolCallSignatures = new Map<string, string>();
     const toolCallNames = new Map<string, string>();
@@ -792,10 +797,11 @@ export class GoogleProvider implements IProvider {
           for (const tc of msg.toolCalls) {
             if (
               requiresSignatures &&
-              !(
+              (!(
                 typeof tc.metadata?.thoughtSignature === 'string' &&
                 tc.metadata.thoughtSignature.length
-              )
+              ) ||
+                !resultIds.has(tc.id))
             ) {
               parts.push({
                 text:

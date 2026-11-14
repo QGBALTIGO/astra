@@ -920,6 +920,38 @@ describe('GoogleProvider', () => {
         })
       );
     });
+    it('does not replay a signed historical call whose execution was never confirmed', async () => {
+      const provider = new GoogleProvider(makeMockConfig());
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => makeGeminiResponse(),
+      });
+      await provider.complete(
+        makeRequest({
+          model: { model: 'gemini-3.6-flash' },
+          messages: [
+            {
+              role: 'assistant',
+              content: '',
+              toolCalls: [
+                {
+                  id: 'blocked',
+                  name: 'create_event',
+                  arguments: '{"title":"Unconfirmed"}',
+                  metadata: { thoughtSignature: 'opaque-old' },
+                },
+              ],
+            },
+            { role: 'user', content: 'Confira meu Gmail' },
+          ],
+        })
+      );
+      const contents = JSON.stringify(JSON.parse(mockFetch.mock.calls[0][1].body).contents);
+      expect(contents).toContain('Unconfirmed');
+      expect(contents).not.toContain('functionCall');
+      expect(contents).not.toContain('functionResponse');
+    });
     it('keeps legacy non-thinking model function history unchanged', async () => {
       const provider = new GoogleProvider(makeMockConfig());
       mockFetch.mockResolvedValue({

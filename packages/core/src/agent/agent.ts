@@ -303,6 +303,8 @@ export class Agent {
     const maxTurns = this.config.maxTurns ?? 10;
     const maxToolCalls = this.maxToolCallsOverride ?? this.config.maxToolCalls ?? 200;
     const isUnlimited = maxToolCalls === 0;
+    // State keeps lifetime telemetry; the configured safety budget is per request.
+    const toolCallsAtStart = this.state.toolCallCount;
 
     while (turnCount < maxTurns) {
       turnCount++;
@@ -386,6 +388,14 @@ export class Agent {
         };
       }
 
+      // Reject before persisting so later requests cannot replay calls without results.
+      if (
+        !isUnlimited &&
+        this.state.toolCallCount - toolCallsAtStart + (response.toolCalls?.length ?? 0) >
+          maxToolCalls
+      ) {
+        return err(new ValidationError(`Tool call limit exceeded (max ${maxToolCalls})`));
+      }
       // Add assistant message (include thinking blocks in metadata for tool use roundtrips)
       this.memory.addAssistantMessage(
         this.state.conversation.id,
@@ -397,11 +407,6 @@ export class Agent {
       // Check for tool calls - execute if present regardless of finishReason
       // (Some providers like Google may return 'stop' even with tool calls)
       if (response.toolCalls && response.toolCalls.length > 0) {
-        // Check tool call limit (0 = unlimited)
-        if (!isUnlimited && this.state.toolCallCount + response.toolCalls.length > maxToolCalls) {
-          return err(new ValidationError(`Tool call limit exceeded (max ${maxToolCalls})`));
-        }
-
         // Filter tool calls through approval callback if provided
         const approvedToolCalls: ToolCall[] = [];
         const rejectedResults: { toolCallId: string; content: string; isError: boolean }[] = [];
