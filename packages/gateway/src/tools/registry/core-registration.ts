@@ -12,6 +12,7 @@
  */
 
 import type { ToolRegistry } from '@ownpilot/core/tools';
+import { CUSTOMER_WEATHER_TOOLS, executeCustomerWeatherTool } from '../customer-weather-tools.js';
 import { getExecContext } from '@ownpilot/core/agent';
 import {
   CUSTOMER_INTEGRATION_TOOLS,
@@ -104,6 +105,11 @@ import {
  */
 export function registerGatewayTools(tools: ToolRegistry, userId: string, trace: boolean): void {
   const groups: ToolGroup[] = [
+    {
+      definitions: CUSTOMER_WEATHER_TOOLS,
+      executor: executeCustomerWeatherTool,
+      needsUserId: true,
+    },
     {
       definitions: CUSTOMER_INTEGRATION_TOOLS,
       executor: executeCustomerIntegrationTool,

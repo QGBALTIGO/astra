@@ -101,6 +101,13 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
   const tools = new Set<string>();
   const add = (...names: string[]) => names.forEach((name) => tools.add(`core.${name}`));
   if (
+    /\b(?:temperatura|clima|calor|frio|chuva|chover|previsao|weather|cidade|moro|morando)\b/.test(
+      input
+    ) ||
+    /\b(?:como (?:esta|ta|vai) o tempo|tempo (?:agora|hoje|amanha|aqui|em))\b/.test(input)
+  )
+    add('get_local_weather', 'set_weather_city');
+  if (
     /\b(?:google|gmail|drive|planilh\w*|todoist|notion|trello|conexo\w*|integra\w*|sincroniz\w*|e-?mails?)\b/.test(
       input
     )

@@ -1,8 +1,77 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolRegistry } from '@ownpilot/core/tools';
-vi.mock('../services/customer-integrations.js', () => ({ customerIntegrationService: {} }));
-import { CUSTOMER_INTEGRATION_TOOLS } from './customer-integration-tools.js';
+const mockRun = vi.hoisted(() => vi.fn());
+vi.mock('../services/customer-integrations.js', () => ({
+  customerIntegrationService: { run: mockRun },
+}));
+import {
+  CUSTOMER_INTEGRATION_TOOLS,
+  executeCustomerIntegrationTool,
+} from './customer-integration-tools.js';
 import { executeSearchTools } from './registry/meta-executors.js';
+
+beforeEach(() => mockRun.mockReset().mockResolvedValue({ confirmationRequired: true }));
+describe('portable integration action arguments', () => {
+  it('decodes JSON arguments and preserves the authenticated customer binding', async () => {
+    const fields = {
+      calendar_id: 'primary',
+      summary: 'Evento fictício',
+      timezone: 'America/Cuiaba',
+    };
+    const result = await executeCustomerIntegrationTool(
+      'run_connected_action',
+      {
+        app: 'googlecalendar',
+        action: 'GOOGLECALENDAR_CREATE_EVENT',
+        arguments_json: JSON.stringify(fields),
+      },
+      'customer-a'
+    );
+    expect(result).toMatchObject({ success: true, result: { confirmationRequired: true } });
+    expect(mockRun).toHaveBeenCalledWith(
+      'customer-a',
+      'googlecalendar',
+      'GOOGLECALENDAR_CREATE_EVENT',
+      fields,
+      undefined,
+      undefined
+    );
+  });
+  it.each(['{invalid}', '[]', 'null', '"text"', '1', 'x'.repeat(100001)])(
+    'does not execute invalid JSON arguments, case %#',
+    async (input) => {
+      expect(
+        await executeCustomerIntegrationTool(
+          'run_connected_action',
+          { app: 'gmail', action: 'GMAIL_SEND_EMAIL', arguments_json: input },
+          'customer-a'
+        )
+      ).toMatchObject({ success: false });
+      expect(mockRun).not.toHaveBeenCalled();
+    }
+  );
+  it('rejects conflicting legacy and JSON arguments', async () => {
+    expect(
+      await executeCustomerIntegrationTool(
+        'run_connected_action',
+        {
+          app: 'gmail',
+          action: 'GMAIL_SEND_EMAIL',
+          arguments: { to: 'one@example.com' },
+          arguments_json: '{"to":"two@example.com"}',
+        },
+        'customer-a'
+      )
+    ).toMatchObject({ success: false });
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+  it('advertises string arguments so providers do not need free-form object schemas', () => {
+    const tool = CUSTOMER_INTEGRATION_TOOLS.find((t) => t.name === 'run_connected_action')!;
+    expect(tool.parameters.required).toContain('arguments_json');
+    expect(tool.parameters.properties?.arguments_json).toMatchObject({ type: 'string' });
+    expect(tool.parameters.properties).not.toHaveProperty('arguments');
+  });
+});
 
 describe('connected app discovery from a customer request', () => {
   it.each([

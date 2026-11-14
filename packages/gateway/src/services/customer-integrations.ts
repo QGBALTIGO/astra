@@ -236,13 +236,15 @@ export class CustomerIntegrationService {
       ? 'SEND'
       : /alterar|mudar|editar|corrigir|update/.test(input)
         ? 'UPDATE'
-        : /concluir|complete|close/.test(input)
-          ? 'CLOSE'
-          : /criar|adicionar|registrar|create|add|append/.test(input)
-            ? 'CREATE'
-            : /buscar|consultar|listar|ler|read|search|list|fetch|get/.test(input)
-              ? 'READ'
-              : '';
+        : /cancelar|excluir|remover|delete|cancel|remove/.test(input)
+          ? 'DELETE'
+          : /concluir|complete|close/.test(input)
+            ? 'CLOSE'
+            : /criar|adicionar|registrar|agendar|marcar|create|add|append/.test(input)
+              ? 'CREATE'
+              : /buscar|consultar|listar|ler|read|search|list|fetch|get/.test(input)
+                ? 'READ'
+                : '';
     const score = (spec: IntegrationActionSpec) =>
       (want === 'READ' && integrationActionKind(spec) === 'read'
         ? 20
@@ -254,9 +256,13 @@ export class CustomerIntegrationService {
           ? 30
           : 0
         : 0);
-    return (await this.specs(app, query))
-      .sort((a, b) => score(b) - score(a))
-      .slice(0, 4)
+    const ranked = (await this.specs(app, query)).sort((a, b) => score(b) - score(a));
+    const best = ranked[0] ? score(ranked[0]) : 0;
+    // A calendar create schema is large. Sending unrelated delete/list/update
+    // schemas wastes context and encourages repeated discovery loops.
+    return ranked
+      .filter((spec) => best === 0 || score(spec) === best)
+      .slice(0, best > 0 ? 2 : 3)
       .map((spec) => ({
         action: spec.slug,
         name: spec.name,
