@@ -75,6 +75,7 @@ import { buildAccessMessage } from './channel-access-messages.js';
 import { getWhatsAppAccessMessageSettings } from './channel-access-message-settings.js';
 import { resolveCustomerPhone } from '../services/customer-identity.js';
 import { resolveInboundWhatsAppSpelling } from './whatsapp-inbound-identity.js';
+import { whatsappPhoneSpellings } from './whatsapp-phone.js';
 import {
   channelSessionsRepo,
   type ChannelSessionsRepository,
@@ -1492,9 +1493,26 @@ export class ChannelServiceImpl implements IChannelService {
     }
     const owner = await getOwnerUserId('whatsapp');
     const user = await this.usersRepo.findByPlatform('whatsapp', phone);
+    if (owner === phone && user?.isVerified && !user.isBlocked && user.status !== 'pending') return;
+    const alternate = api.resolveWhatsAppRecipient ? whatsappPhoneSpellings(phone)[1] : undefined;
+    if (alternate) {
+      const [otherAlias, otherUser] = await Promise.all([
+        resolveCustomerPhone(alternate),
+        this.usersRepo.findByPlatform('whatsapp', alternate),
+      ]);
+      if (
+        (otherAlias && (!otherAlias.isCurrent || otherAlias.retired)) ||
+        otherUser?.isBlocked ||
+        (otherUser &&
+          (otherUser.accessSource != null || otherUser.accessExpiresAt != null) &&
+          !isChannelUserAccessActive(otherUser))
+      )
+        throw new Error(
+          'O telefone de entrega possui uma restrição de acesso. Confira o cadastro do cliente.'
+        );
+    }
     // Administrative messages to contacts without a customer grant still work.
     if (!user) return;
-    if (owner === phone && user.isVerified && !user.isBlocked && user.status !== 'pending') return;
     if (
       user.isBlocked ||
       ((user.accessSource != null || user.accessExpiresAt != null) &&

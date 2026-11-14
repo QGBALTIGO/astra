@@ -333,6 +333,43 @@ describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
 
   const oldLogin = 'https://astra-gateway-production.up.railway.app/cliente/entrar';
   const newLogin = 'https://app.astraacessor.pro/cliente/entrar';
+  it('delivers a canonical customer reply through its verified ninth-digit spelling, including after cache reset', async () => {
+    const { api, socket } = prepare();
+    const full = '5581999990101',
+      short = '558199990101';
+    const onWhatsApp = vi
+      .fn()
+      .mockResolvedValue([{ exists: true, jid: short + '@s.whatsapp.net' }]);
+    Object.assign(socket, { onWhatsApp });
+    expect(await api.resolveWhatsAppRecipient(short)).toBe(short);
+    await api.sendMessage({ platformChatId: full, text: 'Resposta da conta canônica' });
+    expect(socket.sendMessage.mock.calls[0]?.[0]).toBe(short + '@s.whatsapp.net');
+    expect(onWhatsApp).toHaveBeenCalledTimes(1);
+    (api as any).clearAccountCaches();
+    await api.sendMessage({ platformChatId: full, text: 'Lembrete depois da reconexão' });
+    expect(socket.sendMessage.mock.calls[1]?.[0]).toBe(short + '@s.whatsapp.net');
+    expect(onWhatsApp).toHaveBeenCalledTimes(2);
+  });
+  it('keeps the exact intended phone when its other spelling is a different WhatsApp account', async () => {
+    const { api, socket } = prepare();
+    const full = '5581999990101',
+      short = '558199990101';
+    Object.assign(socket, {
+      onWhatsApp: vi.fn().mockResolvedValue([
+        { exists: true, jid: full + '@s.whatsapp.net' },
+        { exists: true, jid: short + '@s.whatsapp.net' },
+      ]),
+      signalRepository: {
+        lidMapping: {
+          getLIDForPN: vi.fn(async (p: string) =>
+            p === full + '@s.whatsapp.net' ? '10001@lid' : '10002@lid'
+          ),
+        },
+      },
+    });
+    await api.sendMessage({ platformChatId: full, text: 'Apenas ao destinatário exato' });
+    expect(socket.sendMessage.mock.calls[0]?.[0]).toBe(full + '@s.whatsapp.net');
+  });
   it('delivers the readable public login and matching native button together after historical model output', async () => {
     const { api, socket } = prepare();
     await api.sendMessage({

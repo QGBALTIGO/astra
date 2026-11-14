@@ -18,10 +18,13 @@ function durationAmount(value: string): number {
 }
 
 export function parseRelativeReminderRequest(text: string): RelativeReminderRequest | null {
-  const request = text
-    .trim()
-    .match(
+  const input = text.trim();
+  const request =
+    input.match(
       /^(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar)\s+(?:em|daqui(?:\s+(?:a|uns?|umas?))?)\s+(.+?)\s+(?:para|pra|de|que)\s+(.+)$/iu
+    ) ??
+    input.match(
+      /^(?:daqui(?:\s+(?:a|uns?|umas?))?|em)\s+(.+?)\s*,?\s+(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar)\s+(?:para|pra|de|que)\s+(.+)$/iu
     );
   if (!request) return null;
 

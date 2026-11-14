@@ -1201,6 +1201,36 @@ describe('ChannelServiceImpl', () => {
       mockUsersRepo.findByPlatform.mockResolvedValue(customer);
     });
 
+    it.each(['blocked', 'expired', 'retired'])(
+      'does not redirect a private delivery to a restricted alternate spelling: %s',
+      async (restriction) => {
+        const alternate = phone.slice(0, 4) + phone.slice(5);
+        Object.assign(channelPlugin.api, { resolveWhatsAppRecipient: vi.fn() });
+        mockUsersRepo.findByPlatform.mockImplementation(async (_platform, p) =>
+          p === phone
+            ? customer
+            : {
+                ...customer,
+                platformUserId: alternate,
+                ownpilotUserId: 'whatsapp:' + alternate,
+                isBlocked: restriction === 'blocked',
+                accessExpiresAt: restriction === 'expired' ? new Date(0) : null,
+              }
+        );
+        mockResolveCustomerPhone.mockImplementation(async (p) => ({
+          accountId: 'account-' + p,
+          dataUserId: 'whatsapp:' + p,
+          phoneNumber: p,
+          isCurrent: !(p === alternate && restriction === 'retired'),
+          retired: p === alternate && restriction === 'retired',
+        }));
+        await expect(
+          service.send('channel.whatsapp', { platformChatId: phone, text: 'Private reminder' })
+        ).rejects.toThrow('restrição de acesso');
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+      }
+    );
+
     it.each(['send', 'broadcast', 'broadcastAll'])(
       'blocks %s when a known grant has expired',
       async (method) => {

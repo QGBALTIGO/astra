@@ -39,11 +39,11 @@ function fixture() {
   };
 }
 describe('inbound WhatsApp ninth digit', () => {
-  it('routes to the existing grant while preserving the actual reply address', async () => {
+  it('keeps the existing grant and durable chat in one canonical scope', async () => {
     const { message, d } = fixture();
     const result = await resolveInboundWhatsAppSpelling(message, d);
     expect(result.sender.platformUserId).toBe(full);
-    expect(result.platformChatId).toBe(short);
+    expect(result.platformChatId).toBe(full);
     expect(result.id).toBe(message.id);
   });
   it.each([null, '5599999999999'])(

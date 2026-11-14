@@ -54,5 +54,11 @@ export async function resolveInboundWhatsAppSpelling(
   const verified = await d.api.resolveWhatsAppRecipient(phone).catch(() => null);
   if (!verified || !spellings.includes(verified) || d.api.getStatus() !== 'connected')
     return message;
-  return { ...message, sender: { ...message.sender, platformUserId: alternate } };
+  // Persist one business chat scope for durable reminders and account history.
+  // The transport separately resolves its verified delivery spelling.
+  return {
+    ...message,
+    platformChatId: alternate,
+    sender: { ...message.sender, platformUserId: alternate },
+  };
 }

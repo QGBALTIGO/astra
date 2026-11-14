@@ -2,6 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
 
 describe('explicit relative reminder requests', () => {
+  it.each([
+    'Daqui a 30 segundos me lembre de conferir o pedido QA Cedro.',
+    'Em 30 segundos, me avise para conferir o pedido QA Cedro.',
+    'Daqui 30s me lembra de conferir o pedido QA Cedro.',
+  ])('accepts a complete reminder with the duration first: %s', (text) => {
+    expect(parseRelativeReminderRequest(text)).toEqual({
+      kind: 'valid',
+      title: 'conferir o pedido QA Cedro',
+      delaySeconds: 30,
+    });
+  });
+  it.each([
+    'Daqui a 30 segundos não me lembre de conferir o pedido.',
+    'Daqui a 30 segundos me lembre de conferir o pedido e cancele a reunião.',
+    'Daqui a 30 segundos ou 5 minutos me lembre de conferir o pedido.',
+    'Se daqui a 30 segundos me lembre de conferir o pedido.',
+  ])(
+    'keeps ambiguous, negated and compound duration-first requests with the assistant: %s',
+    (text) => {
+      expect(parseRelativeReminderRequest(text)).toBeNull();
+    }
+  );
   it('reproduces the exact WhatsApp request from the screenshot', () => {
     expect(parseRelativeReminderRequest('Me lembre daqui 20 segundos pra vê o pc')).toEqual({
       kind: 'valid',

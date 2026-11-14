@@ -207,6 +207,10 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // Anti-ban: rate limiting
   private globalSendTimes: number[] = [];
   private perJidLastSend = new Map<string, number>();
+  private readonly verifiedRecipientPhones = new Map<
+    string,
+    { phone: string; expiresAt: number }
+  >();
   /** Admit sends atomically so concurrent replies cannot bypass the limits. */
   private sendRateLimitQueue: Promise<void> = Promise.resolve();
 
@@ -695,7 +699,17 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     );
     await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
 
-    const jid = this.toJid(message.platformChatId);
+    let recipient = message.platformChatId;
+    if (/^[1-9]\d{9,14}$/u.test(recipient)) {
+      const cached = this.verifiedRecipientPhones.get(recipient);
+      if (cached && cached.expiresAt > Date.now()) recipient = cached.phone;
+      else if (this.sock?.onWhatsApp && whatsappPhoneSpellings(recipient).length === 2) {
+        // Resolve the delivery address without changing the customer's durable
+        // identity. A lookup never retries an actual send.
+        recipient = (await this.resolveWhatsAppRecipient(recipient).catch(() => null)) ?? recipient;
+      }
+    }
+    const jid = this.toJid(recipient);
     if (interactivePayload && !/^\d{7,15}@s\.whatsapp\.net$/.test(jid)) {
       throw new Error(
         copyPayload
@@ -876,7 +890,11 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       if (!number || !candidates.includes(number)) return null;
       recipients.add(number);
     }
-    if (recipients.size === 1) return [...recipients][0]!;
+    if (recipients.size === 1) {
+      const recipient = [...recipients][0]!;
+      this.rememberRecipientPhones(candidates, recipient);
+      return recipient;
+    }
     if (recipients.size !== 2 || !sock.signalRepository?.lidMapping) return null;
     // Two dial strings may be registered to one WhatsApp account. Only a
     // matching provider LID proves that either spelling reaches that account.
@@ -885,9 +903,12 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         sock.signalRepository.lidMapping.getLIDForPN(number + '@s.whatsapp.net')
       )
     );
-    return first && first === second && /^\d+@lid$/u.test(first)
-      ? [...recipients].sort()[0]!
-      : null;
+    if (this.sock !== sock || this.status !== 'connected')
+      throw new Error('WhatsApp lookup unavailable');
+    if (!first || first !== second || !/^\d+@lid$/u.test(first)) return null;
+    const recipient = [...recipients].sort()[0]!;
+    this.rememberRecipientPhones(candidates, recipient);
+    return recipient;
   }
 
   getBotInfo(): { username?: string; firstName?: string } | null {
@@ -1168,6 +1189,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     this.processedMsgIds.clear();
     this.globalSendTimes = [];
     this.perJidLastSend.clear();
+    this.verifiedRecipientPhones.clear();
     this.msgRetryCounterCache.flushAll();
     this.userDevicesCache.flushAll();
     this.lastHistoryFetchTime = null;
@@ -1577,6 +1599,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     // For DMs, sender is derived from remoteJid
     const participantJid = isGroup ? msg.key.participant! : remoteJid;
     const phone = this.phoneFromJid(participantJid);
+    if (isDM && /^[1-9]\d{9,14}$/u.test(phone)) this.rememberRecipientPhones([phone], phone);
 
     if (!isGroup && !this.isSelfChat(remoteJid)) {
       // Only real inbound WhatsApp DMs can create a customer conversation.
@@ -1729,6 +1752,13 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // ==========================================================================
 
   /** Convert a phone number or chat ID to a WhatsApp JID. */
+  private rememberRecipientPhones(candidates: string[], phone: string): void {
+    for (const candidate of candidates)
+      this.verifiedRecipientPhones.set(candidate, { phone, expiresAt: Date.now() + 5 * 60000 });
+    while (this.verifiedRecipientPhones.size > 1000)
+      this.verifiedRecipientPhones.delete(this.verifiedRecipientPhones.keys().next().value!);
+  }
+
   private toJid(chatId: string): string {
     if (chatId.includes('@')) return chatId;
     // Strip any non-digit characters for phone numbers
