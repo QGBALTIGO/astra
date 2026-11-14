@@ -38,6 +38,12 @@ beforeEach(() => {
   ]);
 });
 afterEach(() => vi.useRealTimers());
+it('ignores unrelated legacy events without a sender rather than blocking their routing', async () => {
+  const message = incoming('Quanto gastei neste mês?');
+  delete (message as Partial<ChannelIncomingMessage>).sender;
+  expect(await tryWeekReminderConversation(message, 'u', async () => true)).toBeNull();
+  expect(f.list).not.toHaveBeenCalled();
+});
 it.each(['whatsapp', 'telegram'] as const)(
   'uses the same safe selection before AI on both %s paths',
   async (platform) => {

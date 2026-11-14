@@ -20,7 +20,7 @@ export async function tryWeekReminderConversation(
     !userId ||
     !message.platformChatId ||
     !message.channelPluginId ||
-    message.sender.platformUserId !== message.platformChatId
+    message.sender?.platformUserId !== message.platformChatId
   )
     return null;
   const text = message.text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
