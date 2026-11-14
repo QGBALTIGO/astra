@@ -180,7 +180,7 @@ function proposalDate(value: string, timeZone: unknown): string {
   }
   return value.replace(
     /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}:\d{2})(?::00)?)?/,
-    (all, year, month, day, time) => `${day}/${month}/${year}${time ? ', ' + time : ''}`
+    (_all, year, month, day, time) => `${day}/${month}/${year}${time ? ', ' + time : ''}`
   );
 }
 const proposalLabel = (key: string) => {
