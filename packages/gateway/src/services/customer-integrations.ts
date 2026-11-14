@@ -106,7 +106,11 @@ export function integrationProposalMessage(action: IntegrationAction): string {
   for (const [key, label] of Object.entries(show)) {
     const value = args[key];
     if (value === undefined || seen.has(label)) continue;
-    const display = proposalValue(value);
+    const display =
+      /^(?:start_datetime|start_time|end_datetime|end_time|due_date|due_datetime)$/.test(key) &&
+      typeof value === 'string'
+        ? proposalDate(value, args.timezone)
+        : proposalValue(value);
     if (display) {
       fields.push({ label, value: display.replace(/[\r*_`]/g, '') });
       seen.add(label);
@@ -159,6 +163,26 @@ const internalProposalKey = (key: string) =>
   /(?:^|_)(?:id|ids|token|key|cursor|etag|version|fields|format|supports_all_drives|supports_team_drives)$|(?:Id|Ids)$|authorization|credentials/i.test(
     key
   );
+function proposalDate(value: string, timeZone: unknown): string {
+  if (!/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?/.test(value)) return value;
+  if (typeof timeZone === 'string' && /(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    try {
+      const instant = new Date(value);
+      if (Number.isFinite(instant.getTime()))
+        return new Intl.DateTimeFormat('pt-BR', {
+          timeZone,
+          dateStyle: 'short',
+          timeStyle: 'short',
+        }).format(instant);
+    } catch {
+      /* Keep the supplied wall time and offset below. */
+    }
+  }
+  return value.replace(
+    /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}:\d{2})(?::00)?)?/,
+    (all, year, month, day, time) => `${day}/${month}/${year}${time ? ', ' + time : ''}`
+  );
+}
 const proposalLabel = (key: string) => {
   const label = key.replace(/([a-z])([A-Z])/g, '$1 $2').replaceAll('_', ' ');
   return label.charAt(0).toUpperCase() + label.slice(1);
