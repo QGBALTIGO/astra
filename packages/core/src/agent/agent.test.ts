@@ -752,6 +752,77 @@ describe('Agent processConversation (via chat)', () => {
     }
   });
 
+  it('applies the tool budget to each new request while preserving conversation history', async () => {
+    const { agent, provider } = createAgentWithMockProvider({}, { maxToolCalls: 1 });
+    const completeFn = provider.complete as ReturnType<typeof vi.fn>;
+    for (const id of ['first', 'second']) {
+      completeFn.mockResolvedValueOnce(
+        ok({
+          id: 'call-' + id,
+          content: '',
+          toolCalls: [{ id, name: 'test_tool', arguments: '{"input":"test"}' }],
+          finishReason: 'tool_calls',
+          model: 'gpt-4o',
+          createdAt: new Date(),
+        })
+      );
+      completeFn.mockResolvedValueOnce(
+        ok({
+          id: 'answer-' + id,
+          content: 'Done ' + id,
+          finishReason: 'stop',
+          model: 'gpt-4o',
+          createdAt: new Date(),
+        })
+      );
+      expect((await agent.chat('Run ' + id)).ok).toBe(true);
+    }
+    expect(agent.getState().toolCallCount).toBe(2);
+    expect(JSON.stringify(agent.getMemory().getFullContext(agent.getConversation().id))).toContain(
+      'Done first'
+    );
+  });
+  it('does not leave unmatched tool calls in history when a request exceeds its budget', async () => {
+    const { agent, provider } = createAgentWithMockProvider({}, { maxToolCalls: 1 });
+    const completeFn = provider.complete as ReturnType<typeof vi.fn>;
+    completeFn.mockResolvedValueOnce(
+      ok({
+        id: 'over-budget',
+        content: '',
+        toolCalls: [
+          { id: 'denied-a', name: 'test_tool', arguments: '{"input":"a"}' },
+          { id: 'denied-b', name: 'test_tool', arguments: '{"input":"b"}' },
+        ],
+        finishReason: 'tool_calls',
+        model: 'gpt-4o',
+        createdAt: new Date(),
+      })
+    );
+    expect((await agent.chat('Too many tools')).ok).toBe(false);
+    expect(
+      JSON.stringify(agent.getMemory().getFullContext(agent.getConversation().id))
+    ).not.toContain('denied-a');
+    completeFn.mockResolvedValueOnce(
+      ok({
+        id: 'accepted',
+        content: '',
+        toolCalls: [{ id: 'accepted', name: 'test_tool', arguments: '{"input":"ok"}' }],
+        finishReason: 'tool_calls',
+        model: 'gpt-4o',
+        createdAt: new Date(),
+      })
+    );
+    completeFn.mockResolvedValueOnce(
+      ok({
+        id: 'done',
+        content: 'Recovered',
+        finishReason: 'stop',
+        model: 'gpt-4o',
+        createdAt: new Date(),
+      })
+    );
+    expect((await agent.chat('One tool now')).ok).toBe(true);
+  });
   it('filters tool calls through onBeforeToolCall approval', async () => {
     const { agent, provider } = createAgentWithMockProvider();
     const completeFn = provider.complete as ReturnType<typeof vi.fn>;
