@@ -1,5 +1,6 @@
 import {
   decodeSyncdSnapshot,
+  decodePatches,
   extractSyncdPatches,
   type WASocket,
   type WAPatchName,
@@ -49,9 +50,11 @@ export async function readWhatsAppServerContacts(
     8_000
   );
   if (!current()) return [];
-  const decoded = await extractSyncdPatches(response, { signal: AbortSignal.timeout(8_000) });
+  const requestOptions = { signal: AbortSignal.timeout(8_000) };
+  const decoded = await extractSyncdPatches(response, requestOptions);
   const chats: NonNullable<WhatsAppHistoryContactInput['chats']>[number][] = [];
   const contacts: NonNullable<WhatsAppHistoryContactInput['contacts']>[number][] = [];
+  const messages: WhatsAppHistoryContactInput['messages'][number][] = [];
   const seen = Math.floor(Date.now() / 1000);
   const getKey = async (id: string) => {
     if (!current()) throw new Error('WhatsApp connection changed');
@@ -63,18 +66,52 @@ export async function readWhatsAppServerContacts(
     const snapshot = decoded[collection]?.snapshot;
     if (!snapshot) continue;
     // Enforce the SDK's MAC verification. Keys and decrypted records stay local.
-    const { mutationMap } = await decodeSyncdSnapshot(
+    const { mutationMap, state } = await decodeSyncdSnapshot(
       collection,
       snapshot,
       getKey,
       undefined,
       true
     );
-    for (const mutation of Object.values(mutationMap)) {
+    const patches = decoded[collection]?.patches ?? [];
+    const updates = patches.length
+      ? (
+          await decodePatches(
+            collection,
+            patches,
+            state,
+            getKey,
+            requestOptions,
+            undefined,
+            undefined,
+            true
+          )
+        ).mutationMap
+      : {};
+    for (const mutation of Object.values({ ...mutationMap, ...updates })) {
       if (mutation.index.some((value) => /@(?:g\.us|broadcast|newsletter)$/.test(value))) continue;
       const jid = mutation.index.find((value) => /@(?:s\.whatsapp\.net|lid)$/.test(value));
       if (!jid) continue;
       const contact = mutation.syncAction.value?.contactAction;
+      const action = mutation.syncAction.value;
+      // The authenticated read/archive range can carry actual incoming-message
+      // keys even when full history has not arrived. A timestamp alone cannot
+      // prove that the customer sent a message.
+      for (const range of [
+        action?.markChatAsReadAction?.messageRange,
+        action?.archiveChatAction?.messageRange,
+      ]) {
+        for (const message of range?.messages ?? []) {
+          if (
+            message.key?.fromMe !== false ||
+            (message.key.remoteJid && message.key.remoteJid !== jid)
+          )
+            continue;
+          const seconds = Number(message.timestamp);
+          if (!Number.isFinite(seconds) || seconds <= 0 || seconds * 1000 > Date.now()) continue;
+          messages.push({ key: { remoteJid: jid, fromMe: false }, messageTimestamp: seconds });
+        }
+      }
       const name = contact?.fullName || contact?.firstName || undefined;
       chats.push({ id: jid, name, conversationTimestamp: seen });
       if (contact)
@@ -86,11 +123,27 @@ export async function readWhatsAppServerContacts(
         });
     }
   }
-  return discoverWhatsAppHistoryContacts(
+  const rows = await discoverWhatsAppHistoryContacts(
     { chats, contacts, messages: [] },
     resolve,
     (value) => (typeof value === 'number' ? new Date(value * 1000) : null),
     isSelf,
     current
   );
+  const confirmed = new Map(
+    (
+      await discoverWhatsAppHistoryContacts(
+        { contacts, messages },
+        resolve,
+        (value) => (typeof value === 'number' ? new Date(value * 1000) : null),
+        isSelf,
+        current
+      )
+    ).map((row) => [row.phone, row])
+  );
+  if (!current()) return [];
+  return rows.map((row) => {
+    const evidence = confirmed.get(row.phone);
+    return evidence ? { ...row, seenAt: evidence.seenAt, interactionConfirmed: true } : row;
+  });
 }

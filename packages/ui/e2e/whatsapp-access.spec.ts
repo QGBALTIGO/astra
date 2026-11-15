@@ -321,7 +321,10 @@ for (const screen of [
         .filter({ hasText: 'Cliente autorizado na interface' });
       await expect(row.getByText('Autorizado', { exact: true })).toBeVisible();
       await expect(row.getByText('+55 (67) 99999-8888', { exact: true })).toBeVisible();
-      await expect(row.getByText('Ainda não conversou', { exact: true })).toBeVisible();
+      await expect(
+        row.getByText('Histórico da conversa ainda não sincronizado', { exact: true })
+      ).toBeVisible();
+      await expect(row.getByText('Ainda não conversou', { exact: true })).toHaveCount(0);
       await expect(row.locator('time')).toHaveCount(1);
       expect(api.mutations).toEqual([
         {
