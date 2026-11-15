@@ -269,7 +269,7 @@ async function applyEvent(event, data, digest) {
             .trim()
             .toLowerCase()
             .slice(0, 254)
-            .replace(/[\\u0000-\\u001f]/g, '')
+            .replace(/[\u0000-\u001f]/g, '')
         : '';
     const generatedISO = (dateValue(data.createdAt) || when).toISOString();
     return sql.begin(async (tx) => {

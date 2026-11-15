@@ -89,7 +89,7 @@ export class EmailDigestsRepository extends BaseRepository {
       ORDER BY next_run_at,id FOR UPDATE SKIP LOCKED LIMIT $1)
       UPDATE channel_email_digests g SET next_run_at=
       (((NOW() AT TIME ZONE g.time_zone)::date+1+make_time(g.hour,g.minute,0)) AT TIME ZONE g.time_zone),
-      claim_token=$2,last_attempt_at=NOW(),last_error=NULL,updated_at=NOW()
+      claim_token=$2,last_attempt_at=CASE WHEN g.last_error='retry_before_send' THEN g.last_attempt_at ELSE NOW() END,last_error=NULL,updated_at=NOW()
       FROM due WHERE g.id=due.id RETURNING g.*`,
       [Math.min(20, Math.max(1, limit)), randomUUID()]
     );
@@ -101,6 +101,15 @@ export class EmailDigestsRepository extends BaseRepository {
       WHERE id=$1 AND user_id=$2 AND active=TRUE AND version=$3 AND claim_token=$4`,
       [entry.id, entry.userId, entry.version, entry.claimToken]
     ));
+  }
+  async deferBeforeSend(entry: EmailDigestSchedule): Promise<void> {
+    await this.execute(
+      `UPDATE channel_email_digests SET next_run_at=NOW()+INTERVAL '60 seconds',
+       claim_token=NULL,last_error='retry_before_send',updated_at=NOW()
+       WHERE id=$1 AND version=$2 AND claim_token=$3 AND active=TRUE
+       AND last_attempt_at>NOW()-INTERVAL '10 minutes'`,
+      [entry.id, entry.version, entry.claimToken]
+    );
   }
   async finish(entry: EmailDigestSchedule, receipt: string | null, reason?: string) {
     await this.execute(

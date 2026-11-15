@@ -714,10 +714,26 @@ export async function executeAgentPipeline(
   };
   try {
     // Acquire a concurrency slot before the LLM call fires
-    releaseSemaphore = await llmSemaphore.acquire(
+    const acquisition = llmSemaphore.acquire(
       opts.agentId ?? 'unknown',
       opts.agentId ?? opts.timeoutLabel ?? 'agent'
     );
+    let waiting = true;
+    acquisition.then((release) => {
+      if (!waiting) release();
+    });
+    try {
+      releaseSemaphore = await Promise.race([
+        acquisition,
+        timeout.promise,
+        ...(cancellation ? [cancellation.promise] : []),
+      ]);
+    } finally {
+      waiting = false;
+    }
+    if (opts.abortSignal?.aborted) throw new Error('Cancelled');
+    if (Date.now() - startTime >= opts.timeoutMs)
+      throw new Error('Agent timed out before execution');
 
     const agentPromise = opts.agent.chat(opts.message, {
       onToolEnd: wrappedOnToolEnd,

@@ -97,7 +97,7 @@ describe('ChannelReminderWorker', () => {
     mock.send.mockRejectedValueOnce(new Error('network unavailable'));
     const result = await dispatchDueChannelReminders();
     expect(result).toEqual({ claimed: 1, delivered: 0, failed: 1 });
-    expect(mock.markFailed).toHaveBeenCalledWith('rem-2', 2, 'Error');
+    expect(mock.markFailed).toHaveBeenCalledWith('rem-2', 5, 'Error');
     expect(mock.markDelivered).not.toHaveBeenCalled();
   });
 

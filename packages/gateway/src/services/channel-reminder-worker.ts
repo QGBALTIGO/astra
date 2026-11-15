@@ -33,6 +33,7 @@ export async function dispatchDueChannelReminders(): Promise<{
     const entries = await channelRemindersRepo.claimDue(20);
     claimed = entries.length;
     for (const entry of entries) {
+      let transportInvoked = false;
       try {
         const channels = getChannelService();
         const api = channels.getChannel(entry.channelPluginId);
@@ -82,7 +83,7 @@ export async function dispatchDueChannelReminders(): Promise<{
           await channelRemindersRepo.deferDisconnected(entry.id);
           continue;
         }
-        const id = await channels.send(entry.channelPluginId, {
+        const payload = {
           platformChatId,
           text: formatDueReminder(entry.title, firstName, { at: entry.remindAt, timeZone }),
           ...(account
@@ -93,7 +94,9 @@ export async function dispatchDueChannelReminders(): Promise<{
                 },
               }
             : {}),
-        });
+        };
+        transportInvoked = true;
+        const id = await channels.send(entry.channelPluginId, payload);
         if (typeof id !== 'string' || !id.trim()) {
           // An empty receipt is ambiguous: the transport may already have sent
           // the message. Stop automatic retries instead of risking duplicates.
@@ -115,7 +118,7 @@ export async function dispatchDueChannelReminders(): Promise<{
         });
         await channelRemindersRepo.markFailed(
           entry.id,
-          entry.attempts,
+          transportInvoked ? 5 : entry.attempts,
           error instanceof Error ? error.name : 'delivery_error'
         );
       }

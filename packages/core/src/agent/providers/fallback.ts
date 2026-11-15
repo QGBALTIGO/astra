@@ -1,3 +1,4 @@
+import { providerErrorSummary } from '../provider-error-summary.js';
 /**
  * Fallback Provider
  *
@@ -406,9 +407,8 @@ export class FallbackProvider implements IProvider {
 
         // Request failed
         lastError = result.error;
-        const errorMessage = result.error.message;
 
-        log.warn(`Provider ${provider.type} failed: ${errorMessage}`);
+        log.warn(`Provider ${provider.type} failed: ${providerErrorSummary(result.error)}`);
         logError(provider.type, result.error, 'Fallback triggered');
         this.recordFailure(provider, result.error);
 
@@ -428,7 +428,7 @@ export class FallbackProvider implements IProvider {
       } catch (error) {
         const errorObj = error instanceof Error ? error : new Error(String(error));
         lastError = new InternalError(errorObj.message);
-        log.error(`Provider ${provider.type} threw exception: ${errorObj.message}`);
+        log.error(`Provider ${provider.type} threw exception: ${providerErrorSummary(errorObj)}`);
         logError(provider.type, errorObj, 'Exception during fallback');
         this.recordFailure(provider, errorObj);
       }
@@ -508,7 +508,7 @@ export class FallbackProvider implements IProvider {
 
         // If error occurred, try next provider
         if (hasError && lastError) {
-          log.warn(`Stream: Provider ${provider.type} failed: ${lastError.message}`);
+          log.warn(`Stream: Provider ${provider.type} failed: ${providerErrorSummary(lastError)}`);
           this.recordFailure(provider, lastError);
 
           // If we already sent chunks to the client, do NOT retry with another
@@ -517,7 +517,9 @@ export class FallbackProvider implements IProvider {
           if (hasYielded) {
             log.warn('Stream: Partial data already sent — cannot retry. Yielding error.');
             yield err(
-              new InternalError(`Stream interrupted after partial data: ${lastError.message}`)
+              new InternalError(
+                `Stream interrupted after partial data: ${providerErrorSummary(lastError)}`
+              )
             );
             return;
           }
@@ -539,7 +541,9 @@ export class FallbackProvider implements IProvider {
         }
       } catch (error) {
         const errorObj = error instanceof Error ? error : new Error(String(error));
-        log.error(`Stream: Provider ${provider.type} threw exception: ${errorObj.message}`);
+        log.error(
+          `Stream: Provider ${provider.type} threw exception: ${providerErrorSummary(errorObj)}`
+        );
         this.recordFailure(provider, errorObj);
 
         // A failed network stream after sending output is not replayable:

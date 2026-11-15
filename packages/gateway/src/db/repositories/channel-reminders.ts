@@ -222,14 +222,13 @@ export class ChannelRemindersRepository extends BaseRepository {
     await this.execute(
       `UPDATE channel_reminders
        SET status = 'failed', leased_until = NULL, updated_at = NOW()
-       WHERE status = 'sending' AND attempts >= 5 AND leased_until < NOW()`
+       WHERE status = 'sending' AND leased_until < NOW()`
     );
     const rows = await this.query<ReminderRow>(
       `WITH due AS (
          SELECT id FROM channel_reminders
          WHERE (
            (status = 'pending' AND attempts < 5 AND remind_at <= NOW() AND next_attempt_at <= NOW())
-           OR (status = 'sending' AND attempts < 5 AND leased_until < NOW())
          )
          ORDER BY remind_at, id
          FOR UPDATE SKIP LOCKED

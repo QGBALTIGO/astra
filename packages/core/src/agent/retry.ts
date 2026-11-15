@@ -1,3 +1,4 @@
+import { providerErrorSummary } from './provider-error-summary.js';
 /**
  * Retry Utility for AI Provider Calls
  *
@@ -198,7 +199,7 @@ export async function withRetry<T>(
 
         onRetry(attempt + 1, result.error, delayMs);
         log.info(`Attempt ${attempt + 1}/${maxRetries} failed, retrying in ${delayMs}ms...`);
-        log.info(`Error: ${getErrorMessage(result.error)}`);
+        log.info(`Error: ${providerErrorSummary(result.error)}`);
 
         await sleep(delayMs);
         continue;
@@ -220,7 +221,7 @@ export async function withRetry<T>(
         log.info(
           `Attempt ${attempt + 1}/${maxRetries} threw exception, retrying in ${delayMs}ms...`
         );
-        log.info(`Error: ${getErrorMessage(error)}`);
+        log.info(`Error: ${providerErrorSummary(error)}`);
 
         await sleep(delayMs);
         continue;

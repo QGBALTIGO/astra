@@ -3,6 +3,7 @@ const m = vi.hoisted(() => ({
   claim: vi.fn(),
   current: vi.fn(),
   finish: vi.fn(),
+  defer: vi.fn(),
   save: vi.fn(),
   binding: vi.fn(),
   user: vi.fn(),
@@ -22,7 +23,13 @@ vi.mock('@ownpilot/core/channels', () => ({
   }),
 }));
 vi.mock('../db/repositories/email-digests.js', () => ({
-  emailDigestsRepo: { claimDue: m.claim, isCurrent: m.current, finish: m.finish, save: m.save },
+  emailDigestsRepo: {
+    deferBeforeSend: m.defer,
+    claimDue: m.claim,
+    isCurrent: m.current,
+    finish: m.finish,
+    save: m.save,
+  },
 }));
 vi.mock('../db/repositories/channels/users.js', () => ({
   channelUsersRepo: { findByPlatform: m.user },
@@ -133,4 +140,12 @@ describe('durable private email delivery', () => {
       expect(m.finish).toHaveBeenCalledWith(entry, null, 'digest_not_confirmed');
     }
   );
+});
+
+it('retries an offline channel before invoking transport', async () => {
+  m.connected = false;
+  await dispatchDueEmailDigests();
+  expect(m.defer).toHaveBeenCalledWith(entry);
+  expect(m.finish).not.toHaveBeenCalled();
+  expect(m.send).not.toHaveBeenCalled();
 });
