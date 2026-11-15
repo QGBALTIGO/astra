@@ -40,12 +40,13 @@ test('trial entry preserves responsive layout and accessibility in both themes',
   }
 });
 
-test('trial button opens a prepared WhatsApp message and retains attribution without sending', async ({
+test('trial button opens the public entry and retains attribution without external requests', async ({
   page,
   context,
 }) => {
   const starts = [];
-  // Synthetic destination only: no request reaches a real account or messaging service.
+  // Stop at the public entry. Backend tests verify its real WhatsApp Location;
+  // browser redirect chains may bypass request interception on some engines.
   await context.route(
     'https://app.astraacessor.pro/api/v1/customer/auth/start**',
     async (route) => {
@@ -56,24 +57,24 @@ test('trial button opens a prepared WhatsApp message and retains attribution wit
           ? 'Olá! Vim pela indicação do Júlio e quero testar o Astra grátis por 3 dias.'
           : 'Olá! Quero testar o Astra grátis por 3 dias.';
       await route.fulfill({
-        status: 302,
-        headers: { location: 'https://wa.me/5511999990000?text=' + encodeURIComponent(text) },
+        contentType: 'text/html; charset=utf-8',
+        body: '<h1>Conversa simulada</h1><p>' + text + '</p>',
       });
     }
   );
-  await context.route('https://wa.me/**', (route) =>
-    route.fulfill({ contentType: 'text/html', body: '<h1>Conversa simulada</h1>' })
-  );
+  const external = [];
+  await context.route('https://wa.me/**', (route) => {
+    external.push(route.request().url());
+    return route.abort();
+  });
   for (const path of ['/', '/julio']) {
     await page.goto(path);
     const [popup] = await Promise.all([
       page.waitForEvent('popup'),
-      page.locator('.site-header a.trial-cta').click(),
+      page.locator('.hero a.trial-cta').click(),
     ]);
-    await popup.waitForURL('https://wa.me/**');
-    expect(new URL(popup.url()).searchParams.get('text')).toContain(
-      'testar o Astra grátis por 3 dias.'
-    );
+    await expect(popup).toHaveURL(trialStartUrl + (path === '/julio' ? '?ref=julio' : ''));
+    await expect(popup.locator('p')).toContainText('testar o Astra grátis por 3 dias.');
     expect(starts.at(-1).searchParams.get('ref')).toBe(path === '/julio' ? 'julio' : null);
     await popup.close();
   }
@@ -81,4 +82,5 @@ test('trial button opens a prepared WhatsApp message and retains attribution wit
   await expect(page.locator('a.brand').first()).toHaveAttribute('href', /^\/julio(?:#inicio)?$/);
   for (const link of await page.locator('a.trial-cta').all())
     await expect(link).toHaveAttribute('href', trialStartUrl + '?ref=julio');
+  expect(external).toEqual([]);
 });

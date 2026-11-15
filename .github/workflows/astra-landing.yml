@@ -6,6 +6,9 @@ on:
     paths: ['landing/**', '.github/workflows/astra-landing.yml']
 permissions:
   contents: read
+concurrency:
+  group: astra-landing-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-24.04

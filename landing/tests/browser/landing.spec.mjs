@@ -130,15 +130,16 @@ test('navigation, products, FAQ and browser history work', async ({ page, viewpo
     await page.getByRole('button', { name: 'Abrir menu' }).click();
     await page.locator('#mobile-menu').getByRole('link', { name: 'Plano e assinatura' }).click();
     await expect(page.locator('#mobile-menu')).not.toBeVisible();
+    await expect(page).toHaveURL(/#plano$/);
   } else {
     await page.locator('.products-menu>summary').click();
     await expect(page.locator('.products-popover')).toBeVisible();
     expect(await page.locator('.products-grid>a').count()).toBe(6);
     await page.keyboard.press('Escape');
     await expect(page.locator('.products-popover')).not.toBeVisible();
-    await page.locator('footer a[href="/#plano"]').click();
   }
-  await expect(page).toHaveURL(/#plano$/);
+  await page.locator('footer a[href="/#painel"]').click();
+  await expect(page).toHaveURL(/#painel$/);
   await page.locator('.faq-list summary').filter({ hasText: 'Quanto custa o Astra?' }).click();
   await expect(page.locator('.faq-list details[open]')).toContainText('R$ 19,90/mês');
   await page.goBack();
