@@ -50,7 +50,9 @@ export function verifiedChannelFacts(
   const digestReply =
     digestResult?.kind === 'email_digest' && typeof digestResult.reply === 'string'
       ? digestResult.reply
-      : undefined;
+      : digest
+        ? '📬 Não consegui confirmar o resumo de e-mails agora. Confira sua conexão em Painel → Conexões.'
+        : undefined;
   const combined = (weather: string) => [weather, digestReply].filter(Boolean).join('\n\n');
   const weatherReceipts = receipts.filter((r) =>
     /^(?:core[._])?(?:get_local_weather|set_weather_city)$/.test(r.name.replace(/__/g, '.'))
