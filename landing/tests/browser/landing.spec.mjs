@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { scenarios } from '../../src/assets/scenarios.js';
 import { publicPages } from '../../src/public-pages.mjs';
+import { trialStartUrl } from '../../src/trial.mjs';
 async function chooseExample(page, id) {
   await page.locator('#scenario-chooser summary').click();
   await page.locator(`[data-example="${id}"]`).click();
@@ -129,15 +130,16 @@ test('navigation, products, FAQ and browser history work', async ({ page, viewpo
     await page.getByRole('button', { name: 'Abrir menu' }).click();
     await page.locator('#mobile-menu').getByRole('link', { name: 'Plano e assinatura' }).click();
     await expect(page.locator('#mobile-menu')).not.toBeVisible();
+    await expect(page).toHaveURL(/#plano$/);
   } else {
     await page.locator('.products-menu>summary').click();
     await expect(page.locator('.products-popover')).toBeVisible();
     expect(await page.locator('.products-grid>a').count()).toBe(6);
     await page.keyboard.press('Escape');
     await expect(page.locator('.products-popover')).not.toBeVisible();
-    await page.locator('.header-cta').click();
   }
-  await expect(page).toHaveURL(/#plano$/);
+  await page.locator('footer a[href="/#painel"]').click();
+  await expect(page).toHaveURL(/#painel$/);
   await page.locator('.faq-list summary').filter({ hasText: 'Quanto custa o Astra?' }).click();
   await expect(page.locator('.faq-list details[open]')).toContainText('R$ 19,90/mês');
   await page.goBack();
@@ -267,7 +269,7 @@ test('accessibility AA, reduced motion and contact dialog', async ({ page }) => 
   await page.keyboard.press('Escape');
   await expect(page.locator('#contact-dialog')).not.toBeVisible();
 });
-test('assets, navigation scripts and checkout links have no errors or payment side effects', async ({
+test('assets, navigation scripts and trial links have no errors or payment side effects', async ({
   page,
 }) => {
   const errors = [],
@@ -283,8 +285,10 @@ test('assets, navigation scripts and checkout links have no errors or payment si
   await expect(page.locator('#day-messages')).toContainText('Pousada do Lago');
   expect(errors).toEqual([]);
   expect(failed).toEqual([]);
-  for (const link of await page.locator('a[href*="pay.cakto.com.br"]').all()) {
-    await expect(link).toHaveAttribute('href', 'https://pay.cakto.com.br/CubL455');
+  await expect(page.locator('a[href*="pay.cakto.com.br"]')).toHaveCount(0);
+  expect(await page.locator('a.trial-cta').count()).toBeGreaterThanOrEqual(5);
+  for (const link of await page.locator('a.trial-cta').all()) {
+    await expect(link).toHaveAttribute('href', trialStartUrl);
     await expect(link).toHaveAttribute('rel', /noopener/);
   }
 });

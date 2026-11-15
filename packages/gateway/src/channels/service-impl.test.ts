@@ -48,6 +48,9 @@ const mockUsersRepo = vi.hoisted(() => ({
 }));
 
 const mockAccessNoticeClaim = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+const mockAccessNoticeRelease = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+const mockBeginWelcomeSend = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+const mockFinishWelcomeSend = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const mockQueueAccessLifecycle = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 const mockAccessMessageSettings = vi.hoisted(() => vi.fn());
 const mockResolveCustomerPhone = vi.hoisted(() => vi.fn());
@@ -218,10 +221,17 @@ vi.mock('../db/repositories/channel-access-inbound-notices.js', async (importOri
   ...(await importOriginal<
     typeof import('../db/repositories/channel-access-inbound-notices.js')
   >()),
-  channelAccessInboundNoticesRepo: { claim: mockAccessNoticeClaim },
+  channelAccessInboundNoticesRepo: {
+    claim: mockAccessNoticeClaim,
+    releaseBeforeSend: mockAccessNoticeRelease,
+  },
 }));
 vi.mock('../db/repositories/channel-access-notifications.js', () => ({
-  channelAccessNotificationsRepo: { queueLifecycle: mockQueueAccessLifecycle },
+  channelAccessNotificationsRepo: {
+    queueLifecycle: mockQueueAccessLifecycle,
+    beginSend: mockBeginWelcomeSend,
+    finish: mockFinishWelcomeSend,
+  },
 }));
 vi.mock('./channel-access-message-settings.js', () => ({
   getWhatsAppAccessMessageSettings: mockAccessMessageSettings,
@@ -1428,6 +1438,221 @@ describe('ChannelServiceImpl', () => {
         });
       }
 
+      function reserveDurableWelcome() {
+        customer = {
+          ...customer,
+          isVerified: true,
+          status: 'active',
+          accessSource: 'trial',
+          accessExpiresAt: new Date('2099-01-01T00:00:00Z'),
+          firstInteraction: true,
+          metadata: { hasInteracted: true, accessWelcomePending: true },
+        };
+        mockAccessNoticeClaim.mockResolvedValue({
+          kind: 'first_authorized',
+          user: { ...customer },
+          cycle: inboundAccessCycle(customer),
+          claimToken: 'inline-lease',
+          notificationId: 'trial-welcome',
+        });
+        mockBeginWelcomeSend.mockResolvedValue(true);
+      }
+
+      it('shares the durable welcome receipt with the background worker', async () => {
+        reserveDurableWelcome();
+        await service.processIncomingMessage(message);
+        expect(mockBeginWelcomeSend).toHaveBeenCalledWith(
+          'trial-welcome',
+          'inline-lease',
+          'channel.whatsapp',
+          expect.any(Date),
+          channelPlugin.api.getBotInfo().username
+        );
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+        expect(mockFinishWelcomeSend).toHaveBeenCalledWith(
+          'trial-welcome',
+          'inline-lease',
+          'delivered',
+          expect.objectContaining({ deliveryId: expect.any(String) })
+        );
+        expect(mockAccessNoticeRelease).not.toHaveBeenCalled();
+      });
+
+      it('does not send after the worker takes over the welcome lease', async () => {
+        reserveDurableWelcome();
+        mockBeginWelcomeSend.mockResolvedValueOnce(false);
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+        expect(mockFinishWelcomeSend).not.toHaveBeenCalled();
+        expect(mockAccessNoticeRelease).toHaveBeenCalledWith(
+          customer.id,
+          message.id,
+          inboundAccessCycle(customer),
+          'inline-lease'
+        );
+      });
+
+      it('requeues a durable welcome when disconnected after beginning but before transport', async () => {
+        reserveDurableWelcome();
+        mockBeginWelcomeSend.mockImplementationOnce(async () => {
+          channelPlugin.api.getStatus.mockReturnValue('disconnected');
+          return true;
+        });
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+        expect(mockAccessNoticeRelease).toHaveBeenCalledWith(
+          customer.id,
+          message.id,
+          inboundAccessCycle(customer),
+          'inline-lease'
+        );
+      });
+
+      it('records an uncertain durable transport outcome without retrying a possible delivery', async () => {
+        reserveDurableWelcome();
+        channelPlugin.api.sendMessage.mockRejectedValueOnce(new Error('receipt lost'));
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+        expect(mockFinishWelcomeSend).toHaveBeenCalledWith(
+          'trial-welcome',
+          'inline-lease',
+          'failed',
+          { reason: 'welcome_delivery_unknown' }
+        );
+        expect(mockAccessNoticeRelease).not.toHaveBeenCalled();
+      });
+
+      it('releases a known-unsent welcome if the final outgoing access lookup fails', async () => {
+        reserveDurableWelcome();
+        mockBeginWelcomeSend.mockImplementationOnce(async () => {
+          mockUsersRepo.findByPlatform.mockRejectedValueOnce(
+            new Error('final access lookup unavailable')
+          );
+          return true;
+        });
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+        expect(mockFinishWelcomeSend).not.toHaveBeenCalled();
+        expect(mockAccessNoticeRelease).toHaveBeenCalledWith(
+          customer.id,
+          message.id,
+          inboundAccessCycle(customer),
+          'inline-lease'
+        );
+      });
+
+      it('releases the welcome if disconnected during the final outgoing access lookup', async () => {
+        reserveDurableWelcome();
+        mockBeginWelcomeSend.mockImplementationOnce(async () => {
+          mockUsersRepo.findByPlatform.mockImplementationOnce(async () => {
+            channelPlugin.api.getStatus.mockReturnValue('disconnected');
+            return customer;
+          });
+          return true;
+        });
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+        expect(mockFinishWelcomeSend).not.toHaveBeenCalled();
+        expect(mockAccessNoticeRelease).toHaveBeenCalledWith(
+          customer.id,
+          message.id,
+          inboundAccessCycle(customer),
+          'inline-lease'
+        );
+      });
+
+      it.each([
+        ['sem nome', '5511999990001', 'Oi', undefined],
+        ['Brasil com nono dígito', '5581999990101', 'OLÁ!', undefined],
+        ['Brasil sem nono dígito', '558199990101', 'Bom dia', undefined],
+        ['internacional', '244927000001', 'Olá', undefined],
+        [
+          'botão da landing',
+          '5511999990001',
+          'Olá! Quero testar o Astra grátis por 3 dias.',
+          undefined,
+        ],
+        [
+          'indicação preservada',
+          '5511999990001',
+          'Olá! Vim pela indicação do Júlio e quero testar o Astra grátis por 3 dias.',
+          undefined,
+        ],
+        ['primeiro pedido', '5511999990001', 'Anote minha ideia para o projeto', undefined],
+        ['áudio', '5511999990001', '', 'audio'],
+        ['imagem', '5511999990001', '', 'image'],
+        ['documento', '5511999990001', '', 'document'],
+      ] as const)(
+        'welcomes every eligible first contact in the entry matrix: %s',
+        async (label, number, text, attachment) => {
+          customer = {
+            ...customer,
+            platformUserId: number,
+            ownpilotUserId: 'whatsapp:' + number,
+            displayName: label === 'sem nome' ? undefined : 'Pessoa de teste',
+            isVerified: true,
+            status: 'active',
+            accessSource: 'trial',
+            accessExpiresAt: new Date('2099-01-01T00:00:00Z'),
+            firstInteraction: true,
+            metadata: { hasInteracted: true, accessWelcomePending: true },
+          };
+          message = {
+            ...message,
+            platformChatId: number,
+            sender: { ...message.sender, platformUserId: number },
+            text,
+            ...(attachment
+              ? {
+                  attachments: [
+                    {
+                      type: attachment,
+                      mimeType:
+                        attachment === 'audio'
+                          ? 'audio/ogg'
+                          : attachment === 'image'
+                            ? 'image/png'
+                            : 'application/pdf',
+                      data: Buffer.from('synthetic'),
+                    },
+                  ],
+                }
+              : {}),
+          };
+          reserve('first_authorized');
+          await service.processIncomingMessage(message);
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+              platformChatId: number,
+              text: expect.stringContaining('Seus 3 dias grátis já começaram'),
+            })
+          );
+          expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
+            expect.objectContaining({
+              ownpilotUserId: 'whatsapp:' + number,
+              startWhatsAppTrial: true,
+            })
+          );
+          if (label === 'botão da landing' || label === 'indicação preservada')
+            expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        }
+      );
+      it('does not release or replay a welcome after an ambiguous transport failure', async () => {
+        customer = {
+          ...customer,
+          isVerified: true,
+          status: 'active',
+          accessSource: 'trial',
+          accessExpiresAt: new Date('2099-01-01T00:00:00Z'),
+          firstInteraction: true,
+        };
+        reserve('first_authorized');
+        channelPlugin.api.sendMessage.mockRejectedValueOnce(new Error('transport receipt unknown'));
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+        expect(mockAccessNoticeRelease).not.toHaveBeenCalled();
+      });
+
       it.each(['244927000001', '5581999990101', '558199990101'])(
         'sends the pending access greeting to an inbound international or Brazilian contact: %s',
         async (contactPhone) => {
@@ -1654,6 +1879,35 @@ describe('ChannelServiceImpl', () => {
         expect(mockAccessNoticeClaim).toHaveBeenCalledOnce();
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
         expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+      });
+      it('releases a first welcome when WhatsApp disconnects after the claim but before transport', async () => {
+        customer = {
+          ...customer,
+          isVerified: true,
+          status: 'active',
+          accessSource: 'trial',
+          accessExpiresAt: new Date('2099-01-01T00:00:00Z'),
+          firstInteraction: true,
+          metadata: { hasInteracted: true, accessWelcomePending: true },
+        };
+        reserve('first_authorized');
+        mockAccessNoticeClaim.mockImplementationOnce(async () => {
+          channelPlugin.api.getStatus.mockReturnValue('disconnected');
+          return {
+            kind: 'first_authorized',
+            user: { ...customer },
+            cycle: inboundAccessCycle(customer),
+            claimToken: 'first-welcome-claim',
+          };
+        });
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+        expect(mockAccessNoticeRelease).toHaveBeenCalledWith(
+          customer.id,
+          message.id,
+          inboundAccessCycle(customer),
+          'first-welcome-claim'
+        );
       });
 
       it('does not process a replayed greeting or an old pending request after approval', async () => {

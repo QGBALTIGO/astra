@@ -62,7 +62,10 @@ const server = createServer(async (req, res) => {
     );
     return;
   }
-  const resolved = routes[path] || path;
+  const affiliate = /^\/julio(?:\/|$)/.test(path) && routes[path.slice(6) || '/'];
+  const resolved = affiliate
+    ? '/julio' + (affiliate === '/index.html' ? '.html' : affiliate)
+    : routes[path] || path;
   const content = files[resolved] ?? baseline[resolved];
   const status = content === undefined ? 404 : 200;
   const body = content ?? files['/404.html'];

@@ -75,6 +75,8 @@ import { buildAccessMessage } from './channel-access-messages.js';
 import { getWhatsAppAccessMessageSettings } from './channel-access-message-settings.js';
 import { resolveCustomerPhone } from '../services/customer-identity.js';
 import { resolveInboundWhatsAppSpelling } from './whatsapp-inbound-identity.js';
+import { isTrialStartMessage, trialReferralFromMessage } from './trial-entry.js';
+import { ChannelSendNotAttemptedError } from './send-not-attempted.js';
 import { whatsappPhoneSpellings } from './whatsapp-phone.js';
 import {
   channelSessionsRepo,
@@ -214,11 +216,17 @@ export class ChannelServiceImpl implements IChannelService {
   async send(channelPluginId: string, message: ChannelOutgoingMessage): Promise<string> {
     const api = this.getChannel(channelPluginId);
     if (!api) {
-      throw new Error(`Channel plugin not found: ${channelPluginId}`);
+      throw new ChannelSendNotAttemptedError(
+        new Error(`Channel plugin not found: ${channelPluginId}`)
+      );
     }
 
+    let transportInvoked = false;
     try {
       await this.assertOutgoingAccess(api, message.platformChatId);
+      if (api.getPlatform() === 'whatsapp' && api.getStatus() !== 'connected')
+        throw new Error('WhatsApp disconnected before transport');
+      transportInvoked = true;
       const messageId = await api.sendMessage(message);
       await recordOutboundQuality(channelPluginId, messageId, message.text);
 
@@ -253,7 +261,7 @@ export class ChannelServiceImpl implements IChannelService {
       } catch (emitErr) {
         log.warn('EventBus not available for MESSAGE_SEND_ERROR event', { error: emitErr });
       }
-      throw error;
+      throw transportInvoked ? error : new ChannelSendNotAttemptedError(error);
     }
   }
 
@@ -566,7 +574,13 @@ export class ChannelServiceImpl implements IChannelService {
         displayName: message.sender.displayName,
         platformUsername: message.sender.username,
         avatarUrl: message.sender.avatarUrl,
-        ...(customerUserId ? { ownpilotUserId: customerUserId, startWhatsAppTrial: true } : {}),
+        ...(customerUserId
+          ? {
+              ownpilotUserId: customerUserId,
+              startWhatsAppTrial: true,
+              trialReferral: trialReferralFromMessage(message.text),
+            }
+          : {}),
       });
       if (message.platform === 'whatsapp') whatsappUserId = channelUser.ownpilotUserId;
 
@@ -666,9 +680,10 @@ export class ChannelServiceImpl implements IChannelService {
           // greeting needs only the personalized welcome, without a second reply.
           if (
             !message.attachments?.length &&
-            /^(?:oi|ol[aá]|opa|e\s*a[ií]|bom\s+dia|boa\s+(?:tarde|noite)|hello|hi|\/start)[\s!?.]*$/iu.test(
+            (/^(?:oi|ol[aá]|opa|e\s*a[ií]|bom\s+dia|boa\s+(?:tarde|noite)|hello|hi|\/start)[\s!?.]*$/iu.test(
               message.text.trim()
-            )
+            ) ||
+              isTrialStartMessage(message.text))
           )
             return;
         }
@@ -1558,6 +1573,10 @@ export class ChannelServiceImpl implements IChannelService {
         incoming.metadata?.fromMe === true
       )
         return;
+      let firstWelcomeCycle: string | null = null;
+      let firstWelcomeToken: string | undefined;
+      let welcomeNotificationId: string | undefined;
+      let transportInvoked = false;
       try {
         // Load configuration before consuming the durable attempt. Configuration
         // failures and known disconnections should not lose the first welcome.
@@ -1567,8 +1586,26 @@ export class ChannelServiceImpl implements IChannelService {
           !/^[1-9][0-9]{9,14}$/.test(api.getBotInfo?.()?.username ?? '')
         )
           return;
-        const notice = await channelAccessInboundNoticesRepo.claim(user.id, incoming.id, mode);
+        const welcomeOnly =
+          !incoming.attachments?.length &&
+          (/^(?:oi|ol[aá]|opa|e\s*a[ií]|bom\s+dia|boa\s+(?:tarde|noite)|hello|hi|\/start)[\s!?.]*$/iu.test(
+            incoming.text.trim()
+          ) ||
+            isTrialStartMessage(incoming.text));
+        const notice =
+          mode === 'first_authorized' && !welcomeOnly
+            ? await channelAccessInboundNoticesRepo.claim(
+                user.id,
+                incoming.id,
+                mode,
+                undefined,
+                false
+              )
+            : await channelAccessInboundNoticesRepo.claim(user.id, incoming.id, mode);
         if (!notice) return;
+        if (mode === 'first_authorized') firstWelcomeCycle = notice.cycle;
+        firstWelcomeToken = notice.claimToken;
+        welcomeNotificationId = notice.notificationId;
         const fresh = await this.usersRepo.getById(user.id);
         const owner = await getOwnerUserId('whatsapp');
         const currentApi = this.getChannel(incoming.channelPluginId);
@@ -1594,10 +1631,33 @@ export class ChannelServiceImpl implements IChannelService {
         };
         // The private inactive branch never accepts caller-supplied text, target,
         // options or links. The normal public send guard remains unchanged.
+        if (welcomeNotificationId) {
+          if (
+            !firstWelcomeToken ||
+            !(await channelAccessNotificationsRepo.beginSend(
+              welcomeNotificationId,
+              firstWelcomeToken,
+              incoming.channelPluginId,
+              new Date(),
+              currentApi.getBotInfo?.()?.username ?? null
+            ))
+          )
+            return;
+          if (api.getStatus() !== 'connected') return;
+        }
+        transportInvoked = true;
         const messageId =
           mode === 'first_authorized'
             ? await this.send(incoming.channelPluginId, message)
             : await api.sendMessage(message);
+        if (!messageId?.trim()) throw new Error('delivery_outcome_unknown');
+        if (welcomeNotificationId && firstWelcomeToken)
+          await channelAccessNotificationsRepo.finish(
+            welcomeNotificationId,
+            firstWelcomeToken,
+            'delivered',
+            { deliveryId: messageId }
+          );
         if (mode === 'inactive') {
           try {
             getEventBus().emit(
@@ -1613,9 +1673,36 @@ export class ChannelServiceImpl implements IChannelService {
           }
         }
       } catch (error) {
+        if (mode === 'first_authorized' && error instanceof ChannelSendNotAttemptedError)
+          transportInvoked = false;
+        if (welcomeNotificationId && firstWelcomeToken && transportInvoked) {
+          try {
+            await channelAccessNotificationsRepo.finish(
+              welcomeNotificationId,
+              firstWelcomeToken,
+              'failed',
+              { reason: 'welcome_delivery_unknown' }
+            );
+          } catch {
+            /* The durable sending lease prevents an automatic duplicate. */
+          }
+        }
         log.warn('WhatsApp access notice was not confirmed; no automatic replay', {
           category: error instanceof Error ? error.name : 'notice_error',
         });
+      } finally {
+        if (firstWelcomeCycle !== null && !transportInvoked) {
+          try {
+            await channelAccessInboundNoticesRepo.releaseBeforeSend(
+              user.id,
+              incoming.id,
+              firstWelcomeCycle,
+              firstWelcomeToken
+            );
+          } catch {
+            log.warn('Known-unsent welcome could not be released');
+          }
+        }
       }
     });
   }

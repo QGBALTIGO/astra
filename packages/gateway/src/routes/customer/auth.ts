@@ -19,6 +19,27 @@ const codeSchema = z
   .object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/) })
   .strict();
 
+customerAuthRoutes.get('/start', (c) => {
+  const ref = c.req.query('ref');
+  if (ref !== undefined && ref !== 'julio')
+    return apiError(c, { code: 'INVALID_INPUT', message: 'Indicação inválida.' }, 400);
+  c.header('Cache-Control', 'no-store');
+  c.header('Referrer-Policy', 'no-referrer');
+  try {
+    return c.redirect(getCustomerAuthService().getWhatsAppStartUrl(ref), 302);
+  } catch {
+    c.header('Retry-After', '30');
+    c.header(
+      'Content-Security-Policy',
+      "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    );
+    return c.html(
+      '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Astra — Vamos conversar</title><main><h1>Vamos conversar em instantes 💙</h1><p>O WhatsApp do Astra está reconectando. Seu teste começa quando você enviar sua primeira mensagem.</p><p>Tente novamente em alguns instantes.</p><a href="https://astraacessor.pro/">Voltar ao Astra</a></main></html>',
+      503
+    );
+  }
+});
+
 customerAuthRoutes.post('/request-code', async (c) => {
   const parsed = phoneSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success)

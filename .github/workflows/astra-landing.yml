@@ -6,6 +6,9 @@ on:
     paths: ['landing/**', '.github/workflows/astra-landing.yml']
 permissions:
   contents: read
+concurrency:
+  group: astra-landing-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-24.04
@@ -23,9 +26,9 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build && npm test
       - run: npx playwright install --with-deps chromium firefox webkit
-      - name: Generate first visual references when absent
+      - name: Capture the trial layout and repeat visual and functional checks
         run: |
-          if [ ! -f tests/browser/screenshots/assessor-pattern/phone-320/hero.png ]; then
+          if [ ! -f tests/browser/screenshots/trial-whatsapp/phone-320/hero.png ]; then
             npm run test:browser -- --grep 'visual regression' --update-snapshots
           fi
           npm run test:browser

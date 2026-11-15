@@ -1,6 +1,7 @@
 import type { ChannelOutgoingMessage } from '@ownpilot/core/channels';
 import { normalizeChannelUrl } from './utils/url-button.js';
 import { ASTRA_PRIMARY_CHECKOUT_URL } from '../config/astra-public-urls.js';
+import { ASTRA_JULIO_CHECKOUT_URL } from './trial-entry.js';
 
 export type AccessMessageKind =
   | 'pending_welcome'
@@ -15,6 +16,7 @@ export type AccessMessageKind =
   | 'revoked';
 
 export interface AccessMessageUser {
+  metadata?: Record<string, unknown>;
   accessSource?: 'manual' | 'cakto' | 'trial' | null;
   displayName?: string | null;
   accessExpiresAt?: Date | null;
@@ -256,7 +258,10 @@ export function buildAccessMessage(
           ),
           urlButton: {
             label: 'Continuar com o Astra',
-            url: renewalUrl ?? ASTRA_PRIMARY_CHECKOUT_URL,
+            url:
+              user.metadata?.astraTrialReferral === 'julio'
+                ? ASTRA_JULIO_CHECKOUT_URL
+                : (renewalUrl ?? ASTRA_PRIMARY_CHECKOUT_URL),
           },
         };
       }

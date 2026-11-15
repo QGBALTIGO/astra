@@ -8,6 +8,7 @@ import { pages } from '../src/legal.mjs';
 import { publicPages } from '../src/public-pages.mjs';
 import { scenarios, scenarioState, money } from '../src/assets/scenarios.js';
 import { requests, unavailableEvents } from './sql-double.mjs';
+import { trialStartUrl, trialCtas, trialAffiliateHtml } from '../src/trial.mjs';
 
 const bundle = JSON.parse(await readFile(new URL('../dist/bundle.json', import.meta.url), 'utf8'));
 const build = JSON.parse(await readFile(new URL('../dist/build.json', import.meta.url), 'utf8'));
@@ -39,6 +40,11 @@ const token = async () => (await (await send('/api/form-token')).json()).token;
 
 test('the deployed form and HTTP handler code is preserved under source formatting', async () => {
   async function protectedCode(source) {
+    // The sole handler addition serves the same allowlisted pages under the private affiliate prefix.
+    source = source.replace(
+      /  if \(\/\^\\\/julio\(\?:\\\/\|\$\)\/\.test\(path\)\) \{[\s\S]*?\n  \}\n/,
+      ''
+    );
     // Only the public sitemap now follows the complete public route inventory.
     source = source.replace(
       /Object\.keys\(routes\)\.filter\(\s*\(?route\)?\s*=>\s*!route\.endsWith\(['"]\.html['"]\)\s*&&\s*route\s*!==\s*['"]\/remover['"]\s*\)/g,
@@ -175,17 +181,67 @@ test('the home page has real anchors, one heading and no emoji icons', () => {
   assert.ok(!/[\u{1F000}-\u{1FAFF}]/u.test(html));
   assert.ok(!html.includes('{{'));
 });
-test('all purchase links use the exact official checkout', () => {
-  for (const match of bundle['/index.html'].matchAll(
-    /href="([^"]+)"[^>]*class="[^"]*checkout|class="[^"]*checkout[^>]*href="([^"]+)"/g
-  ))
-    assert.equal(match[1] || match[2], 'https://pay.cakto.com.br/CubL455');
+test('all published conversion links start the WhatsApp trial without checkout or registration', () => {
+  for (const [file, html] of Object.entries(bundle).filter(([file]) => file.endsWith('.html'))) {
+    assert.doesNotMatch(html, /href="https:\/\/pay\.cakto\.com\.br\//, file);
+    assert.doesNotMatch(html, /\{\{icon:/, file);
+    const links = [...html.matchAll(/<a\b[^>]*class="[^"]*trial-cta[^>]*>/g)];
+    if (file === '/index.html' || file === '/julio.html') assert.ok(links.length >= 5, file);
+    for (const [link] of links) {
+      assert.ok(
+        link.includes(`href="${trialStartUrl}${file.startsWith('/julio') ? '?ref=julio' : ''}"`),
+        file
+      );
+      assert.match(link, /target="_blank"/);
+      assert.match(link, /rel="noopener noreferrer"/);
+    }
+    if (!file.startsWith('/julio')) assert.doesNotMatch(html, /href="\/julio(?:\/|"|#)/, file);
+  }
   assert.ok(bundle['/index.html'].includes('19,90'));
   for (const path of ['/index.html', '/condicoes.html', '/privacidade.html']) {
     assert.ok(
       !/20,89|0,99|taxa|ativa[çc][ãa]o manual|libera[çc][ãa]o autom[áa]tica/i.test(bundle[path])
     );
   }
+});
+
+test('trial transformations preserve unrelated links and the affiliate attribution is explicit', () => {
+  const input =
+    '<a href="/sobre">Sobre</a\n><h1>Seu assistente</h1><a class="btn checkout" href="https://pay.cakto.com.br/CubL455">Assinar</a><a href="/financas">Finanças</a><a href="https://app.astraacessor.pro/cliente/entrar">Entrar</a>';
+  const main = trialCtas(input);
+  assert.match(main, /<h1>Seu assistente<\/h1>/);
+  assert.match(main, /<a href="\/sobre">Sobre<\/a\s*>/);
+  assert.match(main, /Testar 3 dias grátis/);
+  assert.match(main, /href="\/financas"/);
+  const affiliate = trialAffiliateHtml(main, '/', new Set(['/', '/financas']));
+  assert.ok(affiliate.includes(`href="${trialStartUrl}?ref=julio"`));
+  assert.match(affiliate, /href="\/julio\/financas"/);
+  assert.match(affiliate, /href="https:\/\/app\.astraacessor\.pro\/cliente\/entrar"/);
+});
+
+test('affiliate GET, HEAD, cache identity and noindex stay isolated from the main site', async () => {
+  for (const path of [
+    '/',
+    ...publicPages.map((page) => page.path),
+    '/condicoes',
+    '/privacidade',
+    '/remover',
+  ]) {
+    const url = '/julio' + (path === '/' ? '' : path);
+    const response = await send(url);
+    assert.equal(response.status, 200, url);
+    assert.equal(response.headers.get('x-robots-tag'), 'noindex, nofollow', url);
+    const html = await response.text();
+    assert.match(html, /<meta name="robots" content="noindex, nofollow">/);
+    assert.ok(html.includes(`rel="canonical" href="${origin}${path}"`), url);
+    assert.equal((await send(url, { method: 'HEAD' })).status, 200, url);
+    assert.equal(await (await send(url, { method: 'HEAD' })).text(), '');
+    const primary = await send(path);
+    assert.notEqual(response.headers.get('etag'), primary.headers.get('etag'), url);
+  }
+  assert.equal((await send('/julio/nao-existe')).status, 404);
+  assert.equal((await send('/julio', { method: 'POST' })).status, 405);
+  assert.doesNotMatch(await (await send('/sitemap.xml')).text(), /julio/);
 });
 test('the ten scenarios are distinct and map to supported dashboard areas', () => {
   assert.equal(scenarios.length, 10);

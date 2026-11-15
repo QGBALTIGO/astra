@@ -45,6 +45,21 @@ describe('WhatsApp trial copy', () => {
       'https://pay.cakto.com.br/CubL455'
     );
   });
+  it('preserves the referral checkout only for an enrolled referred trial', () => {
+    const referred = buildAccessMessage(
+      'expired',
+      { ...trial, metadata: { astraTrialReferral: 'julio' } },
+      settings
+    );
+    expect(referred.urlButton?.url).toBe('https://pay.cakto.com.br/CubL455?affiliate=oYTQCyX6');
+    expect(
+      buildAccessMessage(
+        'expired',
+        { ...trial, metadata: { astraTrialReferral: 'unknown' } },
+        settings
+      ).urlButton?.url
+    ).toBe(settings.renewalUrl);
+  });
   it('confirms a paid subscription without offering a new free trial', () => {
     const reply = buildAccessMessage('subscribed', { ...trial, accessSource: 'cakto' }, settings);
     expect(reply.text).toContain('Assinatura confirmada');
