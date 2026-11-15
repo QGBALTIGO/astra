@@ -566,7 +566,7 @@ export class ChannelServiceImpl implements IChannelService {
         displayName: message.sender.displayName,
         platformUsername: message.sender.username,
         avatarUrl: message.sender.avatarUrl,
-        ...(customerUserId ? { ownpilotUserId: customerUserId } : {}),
+        ...(customerUserId ? { ownpilotUserId: customerUserId, startWhatsAppTrial: true } : {}),
       });
       if (message.platform === 'whatsapp') whatsappUserId = channelUser.ownpilotUserId;
 

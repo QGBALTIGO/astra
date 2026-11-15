@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS channel_users (
   verification_method TEXT,
   access_expires_at TIMESTAMPTZ,
   access_granted_at TIMESTAMPTZ,
-  access_source TEXT CHECK(access_source IN ('manual', 'cakto')),
+  access_source TEXT CHECK(access_source IN ('manual', 'cakto', 'trial')),
   is_blocked BOOLEAN NOT NULL DEFAULT FALSE,
   status TEXT NOT NULL DEFAULT 'active',
   metadata JSONB DEFAULT '{}',
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS channel_access_notifications (
   channel_user_id TEXT NOT NULL REFERENCES channel_users(id) ON DELETE CASCADE,
   ownpilot_user_id TEXT NOT NULL,
   platform_user_id TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK(kind IN ('approved', 'renewed', 'expiring')),
+  kind TEXT NOT NULL CHECK(kind IN ('approved', 'renewed', 'expiring', 'trial_expired')),
   cycle_key TEXT NOT NULL,
   access_granted_at TIMESTAMPTZ,
   access_expires_at TIMESTAMPTZ,
@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS channel_access_notifications (
 );
 
 -- Channel verification tokens (PIN/token auth flow)
+-- No cascading user FK: removing/recreating a contact cannot restart a trial.
+CREATE TABLE IF NOT EXISTS whatsapp_trial_claims (
+  phone_number TEXT PRIMARY KEY,
+  started_at TIMESTAMPTZ NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  CHECK(expires_at = started_at + INTERVAL '72 hours')
+);
+
 CREATE TABLE IF NOT EXISTS channel_verification_tokens (
   id TEXT PRIMARY KEY,
   ownpilot_user_id TEXT NOT NULL DEFAULT 'default',
@@ -133,6 +141,24 @@ ALTER TABLE channel_users ADD COLUMN IF NOT EXISTS access_expires_at TIMESTAMPTZ
 ALTER TABLE channel_users ADD COLUMN IF NOT EXISTS access_granted_at TIMESTAMPTZ;
 ALTER TABLE channel_users ADD COLUMN IF NOT EXISTS access_source TEXT
   CHECK(access_source IN ('manual', 'cakto'));
+
+-- Expand the two existing enums without changing any existing grants or contacts.
+DO $$ BEGIN
+  IF EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='channel_users'::regclass
+    AND conname='channel_users_access_source_check'
+    AND position('trial' in pg_get_constraintdef(oid))=0) THEN
+    ALTER TABLE channel_users DROP CONSTRAINT channel_users_access_source_check;
+    ALTER TABLE channel_users ADD CONSTRAINT channel_users_access_source_check
+      CHECK(access_source IN ('manual','cakto','trial'));
+  END IF;
+  IF EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='channel_access_notifications'::regclass
+    AND conname='channel_access_notifications_kind_check'
+    AND position('trial_expired' in pg_get_constraintdef(oid))=0) THEN
+    ALTER TABLE channel_access_notifications DROP CONSTRAINT channel_access_notifications_kind_check;
+    ALTER TABLE channel_access_notifications ADD CONSTRAINT channel_access_notifications_kind_check
+      CHECK(kind IN ('approved','renewed','expiring','trial_expired'));
+  END IF;
+END $$;
 
 -- Resolve any historical active-code collisions before enforcing uniqueness.
 -- Keep the newest request claimable and invalidate older ambiguous requests.
@@ -219,6 +245,8 @@ export const CHANNELS_INDEXES_SQL = `
 CREATE INDEX IF NOT EXISTS idx_channel_users_ownpilot ON channel_users(ownpilot_user_id);
 CREATE INDEX IF NOT EXISTS idx_channel_users_platform ON channel_users(platform, platform_user_id);
 CREATE INDEX IF NOT EXISTS idx_channel_users_verified ON channel_users(is_verified);
+CREATE INDEX IF NOT EXISTS idx_channel_messages_trial_history
+  ON channel_messages(sender_id) WHERE direction='inbound';
 CREATE INDEX IF NOT EXISTS idx_channel_sessions_user ON channel_sessions(channel_user_id);
 CREATE INDEX IF NOT EXISTS idx_channel_sessions_plugin ON channel_sessions(channel_plugin_id);
 CREATE INDEX IF NOT EXISTS idx_channel_sessions_conversation ON channel_sessions(conversation_id);

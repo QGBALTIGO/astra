@@ -1,6 +1,7 @@
 export const ASTRA_SITE_URL = 'https://astraacessor.pro';
 export const ASTRA_CUSTOMER_ORIGIN = 'https://app.astraacessor.pro';
 export const ASTRA_CUSTOMER_LOGIN_URL = ASTRA_CUSTOMER_ORIGIN + '/cliente/entrar';
+export const ASTRA_PRIMARY_CHECKOUT_URL = 'https://pay.cakto.com.br/CubL455';
 
 /** Only rewrite official, retired origins. Preserve customer links and external checkout URLs. */
 export function currentAstraPublicUrl(value: string): string {

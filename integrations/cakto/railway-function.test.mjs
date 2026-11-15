@@ -268,6 +268,14 @@ test(
       }
       const { state, boot } = fixture();
       const paid = { status: 'paid', paidAt: new Date().toISOString() };
+      // A paid checkout must upgrade the same trial identity, never preserve
+      // only its three-day deadline or create a second customer.
+      const trialUntil = new Date(Date.now() + 3 * 86_400_000);
+      await db`INSERT INTO channel_users(id,ownpilot_user_id,platform,platform_user_id,
+        is_verified,status,access_source,access_granted_at,access_expires_at,metadata)
+        VALUES('trial-customer','whatsapp:5511999991234','whatsapp','5511999991234',
+          true,'active','trial',now(),${trialUntil.toISOString()},
+          '{"hasInteracted":true,"trialSyntheticPreference":"preserved"}'::jsonb)`;
       state.dbDown = true;
       assert.equal((await (await boot())(request('purchase_approved', paid))).status, 202);
       assert.equal(state.objects.size, 1);
@@ -275,7 +283,12 @@ test(
 
       await boot('worker', {}, ReviewSQL);
       assert.equal(state.objects.size, 0);
-      const [user] = await db`SELECT id,is_verified,access_expires_at FROM channel_users`;
+      const [user] =
+        await db`SELECT id,is_verified,access_source,access_expires_at,metadata FROM channel_users`;
+      assert.equal(user.id, 'trial-customer');
+      assert.equal(user.access_source, 'cakto');
+      assert.equal(user.metadata.trialSyntheticPreference, 'preserved');
+      assert.ok(new Date(user.access_expires_at).getTime() > trialUntil.getTime());
       assert.equal(user.is_verified, true);
       assert.ok(new Date(user.access_expires_at).getTime() > Date.now());
       const fetch = await boot(undefined, {}, ReviewSQL);

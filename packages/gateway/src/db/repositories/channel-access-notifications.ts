@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
 import type { ChannelUserEntity } from './channels/users.js';
 
-export type ChannelAccessNotificationKind = 'approved' | 'renewed' | 'expiring';
+export type ChannelAccessNotificationKind = 'approved' | 'renewed' | 'expiring' | 'trial_expired';
 export type ChannelAccessNotificationStatus =
   'pending' | 'claimed' | 'sending' | 'delivered' | 'failed' | 'cancelled';
 
@@ -78,6 +78,16 @@ export function isSameAccessNotificationCycle(
 /** Missing flag means a legacy user first observed through a real incoming message. */
 export function hasChannelUserInteracted(user: ChannelUserEntity): boolean {
   return user.metadata.hasInteracted === undefined || user.metadata.hasInteracted === true;
+}
+
+export function hasTrialWelcome(user: ChannelUserEntity): boolean {
+  const notice = user.metadata.astraAccessNotices;
+  return (
+    notice !== null &&
+    typeof notice === 'object' &&
+    !Array.isArray(notice) &&
+    (notice as Record<string, unknown>).firstAuthorizedAsTrial === true
+  );
 }
 
 /** Paid Cakto confirmations may reach buyers who have never messaged the bot. */
@@ -218,6 +228,7 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
          AND u.ownpilot_user_id = 'whatsapp:' || u.platform_user_id
          AND u.is_verified = TRUE AND u.is_blocked = FALSE AND u.status = 'active'
          AND (u.metadata->'hasInteracted' IS NULL OR u.metadata->'hasInteracted' = 'true'::jsonb)
+         AND u.access_source IS DISTINCT FROM 'trial'
          AND u.access_expires_at > $1::timestamptz
          AND u.access_expires_at <= $1::timestamptz + INTERVAL '24 hours'
          AND NOT EXISTS (SELECT 1 FROM system_settings
@@ -291,10 +302,19 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
              OR (u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'
                AND notice.kind IN ('approved','renewed')))
            AND (notice.kind <> 'approved' OR u.access_source <> 'cakto'
-             OR u.metadata->'astraAccessNotices'->>'firstAuthorized' IS DISTINCT FROM 'true')
+             OR u.metadata->'astraAccessNotices'->>'firstAuthorized' IS DISTINCT FROM 'true'
+             OR u.metadata->'astraAccessNotices'->>'firstAuthorizedAsTrial' = 'true')
            AND u.access_granted_at IS NOT DISTINCT FROM notice.access_granted_at
            AND u.access_expires_at IS NOT DISTINCT FROM notice.access_expires_at
-           AND (u.access_expires_at IS NULL OR u.access_expires_at > $4::timestamptz)
+           AND ((notice.kind='trial_expired' AND u.access_source='trial'
+             AND u.access_expires_at <= $4::timestamptz)
+             OR (notice.kind <> 'trial_expired'
+               AND (u.access_expires_at IS NULL OR u.access_expires_at > $4::timestamptz)))
+           AND (notice.kind <> 'trial_expired' OR CASE
+             WHEN jsonb_typeof(u.metadata->'astraAccessNotices'->'lastInactiveAt')='number'
+             THEN (u.metadata->'astraAccessNotices'->>'lastInactiveAt')::numeric
+               < EXTRACT(EPOCH FROM $4::timestamptz)*1000 - 900000
+             ELSE TRUE END)
            AND (notice.kind <> 'expiring' OR (
              u.access_expires_at > $4::timestamptz
              AND u.access_expires_at <= $4::timestamptz + INTERVAL '24 hours'))

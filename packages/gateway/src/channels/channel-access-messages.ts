@@ -1,5 +1,6 @@
 import type { ChannelOutgoingMessage } from '@ownpilot/core/channels';
 import { normalizeChannelUrl } from './utils/url-button.js';
+import { ASTRA_PRIMARY_CHECKOUT_URL } from '../config/astra-public-urls.js';
 
 export type AccessMessageKind =
   | 'pending_welcome'
@@ -10,9 +11,11 @@ export type AccessMessageKind =
   | 'expiring'
   | 'expired'
   | 'renewed'
+  | 'subscribed'
   | 'revoked';
 
 export interface AccessMessageUser {
+  accessSource?: 'manual' | 'cakto' | 'trial' | null;
   displayName?: string | null;
   accessExpiresAt?: Date | null;
   isBlocked?: boolean;
@@ -169,6 +172,36 @@ export function buildAccessMessage(
         ),
       };
     case 'first_authorized':
+      if (user.accessSource === 'trial' && expires) {
+        let zone = settings.timeZone?.trim() || DEFAULT_ACCESS_MESSAGE_TIME_ZONE;
+        try {
+          new Intl.DateTimeFormat('pt-BR', { timeZone: zone });
+        } catch {
+          zone = DEFAULT_ACCESS_MESSAGE_TIME_ZONE;
+        }
+        const deadline = new Intl.DateTimeFormat('pt-BR', {
+          timeZone: zone,
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZoneName: 'short',
+        }).format(expires);
+        return {
+          text: paragraphs(
+            `${hello} Seja bem-vindo ao *Astra*! 💙`,
+            '*Seus 3 dias grátis já começaram!* São 72 horas para experimentar, sem cadastro, sem cartão e sem cobrança automática.',
+            `⏳ *Seu teste é válido até ${deadline}.*`,
+            'Pode conversar comigo do seu jeito para:',
+            '💸 Organizar finanças, registrar gastos e receitas.\n📅 Anotar compromissos e criar lembretes.\n✅ Cuidar de tarefas e pendências.\n🎯 Criar metas e acompanhar seu progresso.\n🧠 Guardar ideias, preferências e memórias.\n☀️ Preparar resumos da sua rotina e um bom-dia diário.',
+            '🎙️ Você também pode enviar áudios, imagens e documentos para me ajudar a entender seus pedidos.',
+            'Para consultar o clima, me conte sua cidade. Para resumos de e-mail e outras integrações, é preciso conectar sua própria conta pelo painel.',
+            'Experimente:\n💬 “Gastei R$ 35 no almoço.”\n💬 “Me lembre de pagar a conta amanhã às 9h.”\n💬 “Quero juntar R$ 2 mil para uma viagem.”',
+            '*O que vamos organizar primeiro?* ✨'
+          ),
+        };
+      }
       return {
         text: paragraphs(
           `${hello} Seja bem-vindo ao *Astra*. 💙`,
@@ -212,6 +245,21 @@ export function buildAccessMessage(
       };
     }
     case 'expired':
+      if (user.accessSource === 'trial') {
+        return {
+          text: paragraphs(
+            `${hello} 💙`,
+            'Seu teste grátis de 3 dias chegou ao fim. Espero ter ajudado você a organizar sua rotina!',
+            'Meus atendimentos e envios automáticos estão pausados por enquanto. *Seus registros continuam preservados.*',
+            'Para continuar comigo e seguir de onde paramos, toque em *Continuar com o Astra* e escolha sua forma de pagamento.',
+            'Seu acesso será liberado após a confirmação do pagamento. *Nenhuma cobrança automática foi feita pelo fim do teste.*'
+          ),
+          urlButton: {
+            label: 'Continuar com o Astra',
+            url: renewalUrl ?? ASTRA_PRIMARY_CHECKOUT_URL,
+          },
+        };
+      }
       return {
         text: paragraphs(
           `${hello} 💙`,
@@ -225,6 +273,15 @@ export function buildAccessMessage(
             : undefined
         ),
         ...(renewalButton || siteButton ? { urlButton: renewalButton ?? siteButton } : {}),
+      };
+    case 'subscribed':
+      return {
+        text: paragraphs(
+          `*Assinatura confirmada${name ? `, ${name}` : ''}!* 🎉`,
+          'Agora podemos continuar organizando sua rotina juntos. *Seus registros e preferências continuam por aqui.* 💙',
+          expiryDate ? `📅 *Seu acesso está válido até ${expiryDate}.*` : undefined,
+          '*Me conta: o que vamos organizar agora?* ✨'
+        ),
       };
     case 'renewed':
       return {

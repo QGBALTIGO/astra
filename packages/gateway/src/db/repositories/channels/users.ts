@@ -9,12 +9,13 @@ import { whatsappPhoneSpellings } from '../../../channels/whatsapp-phone.js';
 import { randomUUID } from 'node:crypto';
 import { BaseRepository, parseJsonField } from '../base.js';
 import { channelAccessNotificationsRepo } from '../channel-access-notifications.js';
+import { whatsAppTrialsRepo } from '../whatsapp-trials.js';
 
 // ============================================================================
 // Entity Types
 // ============================================================================
 
-export type ChannelAccessSource = 'manual' | 'cakto';
+export type ChannelAccessSource = 'manual' | 'cakto' | 'trial';
 
 export interface ChannelUserEntity {
   id: string;
@@ -26,7 +27,7 @@ export interface ChannelUserEntity {
   avatarUrl?: string;
   isVerified: boolean;
   verifiedAt?: Date;
-  verificationMethod?: 'pin' | 'oauth' | 'whitelist' | 'admin';
+  verificationMethod?: 'pin' | 'oauth' | 'whitelist' | 'admin' | 'trial';
   accessExpiresAt?: Date | null;
   accessGrantedAt?: Date | null;
   accessSource?: ChannelAccessSource | null;
@@ -38,6 +39,8 @@ export interface ChannelUserEntity {
 }
 
 interface CreateChannelUserInput {
+  /** Trusted inbound WhatsApp only; existing contacts are never enrolled. */
+  startWhatsAppTrial?: boolean;
   ownpilotUserId?: string;
   platform: string;
   platformUserId: string;
@@ -192,7 +195,14 @@ export class ChannelUsersRepository extends BaseRepository {
     if (!existing) {
       // A concurrent grant can create the identity after our read. Resolving
       // that conflict in SQL keeps any surrounding verification transaction usable.
-      const entity = await this.insertUser(input, true);
+      const trialId = input.startWhatsAppTrial
+        ? await whatsAppTrialsRepo.createNewContact(input)
+        : undefined;
+      const entity = input.startWhatsAppTrial
+        ? trialId
+          ? await this.getById(trialId)
+          : null
+        : await this.insertUser(input, true);
       if (entity) return { ...entity, created: true, firstInteraction: true };
       existing = await this.findByPlatform(input.platform, input.platformUserId);
     }

@@ -76,6 +76,32 @@ describe('ChannelAccessInboundNoticesRepository', () => {
     });
   });
 
+  it('suppresses the inbound expiry copy immediately after the automatic notice', async () => {
+    storedUser = user({
+      accessSource: 'trial',
+      isVerified: true,
+      status: 'active',
+      accessExpiresAt: new Date(now.getTime() - 1),
+    });
+    mocks.queryOne
+      .mockResolvedValueOnce({ id: storedUser.id })
+      .mockResolvedValueOnce({ id: 'automatic-notice' });
+    expect(await repository.claim(storedUser.id, 'after-auto', 'inactive', now)).toBeNull();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+  it('answers an expired trial when no automatic notice has been attempted recently', async () => {
+    storedUser = user({
+      accessSource: 'trial',
+      isVerified: true,
+      status: 'active',
+      accessExpiresAt: new Date(now.getTime() - 1),
+    });
+    mocks.queryOne.mockResolvedValueOnce({ id: storedUser.id }).mockResolvedValueOnce(null);
+    expect((await repository.claim(storedUser.id, 'after-expiry', 'inactive', now))?.kind).toBe(
+      'expired'
+    );
+  });
+
   it('advances welcome, long wait and short wait only for distinct messages within the cooldown rules', async () => {
     const first = await repository.claim(storedUser.id, 'message-1', 'inactive', now);
     expect(first?.kind).toBe('pending_welcome');

@@ -3,6 +3,7 @@ import { getChannelService, type IChannelService } from '@ownpilot/core/channels
 import {
   channelAccessNotificationsRepo,
   hasChannelUserInteracted,
+  hasTrialWelcome,
   isProactivePaidCaktoNotice,
   isSameAccessNotificationCycle,
   type ChannelAccessNotification,
@@ -78,7 +79,18 @@ function ineligibleReason(
   )
     return 'not_customer';
   if (entry.platformUserId === ownerPhone || entry.platformUserId === botPhone) return 'owner';
-  if (!isChannelUserAccessActive(user, now)) return 'access_inactive';
+  if (entry.kind === 'trial_expired') {
+    if (
+      user.accessSource !== 'trial' ||
+      !user.isVerified ||
+      user.isBlocked ||
+      user.status !== 'active' ||
+      !user.accessExpiresAt ||
+      !Number.isFinite(user.accessExpiresAt.getTime()) ||
+      user.accessExpiresAt > now
+    )
+      return 'not_expired_trial';
+  } else if (!isChannelUserAccessActive(user, now)) return 'access_inactive';
   if (!hasChannelUserInteracted(user) && !isProactivePaidCaktoNotice(user, entry.kind))
     return 'no_interaction';
   // Do not surprise buyers with a second welcome if they already wrote first.
@@ -89,7 +101,8 @@ function ineligibleReason(
     inbound != null &&
     typeof inbound === 'object' &&
     !Array.isArray(inbound) &&
-    (inbound as Record<string, unknown>).firstAuthorized === true
+    (inbound as Record<string, unknown>).firstAuthorized === true &&
+    !hasTrialWelcome(user)
   )
     return 'already_welcomed';
   if (!isSameAccessNotificationCycle(entry, user)) return 'access_cycle_changed';
@@ -235,7 +248,11 @@ export class ChannelAccessNotificationWorker {
             continue;
           }
           const message = d.render(
-            entry.kind,
+            entry.kind === 'trial_expired'
+              ? 'expired'
+              : entry.kind === 'approved' && hasTrialWelcome(freshUser!)
+                ? 'subscribed'
+                : entry.kind,
             freshUser!,
             {
               ...settings,
@@ -244,10 +261,17 @@ export class ChannelAccessNotificationWorker {
             d.now()
           );
           transportInvoked = true;
-          const deliveryId = await channels.send(channel.pluginId, {
+          const outgoing = {
             platformChatId: entry.platformUserId,
             ...message,
-          });
+          };
+          // Only this server-owned, revalidated expiry template may bypass the
+          // inactive-customer send guard. Ordinary sends remain access-checked.
+          const deliveryId =
+            entry.kind === 'trial_expired'
+              ? await freshApi.sendMessage(outgoing)
+              : await channels.send(channel.pluginId, outgoing);
+          if (!deliveryId?.trim()) throw new Error('delivery_outcome_unknown');
           await d.notifications.finish(entry.id, token, 'delivered', { deliveryId }, d.now());
           if (isProactivePaidCaktoNotice(freshUser!, entry.kind)) {
             try {
