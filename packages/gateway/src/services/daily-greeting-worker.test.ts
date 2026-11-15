@@ -269,6 +269,24 @@ describe('daily greeting worker', () => {
     expect(mock.send).not.toHaveBeenCalled();
   });
 
+  it('defers a connection lost during composition before invoking the transport', async () => {
+    let connected = true;
+    mock.claimDue.mockResolvedValueOnce([{ ...entry, withEmailDigest: true }]);
+    mock.getChannel.mockReturnValue({
+      getPlatform: () => 'whatsapp',
+      getStatus: () => (connected ? 'connected' : 'disconnected'),
+    });
+    mock.digest.mockImplementationOnce(async () => {
+      connected = false;
+      return 'PRIVATE_EMAIL';
+    });
+    await dispatchDueDailyGreetings();
+    expect(mock.send).not.toHaveBeenCalled();
+    expect(mock.markDelivered).not.toHaveBeenCalled();
+    expect(mock.deferNotSent).toHaveBeenCalledWith(entry.id);
+    expect(mock.markFailed).not.toHaveBeenCalled();
+  });
+
   it('does not retry an ambiguous transport receipt', async () => {
     mock.claimDue.mockResolvedValueOnce([entry]);
     mock.send.mockResolvedValueOnce('');
