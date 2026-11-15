@@ -4,10 +4,18 @@
  * No customer data is sent to AI providers. No payments are initiated.
  * Deploy with server-only environment variables; never commit the webhook secret.
  */
-import { SQL } from 'bun';
-import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { SQL, S3Client } from 'bun';
+import {
+  createHash,
+  createHmac,
+  randomUUID,
+  randomBytes,
+  createCipheriv,
+  createDecipheriv,
+  timingSafeEqual,
+} from 'node:crypto';
 
-const RELEASE = 'astra-cakto-20261112-paid-notices-v3';
+const RELEASE = 'astra-cakto-20261115-inbox-recovery-v5';
 const SECRET = String(Bun.env.CAKTO_WEBHOOK_SECRET || '');
 const PRODUCT_ID = String(Bun.env.CAKTO_PRODUCT_ID || '').trim();
 const PRODUCT_NAME = String(Bun.env.CAKTO_PRODUCT_NAME || 'Astra Acessor')
@@ -155,6 +163,19 @@ function verifySignature(headers, rawBody, now = Date.now()) {
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
+function storedUserMetadata(value) {
+  if (asObject(value)) return value;
+  // Older Bun bindings stored JSON text as a JSON string. Preserve its
+  // fields when the next verified payment repairs that customer's metadata.
+  if (typeof value === 'string') {
+    try {
+      return asObject(JSON.parse(value)) || {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
 function idString(value) {
   const v = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
   return v.length >= 1 && v.length <= 120 && /^[\w.-]+$/.test(v) ? v : null;
@@ -165,6 +186,7 @@ function dateValue(value) {
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
 function eventWhen(event, data) {
+  if (data.__eventAt) return dateValue(data.__eventAt) || new Date();
   if (event === 'refund') return dateValue(data.refundedAt) || new Date();
   if (event === 'chargeback') return dateValue(data.chargedbackAt) || new Date();
   if (event === 'subscription_canceled') return dateValue(data.canceledAt) || new Date();
@@ -195,7 +217,15 @@ const sql = new SQL({
   connection: { application_name: 'astra-cakto-webhook', statement_timeout: '5000' },
 });
 
-await sql`CREATE TABLE IF NOT EXISTS astra_cakto_orders (
+let initialization;
+function ensureDatabase() {
+  return (initialization ??= initializeDatabase().catch((error) => {
+    initialization = undefined;
+    throw error;
+  }));
+}
+async function initializeDatabase() {
+  await sql`CREATE TABLE IF NOT EXISTS astra_cakto_orders (
   order_id TEXT PRIMARY KEY,
   phone TEXT NOT NULL,
   product_id TEXT NOT NULL,
@@ -206,15 +236,15 @@ await sql`CREATE TABLE IF NOT EXISTS astra_cakto_orders (
   event_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )`;
-await sql`CREATE INDEX IF NOT EXISTS astra_cakto_orders_phone ON astra_cakto_orders(phone,valid_until) WHERE status='paid'`;
-await sql`CREATE TABLE IF NOT EXISTS astra_cakto_subscriptions (
+  await sql`CREATE INDEX IF NOT EXISTS astra_cakto_orders_phone ON astra_cakto_orders(phone,valid_until) WHERE status='paid'`;
+  await sql`CREATE TABLE IF NOT EXISTS astra_cakto_subscriptions (
   subscription_id TEXT PRIMARY KEY,
   phone TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('active','canceled','paused')),
   event_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )`;
-await sql`CREATE TABLE IF NOT EXISTS astra_cakto_events (
+  await sql`CREATE TABLE IF NOT EXISTS astra_cakto_events (
   event_key TEXT PRIMARY KEY,
   order_id TEXT NOT NULL,
   event_type TEXT NOT NULL,
@@ -223,10 +253,10 @@ await sql`CREATE TABLE IF NOT EXISTS astra_cakto_events (
   received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )`;
 
-// A generated PIX is an unpaid lead, never a subscription grant.
-// Store only the minimum buyer details needed to identify a pending checkout;
-// deliberately do not retain CPF, the PIX payload, or the raw webhook JSON.
-await sql`CREATE TABLE IF NOT EXISTS astra_cakto_pending_pix (
+  // A generated PIX is an unpaid lead, never a subscription grant.
+  // Store only the minimum buyer details needed to identify a pending checkout;
+  // deliberately do not retain CPF, the PIX payload, or the raw webhook JSON.
+  await sql`CREATE TABLE IF NOT EXISTS astra_cakto_pending_pix (
   order_id TEXT PRIMARY KEY,
   phone TEXT NOT NULL,
   product_id TEXT NOT NULL,
@@ -237,7 +267,8 @@ await sql`CREATE TABLE IF NOT EXISTS astra_cakto_pending_pix (
   generated_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )`;
-await sql`CREATE INDEX IF NOT EXISTS astra_cakto_pending_pix_created ON astra_cakto_pending_pix(generated_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS astra_cakto_pending_pix_created ON astra_cakto_pending_pix(generated_at DESC)`;
+}
 
 // All operations for one buyer are committed together. No duplicate grant on Cakto retry.
 async function applyEvent(event, data, digest) {
@@ -269,7 +300,7 @@ async function applyEvent(event, data, digest) {
             .trim()
             .toLowerCase()
             .slice(0, 254)
-            .replace(/[\\u0000-\\u001f]/g, '')
+            .replace(/[\u0000-\u001f]/g, '')
         : '';
     const generatedISO = (dateValue(data.createdAt) || when).toISOString();
     return sql.begin(async (tx) => {
@@ -383,7 +414,7 @@ async function applyEvent(event, data, digest) {
         AND (o.subscription_id IS NULL OR (s.status='active' AND s.phone=${phone}))`;
     const expires = entitlement[0]?.expires ? new Date(entitlement[0].expires) : null;
     const users =
-      await tx`SELECT id,ownpilot_user_id,is_blocked,is_verified,access_source,access_expires_at,display_name
+      await tx`SELECT id,ownpilot_user_id,is_blocked,is_verified,access_source,access_expires_at,display_name,metadata
       FROM channel_users WHERE platform='whatsapp' AND platform_user_id=${phone} FOR UPDATE`;
     const user = users[0] || null;
     const retired =
@@ -405,12 +436,12 @@ async function applyEvent(event, data, digest) {
         await tx`INSERT INTO channel_users(id,ownpilot_user_id,platform,platform_user_id,display_name,
           is_verified,verified_at,verification_method,status,access_expires_at,access_granted_at,access_source,metadata)
           VALUES (${randomUUID()},${'whatsapp:' + phone},'whatsapp',${phone},${name || null},true,now(),
-          'admin','active',${expires.toISOString()},now(),'cakto',${JSON.stringify({ hasInteracted: false, manualPreauthorized: false, caktoManaged: true })}::jsonb)`;
+          'admin','active',${expires.toISOString()},now(),'cakto',${tx.json({ hasInteracted: false, manualPreauthorized: false, caktoManaged: true })}::jsonb)`;
       } else {
         await tx`UPDATE channel_users SET is_verified=true,verified_at=now(),verification_method='admin',
           status='active', access_expires_at=${expires.toISOString()}, access_granted_at=now(),
           access_source='cakto', display_name=COALESCE(NULLIF(display_name,''),${name || null}),
-          metadata=COALESCE(metadata,'{}'::jsonb) || '{"caktoManaged":true}'::jsonb
+          metadata=${tx.json({ ...storedUserMetadata(user.metadata), caktoManaged: true })}::jsonb
           WHERE id=${user.id} AND NOT is_blocked`;
       }
       outcome = 'granted';
@@ -458,6 +489,113 @@ async function applyEvent(event, data, digest) {
   });
 }
 
+// Independent durable inbox: no acknowledgement precedes a completed object write.
+const inboxKey = String(Bun.env.CAKTO_INBOX_KEY || '');
+if (!/^[a-f0-9]{64}$/i.test(inboxKey)) throw new Error('Missing inbox encryption key');
+function inboxOptions(env) {
+  if (!env.S3_ENDPOINT || !env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)
+    throw new Error('Incomplete inbox storage configuration');
+  const endpoint = new URL(env.S3_ENDPOINT);
+  const virtualHostedStyle = env.S3_VIRTUAL_HOSTED_STYLE === 'true';
+  // With an explicit endpoint Bun uses its hostname verbatim for virtual-host
+  // addressing. Supplying `bucket` alone does not prepend it to the hostname.
+  if (virtualHostedStyle && !endpoint.hostname.startsWith(env.S3_BUCKET + '.'))
+    endpoint.hostname = env.S3_BUCKET + '.' + endpoint.hostname;
+  return {
+    endpoint: endpoint.toString(),
+    bucket: env.S3_BUCKET,
+    region: env.S3_REGION,
+    accessKeyId: env.S3_ACCESS_KEY_ID,
+    secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+    virtualHostedStyle,
+  };
+}
+const inbox = new S3Client(inboxOptions(Bun.env));
+const prefix = 'pending/v1/';
+function seal(value) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', Buffer.from(inboxKey, 'hex'), iv);
+  cipher.setAAD(Buffer.from('astra-cakto-inbox-v1'));
+  const body = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]);
+}
+function unseal(bytes) {
+  const value = Buffer.from(bytes);
+  const cipher = createDecipheriv(
+    'aes-256-gcm',
+    Buffer.from(inboxKey, 'hex'),
+    value.subarray(0, 12)
+  );
+  cipher.setAAD(Buffer.from('astra-cakto-inbox-v1'));
+  cipher.setAuthTag(value.subarray(12, 28));
+  return JSON.parse(
+    Buffer.concat([cipher.update(value.subarray(28)), cipher.final()]).toString('utf8')
+  );
+}
+function minimalRecord(event, data) {
+  const record = {};
+  for (const field of [
+    'id',
+    'offer_type',
+    'status',
+    'paidAt',
+    'refundedAt',
+    'chargedbackAt',
+    'canceledAt',
+    'createdAt',
+  ]) {
+    const value = data[field];
+    if (typeof value === 'string' || typeof value === 'number')
+      record[field] = String(value).slice(0, 120);
+  }
+  const customer = asObject(data.customer) || {};
+  record.customer = {};
+  for (const field of ['name', 'phone', 'email'])
+    if (typeof customer[field] === 'string') record.customer[field] = customer[field].slice(0, 254);
+  const product = asObject(data.product) || {};
+  record.product = {
+    id: String(product.id ?? '').slice(0, 120),
+    name: String(product.name ?? '').slice(0, 160),
+  };
+  const subscription = asObject(data.subscription);
+  record.subscription = subscription ? { id: idString(subscription.id) } : null;
+  record.__eventAt = eventWhen(event, data).toISOString();
+  return record;
+}
+async function processStored(key) {
+  const entry = unseal(await inbox.file(key).arrayBuffer());
+  await ensureDatabase();
+  const outcomes = [];
+  for (const record of entry.records)
+    outcomes.push((await applyEvent(entry.event, record, entry.digest)).outcome);
+  await inbox.file(key).delete();
+  return outcomes;
+}
+async function drainInbox() {
+  // Pagination keeps a poisoned or failing old entry from starving later payments.
+  let startAfter;
+  let processed = 0,
+    failed = 0;
+  for (let page = 0; page < 10; page++) {
+    const listed = await inbox.list({
+      prefix,
+      maxKeys: 100,
+      ...(startAfter ? { startAfter } : {}),
+    });
+    for (const object of listed.contents || []) {
+      try {
+        await processStored(object.key);
+        processed++;
+      } catch {
+        failed++;
+      }
+      startAfter = object.key;
+    }
+    if (!listed.isTruncated) break;
+  }
+  console.log(JSON.stringify({ event: 'cakto_inbox_drain', processed, failed }));
+  if (failed) throw new Error('Inbox has pending failures');
+}
 const noCache = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
@@ -468,55 +606,84 @@ function reply(value, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: noCache });
 }
 
-Bun.serve({
-  hostname: '0.0.0.0',
-  port: Number(Bun.env.PORT || 8080),
-  maxRequestBodySize: MAX_BODY,
-  async fetch(request) {
-    const u = new URL(request.url);
-    if (u.pathname === '/health' && request.method === 'GET')
-      return reply({
-        status: 'ok',
-        service: 'astra-cakto-webhook',
-        release: RELEASE,
-        pendingPixTracking: true,
-      });
-    if (u.pathname !== '/webhooks/cakto') return reply({ error: 'not_found' }, 404);
-    if (request.method !== 'POST') return reply({ error: 'method_not_allowed' }, 405);
-    if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
-      return reply({ error: 'invalid_content_type' }, 415);
-    const raw = await request.text();
-    if (Buffer.byteLength(raw, 'utf8') > MAX_BODY)
-      return reply({ error: 'payload_too_large' }, 413);
-    if (!verifySignature(request.headers, raw)) return reply({ error: 'unauthorized' }, 401);
-    let envelope;
-    try {
-      envelope = JSON.parse(raw);
-    } catch {
-      return reply({ error: 'invalid_json' }, 400);
-    }
-    if (
-      !asObject(envelope) ||
-      typeof envelope.event !== 'string' ||
-      !safeEqual(envelope.secret, SECRET)
-    )
-      return reply({ error: 'unauthorized' }, 401);
-    if (envelope.event === 'checkout_abandonment' || !RELEVANT.has(envelope.event))
-      return reply({ received: true, result: 'ignored' });
-    const records = Array.isArray(envelope.data) ? envelope.data : [envelope.data];
-    if (!records.length || records.length > 15 || records.some((x) => !asObject(x)))
-      return reply({ error: 'invalid_data' }, 422);
-    const digest = createHash('sha256').update(raw).digest('hex');
-    try {
-      const outcomes = [];
-      for (const record of records)
-        outcomes.push((await applyEvent(envelope.event, record, digest)).outcome);
-      console.log(JSON.stringify({ event: 'cakto_delivery', type: envelope.event, outcomes }));
-      return reply({ received: true, outcomes });
-    } catch (e) {
-      console.error('CAKTO_PROCESSING_FAILED', e instanceof Error ? e.name : 'UnknownError');
-      return reply({ error: 'processing_unavailable' }, 503);
-    }
-  },
-});
+if (Bun.env.CAKTO_INBOX_MODE === 'probe') {
+  const key = 'probe/' + randomUUID();
+  await inbox.file(key).write(seal({ probe: true }));
+  if (!unseal(await inbox.file(key).arrayBuffer()).probe) throw new Error('Inbox probe failed');
+  await inbox.file(key).delete();
+  console.log('CAKTO_INBOX_PROBE_OK');
+} else if (Bun.env.CAKTO_INBOX_MODE === 'worker') {
+  try {
+    await drainInbox();
+  } finally {
+    await sql.close();
+  }
+} else
+  Bun.serve({
+    hostname: '0.0.0.0',
+    port: Number(Bun.env.PORT || 8080),
+    maxRequestBodySize: MAX_BODY,
+    async fetch(request) {
+      const u = new URL(request.url);
+      if (u.pathname === '/health' && request.method === 'GET')
+        return reply({
+          status: 'ok',
+          service: 'astra-cakto-webhook',
+          release: RELEASE,
+          pendingPixTracking: true,
+          durableInbox: true,
+        });
+      if (u.pathname !== '/webhooks/cakto') return reply({ error: 'not_found' }, 404);
+      if (request.method !== 'POST') return reply({ error: 'method_not_allowed' }, 405);
+      if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
+        return reply({ error: 'invalid_content_type' }, 415);
+      const raw = await request.text();
+      if (Buffer.byteLength(raw, 'utf8') > MAX_BODY)
+        return reply({ error: 'payload_too_large' }, 413);
+      if (!verifySignature(request.headers, raw)) return reply({ error: 'unauthorized' }, 401);
+      let envelope;
+      try {
+        envelope = JSON.parse(raw);
+      } catch {
+        return reply({ error: 'invalid_json' }, 400);
+      }
+      if (
+        !asObject(envelope) ||
+        typeof envelope.event !== 'string' ||
+        !safeEqual(envelope.secret, SECRET)
+      )
+        return reply({ error: 'unauthorized' }, 401);
+      if (envelope.event === 'checkout_abandonment' || !RELEVANT.has(envelope.event))
+        return reply({ received: true, result: 'ignored' });
+      const records = Array.isArray(envelope.data) ? envelope.data : [envelope.data];
+      if (!records.length || records.length > 15 || records.some((x) => !asObject(x)))
+        return reply({ error: 'invalid_data' }, 422);
+      const digest = createHash('sha256').update(raw).digest('hex');
+      const eligible = records.filter(
+        (record) => productMatches(record) && (!record.offer_type || record.offer_type === 'main')
+      );
+      if (!eligible.length) return reply({ received: true, result: 'ignored_product' });
+      const key = prefix + Date.now() + '-' + randomUUID();
+      try {
+        await inbox.file(key).write(
+          seal({
+            event: envelope.event,
+            digest,
+            records: eligible.map((record) => minimalRecord(envelope.event, record)),
+          })
+        );
+      } catch {
+        console.error('CAKTO_INBOX_WRITE_FAILED');
+        return reply({ error: 'inbox_unavailable' }, 503);
+      }
+      try {
+        const outcomes = await processStored(key);
+        console.log(JSON.stringify({ event: 'cakto_delivery', type: envelope.event, outcomes }));
+        return reply({ received: true, outcomes });
+      } catch {
+        console.warn('CAKTO_DELIVERY_DURABLY_QUEUED');
+        return reply({ received: true, queued: true }, 202);
+      }
+    },
+  });
 console.log(JSON.stringify({ event: 'astra_cakto_ready', release: RELEASE }));

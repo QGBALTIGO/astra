@@ -82,6 +82,50 @@ describe('LlmSemaphore', () => {
     expect(sem.activeCount).toBe(0);
   });
 
+  it('removes an aborted waiter immediately while existing capacity remains occupied', async () => {
+    const sem = getLlmSemaphore();
+    sem.setMaxSlots(1);
+    const held = await sem.acquire('active', 'active');
+    const controller = new AbortController();
+    const waiting = sem.acquire('cancelled', 'cancelled', controller.signal);
+    const rejected = expect(waiting).rejects.toMatchObject({ name: 'AbortError' });
+    expect(sem.queuedCount).toBe(1);
+    controller.abort();
+    await rejected;
+    expect(sem.queuedCount).toBe(0);
+    expect(sem.activeCount).toBe(1);
+    held();
+    expect(sem.activeCount).toBe(0);
+  });
+
+  it('keeps surviving FIFO order when a waiter is cancelled and the cap grows', async () => {
+    const sem = getLlmSemaphore();
+    sem.setMaxSlots(1);
+    const held = await sem.acquire('active', 'active');
+    const controller = new AbortController();
+    const cancelled = sem.acquire('cancelled', 'cancelled', controller.signal);
+    const rejected = expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+    const waiting = sem.acquire('next', 'next');
+    controller.abort();
+    await rejected;
+    sem.setMaxSlots(2);
+    const next = await waiting;
+    controller.abort();
+    expect(sem.queuedCount).toBe(0);
+    expect(sem.activeCount).toBe(2);
+    held();
+    next();
+  });
+
+  it('does not grant capacity to an already aborted request', async () => {
+    const sem = getLlmSemaphore();
+    await expect(sem.acquire('cancelled', 'cancelled', AbortSignal.abort())).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(sem.activeCount).toBe(0);
+    expect(sem.queuedCount).toBe(0);
+  });
+
   it('setMaxSlots grows and drains queue', async () => {
     const sem = getLlmSemaphore();
     // Fill all 3 slots

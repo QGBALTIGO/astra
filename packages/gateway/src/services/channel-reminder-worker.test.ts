@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({
   claimDue: vi.fn(),
+  beginDelivery: vi.fn(),
   markDelivered: vi.fn(),
   markFailed: vi.fn(),
   deferDisconnected: vi.fn(),
@@ -19,6 +20,7 @@ const mock = vi.hoisted(() => ({
 vi.mock('../db/repositories/channel-reminders.js', () => ({
   channelRemindersRepo: {
     claimDue: mock.claimDue,
+    beginDelivery: mock.beginDelivery,
     markDelivered: mock.markDelivered,
     markFailed: mock.markFailed,
     deferDisconnected: mock.deferDisconnected,
@@ -53,6 +55,7 @@ const makeReminder = (id: string, attempts = 1) => ({
   channelPluginId: 'channel.telegram',
   platformChatId: 'test-chat-not-user-or-plugin',
   status: 'sending',
+  leaseToken: 'current-lease',
   attempts,
 });
 
@@ -61,7 +64,8 @@ describe('ChannelReminderWorker', () => {
     vi.clearAllMocks();
     mock.claimDue.mockResolvedValue([]);
     mock.send.mockResolvedValue('telegram-message-123');
-    mock.markDelivered.mockResolvedValue(undefined);
+    mock.markDelivered.mockResolvedValue(true);
+    mock.beginDelivery.mockResolvedValue(true);
     mock.markFailed.mockResolvedValue(undefined);
     mock.getChannel.mockReturnValue({
       getPlatform: () => 'telegram',
@@ -88,17 +92,42 @@ describe('ChannelReminderWorker', () => {
         /^⏰ \*Hora do seu lembrete\*\n\n• \*Assunto:\* Jogar o lixo fora\n• \*Data e hora:\* /
       ),
     });
-    expect(mock.markDelivered).toHaveBeenCalledWith('rem-1', 'telegram-message-123');
+    expect(mock.markDelivered).toHaveBeenCalledWith(
+      'rem-1',
+      'telegram-message-123',
+      'current-lease'
+    );
     expect(mock.markFailed).not.toHaveBeenCalled();
   });
 
-  it('retries failed transport without claiming delivery', async () => {
+  it('holds an ambiguous transport failure without claiming delivery', async () => {
     mock.claimDue.mockResolvedValue([makeReminder('rem-2', 2)]);
     mock.send.mockRejectedValueOnce(new Error('network unavailable'));
     const result = await dispatchDueChannelReminders();
     expect(result).toEqual({ claimed: 1, delivered: 0, failed: 1 });
-    expect(mock.markFailed).toHaveBeenCalledWith('rem-2', 2, 'Error');
+    expect(mock.markFailed).toHaveBeenCalledWith('rem-2', 5, 'Error', 'current-lease');
     expect(mock.markDelivered).not.toHaveBeenCalled();
+  });
+
+  it('does not invoke transport after losing ownership during preparation', async () => {
+    mock.claimDue.mockResolvedValue([makeReminder('expired-preparation')]);
+    mock.beginDelivery.mockResolvedValue(false);
+    expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 0, failed: 0 });
+    expect(mock.send).not.toHaveBeenCalled();
+    expect(mock.markDelivered).not.toHaveBeenCalled();
+  });
+
+  it('does not resend when confirmation persistence fails after a receipt', async () => {
+    mock.claimDue.mockResolvedValue([makeReminder('confirmation-failed')]);
+    mock.markDelivered.mockRejectedValueOnce(new Error('database unavailable'));
+    expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 0, failed: 1 });
+    expect(mock.send).toHaveBeenCalledOnce();
+    expect(mock.markFailed).toHaveBeenCalledWith(
+      'confirmation-failed',
+      5,
+      'Error',
+      'current-lease'
+    );
   });
 
   it.each([undefined, null, '', '   '])(
@@ -116,7 +145,8 @@ describe('ChannelReminderWorker', () => {
       expect(mock.markFailed).toHaveBeenCalledWith(
         'unconfirmed-send',
         5,
-        'delivery_receipt_missing'
+        'delivery_receipt_missing',
+        'current-lease'
       );
     }
   );
@@ -130,7 +160,7 @@ describe('ChannelReminderWorker', () => {
       delivered: 0,
       failed: 0,
     });
-    expect(mock.deferDisconnected).toHaveBeenCalledWith('starting-channel');
+    expect(mock.deferDisconnected).toHaveBeenCalledWith('starting-channel', 'current-lease');
     expect(mock.send).not.toHaveBeenCalled();
     expect(mock.markFailed).not.toHaveBeenCalled();
     expect(mock.markDelivered).not.toHaveBeenCalled();
@@ -153,7 +183,7 @@ describe('ChannelReminderWorker', () => {
     mock.send.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce('done');
     const result = await dispatchDueChannelReminders();
     expect(result).toEqual({ claimed: 2, delivered: 1, failed: 1 });
-    expect(mock.markDelivered).toHaveBeenCalledWith('two', 'done');
+    expect(mock.markDelivered).toHaveBeenCalledWith('two', 'done', 'current-lease');
   });
 
   const phone = '5521999991234';
@@ -199,7 +229,8 @@ describe('ChannelReminderWorker', () => {
     expect(mock.markFailed).toHaveBeenCalledWith(
       'subscriber-reminder',
       5,
-      'channel_access_inactive'
+      'channel_access_inactive',
+      'current-lease'
     );
   });
 
@@ -300,7 +331,12 @@ describe('ChannelReminderWorker', () => {
     ]);
     await dispatchDueChannelReminders();
     expect(mock.send).not.toHaveBeenCalled();
-    expect(mock.markFailed).toHaveBeenCalledWith('cross-account', 5, 'channel_access_inactive');
+    expect(mock.markFailed).toHaveBeenCalledWith(
+      'cross-account',
+      5,
+      'channel_access_inactive',
+      'current-lease'
+    );
   });
 
   it('waits through a disconnection without exhausting delivery attempts', async () => {
@@ -318,7 +354,7 @@ describe('ChannelReminderWorker', () => {
       },
     ]);
     expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 0, failed: 0 });
-    expect(mock.deferDisconnected).toHaveBeenCalledWith('reconnect');
+    expect(mock.deferDisconnected).toHaveBeenCalledWith('reconnect', 'current-lease');
     expect(mock.markFailed).not.toHaveBeenCalled();
     expect(mock.send).not.toHaveBeenCalled();
   });

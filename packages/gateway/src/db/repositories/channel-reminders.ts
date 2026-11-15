@@ -15,6 +15,7 @@ export interface ChannelReminder {
   status: 'pending' | 'sending' | 'delivered' | 'failed' | 'cancelled';
   attempts: number;
   deliveryId?: string;
+  leaseToken?: string;
 }
 
 interface ReminderRow {
@@ -27,6 +28,7 @@ interface ReminderRow {
   status: ChannelReminder['status'];
   attempts: number;
   delivery_id: string | null;
+  lease_token?: string | null;
 }
 
 function mapReminder(row: ReminderRow): ChannelReminder {
@@ -40,6 +42,7 @@ function mapReminder(row: ReminderRow): ChannelReminder {
     status: row.status,
     attempts: Number(row.attempts),
     deliveryId: row.delivery_id ?? undefined,
+    leaseToken: row.lease_token ?? undefined,
   };
 }
 
@@ -217,19 +220,25 @@ export class ChannelRemindersRepository extends BaseRepository {
 
   /** SKIP LOCKED makes parallel replicas claim different reminder rows. */
   async claimDue(limit = 20): Promise<ChannelReminder[]> {
-    // If an instance crashed while sending its fifth attempt, mark the
-    // expired lease as failed instead of sending an unlimited number of copies.
+    // Preparation can be reclaimed. Once transport may have started, its
+    // outcome is uncertain and must never trigger an automatic duplicate.
+    // Legacy leases have no delivery boundary, so treat them as uncertain too.
     await this.execute(
       `UPDATE channel_reminders
-       SET status = 'failed', leased_until = NULL, updated_at = NOW()
-       WHERE status = 'sending' AND attempts >= 5 AND leased_until < NOW()`
+       SET status = 'failed', leased_until = NULL,
+           last_error = CASE WHEN delivery_started_at IS NOT NULL OR lease_token IS NULL
+             THEN 'delivery_uncertain' ELSE 'preparation_attempts_exhausted' END,
+           updated_at = NOW()
+       WHERE status = 'sending' AND leased_until < NOW()
+         AND (delivery_started_at IS NOT NULL OR lease_token IS NULL OR attempts >= 5)`
     );
     const rows = await this.query<ReminderRow>(
       `WITH due AS (
          SELECT id FROM channel_reminders
          WHERE (
            (status = 'pending' AND attempts < 5 AND remind_at <= NOW() AND next_attempt_at <= NOW())
-           OR (status = 'sending' AND attempts < 5 AND leased_until < NOW())
+           OR (status = 'sending' AND attempts < 5 AND leased_until < NOW()
+               AND delivery_started_at IS NULL AND lease_token IS NOT NULL)
          )
          ORDER BY remind_at, id
          FOR UPDATE SKIP LOCKED
@@ -237,44 +246,67 @@ export class ChannelRemindersRepository extends BaseRepository {
        )
        UPDATE channel_reminders AS reminder
        SET status = 'sending', attempts = attempts + 1,
+           lease_token = $2, delivery_started_at = NULL,
            leased_until = NOW() + INTERVAL '120 seconds', updated_at = NOW()
        FROM due WHERE reminder.id = due.id
        RETURNING reminder.*`,
-      [Math.max(1, Math.min(50, limit))]
+      [Math.max(1, Math.min(50, limit)), randomUUID()]
     );
     return rows.map(mapReminder);
   }
 
-  async markDelivered(id: string, deliveryId: string): Promise<void> {
-    await this.execute(
+  /** Fence a stale preparer before any call into the external transport. */
+  async beginDelivery(id: string, leaseToken: string | undefined): Promise<boolean> {
+    const result = await this.execute(
+      `UPDATE channel_reminders SET delivery_started_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND lease_token = $2 AND status = 'sending'
+         AND leased_until > NOW() AND delivery_started_at IS NULL`,
+      [id, leaseToken]
+    );
+    return result.changes > 0;
+  }
+
+  async markDelivered(
+    id: string,
+    deliveryId: string,
+    leaseToken: string | undefined
+  ): Promise<boolean> {
+    const result = await this.execute(
       `UPDATE channel_reminders
        SET status = 'delivered', delivered_at = NOW(), delivery_id = $2,
            leased_until = NULL, last_error = NULL, updated_at = NOW()
-       WHERE id = $1 AND status = 'sending'`,
-      [id, deliveryId]
+       WHERE id = $1 AND lease_token = $3 AND delivery_started_at IS NOT NULL
+         AND (status = 'sending' OR (status = 'failed' AND last_error = 'delivery_uncertain'))`,
+      [id, deliveryId, leaseToken]
     );
+    return result.changes > 0;
   }
 
   /** A disconnected adapter has not attempted delivery; preserve retries. */
-  async deferDisconnected(id: string): Promise<void> {
+  async deferDisconnected(id: string, leaseToken: string | undefined): Promise<void> {
     await this.execute(
       `UPDATE channel_reminders SET status = 'pending',
       attempts = GREATEST(0, attempts - 1), next_attempt_at = NOW() + INTERVAL '30 seconds',
-      leased_until = NULL, updated_at = NOW()
-      WHERE id = $1 AND status = 'sending'`,
-      [id]
+      leased_until = NULL, lease_token = NULL, updated_at = NOW()
+      WHERE id = $1 AND lease_token = $2 AND status = 'sending' AND delivery_started_at IS NULL`,
+      [id, leaseToken]
     );
   }
 
-  async markFailed(id: string, attempts: number, reason: string): Promise<void> {
+  async markFailed(
+    id: string,
+    attempts: number,
+    reason: string,
+    leaseToken: string | undefined
+  ): Promise<void> {
     const retrySeconds = Math.min(300, Math.max(15, 15 * 2 ** Math.max(0, attempts - 1)));
     await this.execute(
       `UPDATE channel_reminders
-       SET status = CASE WHEN $2 >= 5 THEN 'failed' ELSE 'pending' END,
+       SET status = CASE WHEN $2 >= 5 OR delivery_started_at IS NOT NULL THEN 'failed' ELSE 'pending' END,
            next_attempt_at = NOW() + $3 * INTERVAL '1 second',
            leased_until = NULL, last_error = $4, updated_at = NOW()
-       WHERE id = $1 AND status = 'sending'`,
-      [id, attempts, retrySeconds, reason.slice(0, 400)]
+       WHERE id = $1 AND lease_token = $5 AND status = 'sending'`,
+      [id, attempts, retrySeconds, reason.slice(0, 400), leaseToken]
     );
   }
 }

@@ -6,6 +6,7 @@ on:
       - 'packages/core/**'
       - 'packages/gateway/**'
       - '.github/workflows/whatsapp-reliability.yml'
+      - 'integrations/cakto/**'
   workflow_dispatch:
 
 permissions:
@@ -29,6 +30,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Durable Cakto inbox regression
+        run: node --test integrations/cakto/railway-function.test.mjs
+      - name: Native Bun storage addressing regression
+        run: pnpm dlx bun@1.4.4 test integrations/cakto/railway-function.test.mjs
       - name: Build core and gateway
         run: pnpm --filter @ownpilot/core --filter @ownpilot/gateway build
       - name: Core tool execution and provider regression

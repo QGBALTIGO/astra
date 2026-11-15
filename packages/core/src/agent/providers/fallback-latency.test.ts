@@ -229,4 +229,30 @@ describe('opt-in channel fallback latency', () => {
     expect(providerCooldownMs(new Error('429 TPD Please try again in 21m48.528s'), 60000)).toBe(
       1309528
     ));
+  it('leaves valid concurrent requests to the configured provider capacity', async () => {
+    const { provider, config, primary, backup } = setup();
+    const pending: Array<(value: ReturnType<typeof ok>) => void> = [];
+    primary.complete.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+    const calls = [provider, new FallbackProvider(config), new FallbackProvider(config)].map(
+      (route) => route.complete(request)
+    );
+    await vi.waitFor(() => expect(primary.complete).toHaveBeenCalledTimes(3));
+    expect(backup.complete).not.toHaveBeenCalled();
+    pending.forEach((resolve) => resolve(ok({ content: 'done', usage: {} })));
+    expect((await Promise.all(calls)).every((result) => result.ok)).toBe(true);
+  });
+  it('does not invent a fixed Groq token quota for separate customer agents', async () => {
+    const { config, primary, backup } = setup();
+    config.primary.baseUrl = 'https://api.groq.com/openai/v1';
+    primary.complete.mockResolvedValue(ok({ content: 'done', usage: {} }));
+    const large = {
+      ...request,
+      messages: [{ role: 'user' as const, content: 'x'.repeat(24000) }],
+      model: { model: 'test', maxTokens: 6000 },
+    };
+    expect((await new FallbackProvider(config).complete(large)).ok).toBe(true);
+    expect((await new FallbackProvider(config).complete(large)).ok).toBe(true);
+    expect(primary.complete).toHaveBeenCalledTimes(2);
+    expect(backup.complete).not.toHaveBeenCalled();
+  });
 });

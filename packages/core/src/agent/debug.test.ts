@@ -412,7 +412,7 @@ describe('logRetry', () => {
     };
     expect(data.attempt).toBe(2);
     expect(data.maxRetries).toBe(5);
-    expect(data.error).toBe('ECONNRESET');
+    expect(data.error).toBe('provider_failure');
     expect(data.delayMs).toBe(2000);
   });
 
@@ -420,7 +420,7 @@ describe('logRetry', () => {
     logRetry(1, 3, 'string-error', 500);
     const [entry] = debugLog.getAll();
     const data = entry!.data as { error: string };
-    expect(data.error).toBe('string-error');
+    expect(data.error).toBe('provider_failure');
   });
 
   it('should log to console in development', () => {
@@ -459,8 +459,8 @@ describe('logError', () => {
       stack: string | undefined;
       context: string | undefined;
     };
-    expect(data.error).toBe('fail');
-    expect(data.stack).toBeDefined();
+    expect(data.error).toBe('provider_failure');
+    expect(data.stack).toBeUndefined();
   });
 
   it('should include optional context', () => {
@@ -474,7 +474,7 @@ describe('logError', () => {
     logError('test', 'raw string error');
     const [entry] = debugLog.getAll();
     const data = entry!.data as { error: string; stack: undefined };
-    expect(data.error).toBe('raw string error');
+    expect(data.error).toBe('provider_failure');
     expect(data.stack).toBeUndefined();
   });
 });
@@ -938,7 +938,7 @@ describe('console output branches', () => {
     logResponse(makeResponseInfo({ status: 'error', error: 'rate limited' }));
     const calls = (console.debug as any).mock.calls.flat().join(' ');
     expect(calls).toContain('ERROR');
-    expect(calls).toContain('rate limited');
+    expect(calls).toContain('rate_limited');
   });
 
   it('logResponse logs without usage or content', () => {
@@ -973,19 +973,19 @@ describe('console output branches', () => {
     const calls = (console.debug as any).mock.calls.flat().join(' ');
     expect(calls).toContain('Context');
     expect(calls).toContain('during completion');
-    expect(calls).toContain('Stack');
+    expect(calls).not.toContain('Stack');
   });
 
   it('logError logs non-Error without stack', () => {
     logError('test', 'string error');
     const calls = (console.debug as any).mock.calls.flat().join(' ');
-    expect(calls).toContain('string error');
+    expect(calls).toContain('provider_failure');
   });
 
   it('logError logs without context', () => {
     logError('test', new Error('oops'));
     const calls = (console.debug as any).mock.calls.flat().join(' ');
-    expect(calls).toContain('oops');
+    expect(calls).toContain('provider_failure');
   });
 
   it('logSandboxExecution logs all sandbox fields including timedOut and docker', () => {
@@ -1027,4 +1027,21 @@ describe('console output branches', () => {
     );
     expect(console.debug).toHaveBeenCalled();
   });
+});
+
+it('keeps provider error canaries out of all diagnostic error records', () => {
+  debugLog.clear();
+  debugLog.setEnabled(true);
+  const error = new Error('OpenAI API error: 429 - {"failed_generation":"PRIVATE_CANARY"}');
+  logError('openai', error);
+  logRetry(1, 2, error, 100);
+  logResponse({
+    provider: 'google',
+    model: 'test',
+    status: 'error',
+    error: error.message,
+    durationMs: 1,
+  } as any);
+  expect(JSON.stringify(debugLog.getAll())).not.toContain('PRIVATE_CANARY');
+  expect(error.message).toContain('PRIVATE_CANARY');
 });

@@ -12,6 +12,7 @@ const log = getLog('EmailDigestWorker');
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 async function deliver(entry: EmailDigestSchedule): Promise<boolean> {
+  let transportInvoked = false;
   try {
     const channels = getChannelService(),
       api = channels.getChannel(entry.channelPluginId);
@@ -69,13 +70,16 @@ async function deliver(entry: EmailDigestSchedule): Promise<boolean> {
     );
     if (latest?.ownpilotUserId !== entry.userId || !isChannelUserAccessActive(latest))
       throw new Error('recipient_access_inactive');
+    if (!(await emailDigestsRepo.isCurrent(entry))) return false;
+    transportInvoked = true;
     const receipt = await channels.send(entry.channelPluginId, { platformChatId: recipient, text });
     if (typeof receipt !== 'string' || !receipt.trim()) throw new Error('delivery_uncertain');
     await emailDigestsRepo.finish(entry, receipt);
     return true;
   } catch (error) {
     // No transport retries: a thrown error can follow an accepted send.
-    await emailDigestsRepo.finish(entry, null, 'digest_not_confirmed');
+    if (!transportInvoked) await emailDigestsRepo.deferBeforeSend(entry);
+    else await emailDigestsRepo.finish(entry, null, 'digest_not_confirmed');
     log.warn('Resumo diário não confirmado', {
       category: error instanceof Error ? error.name : 'unknown',
     });

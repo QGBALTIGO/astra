@@ -1,3 +1,4 @@
+import { providerErrorSummary } from './provider-error-summary.js';
 /**
  * Debug Logging for AI Provider Calls
  *
@@ -5,7 +6,6 @@
  */
 
 import type { Message, ToolCall, ToolDefinition, TokenUsage } from './types.js';
-import { getErrorMessage } from '../services/error-utils.js';
 import { getLog } from '../services/get-log.js';
 
 /**
@@ -277,6 +277,7 @@ export function logRequest(info: RequestDebugInfo): void {
  * Log an incoming response
  */
 export function logResponse(info: ResponseDebugInfo): void {
+  if (info.error) info = { ...info, error: providerErrorSummary(new Error(info.error)) };
   debugLog.add({
     type: 'response',
     provider: info.provider,
@@ -380,14 +381,14 @@ export function logRetry(
     data: {
       attempt,
       maxRetries,
-      error: getErrorMessage(error),
+      error: providerErrorSummary(error),
       delayMs,
     },
   });
 
   if (shouldLogToConsole()) {
     log.debug(`\n🔄 RETRY ${attempt}/${maxRetries} (waiting ${delayMs}ms)`);
-    log.debug(`  Error: ${getErrorMessage(error)}`);
+    log.debug(`  Error: ${providerErrorSummary(error)}`);
   }
 }
 
@@ -399,8 +400,8 @@ export function logError(provider: string, error: unknown, context?: string): vo
     type: 'error',
     provider,
     data: {
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: providerErrorSummary(error),
+      stack: undefined,
       context,
     },
   });
@@ -412,10 +413,7 @@ export function logError(provider: string, error: unknown, context?: string): vo
     if (context) {
       log.debug(`Context: ${context}`);
     }
-    log.debug(`Error: ${getErrorMessage(error)}`);
-    if (error instanceof Error && error.stack) {
-      log.debug(`Stack: ${error.stack.split('\n').slice(1, 4).join('\n')}`);
-    }
+    log.debug(`Error: ${providerErrorSummary(error)}`);
     log.debug('!'.repeat(80));
   }
 }

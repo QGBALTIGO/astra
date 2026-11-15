@@ -33,13 +33,14 @@ export async function dispatchDueChannelReminders(): Promise<{
     const entries = await channelRemindersRepo.claimDue(20);
     claimed = entries.length;
     for (const entry of entries) {
+      let transportInvoked = false;
       try {
         const channels = getChannelService();
         const api = channels.getChannel(entry.channelPluginId);
         // Startup may recover the queue before the channel plugin is loaded.
         // No delivery was attempted, so do not exhaust this reminder's retries.
         if (!api) {
-          await channelRemindersRepo.deferDisconnected(entry.id);
+          await channelRemindersRepo.deferDisconnected(entry.id, entry.leaseToken);
           continue;
         }
         let platformChatId = entry.platformChatId;
@@ -69,7 +70,12 @@ export async function dispatchDueChannelReminders(): Promise<{
             // A subscription ending is not a transport failure. Keep the
             // reminder for the user's history, but do not retry an old alert
             // after a later renewal or deliver it to another identity.
-            await channelRemindersRepo.markFailed(entry.id, 5, 'channel_access_inactive');
+            await channelRemindersRepo.markFailed(
+              entry.id,
+              5,
+              'channel_access_inactive',
+              entry.leaseToken
+            );
             failed++;
             log.info('Lembrete retido por acesso inativo', { reminderId: entry.id });
             continue;
@@ -79,10 +85,10 @@ export async function dispatchDueChannelReminders(): Promise<{
           platformChatId = phone;
         }
         if (api.getStatus() !== 'connected') {
-          await channelRemindersRepo.deferDisconnected(entry.id);
+          await channelRemindersRepo.deferDisconnected(entry.id, entry.leaseToken);
           continue;
         }
-        const id = await channels.send(entry.channelPluginId, {
+        const payload = {
           platformChatId,
           text: formatDueReminder(entry.title, firstName, { at: entry.remindAt, timeZone }),
           ...(account
@@ -93,30 +99,43 @@ export async function dispatchDueChannelReminders(): Promise<{
                 },
               }
             : {}),
-        });
+        };
+        if (!(await channelRemindersRepo.beginDelivery(entry.id, entry.leaseToken))) continue;
+        transportInvoked = true;
+        const id = await channels.send(entry.channelPluginId, payload);
         if (typeof id !== 'string' || !id.trim()) {
           // An empty receipt is ambiguous: the transport may already have sent
           // the message. Stop automatic retries instead of risking duplicates.
-          await channelRemindersRepo.markFailed(entry.id, 5, 'delivery_receipt_missing');
+          await channelRemindersRepo.markFailed(
+            entry.id,
+            5,
+            'delivery_receipt_missing',
+            entry.leaseToken
+          );
           failed++;
           log.warn('Lembrete sem confirmação de envio; revisão necessária', {
             reminderId: entry.id,
           });
           continue;
         }
-        await channelRemindersRepo.markDelivered(entry.id, id);
-        delivered++;
+        if (await channelRemindersRepo.markDelivered(entry.id, id, entry.leaseToken)) delivered++;
       } catch (error) {
         failed++;
         // Never log credentials, chat content or raw response bodies.
-        log.warn('Lembrete não entregue, aguardando nova tentativa', {
-          reminderId: entry.id,
-          attempts: entry.attempts,
-        });
+        log.warn(
+          transportInvoked
+            ? 'Resultado do envio incerto; revisão necessária'
+            : 'Falha antes do envio; nova tentativa agendada',
+          {
+            reminderId: entry.id,
+            attempts: entry.attempts,
+          }
+        );
         await channelRemindersRepo.markFailed(
           entry.id,
-          entry.attempts,
-          error instanceof Error ? error.name : 'delivery_error'
+          transportInvoked ? 5 : entry.attempts,
+          error instanceof Error ? error.name : 'delivery_error',
+          entry.leaseToken
         );
       }
     }

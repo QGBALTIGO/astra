@@ -1431,14 +1431,14 @@ describe('getOrCreateChatAgent', () => {
       expect.objectContaining({
         primary: expect.objectContaining({
           id: 'ollama-local',
-          timeout: 2500,
+          timeout: 5000,
           maxRetries: 0,
-          headers: expect.objectContaining({ 'X-Astra-Timeout-Ms': '2500' }),
+          headers: expect.objectContaining({ 'X-Astra-Timeout-Ms': '5000' }),
         }),
         fallbacks: expect.arrayContaining([
           expect.objectContaining({
             id: 'groq',
-            timeout: 3000,
+            timeout: 4000,
             defaultModel: { model: 'openai/gpt-oss-20b', maxTokens: 768 },
           }),
         ]),
