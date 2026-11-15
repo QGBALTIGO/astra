@@ -4,6 +4,7 @@ import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 import { PostgresAdapter } from '../db/adapters/postgres-adapter.js';
 import { CustomerPlanningRepository } from '../db/repositories/customer-planning.js';
 import { CUSTOMER_PORTAL_TABLES_SQL } from '../db/schema/customer-portal.js';
+import { FINANCE_TABLES_SQL } from '../db/schema/finance.js';
 import { processDirectAgent, processViaBus } from './channel-ai-routing.js';
 import { tryPersonalSubscriptionReply } from './personal-subscriptions.js';
 import { executeCustomerPlanningTool } from '../tools/customer-planning-tools.js';
@@ -75,6 +76,11 @@ describe.skipIf(!port)(
       await db.initialize();
       await db.exec('CREATE SCHEMA ' + schema);
       await db.exec('CREATE TABLE channel_reminders(id text PRIMARY KEY)');
+      const categories = FINANCE_TABLES_SQL.match(
+        /CREATE TABLE IF NOT EXISTS customer_categories \([\s\S]*?\n\);/
+      )?.[0];
+      if (!categories) throw new Error('Missing customer category schema');
+      await db.exec(categories);
       await db.exec(CUSTOMER_PORTAL_TABLES_SQL);
       await db.exec(CUSTOMER_PORTAL_TABLES_SQL);
     });

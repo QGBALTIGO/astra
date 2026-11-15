@@ -39,7 +39,7 @@ const MAX_PRIORITY = 20;
 
 export class EmbeddingQueue {
   private queue: QueueItem[] = [];
-  private queuedIds = new Set<string>(); // O(1) dedup lookup (composite key: userId:memoryId)
+  private queuedItems = new Map<string, QueueItem>(); // Latest version per user/memory
   private processing = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
@@ -72,8 +72,8 @@ export class EmbeddingQueue {
     if (this.running) return;
     this.running = true;
     this.timer = setInterval(() => {
-      this.processNextBatch().catch((err) => {
-        log.error('Queue processing error', String(err));
+      this.processNextBatch().catch(() => {
+        log.error('Queue processing error');
       });
     }, EMBEDDING_QUEUE_INTERVAL_MS);
     // unref so the embedding worker never blocks process exit on its own.
@@ -111,17 +111,18 @@ export class EmbeddingQueue {
    * Add a memory to the embedding queue.
    */
   enqueue(memoryId: string, userId: string, content: string, priority = 5): void {
-    // Deduplicate: O(1) check via Set (composite key to avoid cross-user collisions)
     const key = this.queueKey(memoryId, userId);
-    if (this.queuedIds.has(key)) return;
-
-    // Cap queue size to prevent unbounded growth
-    if (this.queue.length >= EMBEDDING_QUEUE_MAX_SIZE) return;
-
-    this.queuedIds.add(key);
+    const previous = this.queuedItems.get(key);
+    if (previous?.content === content) return;
+    if (!previous && this.queue.length >= EMBEDDING_QUEUE_MAX_SIZE) return;
+    const pendingIndex = previous ? this.queue.indexOf(previous) : -1;
+    if (pendingIndex >= 0) this.queue.splice(pendingIndex, 1);
+    // An in-flight version retains its own object. Never relabel old inference
+    // as new content; the map now owns the replacement queued below.
+    const item: QueueItem = { memoryId, userId, content, priority };
+    this.queuedItems.set(key, item);
 
     // Binary insertion to maintain sorted order (lower priority number = higher priority)
-    const item: QueueItem = { memoryId, userId, content, priority };
     let lo = 0;
     let hi = this.queue.length;
     while (lo < hi) {
@@ -176,17 +177,14 @@ export class EmbeddingQueue {
       let results: Awaited<ReturnType<typeof embeddingService.generateBatchEmbeddings>>;
       try {
         results = await embeddingService.generateBatchEmbeddings(texts);
-      } catch (err) {
+        if (!Array.isArray(results)) throw new Error('Invalid embedding batch');
+      } catch {
         // Batch generation failed — re-enqueue all items with lower priority
         log.warn('Batch embedding generation failed, re-enqueueing', {
           batchSize: batch.length,
-          error: String(err),
         });
         for (const item of batch) {
-          this.queuedIds.delete(this.queueKey(item.memoryId, item.userId));
-          if (item.priority < MAX_PRIORITY) {
-            this.enqueue(item.memoryId, item.userId, item.content, item.priority + 5);
-          }
+          this.retry(item);
         }
         return;
       }
@@ -195,11 +193,16 @@ export class EmbeddingQueue {
       const repoCache = new Map<string, ReturnType<typeof createMemoriesRepository>>();
       for (let i = 0; i < batch.length; i++) {
         const item = batch[i]!;
-        const result = results[i]!;
+        const result = results[i];
         const key = this.queueKey(item.memoryId, item.userId);
+        if (this.queuedItems.get(key) !== item) continue;
+        if (!result) {
+          this.retry(item);
+          continue;
+        }
 
-        if (result.embedding.length === 0) {
-          this.queuedIds.delete(key);
+        if (!Array.isArray(result.embedding) || result.embedding.length === 0) {
+          this.queuedItems.delete(key);
           continue;
         }
 
@@ -209,23 +212,18 @@ export class EmbeddingQueue {
             repo = createMemoriesRepository(item.userId);
             repoCache.set(item.userId, repo);
           }
-          await repo.updateEmbedding(item.memoryId, result.embedding);
-          this.queuedIds.delete(key);
+          await repo.updateEmbedding(item.memoryId, result.embedding, item.content);
+          if (this.queuedItems.get(key) === item) this.queuedItems.delete(key);
 
           log.debug('Embedding generated', {
             memoryId: item.memoryId,
             cached: result.cached,
           });
-        } catch (err) {
-          this.queuedIds.delete(key);
+        } catch {
           log.warn('Failed to update memory embedding', {
             memoryId: item.memoryId,
-            error: String(err),
           });
-          // Re-queue with lower priority on failure
-          if (item.priority < MAX_PRIORITY) {
-            this.enqueue(item.memoryId, item.userId, item.content, item.priority + 5);
-          }
+          this.retry(item);
         }
       }
     } finally {
@@ -233,9 +231,15 @@ export class EmbeddingQueue {
     }
   }
 
-  /**
-   * Get queue statistics.
-   */
+  private retry(item: QueueItem): void {
+    const key = this.queueKey(item.memoryId, item.userId);
+    if (this.queuedItems.get(key) !== item) return;
+    this.queuedItems.delete(key);
+    if (item.priority < MAX_PRIORITY)
+      this.enqueue(item.memoryId, item.userId, item.content, item.priority + 5);
+  }
+
+  /** Get queue statistics. */
   getStats(): { queueSize: number; running: boolean } {
     return {
       queueSize: this.queue.length,
