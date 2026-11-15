@@ -345,17 +345,17 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
       log.info(
         `[${opts.name}] Headless compaction: summarizing ${older.length} older messages (${opts.provider}/${opts.model})`
       );
-      const result = await providerInstance.complete({
-        messages: [
-          { role: 'system', content: HEADLESS_COMPACTION_INSTRUCTIONS },
-          { role: 'user', content: transcript },
-        ],
-        model: { model: opts.model, maxTokens: 700, temperature: 0.2 },
-      });
-      if (!result.ok) {
-        log.warn(
-          `[${opts.name}] Headless compaction failed (${getErrorMessage(result.error)}) — falling back to window truncation`
-        );
+      const result = await providerInstance
+        .complete({
+          messages: [
+            { role: 'system', content: HEADLESS_COMPACTION_INSTRUCTIONS },
+            { role: 'user', content: transcript },
+          ],
+          model: { model: opts.model, maxTokens: 700, temperature: 0.2 },
+        })
+        .catch(() => null);
+      if (!result?.ok) {
+        log.warn(`[${opts.name}] Headless compaction failed — falling back to window truncation`);
         return null;
       }
       const summary = result.value.content.trim();

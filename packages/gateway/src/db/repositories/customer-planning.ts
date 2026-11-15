@@ -264,6 +264,18 @@ export class CustomerPlanningRepository extends BaseRepository {
   }
 
   private async insert(value: Required<CustomerPlanInput>): Promise<CustomerPlan> {
+    if (value.categoryId) {
+      const category = await this.queryOne<{ type: string; archived: boolean }>(
+        'SELECT type, archived FROM customer_categories WHERE user_id = $1 AND id = $2 FOR SHARE',
+        [this.userId, value.categoryId]
+      );
+      if (
+        !category ||
+        (value.kind === 'budget' && category.type !== 'expense') ||
+        category.archived
+      )
+        throw new Error('Escolha uma categoria de despesa ativa da sua conta.');
+    }
     const row = await this.queryOne<PlanRow>(
       `INSERT INTO customer_plans
          (id, user_id, kind, title, amount_cents, progress_cents, category_id,
@@ -290,11 +302,20 @@ export class CustomerPlanningRepository extends BaseRepository {
   async update(id: string, input: CustomerPlanInput): Promise<CustomerPlan | null> {
     const value = validate(input);
     const row = await this.queryOne<PlanRow>(
-      `UPDATE customer_plans SET
+      `WITH owned_category AS (
+         SELECT id FROM customer_categories
+         WHERE user_id = $2 AND id = $7 AND ($3 <> 'budget' OR type = 'expense')
+           AND (archived = FALSE OR id = (
+             SELECT category_id FROM customer_plans WHERE id = $1 AND user_id = $2
+           )) FOR SHARE
+       )
+       UPDATE customer_plans SET
           kind = $3, title = $4, amount_cents = $5, progress_cents = $6,
           category_id = $7, installments_total = $8, installments_paid = $9,
           next_due_date = $10, notes = $11, updated_at = NOW()
-        WHERE id = $1 AND user_id = $2 RETURNING ${PLAN_FIELDS}`,
+        WHERE id = $1 AND user_id = $2
+          AND ($7::text IS NULL OR EXISTS (SELECT 1 FROM owned_category))
+        RETURNING ${PLAN_FIELDS}`,
       [
         id,
         this.userId,
@@ -309,6 +330,8 @@ export class CustomerPlanningRepository extends BaseRepository {
         value.notes,
       ]
     );
+    if (!row && value.categoryId && (await this.get(id)))
+      throw new Error('Escolha uma categoria de despesa ativa da sua conta.');
     return row ? map(row) : null;
   }
 

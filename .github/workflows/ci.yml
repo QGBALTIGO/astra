@@ -83,6 +83,7 @@ jobs:
         run: |
           pnpm --filter @ownpilot/gateway exec vitest run \
           src/db/repositories/channel-reminders-delivery.pg.test.ts \
+          src/db/repositories/planning-integrity.pg.test.ts \
           src/db/repositories/email-digests-recovery.pg.test.ts
           pnpm dlx bun@1.4.4 test integrations/cakto/railway-function.test.mjs
 
