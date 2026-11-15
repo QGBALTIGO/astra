@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { basename, extname, join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChannelAssetStore, resolveChannelAssetBaseDir } from './channel-asset-store.js';
 
@@ -85,6 +85,46 @@ describe('ChannelAssetStore', () => {
       { type: 'file', mimeType: 'application/pdf', filename: 'doc.pdf' },
     ]);
     expect(repo.create).not.toHaveBeenCalled();
+  });
+
+  it.each(['a.' + 'x'.repeat(240), 'a.' + 'ç'.repeat(120), 'a.p$d$f'])(
+    'stores unsafe extensions using a bounded MIME fallback: %s',
+    async (filename) => {
+      const store = new ChannelAssetStore(repo as never, baseDir, 60_000);
+      const [attachment] = await store.persistIncomingAttachments({
+        messageId: 'long-filename',
+        channelPluginId: 'channel.whatsapp',
+        platform: 'whatsapp',
+        platformChatId: 'synthetic-chat',
+        attachments: [
+          { type: 'file', mimeType: 'application/pdf', filename, data: Buffer.from('synthetic') },
+        ],
+      });
+      expect(Buffer.byteLength(basename(attachment!.path!))).toBeLessThanOrEqual(53);
+      expect(extname(attachment!.path!)).toBe('.pdf');
+      expect(attachment!.filename).toBe(filename);
+      expect(await readFile(attachment!.path!, 'utf8')).toBe('synthetic');
+    }
+  );
+
+  it('keeps an unknown MIME attachment usable without copying an unsafe extension', async () => {
+    const store = new ChannelAssetStore(repo as never, baseDir, 60_000);
+    const [attachment] = await store.persistIncomingAttachments({
+      messageId: 'unknown-format',
+      channelPluginId: 'channel.whatsapp',
+      platform: 'whatsapp',
+      platformChatId: 'synthetic-chat',
+      attachments: [
+        {
+          type: 'file',
+          mimeType: 'application/octet-stream',
+          filename: 'a.' + 'x'.repeat(240),
+          data: Buffer.from('synthetic'),
+        },
+      ],
+    });
+    expect(extname(attachment!.path!)).toBe('');
+    expect(await readFile(attachment!.path!, 'utf8')).toBe('synthetic');
   });
 
   it('does not write a private file when its database record cannot be saved', async () => {

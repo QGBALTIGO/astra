@@ -231,16 +231,24 @@ export class CustomerPlanningRepository extends BaseRepository {
           ? { status: 'removed', plan: match }
           : { status: 'missing' };
       }
-      const plan = await this.update(match.id, {
-        ...match,
-        amount: change.amount ?? match.amount,
-        nextDueDate: change.nextDueDate ?? match.nextDueDate,
-      });
+      const plan = await this.updateLocked(
+        match.id,
+        validate({
+          ...match,
+          amount: change.amount ?? match.amount,
+          nextDueDate: change.nextDueDate ?? match.nextDueDate,
+        })
+      );
       return plan ? { status: 'updated', plan } : { status: 'missing' };
     });
   }
 
   private async lockPlans(): Promise<void> {
+    // Category transfers lock the finance ledger before category/plan rows.
+    // Use that same per-user order before taking any planning row locks.
+    await this.queryOne('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [
+      'customer-finance:' + this.userId,
+    ]);
     await this.queryOne('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
       'customer-plans:' + this.userId,
     ]);
@@ -301,6 +309,16 @@ export class CustomerPlanningRepository extends BaseRepository {
 
   async update(id: string, input: CustomerPlanInput): Promise<CustomerPlan | null> {
     const value = validate(input);
+    return this.transaction(async () => {
+      await this.lockPlans();
+      return this.updateLocked(id, value);
+    });
+  }
+
+  private async updateLocked(
+    id: string,
+    value: Required<CustomerPlanInput>
+  ): Promise<CustomerPlan | null> {
     const row = await this.queryOne<PlanRow>(
       `WITH owned_category AS (
          SELECT id FROM customer_categories

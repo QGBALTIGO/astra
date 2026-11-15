@@ -331,13 +331,25 @@ describe('ChannelAssetsRepository', () => {
       const result = await repo.listExpired(nowIso);
 
       expect(mockAdapter.query).toHaveBeenCalledWith(
-        `SELECT * FROM channel_assets WHERE expires_at <= $1 ORDER BY expires_at ASC LIMIT 100`,
-        [nowIso]
+        expect.stringContaining('ORDER BY channel_assets.expires_at ASC, id ASC LIMIT 100'),
+        [nowIso, null, null]
       );
 
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('asset-1');
       expect(result[1].id).toBe('asset-2');
+    });
+
+    it('passes the last timestamp and id as a parameterized keyset cursor', async () => {
+      mockAdapter.query.mockResolvedValueOnce([]);
+      await repo.listExpired('2026-06-01T00:00:00Z', {
+        expiresAt: '2026-01-01 00:00:00.123456',
+        id: 'same-time-last-id',
+      });
+      expect(mockAdapter.query).toHaveBeenCalledWith(
+        expect.stringContaining('(expires_at, id) > ($2::timestamp, $3::text)'),
+        ['2026-06-01T00:00:00Z', '2026-01-01 00:00:00.123456', 'same-time-last-id']
+      );
     });
 
     it('returns empty array when no expired assets', async () => {
