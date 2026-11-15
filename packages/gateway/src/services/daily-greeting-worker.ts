@@ -114,11 +114,15 @@ export async function dispatchDueDailyGreetings(): Promise<{
                   currentAlias?.accountId !== account.id
                 : !!currentAccount || recipient !== phone) ||
               currentUser?.ownpilotUserId !== entry.userId ||
-              (!currentOwner && !isChannelUserAccessActive(currentUser)) ||
-              api.getStatus() !== 'connected'
+              (!currentOwner && !isChannelUserAccessActive(currentUser))
             ) {
               await dailyGreetingsRepo.markFailed(entry.id, 'recipient_changed');
               failed++;
+              return;
+            }
+            if (api.getStatus() !== 'connected') {
+              // No transport call occurred, so deferral is safe and cannot duplicate a send.
+              await dailyGreetingsRepo.deferNotSent(entry.id);
               return;
             }
             if (!(await dailyGreetingsRepo.isCurrent(entry))) return;
