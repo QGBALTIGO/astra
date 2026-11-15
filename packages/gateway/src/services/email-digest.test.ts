@@ -61,6 +61,43 @@ beforeEach(() => {
   m.write.mockResolvedValue('{"items":[{"index":1,"excerpt":"O pedido de pão chega às 8h."}]}');
 });
 describe('customer email digests', () => {
+  it('uses the previous civil day in the account timezone rather than a rolling 24-hour query', async () => {
+    const text = await buildEmailDigest('customer-a', 'test.channel', 'owned-a', {
+      previousDay: true,
+      timeZone: 'America/Campo_Grande',
+      now: new Date('2026-11-15T11:22:00Z'),
+    });
+    const args = m.run.mock.calls[0]![3];
+    expect(args.query).toContain('after:' + Date.parse('2026-11-14T04:00:00Z') / 1000);
+    expect(args.query).toContain('before:' + Date.parse('2026-11-15T04:00:00Z') / 1000);
+    expect(args.query).not.toContain('newer_than:1d');
+    expect(text).toContain('14/11/2026');
+    expect(text).not.toContain('Últimas 24 horas');
+  });
+
+  it('uses a 23-hour civil day across daylight-saving changes', async () => {
+    await buildEmailDigest('customer-a', 'test.channel', 'owned-a', {
+      previousDay: true,
+      timeZone: 'America/New_York',
+      now: new Date('2026-03-09T12:00:00Z'),
+    });
+    expect(m.run.mock.calls[0]![3].query).toContain(
+      'after:' +
+        Date.parse('2026-03-08T05:00:00Z') / 1000 +
+        ' before:' +
+        Date.parse('2026-03-09T04:00:00Z') / 1000
+    );
+  });
+
+  it('returns verified excerpts without starting optional AI after its deadline', async () => {
+    expect(
+      await buildEmailDigest('customer-a', 'test.channel', 'owned-a', {
+        timeZone: 'America/Campo_Grande',
+        deadline: Date.now() - 1,
+      })
+    ).toContain('Consulta amanhã');
+    expect(m.write).not.toHaveBeenCalled();
+  });
   it('reads Composio preview objects and groups repeated messages from the same thread', () => {
     const source = {
       messages: [

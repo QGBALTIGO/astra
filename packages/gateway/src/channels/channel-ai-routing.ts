@@ -62,6 +62,7 @@ import { tryListTodaysReminders } from './today-reminders.js';
 import { tryWeekReminderConversation } from './week-reminders.js';
 import { expenseConfirmationKey, expenseDuplicateGuard } from './expense-duplicate-guard.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
+import { tryMorningBriefingChannelReply } from './morning-briefing.js';
 import { withContactStyleContext } from './channel-personalization.js';
 
 /** Generate the standard demo-mode reply. */
@@ -438,6 +439,12 @@ export async function processViaBus(
     : await tryDailyGreetingChannelReply(message, channelUser.ownpilotUserId);
   if (greetingReply) return greetingReply;
 
+  const briefingReply = await tryMorningBriefingChannelReply(message, channelUser.ownpilotUserId);
+  if (briefingReply)
+    return (await canProcessChannelMessage(message, deps.isAccessAllowed))
+      ? briefingReply
+      : INACTIVE_CHANNEL_ACCESS_REPLY;
+
   const reminderReply = message.attachments?.length
     ? null
     : await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId);
@@ -717,6 +724,12 @@ export async function processDirectAgent(
     ? null
     : await tryDailyGreetingChannelReply(message, userId);
   if (greetingReply) return greetingReply;
+
+  const briefingReply = await tryMorningBriefingChannelReply(message, userId);
+  if (briefingReply)
+    return (await canProcessChannelMessage(message, isAccessAllowed))
+      ? briefingReply
+      : INACTIVE_CHANNEL_ACCESS_REPLY;
 
   const reminderReply = message.attachments?.length
     ? null

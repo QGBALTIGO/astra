@@ -5,6 +5,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
+import type { MorningComponents } from '../../channels/morning-components.js';
 
 export interface DailyGreeting {
   id: string;
@@ -15,6 +16,10 @@ export interface DailyGreeting {
   hour: number;
   minute: number;
   withCuriosity: boolean;
+  withWeather: boolean;
+  withEmailDigest: boolean;
+  emailPreviousDay: boolean;
+  version: number;
   nextRunAt: Date;
   active: boolean;
 }
@@ -28,6 +33,10 @@ interface GreetingRow {
   hour: number;
   minute: number;
   with_curiosity: boolean;
+  with_weather: boolean;
+  with_email_digest: boolean;
+  email_previous_day: boolean;
+  version: string | number;
   next_run_at: Date | string;
   active: boolean;
 }
@@ -42,25 +51,36 @@ function mapRow(row: GreetingRow): DailyGreeting {
     hour: Number(row.hour),
     minute: Number(row.minute),
     withCuriosity: row.with_curiosity,
+    withWeather: row.with_weather ?? false,
+    withEmailDigest: row.with_email_digest ?? false,
+    emailPreviousDay: row.email_previous_day ?? true,
+    version: Number(row.version ?? 1),
     nextRunAt: new Date(row.next_run_at),
     active: row.active,
   };
 }
 
 export class DailyGreetingsRepository extends BaseRepository {
-  async upsert(input: Omit<DailyGreeting, 'id' | 'active'>): Promise<DailyGreeting> {
+  async upsert(
+    input: Omit<DailyGreeting, 'id' | 'active' | 'version' | keyof MorningComponents> &
+      MorningComponents
+  ): Promise<DailyGreeting> {
     const row = await this.queryOne<GreetingRow>(
       `INSERT INTO channel_daily_greetings
          (id, user_id, channel_plugin_id, platform_chat_id, time_zone,
-          hour, minute, with_curiosity, next_run_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          hour, minute, with_curiosity, next_run_at, with_weather, with_email_digest, email_previous_day)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8,FALSE), $9, COALESCE($10,FALSE), COALESCE($11,FALSE), COALESCE($12,TRUE))
        ON CONFLICT (user_id, channel_plugin_id, platform_chat_id)
        DO UPDATE SET
          active = TRUE,
          time_zone = EXCLUDED.time_zone,
          hour = EXCLUDED.hour,
          minute = EXCLUDED.minute,
-         with_curiosity = channel_daily_greetings.with_curiosity OR EXCLUDED.with_curiosity,
+         with_curiosity = COALESCE($8, channel_daily_greetings.with_curiosity),
+         with_weather = COALESCE($10, channel_daily_greetings.with_weather),
+         with_email_digest = COALESCE($11, channel_daily_greetings.with_email_digest),
+         email_previous_day = COALESCE($12, channel_daily_greetings.email_previous_day),
+         version = channel_daily_greetings.version + 1,
          next_run_at = CASE
            WHEN channel_daily_greetings.active
             AND channel_daily_greetings.time_zone = EXCLUDED.time_zone
@@ -78,12 +98,51 @@ export class DailyGreetingsRepository extends BaseRepository {
         input.timeZone,
         input.hour,
         input.minute,
-        input.withCuriosity,
+        input.withCuriosity ?? null,
         input.nextRunAt,
+        input.withWeather ?? null,
+        input.withEmailDigest ?? null,
+        input.emailPreviousDay ?? null,
       ]
     );
     if (!row) throw new Error('Falha ao salvar rotina diária.');
     return mapRow(row);
+  }
+
+  /** Revalidate an occurrence after asynchronous reads; changed/cancelled schedules cannot send. */
+  async isCurrent(entry: DailyGreeting): Promise<boolean> {
+    return !!(await this.queryOne(
+      `SELECT id FROM channel_daily_greetings WHERE id=$1 AND user_id=$2
+       AND channel_plugin_id=$3 AND platform_chat_id=$4 AND active=TRUE
+       AND version=$5 AND next_run_at=$6`,
+      [
+        entry.id,
+        entry.userId,
+        entry.channelPluginId,
+        entry.platformChatId,
+        entry.version,
+        entry.nextRunAt,
+      ]
+    ));
+  }
+
+  async rescheduleTimezone(entry: DailyGreeting, timeZone: string, nextRunAt: Date): Promise<void> {
+    await this.execute(
+      `UPDATE channel_daily_greetings SET time_zone=$7, next_run_at=$8,
+       version=version+1, updated_at=NOW() WHERE id=$1 AND user_id=$2
+       AND channel_plugin_id=$3 AND platform_chat_id=$4 AND active=TRUE
+       AND version=$5 AND next_run_at=$6`,
+      [
+        entry.id,
+        entry.userId,
+        entry.channelPluginId,
+        entry.platformChatId,
+        entry.version,
+        entry.nextRunAt,
+        timeZone,
+        nextRunAt,
+      ]
+    );
   }
 
   async getForChat(userId: string, channelPluginId: string, platformChatId: string) {
