@@ -6,7 +6,7 @@
  * enabling horizontal scaling across multiple gateway instances.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { getErrorMessage } from '@ownpilot/core/services';
 import { getLog } from './log.js';
 import { getJobsRepository, type CreateJobInput, type JobRecord } from '../db/repositories/jobs.js';
@@ -21,6 +21,8 @@ interface EnqueueOptions {
   priority?: number;
   maxAttempts?: number;
   runAfter?: Date;
+  /** Stable reservation for retries/restarts of a single scheduled execution. */
+  deduplicationKey?: string;
 }
 
 type JobHandler = (job: JobRecord) => Promise<Record<string, unknown>>;
@@ -86,15 +88,26 @@ export class JobQueueService {
     options: EnqueueOptions = {}
   ): Promise<string> {
     const jobInput: CreateJobInput = {
-      id: randomUUID(),
+      id: options.deduplicationKey
+        ? 'job_' +
+          createHash('sha256')
+            .update(
+              JSON.stringify([options.queue ?? DEFAULT_QUEUE, name, options.deduplicationKey])
+            )
+            .digest('hex')
+        : randomUUID(),
       name,
       queue: options.queue ?? DEFAULT_QUEUE,
       priority: options.priority ?? 0,
-      payload,
+      // Only new, server-enqueued jobs opt into the corrected priority range.
+      // Legacy positive-priority backlog stays held until reconciled.
+      payload: { ...payload, _astraQueueVersion: 1 },
       maxAttempts: options.maxAttempts ?? 3,
       runAfter: options.runAfter ?? new Date(),
     };
-    const job = await this.repo.create(jobInput);
+    const job = options.deduplicationKey
+      ? await this.repo.create(jobInput, true)
+      : await this.repo.create(jobInput);
     log.debug('Job enqueued', { jobId: job.id, name, queue: job.queue });
     return job.id;
   }
@@ -186,7 +199,7 @@ export class JobQueueService {
       const availableSlots = worker.concurrency - worker.activeJobs.size;
       for (let i = 0; i < availableSlots; i++) {
         if (worker.stopped) break;
-        const job = await this.repo.claimJob(worker.queue, 0);
+        const job = await this.repo.claimJob(worker.queue, 0, true);
         if (!job) break;
 
         worker.activeJobs.add(job.id);

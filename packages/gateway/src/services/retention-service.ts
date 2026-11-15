@@ -2,9 +2,8 @@
  * Retention Service
  *
  * Centralized database retention enforcement (gap 24.3).
- * Runs per-table cleanup methods on a configurable schedule.
- * A single nightly job reads retention_policies metadata and executes
- * each table's existing cleanup method.
+ * Runs the registered cleanup methods with their existing retention periods.
+ * Each execution reserves the next daily job before being acknowledged.
  */
 
 import { getLog } from './log.js';
@@ -55,8 +54,8 @@ async function runRetentionCleanup(): Promise<RetentionResult[]> {
       const count = await cleanupFn();
       results.push({ table, deleted: count, retentionDays: getRetentionDays(table) });
       log.debug('Retention cleanup done', { table, deleted: count });
-    } catch (err) {
-      log.warn('Retention cleanup failed', { table, error: String(err) });
+    } catch {
+      log.warn('Retention cleanup failed', { table });
       results.push({ table, deleted: 0, retentionDays: getRetentionDays(table) });
     }
   }
@@ -75,19 +74,21 @@ async function runRetentionCleanup(): Promise<RetentionResult[]> {
  *
  * @param hour UTCHour for cleanup (default 2 = 02:00 UTC)
  */
-export function scheduleRetentionCleanup(hour = 2): string {
-  // Calculate next UTC midnight + hour
+export async function scheduleRetentionCleanup(hour = 2): Promise<string> {
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error('Invalid retention hour');
+  // Select the next future UTC slot, including today before the configured hour.
   const now = new Date();
   const next = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, hour, 0, 0, 0)
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, 0, 0, 0)
   );
+  if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
   const runAfter = new Date(next);
 
   const queue = JobQueueService.getInstance();
-  queue.enqueue(
+  await queue.enqueue(
     'nightly_retention_cleanup',
     { scheduledUtc: runAfter.toISOString() },
-    { queue: 'system', priority: 100, runAfter }
+    { queue: 'system', priority: 100, runAfter, deduplicationKey: runAfter.toISOString() }
   );
 
   log.info('Retention cleanup scheduled', { runAfter: runAfter.toISOString() });
@@ -101,9 +102,13 @@ export function scheduleRetentionCleanup(hour = 2): string {
 export function registerRetentionCleanupWorker(): () => void {
   const queue = JobQueueService.getInstance();
   return queue.startWorker(
-    async (_job) => {
+    async (job) => {
       log.info('Running nightly retention cleanup...');
       const results = await runRetentionCleanup();
+      const scheduled = new Date(String(job.payload.scheduledUtc ?? ''));
+      await scheduleRetentionCleanup(
+        Number.isNaN(scheduled.getTime()) ? 2 : scheduled.getUTCHours()
+      );
       return { cleaned: results };
     },
     { queue: 'system', concurrency: 1, name: 'retention_cleanup_worker' }

@@ -74,7 +74,11 @@ class JobsRepository extends BaseRepository {
    * eliminating the TOCTOU window between SELECT and UPDATE that existed
    * when these were two separate queries.
    */
-  async claimJob(queue = 'default', priority = 0): Promise<JobRecord | null> {
+  async claimJob(
+    queue = 'default',
+    maxPriority = 2_147_483_647,
+    allowVersionedPriority = false
+  ): Promise<JobRecord | null> {
     // Atomic claim-and-update via CTE: SELECT FOR UPDATE locks the row, then UPDATE
     // modifies it — all in one round-trip. This prevents two workers from claiming
     // the same job even under concurrent execution.
@@ -86,7 +90,7 @@ class JobsRepository extends BaseRepository {
         FROM ${JOBS_TABLE}
         WHERE status = 'available'
           AND queue = $1
-          AND priority <= $2
+          AND (priority <= $2 OR ($3::boolean AND payload->>'_astraQueueVersion' = '1'))
           AND run_after <= NOW()
         ORDER BY priority DESC, run_after ASC
         LIMIT 1
@@ -119,7 +123,7 @@ class JobsRepository extends BaseRepository {
       max_attempts: number;
       created_at: Date;
       updated_at: Date;
-    }>(sql, [queue, priority]);
+    }>(sql, [queue, maxPriority, allowVersionedPriority]);
 
     if (rows.length === 0) return null;
 
@@ -147,11 +151,12 @@ class JobsRepository extends BaseRepository {
   /**
    * Create a new job in the queue.
    */
-  async create(input: CreateJobInput): Promise<JobRecord> {
+  async create(input: CreateJobInput, ifAbsent = false): Promise<JobRecord> {
     const now = new Date().toISOString();
     const sql = `
       INSERT INTO ${JOBS_TABLE} (id, name, queue, priority, payload, max_attempts, run_after, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ${ifAbsent ? 'ON CONFLICT (id) DO NOTHING' : ''}
       RETURNING id, name, queue, priority, payload, result, status, run_after, started_at, completed_at, attempts, max_attempts, created_at, updated_at
     `;
     const rows = await this.query<{
@@ -180,7 +185,19 @@ class JobsRepository extends BaseRepository {
       now,
       now,
     ]);
-    const r = rows[0]!;
+    const r = rows[0];
+    if (!r) {
+      if (ifAbsent) {
+        const existing = await this.getById(input.id);
+        if (
+          existing &&
+          existing.name === input.name &&
+          existing.queue === (input.queue ?? 'default')
+        )
+          return existing;
+      }
+      throw new Error('Failed to reserve job');
+    }
     return {
       id: r.id,
       name: r.name,

@@ -585,7 +585,7 @@ async function main() {
     const { registerRetentionCleanupWorker, scheduleRetentionCleanup } =
       await import('./services/retention-service.js');
     registerRetentionCleanupWorker();
-    scheduleRetentionCleanup();
+    await scheduleRetentionCleanup();
     log.info('Retention Cleanup Worker started.');
   } catch (error) {
     log.warn('Retention Cleanup Worker failed to start', { error: String(error) });
