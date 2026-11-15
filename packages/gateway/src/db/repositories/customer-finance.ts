@@ -987,9 +987,14 @@ export class CustomerFinanceRepository extends BaseRepository {
           'UPDATE expenses SET category_id = $3, category = $4, updated_at = NOW() WHERE user_id = $1 AND category_id = $2',
           [this.dataUserId, id, destination.id, destination.legacy_key ?? destination.name]
         );
+        await this.execute(
+          'UPDATE customer_plans SET category_id = $3, updated_at = NOW() WHERE user_id = $1 AND category_id = $2',
+          [this.dataUserId, id, destination.id]
+        );
       }
       const usage = await this.queryOne<{ count: string }>(
-        'SELECT COUNT(*)::text AS count FROM expenses WHERE user_id = $1 AND category_id = $2',
+        `SELECT ((SELECT COUNT(*) FROM expenses WHERE user_id = $1 AND category_id = $2)
+          + (SELECT COUNT(*) FROM customer_plans WHERE user_id = $1 AND category_id = $2))::text AS count`,
         [this.dataUserId, id]
       );
       if (

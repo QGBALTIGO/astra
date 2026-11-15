@@ -149,9 +149,13 @@ export class GoalsRepository extends BaseRepository {
     const id = generateId('goal');
     const now = new Date().toISOString();
 
-    await this.execute(
-      `INSERT INTO goals (id, user_id, title, description, status, priority, parent_id, due_date, progress, created_at, updated_at, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    const inserted = await this.execute(
+      `WITH owned_parent AS (
+         SELECT id FROM goals WHERE id = $7 AND user_id = $2 FOR KEY SHARE
+       )
+       INSERT INTO goals (id, user_id, title, description, status, priority, parent_id, due_date, progress, created_at, updated_at, metadata)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+       WHERE $7::text IS NULL OR EXISTS (SELECT 1 FROM owned_parent)`,
       [
         id,
         this.userId,
@@ -168,6 +172,7 @@ export class GoalsRepository extends BaseRepository {
       ]
     );
 
+    if (inserted.changes === 0) throw new Error('Parent goal not found');
     const goal = await this.get(id);
     if (!goal) throw new Error('Failed to create goal');
 

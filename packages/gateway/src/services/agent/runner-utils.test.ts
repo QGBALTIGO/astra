@@ -38,6 +38,7 @@ const mockRegisterExtensionTools = vi.hoisted(() => vi.fn());
 const mockRegisterMcpTools = vi.hoisted(() => vi.fn());
 const mockGatewayConfigCenter = vi.hoisted(() => ({}));
 const mockSetWorkspaceDir = vi.hoisted(() => vi.fn());
+const mockWarn = vi.hoisted(() => vi.fn());
 
 // ============================================================================
 // Module mocks
@@ -128,7 +129,7 @@ vi.mock('../../tools/agent-tool-registry.js', () => ({
 vi.mock('../log.js', () => ({
   getLog: () => ({
     info: vi.fn(),
-    warn: vi.fn(),
+    warn: mockWarn,
     error: vi.fn(),
     debug: vi.fn(),
   }),
@@ -487,6 +488,30 @@ describe('agent-runner-utils', () => {
       expect(typeof fn).toBe('function');
       expect(opts).toMatchObject({ threshold: 0.75, keepRecent: 6 });
     });
+
+    it.each(['result', 'rejection'])(
+      'does not log private provider diagnostics during compaction (%s)',
+      async (mode) => {
+        const agent = await createConfiguredAgent({
+          name: 'SyntheticAgent',
+          provider: 'openai',
+          model: 'gpt-4',
+          systemPrompt: 'Synthetic',
+          userId: 'synthetic',
+          conversationId: 'synthetic',
+        });
+        const { Agent } = await import('@ownpilot/core/agent');
+        const provider = (Agent as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)![1]
+          .provider;
+        const complete = vi.spyOn(provider, 'complete');
+        const error = new Error('HTTP 500 PRIVATE_COMPACTION_CANARY secret=user-message');
+        if (mode === 'result') complete.mockResolvedValue({ ok: false, error });
+        else complete.mockRejectedValue(error);
+        const [compact] = (agent.setPreflightCompactor as ReturnType<typeof vi.fn>).mock.calls[0]!;
+        expect(await compact([{ role: 'user', content: 'Synthetic conversation' }])).toBeNull();
+        expect(JSON.stringify(mockWarn.mock.calls)).not.toContain('PRIVATE_COMPACTION_CANARY');
+      }
+    );
 
     it('resolves the fallback provider key when fallback options are given', async () => {
       await createConfiguredAgent({

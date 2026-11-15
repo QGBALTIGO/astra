@@ -13,6 +13,8 @@ class MemoryPlanning extends CustomerPlanningRepository {
   override async queryOne<T extends object>(sql: string, params?: unknown[]): Promise<T | null> {
     this.calls.push({ sql, params });
     if (sql.includes('COUNT(*)')) return { count: String(this.count) } as T;
+    if (sql.startsWith('SELECT type, archived FROM customer_categories'))
+      return { type: 'expense', archived: false } as T;
     if (sql.includes('RETURNING')) {
       const [id, , kind, title, amount, progress, category, total, paid, due, notes] = params!;
       return {
