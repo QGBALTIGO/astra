@@ -15,7 +15,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 
-const RELEASE = 'astra-cakto-20261115-durable-inbox-v4';
+const RELEASE = 'astra-cakto-20261115-inbox-recovery-v5';
 const SECRET = String(Bun.env.CAKTO_WEBHOOK_SECRET || '');
 const PRODUCT_ID = String(Bun.env.CAKTO_PRODUCT_ID || '').trim();
 const PRODUCT_NAME = String(Bun.env.CAKTO_PRODUCT_NAME || 'Astra Acessor')
@@ -162,6 +162,19 @@ function verifySignature(headers, rawBody, now = Date.now()) {
 
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+function storedUserMetadata(value) {
+  if (asObject(value)) return value;
+  // Older Bun bindings stored JSON text as a JSON string. Preserve its
+  // fields when the next verified payment repairs that customer's metadata.
+  if (typeof value === 'string') {
+    try {
+      return asObject(JSON.parse(value)) || {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }
 function idString(value) {
   const v = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
@@ -401,7 +414,7 @@ async function applyEvent(event, data, digest) {
         AND (o.subscription_id IS NULL OR (s.status='active' AND s.phone=${phone}))`;
     const expires = entitlement[0]?.expires ? new Date(entitlement[0].expires) : null;
     const users =
-      await tx`SELECT id,ownpilot_user_id,is_blocked,is_verified,access_source,access_expires_at,display_name
+      await tx`SELECT id,ownpilot_user_id,is_blocked,is_verified,access_source,access_expires_at,display_name,metadata
       FROM channel_users WHERE platform='whatsapp' AND platform_user_id=${phone} FOR UPDATE`;
     const user = users[0] || null;
     const retired =
@@ -423,12 +436,12 @@ async function applyEvent(event, data, digest) {
         await tx`INSERT INTO channel_users(id,ownpilot_user_id,platform,platform_user_id,display_name,
           is_verified,verified_at,verification_method,status,access_expires_at,access_granted_at,access_source,metadata)
           VALUES (${randomUUID()},${'whatsapp:' + phone},'whatsapp',${phone},${name || null},true,now(),
-          'admin','active',${expires.toISOString()},now(),'cakto',${JSON.stringify({ hasInteracted: false, manualPreauthorized: false, caktoManaged: true })}::jsonb)`;
+          'admin','active',${expires.toISOString()},now(),'cakto',${tx.json({ hasInteracted: false, manualPreauthorized: false, caktoManaged: true })}::jsonb)`;
       } else {
         await tx`UPDATE channel_users SET is_verified=true,verified_at=now(),verification_method='admin',
           status='active', access_expires_at=${expires.toISOString()}, access_granted_at=now(),
           access_source='cakto', display_name=COALESCE(NULLIF(display_name,''),${name || null}),
-          metadata=COALESCE(metadata,'{}'::jsonb) || '{"caktoManaged":true}'::jsonb
+          metadata=${tx.json({ ...storedUserMetadata(user.metadata), caktoManaged: true })}::jsonb
           WHERE id=${user.id} AND NOT is_blocked`;
       }
       outcome = 'granted';
@@ -479,14 +492,25 @@ async function applyEvent(event, data, digest) {
 // Independent durable inbox: no acknowledgement precedes a completed object write.
 const inboxKey = String(Bun.env.CAKTO_INBOX_KEY || '');
 if (!/^[a-f0-9]{64}$/i.test(inboxKey)) throw new Error('Missing inbox encryption key');
-const inbox = new S3Client({
-  endpoint: Bun.env.S3_ENDPOINT,
-  bucket: Bun.env.S3_BUCKET,
-  region: Bun.env.S3_REGION,
-  accessKeyId: Bun.env.S3_ACCESS_KEY_ID,
-  secretAccessKey: Bun.env.S3_SECRET_ACCESS_KEY,
-  virtualHostedStyle: Bun.env.S3_VIRTUAL_HOSTED_STYLE === 'true',
-});
+function inboxOptions(env) {
+  if (!env.S3_ENDPOINT || !env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)
+    throw new Error('Incomplete inbox storage configuration');
+  const endpoint = new URL(env.S3_ENDPOINT);
+  const virtualHostedStyle = env.S3_VIRTUAL_HOSTED_STYLE === 'true';
+  // With an explicit endpoint Bun uses its hostname verbatim for virtual-host
+  // addressing. Supplying `bucket` alone does not prepend it to the hostname.
+  if (virtualHostedStyle && !endpoint.hostname.startsWith(env.S3_BUCKET + '.'))
+    endpoint.hostname = env.S3_BUCKET + '.' + endpoint.hostname;
+  return {
+    endpoint: endpoint.toString(),
+    bucket: env.S3_BUCKET,
+    region: env.S3_REGION,
+    accessKeyId: env.S3_ACCESS_KEY_ID,
+    secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+    virtualHostedStyle,
+  };
+}
+const inbox = new S3Client(inboxOptions(Bun.env));
 const prefix = 'pending/v1/';
 function seal(value) {
   const iv = randomBytes(12);

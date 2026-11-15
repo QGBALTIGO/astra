@@ -1,5 +1,5 @@
 import { isAstraAccessAnswerRequested } from './astra-access.js';
-import { isFinanceReadOnlyRequest } from './finance-intent.js';
+import { isFinanceReadOnlyRequest, isNonExecutableFinanceCorrection } from './finance-intent.js';
 
 /** Read saved subscription facts rather than searching payment transactions. */
 export function requiredChannelSubscriptionTool(text: string): string | undefined {
@@ -123,6 +123,7 @@ export function isConversationalOnlyChannelRequest(text: string): boolean {
   ) {
     return false;
   }
+  if (isNonExecutableFinanceCorrection(text)) return true;
   // A calendar exercise and its explicitly hypothetical follow-up use the
   // conversation as their source. Do not give the model a real calendar.
   if (

@@ -1,3 +1,17 @@
+/** A negated correction or example is not permission to mutate the ledger. */
+export function isNonExecutableFinanceCorrection(text: string): boolean {
+  const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  if (!/\b(?:gastos?|despesas?|lancamentos?|transacoes|financeiro)\b/.test(input)) return false;
+  const correction =
+    '(?:mude|muda|mudar|altere|altera|alterar|corrija|corrige|corrigir|troque|troca|trocar)';
+  if (!new RegExp('\\b' + correction + '\\b').test(input)) return false;
+  return (
+    new RegExp('\\b(?:nao|nunca|jamais|nem)\\s+(?:me\\s+)?' + correction + '\\b').test(input) ||
+    /\b(?:nao|sem)\s+(?:execute|executar|faca|fazer)\b/.test(input) ||
+    /\b(?:se eu|se voce|caso eu|caso voce|talvez|exemplo|ficticio|hipotetico|simule)\b/.test(input)
+  );
+}
+
 /** A financial lookup must never become a ledger mutation, regardless of the model. */
 export function isFinanceReadOnlyRequest(text: string): boolean {
   const input = text

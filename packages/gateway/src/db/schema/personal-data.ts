@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS channel_reminders (
   attempts INTEGER NOT NULL DEFAULT 0,
   next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   leased_until TIMESTAMPTZ,
+  lease_token TEXT,
+  delivery_started_at TIMESTAMPTZ,
   delivered_at TIMESTAMPTZ,
   delivery_id TEXT,
   last_error TEXT,
@@ -221,7 +223,10 @@ CREATE TABLE IF NOT EXISTS captures (
 );
 `;
 
-export const PERSONAL_DATA_MIGRATIONS_SQL = ``;
+export const PERSONAL_DATA_MIGRATIONS_SQL = `
+ALTER TABLE channel_reminders ADD COLUMN IF NOT EXISTS lease_token TEXT;
+ALTER TABLE channel_reminders ADD COLUMN IF NOT EXISTS delivery_started_at TIMESTAMPTZ;
+`;
 
 export const PERSONAL_DATA_INDEXES_SQL = `
 -- Personal data indexes

@@ -1,4 +1,3 @@
-import { admitProvider } from './admission.js';
 import { providerErrorSummary } from '../provider-error-summary.js';
 /**
  * Fallback Provider
@@ -91,8 +90,6 @@ export interface FallbackProviderConfig {
   preferLastSuccessful?: boolean;
   /** Deadline for one non-streaming completion including all fallback attempts. */
   completionTimeoutMs?: number;
-  /** Bound channel traffic per credential pool; Groq reservations include input and output. */
-  channelAdmission?: boolean;
   /** Callback when fallback is triggered */
   onFallback?: (failedProvider: AIProvider, error: Error, nextProvider: AIProvider) => void;
 }
@@ -283,37 +280,18 @@ export class FallbackProvider implements IProvider {
   ) {
     if (this.config.completionTimeoutMs && deadline <= Date.now())
       throw new TimeoutError('channel response budget', this.config.completionTimeoutMs);
-    const config = this.orderedConfigs[index]!;
-    let release: (() => void) | undefined;
-    if (this.config.channelAdmission) {
-      const key = fingerprint([
-        config.provider,
-        config.baseUrl ?? '',
-        config.apiKey ?? config.resolvedAuth?.value ?? '',
-      ]);
-      const groq =
-        config.id === 'groq' ||
-        config.provider === 'groq' ||
-        /\bapi\.groq\.com\b/i.test(config.baseUrl ?? '');
-      const estimatedTokens =
-        Math.ceil(JSON.stringify([request.messages, request.tools ?? []]).length / 3) +
-        (request.model.maxTokens ?? 768) +
-        512;
-      release = admitProvider(key, estimatedTokens, 2, groq ? 8000 : undefined);
-      if (!release)
-        return err(new ValidationError('Provider capacity reserved; use another configured route'));
-    }
-    // Release only when transport settles, even if the caller's deadline wins.
-    const transport = Promise.resolve()
-      .then(() => provider.complete(request))
-      .finally(() => release?.());
-    if (!this.config.completionTimeoutMs) return transport;
-    const remaining = Math.min(
-      deadline - Date.now(),
-      this.orderedConfigs[index]?.timeout ?? Number.POSITIVE_INFINITY
-    );
+    // Check the remaining budget before invoking a provider. Estimated token
+    // quotas cannot stand in for the limits configured by each provider/account.
+    const remaining = this.config.completionTimeoutMs
+      ? Math.min(
+          deadline - Date.now(),
+          this.orderedConfigs[index]?.timeout ?? Number.POSITIVE_INFINITY
+        )
+      : Number.POSITIVE_INFINITY;
     if (remaining <= 0)
-      throw new TimeoutError('channel response budget', this.config.completionTimeoutMs);
+      throw new TimeoutError('channel response budget', this.config.completionTimeoutMs!);
+    const transport = Promise.resolve().then(() => provider.complete(request));
+    if (!this.config.completionTimeoutMs) return transport;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
@@ -434,14 +412,6 @@ export class FallbackProvider implements IProvider {
           return result;
         }
 
-        // Admission declines are local capacity decisions, not provider outages.
-        if (
-          result.error instanceof ValidationError &&
-          result.error.message.startsWith('Provider capacity reserved')
-        ) {
-          lastError = result.error;
-          continue;
-        }
         // Request failed
         lastError = result.error;
 

@@ -860,7 +860,6 @@ async function createChatAgentInstance(
                 sharedCircuitBreaker: true,
                 preferLastSuccessful: true,
                 completionTimeoutMs: 12_000,
-                channelAdmission: true,
               }
             : {}),
           onFallback: (failed, _error, next) => {

@@ -24,6 +24,7 @@ import {
   tryQuickFinanceReply,
 } from './quick-finance.js';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
+import { channelToolsForMessage, isConversationalOnlyChannelRequest } from './tool-selection.js';
 const plan = {
   op: 'list',
   search: 'Café',
@@ -182,6 +183,44 @@ describe('short AI expense consultation', () => {
 });
 
 describe('natural explicit expense corrections', () => {
+  it.each([
+    'Não muda',
+    'Não altera',
+    'Não corrige',
+    'Não troca',
+    'Não mude',
+    'Não altere',
+    'Não corrija',
+    'Não troque',
+    'Nunca muda',
+    'Talvez eu peça que você mude',
+    'Se eu pedir, muda',
+    'Por exemplo, muda',
+    'Muda, mas não execute ainda,',
+  ])(
+    'does not accept a model-proposed write for a negated or conditional request: %s',
+    async (prefix) => {
+      f.write.mockResolvedValue(JSON.stringify({ ...plan, op: 'update', category: 'Alimentação' }));
+      const text = prefix + ' a categoria do gasto Café de R$ 0,75 de hoje para Alimentação';
+      expect(
+        parseQuickFinancePlan(
+          JSON.stringify({ ...plan, op: 'update', category: 'Alimentação' }),
+          text
+        )
+      ).toBeNull();
+      expect(isConversationalOnlyChannelRequest(text)).toBe(true);
+      expect(channelToolsForMessage(text)).toEqual([]);
+      await tryQuickFinanceReply(message(text), 'whatsapp:synthetic', async () => true);
+      expect(f.update).not.toHaveBeenCalled();
+      expect(f.list).not.toHaveBeenCalled();
+      expect(f.write).not.toHaveBeenCalled();
+    }
+  );
+  it('keeps an affirmative correction executable when a negation describes the old value', () => {
+    const text = 'Não era R$ 58, corrige o gasto da farmácia para R$ 85';
+    expect(isConversationalOnlyChannelRequest(text)).toBe(false);
+    expect(channelToolsForMessage(text)).toContain('core.update_transaction');
+  });
   it.each([
     'Corrige o gasto da farmácia de 58 pra 85',
     'Altera a despesa da farmácia de R$ 58 para 85',

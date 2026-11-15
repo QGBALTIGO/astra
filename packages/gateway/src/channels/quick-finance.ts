@@ -7,6 +7,7 @@ import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDay, validCalendarDay } from '../services/customer-date.js';
 import { formatAstraMessage, formatTransactionConfirmation } from './response-presentation.js';
 import { isConversationalOnlyChannelRequest } from './tool-selection.js';
+import { isNonExecutableFinanceCorrection } from './finance-intent.js';
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 type Plan = {
@@ -119,6 +120,7 @@ export function parseQuickFinancePlan(raw: string, request: string): Plan | null
   )
     return null;
   const input = fold(request);
+  if (p.op === 'update' && isNonExecutableFinanceCorrection(request)) return null;
   if (p.search && !input.includes(fold(p.search))) return null;
   if (
     p.amount !== null &&

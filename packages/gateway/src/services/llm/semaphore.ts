@@ -46,7 +46,11 @@ class LlmSemaphore {
   private slots: string[] = [];
 
   /** FIFO wait queue */
-  private waitQueue: Array<{ agentId: string; resolve: (release: () => void) => void }> = [];
+  private waitQueue: Array<{
+    agentId: string;
+    resolve: (release: () => void) => void;
+    cleanup: () => void;
+  }> = [];
 
   /**
    * Active permits — Map<token, slotIdx>. Each acquire() returns a release()
@@ -70,7 +74,8 @@ class LlmSemaphore {
    *
    * If no slots are available the caller waits in FIFO order.
    */
-  async acquire(agentId: string, _label: string): Promise<() => void> {
+  async acquire(agentId: string, _label: string, signal?: AbortSignal): Promise<() => void> {
+    if (signal?.aborted) throw new DOMException('LLM slot acquisition aborted', 'AbortError');
     // Fast path: a free slot exists and no-one is queued. Fully synchronous,
     // so two concurrent acquire() calls can't race to claim the same slot
     // (single-threaded JS guarantees the slot mutation runs to completion
@@ -82,8 +87,23 @@ class LlmSemaphore {
 
     // Slow path: enqueue. release() handles handing the slot to the head of
     // the queue when it fires — we do NOT re-check the slots array here.
-    return new Promise<() => void>((resolve) => {
-      this.waitQueue.push({ agentId, resolve });
+    return new Promise<() => void>((resolve, reject) => {
+      const abort = () => {
+        const index = this.waitQueue.indexOf(entry);
+        if (index === -1) return;
+        this.waitQueue.splice(index, 1);
+        entry.cleanup();
+        this.emitUpdate();
+        reject(new DOMException('LLM slot acquisition aborted', 'AbortError'));
+      };
+      const entry = {
+        agentId,
+        resolve,
+        cleanup: () => signal?.removeEventListener('abort', abort),
+      };
+      this.waitQueue.push(entry);
+      signal?.addEventListener('abort', abort, { once: true });
+      this.emitUpdate();
     });
   }
 
@@ -116,6 +136,7 @@ class LlmSemaphore {
     if (slotIdx < this.maxSlots) {
       const next = this.waitQueue.shift();
       if (next) {
+        next.cleanup();
         const releaseFn = this.assignSlot(slotIdx, next.agentId);
         next.resolve(releaseFn);
         return; // assignSlot already emitted.
@@ -217,6 +238,7 @@ class LlmSemaphore {
         const free = this.findFreeSlotIdx();
         if (free === -1) break;
         const next = this.waitQueue.shift()!;
+        next.cleanup();
         const releaseFn = this.assignSlot(free, next.agentId);
         next.resolve(releaseFn);
       }
