@@ -57,6 +57,41 @@ beforeEach(() => {
   gates = [];
 });
 
+describe('JobQueueService durable scheduling', () => {
+  it('marks new jobs without mutating caller payload or trusting a caller version', async () => {
+    mockRepo.create.mockImplementation(async (input) => input);
+    const payload = { _astraQueueVersion: 0, value: 'synthetic' };
+    await new JobQueueService().enqueue('test', payload, { priority: 100 });
+    expect(mockRepo.create.mock.calls[0]![0]).toMatchObject({
+      priority: 100,
+      payload: { _astraQueueVersion: 1, value: 'synthetic' },
+    });
+    expect(payload._astraQueueVersion).toBe(0);
+  });
+
+  it('scopes stable reservation IDs by queue and job name', async () => {
+    mockRepo.create.mockImplementation(async (input) => input);
+    const svc = new JobQueueService();
+    const key = { deduplicationKey: '2090-01-01', queue: 'a' };
+    const first = await svc.enqueue('daily', {}, key);
+    expect(await svc.enqueue('daily', {}, key)).toBe(first);
+    expect(await svc.enqueue('daily', {}, { ...key, queue: 'b' })).not.toBe(first);
+    expect(await svc.enqueue('other', {}, key)).not.toBe(first);
+    expect(mockRepo.create.mock.calls.every((call) => call[1] === true)).toBe(true);
+  });
+
+  it('opts workers into versioned priorities while preserving the legacy priority cap', async () => {
+    const svc = new JobQueueService();
+    const stop = svc.startWorker(async () => ({}), { queue: 'system', name: 'versioned-test' });
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(mockRepo.claimJob).toHaveBeenCalledWith('system', 0, true, undefined);
+    } finally {
+      stop();
+    }
+  });
+});
+
 describe('JobQueueService pollWorker concurrency', () => {
   it('never exceeds the worker concurrency cap when polls overlap', async () => {
     // Plenty of jobs waiting — enough that an unguarded race could claim well

@@ -86,8 +86,9 @@ jobs:
           src/db/repositories/channel-reminders-delivery.pg.test.ts \
           src/db/repositories/planning-integrity.pg.test.ts \
           src/db/repositories/memory-integrity.pg.test.ts \
+          src/db/repositories/job-queue-priority.pg.test.ts \
           src/db/repositories/email-digests-recovery.pg.test.ts
-          pnpm dlx bun@1.4.4 test integrations/cakto/railway-function.test.mjs
+          pnpm dlx bun@1.4.4 test integrations/cakto/railway-function.test.mjs scripts/astra-simulation-lab/readonly-queue-probe.test.mjs
 
       - name: Lint
         run: pnpm lint

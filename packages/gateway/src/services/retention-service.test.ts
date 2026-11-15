@@ -6,7 +6,7 @@
  * that individual repo cleanup methods work (those have their own tests).
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockEnqueue = vi.fn();
 const mockStartWorker = vi.fn().mockReturnValue(() => {});
@@ -105,11 +105,13 @@ const { scheduleRetentionCleanup, registerRetentionCleanupWorker } =
 describe('retention-service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEnqueue.mockResolvedValue('job-id');
   });
+  afterEach(() => vi.useRealTimers());
 
   describe('scheduleRetentionCleanup', () => {
-    it('enqueues a nightly_retention_cleanup job', () => {
-      const jobId = scheduleRetentionCleanup(2);
+    it('enqueues a nightly_retention_cleanup job', async () => {
+      const jobId = await scheduleRetentionCleanup(2);
 
       expect(jobId).toBe('nightly_retention_cleanup');
       expect(mockEnqueue).toHaveBeenCalledTimes(1);
@@ -120,14 +122,37 @@ describe('retention-service', () => {
       expect(options).toHaveProperty('runAfter');
     });
 
-    it('calculates runAfter as tomorrow at the specified UTC hour', () => {
-      scheduleRetentionCleanup(3);
+    it('calculates a future runAfter at the specified UTC hour', async () => {
+      await scheduleRetentionCleanup(3);
 
       const options = mockEnqueue.mock.calls[0]![2] as { runAfter: Date };
       expect(options.runAfter.getUTCHours()).toBe(3);
       // Should be tomorrow (or later)
       const now = new Date();
       expect(options.runAfter.getTime()).toBeGreaterThan(now.getTime());
+    });
+
+    it('uses today’s UTC slot when the service starts before the scheduled hour', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-15T01:00:00Z'));
+      await scheduleRetentionCleanup(2);
+      expect(mockEnqueue.mock.calls[0]![2].runAfter.toISOString()).toBe('2026-11-15T02:00:00.000Z');
+    });
+
+    it('keeps a stable daily reservation key across repeated startup scheduling', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-15T12:00:00Z'));
+      await scheduleRetentionCleanup(2);
+      await scheduleRetentionCleanup(2);
+      expect(mockEnqueue.mock.calls.map((call) => call[2].deduplicationKey)).toEqual([
+        '2026-11-16T02:00:00.000Z',
+        '2026-11-16T02:00:00.000Z',
+      ]);
+    });
+
+    it('reports a failed durable reservation to the boot caller', async () => {
+      mockEnqueue.mockRejectedValueOnce(new Error('synthetic_queue_unavailable'));
+      await expect(scheduleRetentionCleanup()).rejects.toThrow('synthetic_queue_unavailable');
     });
   });
 
@@ -139,6 +164,29 @@ describe('retention-service', () => {
       const [, opts] = mockStartWorker.mock.calls[0]!;
       expect(opts).toMatchObject({ queue: 'system', concurrency: 1 });
       expect(typeof stop).toBe('function');
+    });
+
+    it('persists the next daily run after a successful cleanup without a service restart', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-15T02:01:00Z'));
+      registerRetentionCleanupWorker();
+      const handler = mockStartWorker.mock.calls[0]![0];
+      await handler({
+        name: 'nightly_retention_cleanup',
+        payload: { scheduledUtc: '2026-11-15T02:00:00Z' },
+      });
+      expect(mockEnqueue).toHaveBeenCalledOnce();
+      expect(mockEnqueue.mock.calls[0]![2].runAfter.toISOString()).toBe('2026-11-16T02:00:00.000Z');
+    });
+
+    it('does not perform cleanup for an unrelated system job', async () => {
+      registerRetentionCleanupWorker();
+      const handler = mockStartWorker.mock.calls[0]![0];
+      await expect(handler({ name: 'other', payload: {} })).rejects.toThrow(
+        'Unexpected maintenance job'
+      );
+      expect(mockCleanupOld).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
     });
   });
 });
