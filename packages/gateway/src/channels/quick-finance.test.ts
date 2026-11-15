@@ -24,6 +24,7 @@ import {
   tryQuickFinanceReply,
 } from './quick-finance.js';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
+import { channelToolsForMessage, isConversationalOnlyChannelRequest } from './tool-selection.js';
 const plan = {
   op: 'list',
   search: 'Café',
@@ -178,5 +179,99 @@ describe('short AI expense consultation', () => {
         'Mude Café para Alimentação'
       )
     ).toBeNull();
+  });
+});
+
+describe('natural explicit expense corrections', () => {
+  it.each([
+    'Não muda',
+    'Não altera',
+    'Não corrige',
+    'Não troca',
+    'Não mude',
+    'Não altere',
+    'Não corrija',
+    'Não troque',
+    'Nunca muda',
+    'Talvez eu peça que você mude',
+    'Se eu pedir, muda',
+    'Por exemplo, muda',
+    'Muda, mas não execute ainda,',
+  ])(
+    'does not accept a model-proposed write for a negated or conditional request: %s',
+    async (prefix) => {
+      f.write.mockResolvedValue(JSON.stringify({ ...plan, op: 'update', category: 'Alimentação' }));
+      const text = prefix + ' a categoria do gasto Café de R$ 0,75 de hoje para Alimentação';
+      expect(
+        parseQuickFinancePlan(
+          JSON.stringify({ ...plan, op: 'update', category: 'Alimentação' }),
+          text
+        )
+      ).toBeNull();
+      expect(isConversationalOnlyChannelRequest(text)).toBe(true);
+      expect(channelToolsForMessage(text)).toEqual([]);
+      await tryQuickFinanceReply(message(text), 'whatsapp:synthetic', async () => true);
+      expect(f.update).not.toHaveBeenCalled();
+      expect(f.list).not.toHaveBeenCalled();
+      expect(f.write).not.toHaveBeenCalled();
+    }
+  );
+  it('keeps an affirmative correction executable when a negation describes the old value', () => {
+    const text = 'Não era R$ 58, corrige o gasto da farmácia para R$ 85';
+    expect(isConversationalOnlyChannelRequest(text)).toBe(false);
+    expect(channelToolsForMessage(text)).toContain('core.update_transaction');
+  });
+  it.each([
+    'Corrige o gasto da farmácia de 58 pra 85',
+    'Altera a despesa da farmácia de R$ 58 para 85',
+    'Muda o valor do gasto farmácia de 58 para R$ 85',
+  ])('grounds both amounts and description without model interpretation: %s', (text) => {
+    expect(explicitFinancePlan(text, '2026-11-15')).toMatchObject({
+      op: 'update',
+      search: 'farmácia',
+      amount: 58,
+      newAmount: 85,
+      latest: false,
+    });
+  });
+  it.each([
+    'Corrige o gasto da farmácia de 58 pra 85 e apague o lembrete',
+    'Não corrige o gasto da farmácia de 58 pra 85',
+    'Se eu pedir, corrige o gasto da farmácia de 58 pra 85',
+    'Corrige o gasto da farmácia de 58 pra 85 ou 95',
+    'Corrige o gasto da farmácia de 58 pra 0',
+    'Corrige o gasto da farmácia de 58 pra 85,555',
+    'Corrige o gasto da farmácia de 58 pra 85 amanhã',
+  ])('does not execute incomplete, conditional or multiple corrections: %s', (text) => {
+    expect(explicitFinancePlan(text, '2026-11-15')).toBeNull();
+  });
+  it('updates the selected record without creating another transaction', async () => {
+    f.list.mockResolvedValue({
+      transactions: [{ ...saved, description: 'farmácia', amount: 58 }],
+      total: 1,
+    });
+    f.update.mockResolvedValue({ ...saved, description: 'farmácia', amount: 85 });
+    await tryQuickFinanceReply(
+      message('Corrige o gasto da farmácia de 58 pra 85'),
+      'whatsapp:synthetic',
+      async () => true
+    );
+    expect(f.update).toHaveBeenCalledWith(saved.id, { amount: 85 }, saved.updatedAt);
+  });
+  it('asks for identification instead of choosing between equal matching records', async () => {
+    f.list.mockResolvedValue({
+      transactions: [
+        { ...saved, description: 'farmácia', amount: 58 },
+        { ...saved, id: 'another', description: 'farmácia', amount: 58 },
+      ],
+      total: 2,
+    });
+    const reply = await tryQuickFinanceReply(
+      message('Corrige o gasto da farmácia de 58 pra 85'),
+      'whatsapp:synthetic',
+      async () => true
+    );
+    expect(f.update).not.toHaveBeenCalled();
+    expect(reply).toContain('Qual destes gastos');
   });
 });
