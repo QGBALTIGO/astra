@@ -5,6 +5,7 @@ import type { ChannelAttachment } from '@ownpilot/core/channels';
 import {
   channelAssetsRepo,
   type ChannelAssetsRepository,
+  type ExpiredAssetCursor,
 } from '../db/repositories/channels/assets.js';
 import { getLog } from './log.js';
 
@@ -12,6 +13,7 @@ const log = getLog('ChannelAssetStore');
 import { CHANNEL_ASSET_TTL_MS, CHANNEL_ASSET_MAX_FILENAME_LENGTH } from '../config/defaults.js';
 
 const DEFAULT_TTL_MS = CHANNEL_ASSET_TTL_MS;
+const MAX_PURGE_BATCHES = 5;
 
 function safeSegment(value: string): string {
   const segment =
@@ -22,7 +24,9 @@ function safeSegment(value: string): string {
 function extensionForAttachment(attachment: ChannelAttachment): string {
   if (attachment.filename) {
     const ext = extname(attachment.filename);
-    if (ext) return ext;
+    // The original name remains metadata. Only a short ASCII extension may
+    // reach the generated storage basename (also safe on Windows).
+    if (/^\.[a-zA-Z0-9]{1,16}$/.test(ext)) return ext;
   }
 
   const mime = attachment.mimeType.toLowerCase();
@@ -56,6 +60,8 @@ export function resolveChannelAssetBaseDir(): string {
 
 export class ChannelAssetStore {
   private lastPurgeAt = 0;
+  private purgeCursor?: ExpiredAssetCursor;
+  private purgePromise?: Promise<number>;
 
   constructor(
     private readonly repo: ChannelAssetsRepository = channelAssetsRepo,
@@ -88,12 +94,9 @@ export class ChannelAssetStore {
         safeSegment(params.platformChatId),
         safeSegment(params.messageId)
       );
-      const filename =
-        attachment.filename ?? `${attachment.type}${extensionForAttachment(attachment)}`;
-      const storagePath = join(
-        dir,
-        `${assetId}${extensionForAttachment(attachment) || extname(filename)}`
-      );
+      const extension = extensionForAttachment(attachment);
+      const filename = attachment.filename ?? `${attachment.type}${extension}`;
+      const storagePath = join(dir, `${assetId}${extension}`);
       const data = Buffer.from(attachment.data);
       const sha256 = createHash('sha256').update(data).digest('hex');
       // Persist the TTL cleanup reference before writing private bytes. This
@@ -135,22 +138,47 @@ export class ChannelAssetStore {
     await this.repo.linkConversation(assetIds, conversationId);
   }
 
-  async purgeExpired(): Promise<number> {
-    const expired = await this.repo.listExpired(new Date().toISOString());
-    const removed: string[] = [];
-    for (const asset of expired) {
-      if (asset.storagePath) {
-        try {
-          await rm(asset.storagePath, { force: true });
-        } catch {
-          log.warn('Channel asset cleanup deferred', { assetId: asset.id });
-          continue;
-        }
+  purgeExpired(): Promise<number> {
+    // Concurrent arrivals share one scan instead of racing its cursor.
+    this.purgePromise ??= this.purgeExpiredBatches().finally(() => {
+      this.purgePromise = undefined;
+    });
+    return this.purgePromise;
+  }
+
+  private async purgeExpiredBatches(): Promise<number> {
+    const now = new Date().toISOString();
+    let count = 0;
+    for (let batch = 0; batch < MAX_PURGE_BATCHES; batch++) {
+      const expired = await this.repo.listExpired(now, this.purgeCursor);
+      if (expired.length === 0) {
+        this.purgeCursor = undefined;
+        break;
       }
-      removed.push(asset.id);
+      const removed: string[] = [];
+      for (const asset of expired) {
+        if (asset.storagePath) {
+          try {
+            await rm(asset.storagePath, { force: true });
+          } catch {
+            log.warn('Channel asset cleanup deferred', { assetId: asset.id });
+            continue;
+          }
+        }
+        removed.push(asset.id);
+      }
+      if (removed.length) await this.repo.deleteMany(removed);
+      count += removed.length;
+      const last = expired[expired.length - 1]!;
+      // Failed records remain available for retry after the scan wraps. Keep
+      // moving past them so they cannot monopolize the first 100 slots.
+      this.purgeCursor = { expiresAt: last.expiresAt, id: last.id };
+      if (expired.length < 100) {
+        this.purgeCursor = undefined;
+        break;
+      }
     }
-    if (removed.length) await this.repo.deleteMany(removed);
-    return removed.length;
+    return count;
   }
 
   private async purgeExpiredIfNeeded(): Promise<void> {

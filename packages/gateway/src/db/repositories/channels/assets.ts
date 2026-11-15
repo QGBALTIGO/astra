@@ -1,5 +1,10 @@
 import { BaseRepository, parseJsonField } from '../base.js';
 
+export interface ExpiredAssetCursor {
+  expiresAt: string;
+  id: string;
+}
+
 interface ChannelAssetRecord {
   id: string;
   channelMessageId: string;
@@ -119,10 +124,15 @@ export class ChannelAssetsRepository extends BaseRepository {
     );
   }
 
-  async listExpired(nowIso: string): Promise<ChannelAssetRecord[]> {
+  async listExpired(nowIso: string, after?: ExpiredAssetCursor): Promise<ChannelAssetRecord[]> {
     const rows = await this.query<ChannelAssetRow>(
-      `SELECT * FROM channel_assets WHERE expires_at <= $1 ORDER BY expires_at ASC LIMIT 100`,
-      [nowIso]
+      // Keep the timestamp's database precision for the keyset cursor; pg's
+      // default Date decoder would round sub-millisecond legacy timestamps.
+      `SELECT *, expires_at::text AS expires_at FROM channel_assets
+       WHERE expires_at <= $1
+         AND ($2::timestamp IS NULL OR (expires_at, id) > ($2::timestamp, $3::text))
+       ORDER BY channel_assets.expires_at ASC, id ASC LIMIT 100`,
+      [nowIso, after?.expiresAt ?? null, after?.id ?? null]
     );
     return rows.map(rowToRecord);
   }
