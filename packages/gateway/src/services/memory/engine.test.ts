@@ -14,6 +14,7 @@ const { mockService, mockRepo, createMemoriesRepository } = vi.hoisted(() => {
     list: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
+    replaceCluster: vi.fn(),
     decay: vi.fn(),
     cleanup: vi.fn(),
   };
@@ -100,6 +101,7 @@ describe('consolidate', () => {
     ]);
     mockRepo.create.mockResolvedValue({ id: 'merged' });
     mockRepo.delete.mockResolvedValue(true);
+    mockRepo.replaceCluster.mockResolvedValue({ memory: { id: 'merged' }, removed: 2 });
     mockRepo.decay.mockResolvedValue(2);
     mockRepo.cleanup.mockResolvedValue(1);
 
@@ -112,7 +114,11 @@ describe('consolidate', () => {
     expect(res.decayed).toBe(2);
     expect(res.cleaned).toBe(1);
     // merged memory keeps the higher importance (0.7)
-    expect(mockRepo.create).toHaveBeenCalledWith(
+    expect(mockRepo.replaceCluster).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: '1' }),
+        expect.objectContaining({ id: '2' }),
+      ]),
       expect.objectContaining({ importance: 0.7, source: 'memory_consolidate', type: 'fact' })
     );
     expect(complete).toHaveBeenCalledTimes(1);

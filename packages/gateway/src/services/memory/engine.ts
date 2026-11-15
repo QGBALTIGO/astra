@@ -93,8 +93,8 @@ class MemoryEngineImpl {
         });
         if (dup) deduplicated++;
         else created++;
-      } catch (err) {
-        log.warn('rememberMemory failed for a candidate', String(err));
+      } catch {
+        log.warn('rememberMemory failed for a candidate');
       }
     }
     return { extracted: candidates.length, created, deduplicated };
@@ -150,8 +150,8 @@ class MemoryEngineImpl {
           mergedText = parseConsolidation(
             await complete(buildConsolidationPrompt(cluster.map((m) => m.content)))
           );
-        } catch (err) {
-          log.warn('consolidation completion failed', String(err));
+        } catch {
+          log.warn('consolidation completion failed');
           continue;
         }
         if (!mergedText) continue;
@@ -159,19 +159,18 @@ class MemoryEngineImpl {
         const importance = Math.max(...cluster.map((m) => m.importance));
         const tags = [...new Set(cluster.flatMap((m) => m.tags))];
         try {
-          await repo.create({
+          const replacement = await repo.replaceCluster(cluster, {
             type: base.type,
             content: mergedText,
             importance,
             tags,
             source: 'memory_consolidate',
           });
-          for (const m of cluster) {
-            if (await repo.delete(m.id)) removed++;
-          }
+          if (!replacement) continue;
+          removed += replacement.removed;
           merged++;
-        } catch (err) {
-          log.warn('failed to write consolidated memory', String(err));
+        } catch {
+          log.warn('failed to write consolidated memory');
         }
       }
     }
@@ -209,8 +208,8 @@ class MemoryEngineImpl {
     let summary: string;
     try {
       summary = (await complete(buildRecallSummaryPrompt(query, contents))).trim();
-    } catch (err) {
-      log.warn('recall summary failed; returning raw matches', String(err));
+    } catch {
+      log.warn('recall summary failed; returning raw matches');
       summary = contents.map((c) => `- ${c}`).join('\n');
     }
     return {

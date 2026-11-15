@@ -80,10 +80,12 @@ jobs:
           ASTRA_REVIEW_PG_DATABASE: ownpilot
           ASTRA_REVIEW_PG_USER: ownpilot
           ASTRA_REVIEW_PG_PASSWORD: ownpilot_ci_password
+          ASTRA_REVIEW_PG_VECTOR: 'true'
         run: |
           pnpm --filter @ownpilot/gateway exec vitest run \
           src/db/repositories/channel-reminders-delivery.pg.test.ts \
           src/db/repositories/planning-integrity.pg.test.ts \
+          src/db/repositories/memory-integrity.pg.test.ts \
           src/db/repositories/email-digests-recovery.pg.test.ts
           pnpm dlx bun@1.4.4 test integrations/cakto/railway-function.test.mjs
 

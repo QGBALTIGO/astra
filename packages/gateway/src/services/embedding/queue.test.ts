@@ -73,6 +73,73 @@ describe('EmbeddingQueue', () => {
   });
 
   describe('enqueue', () => {
+    it('coalesces pending edits to the latest content before requesting an embedding', async () => {
+      queue.enqueue('mem-edit', 'user-a', 'Versão antiga');
+      queue.enqueue('mem-edit', 'user-a', 'Versão corrigida');
+      mockIsAvailable.mockReturnValue(true);
+      mockGenerateBatch.mockResolvedValueOnce([{ embedding: [1, 0], cached: false }]);
+      await (queue as unknown as { processNextBatch(): Promise<void> }).processNextBatch();
+      expect(mockGenerateBatch).toHaveBeenCalledWith(['Versão corrigida']);
+    });
+
+    it('keeps a correction arriving while the previous embedding is in flight', async () => {
+      let settle!: (value: Array<{ embedding: number[]; cached: boolean }>) => void;
+      mockIsAvailable.mockReturnValue(true);
+      mockGenerateBatch.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            settle = resolve;
+          })
+      );
+      queue.enqueue('mem-edit', 'user-a', 'Versão antiga');
+      const first = (queue as unknown as { processNextBatch(): Promise<void> }).processNextBatch();
+      queue.enqueue('mem-edit', 'user-a', 'Versão corrigida');
+      settle([{ embedding: [1, 0], cached: false }]);
+      await first;
+      expect(mockUpdateEmbedding).not.toHaveBeenCalled();
+      expect(queue.getStats().queueSize).toBe(1);
+      mockGenerateBatch.mockResolvedValueOnce([{ embedding: [0, 1], cached: false }]);
+      await (queue as unknown as { processNextBatch(): Promise<void> }).processNextBatch();
+      expect(mockGenerateBatch).toHaveBeenLastCalledWith(['Versão corrigida']);
+      expect(mockUpdateEmbedding).toHaveBeenCalledWith('mem-edit', [0, 1], 'Versão corrigida');
+    });
+
+    it('preserves the replacement when the obsolete in-flight request fails', async () => {
+      let fail!: (reason: Error) => void;
+      mockIsAvailable.mockReturnValue(true);
+      mockGenerateBatch.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            fail = reject;
+          })
+      );
+      queue.enqueue('mem-edit', 'user-a', 'Versão antiga');
+      const first = (queue as unknown as { processNextBatch(): Promise<void> }).processNextBatch();
+      queue.enqueue('mem-edit', 'user-a', 'Versão corrigida');
+      fail(new Error('synthetic_provider_failure'));
+      await first;
+      mockGenerateBatch.mockResolvedValueOnce([{ embedding: [0, 1], cached: false }]);
+      await (queue as unknown as { processNextBatch(): Promise<void> }).processNextBatch();
+      expect(mockGenerateBatch).toHaveBeenLastCalledWith(['Versão corrigida']);
+      expect(mockUpdateEmbedding).toHaveBeenCalledOnce();
+      expect(mockUpdateEmbedding).toHaveBeenCalledWith('mem-edit', [0, 1], 'Versão corrigida');
+    });
+
+    it('retries a missing batch result without losing the other user’s result', async () => {
+      queue.enqueue('mem-a', 'user-a', 'Conteúdo A');
+      queue.enqueue('mem-b', 'user-b', 'Conteúdo B', 6);
+      mockIsAvailable.mockReturnValue(true);
+      mockGenerateBatch.mockResolvedValueOnce([{ embedding: [1, 0], cached: false }]);
+      await (queue as unknown as { processNextBatch(): Promise<void> }).processNextBatch();
+      expect(mockUpdateEmbedding).toHaveBeenCalledOnce();
+      expect(mockUpdateEmbedding).toHaveBeenCalledWith('mem-a', [1, 0], 'Conteúdo A');
+      expect(queue.getStats().queueSize).toBe(1);
+      mockGenerateBatch.mockResolvedValueOnce([{ embedding: [0, 1], cached: false }]);
+      await (queue as unknown as { processNextBatch(): Promise<void> }).processNextBatch();
+      expect(mockGenerateBatch).toHaveBeenLastCalledWith(['Conteúdo B']);
+      expect(mockUpdateEmbedding).toHaveBeenLastCalledWith('mem-b', [0, 1], 'Conteúdo B');
+    });
+
     it('adds item to queue', () => {
       queue.enqueue('mem-1', 'user-1', 'test content');
       expect(queue.getStats().queueSize).toBe(1);

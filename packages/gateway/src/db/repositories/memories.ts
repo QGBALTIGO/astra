@@ -98,9 +98,13 @@ function parseEmbedding(value: number[] | string | null): number[] | undefined {
  * Uses simple string normalization + hash for cross-platform compatibility.
  * AGENT-HIGH-003: Memory Deduplication - Content hash fallback for embedding gap
  */
+function normalizedMemoryContent(content: string): string {
+  return content.toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
 function computeContentHash(content: string): string {
   // Normalize: lowercase, trim, collapse whitespace
-  const normalized = content.toLowerCase().trim().replace(/\s+/g, ' ');
+  const normalized = normalizedMemoryContent(content);
 
   // Simple hash function (FNV-1a variant)
   let hash = 0x811c9dc5;
@@ -132,6 +136,22 @@ function rowToMemory(row: MemoryRow): Memory {
   };
 }
 
+function memoryRevision(memory: Memory): string {
+  return JSON.stringify([
+    memory.id,
+    memory.userId,
+    memory.type,
+    memory.content,
+    memory.source,
+    memory.sourceId,
+    memory.importance,
+    memory.tags,
+    memory.embedding,
+    memory.updatedAt.toISOString(),
+    memory.metadata,
+  ]);
+}
+
 export class MemoriesRepository extends BaseRepository {
   private userId: string;
 
@@ -147,10 +167,68 @@ export class MemoriesRepository extends BaseRepository {
     return this.get(id, false);
   }
 
+  /** Validate the snapshot after inference, then replace all sources atomically. */
+  async replaceCluster(
+    sources: readonly Memory[],
+    input: CreateMemoryInput
+  ): Promise<{ memory: Memory; removed: number } | null> {
+    const expected = new Map(sources.map((memory) => [memory.id, memoryRevision(memory)]));
+    if (
+      sources.length < 2 ||
+      expected.size !== sources.length ||
+      sources.some((memory) => memory.userId !== this.userId || memory.type !== input.type)
+    )
+      throw new Error('Invalid memory consolidation scope');
+    const ids = [...expected.keys()].sort();
+    const result = await this.transaction(async () => {
+      const rows = await this.query<MemoryRow>(
+        'SELECT * FROM memories WHERE user_id = $1 AND id = ANY($2::text[]) ORDER BY id FOR UPDATE',
+        [this.userId, ids]
+      );
+      if (
+        rows.length !== expected.size ||
+        rows.some((row) => memoryRevision(rowToMemory(row)) !== expected.get(row.id))
+      )
+        return null;
+      const memory = await this.create(
+        {
+          ...input,
+          accessCount: rows.reduce((sum, row) => sum + row.accessed_count, 0),
+          metadata: { ...input.metadata, consolidatedSourceIds: ids },
+        },
+        false
+      );
+      const deleted = await this.execute(
+        'DELETE FROM memories WHERE user_id = $1 AND id = ANY($2::text[])',
+        [this.userId, ids]
+      );
+      if (deleted.changes !== expected.size)
+        throw new Error('Memory consolidation changed concurrently');
+      return { memory, removed: deleted.changes };
+    });
+    if (result) {
+      const events = getEventSystem();
+      events.emit('resource.created', 'memories-repository', {
+        resourceType: 'memory',
+        id: result.memory.id,
+      });
+      for (const id of ids)
+        events.emit('resource.deleted', 'memories-repository', { resourceType: 'memory', id });
+      events.emit('memory.created', 'memories-repository', {
+        memoryId: result.memory.id,
+        userId: this.userId,
+        type: result.memory.type,
+        content: result.memory.content,
+        needsEmbedding: !result.memory.embedding,
+      });
+    }
+    return result;
+  }
+
   /**
    * Create a new memory
    */
-  async create(input: CreateMemoryInput): Promise<Memory> {
+  async create(input: CreateMemoryInput, emitEvent = true): Promise<Memory> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const contentHash = computeContentHash(input.content);
@@ -182,10 +260,11 @@ export class MemoriesRepository extends BaseRepository {
     const memory = await this.get(id);
     if (!memory) throw new Error('Failed to create memory');
 
-    getEventSystem().emit('resource.created', 'memories-repository', {
-      resourceType: 'memory',
-      id,
-    });
+    if (emitEvent)
+      getEventSystem().emit('resource.created', 'memories-repository', {
+        resourceType: 'memory',
+        id,
+      });
 
     return memory;
   }
@@ -221,6 +300,9 @@ export class MemoriesRepository extends BaseRepository {
       `
       UPDATE memories SET
         content = COALESCE($1, content),
+        content_hash = CASE WHEN $1::text IS NULL THEN content_hash ELSE $8 END,
+        embedding = CASE WHEN $1::text IS NOT NULL AND content IS DISTINCT FROM $1 THEN NULL ELSE embedding END,
+        embedding_model_id = CASE WHEN $1::text IS NOT NULL AND content IS DISTINCT FROM $1 THEN NULL ELSE embedding_model_id END,
         importance = COALESCE($2, importance),
         tags = COALESCE($3, tags),
         metadata = COALESCE($4, metadata),
@@ -235,6 +317,7 @@ export class MemoriesRepository extends BaseRepository {
         now,
         id,
         this.userId,
+        typeof input.content === 'string' ? computeContentHash(input.content) : null,
       ]
     );
 
@@ -632,7 +715,9 @@ export class MemoriesRepository extends BaseRepository {
     if (type) hashParams.push(type);
 
     const hashRow = await this.queryOne<MemoryRow>(hashSql, hashParams);
-    if (hashRow) return rowToMemory(hashRow);
+    // A legacy 32-bit hash narrows the lookup; it does not prove equality.
+    if (hashRow && normalizedMemoryContent(hashRow.content) === normalizedMemoryContent(content))
+      return rowToMemory(hashRow);
 
     // Final fallback: exact text match (for backwards compatibility with old memories)
     let sql = `
@@ -656,11 +741,21 @@ export class MemoriesRepository extends BaseRepository {
   /**
    * Update the embedding vector for an existing memory (backfill support)
    */
-  async updateEmbedding(id: string, embedding: number[]): Promise<boolean> {
+  async updateEmbedding(
+    id: string,
+    embedding: number[],
+    expectedContent?: string
+  ): Promise<boolean> {
     const result = await this.execute(
       `UPDATE memories SET embedding = $1::vector, updated_at = $2
-       WHERE id = $3 AND user_id = $4`,
-      [JSON.stringify(embedding), new Date().toISOString(), id, this.userId]
+       WHERE id = $3 AND user_id = $4 AND ($5::text IS NULL OR content = $5)`,
+      [
+        JSON.stringify(embedding),
+        new Date().toISOString(),
+        id,
+        this.userId,
+        expectedContent ?? null,
+      ]
     );
     return result.changes > 0;
   }
