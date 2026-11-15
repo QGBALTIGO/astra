@@ -8,6 +8,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { DatabaseAdapter } from '../../adapters/types.js';
 
+const { createTrialContact } = vi.hoisted(() => ({ createTrialContact: vi.fn() }));
+vi.mock('../whatsapp-trials.js', () => ({
+  whatsAppTrialsRepo: { createNewContact: createTrialContact },
+}));
+
 const { mockQueueLifecycle, mockRebasePendingLifecycle } = vi.hoisted(() => ({
   mockQueueLifecycle: vi.fn().mockResolvedValue(null),
   mockRebasePendingLifecycle: vi.fn().mockResolvedValue(undefined),
@@ -95,6 +100,40 @@ describe('ChannelUsersRepository', () => {
   });
 
   // ---- findByPlatform ----
+  it('delegates a new trusted inbound identity to the atomic trial enrollment', async () => {
+    const row = makeUserRow({
+      platform: 'whatsapp',
+      platform_user_id: '5567999981234',
+      ownpilot_user_id: 'whatsapp:5567999981234',
+      access_source: 'trial',
+      is_verified: true,
+    });
+    mockAdapter.queryOne.mockResolvedValueOnce(null).mockResolvedValueOnce(row);
+    createTrialContact.mockResolvedValueOnce(row.id);
+    const result = await repo.findOrCreate({
+      platform: 'whatsapp',
+      platformUserId: '5567999981234',
+      ownpilotUserId: 'whatsapp:5567999981234',
+      startWhatsAppTrial: true,
+    });
+    expect(createTrialContact).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      created: true,
+      firstInteraction: true,
+      accessSource: 'trial',
+      isVerified: true,
+    });
+  });
+  it('never delegates an existing contact to automatic trial enrollment', async () => {
+    mockAdapter.queryOne.mockResolvedValueOnce(makeUserRow({ metadata: { hasInteracted: true } }));
+    await repo.findOrCreate({
+      platform: 'whatsapp',
+      platformUserId: '5567999981234',
+      ownpilotUserId: 'whatsapp:5567999981234',
+      startWhatsAppTrial: true,
+    });
+    expect(createTrialContact).not.toHaveBeenCalled();
+  });
 
   describe('findByPlatform', () => {
     it('returns a channel user when found', async () => {

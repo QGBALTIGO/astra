@@ -1547,6 +1547,34 @@ describe('ChannelServiceImpl', () => {
         expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
       });
 
+      it.each([false, true])(
+        'welcomes a new trial and preserves its first request: %s',
+        async (realRequest) => {
+          customer = {
+            ...customer,
+            isVerified: true,
+            status: 'active',
+            firstInteraction: true,
+            accessSource: 'trial',
+            accessExpiresAt: new Date('2099-01-01T16:00:00Z'),
+          };
+          reserve('first_authorized');
+          message.text = realRequest ? 'Anote minha ideia para o projeto' : 'Oi';
+          await service.processIncomingMessage(message);
+          expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
+            expect.objectContaining({
+              startWhatsAppTrial: true,
+              ownpilotUserId: 'whatsapp:' + phone,
+            })
+          );
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ text: expect.stringContaining('3 dias grátis') })
+          );
+          if (realRequest) expect(mockGetOrCreateChatAgent).toHaveBeenCalled();
+          else expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        }
+      );
+
       it('welcomes a preauthorized first greeting without an extra AI response', async () => {
         customer = {
           ...customer,

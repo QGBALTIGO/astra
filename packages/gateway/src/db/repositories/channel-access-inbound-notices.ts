@@ -14,6 +14,7 @@ interface NoticeState {
   inactiveCycle: string;
   lastInactiveAt: number;
   firstAuthorized: boolean;
+  firstAuthorizedAsTrial?: boolean;
   messageIds: string[];
 }
 
@@ -41,6 +42,7 @@ function stateFrom(value: unknown): NoticeState {
     inactiveCycle: typeof state.inactiveCycle === 'string' ? state.inactiveCycle : '',
     lastInactiveAt: finite(state.lastInactiveAt),
     firstAuthorized: state.firstAuthorized === true,
+    ...(state.firstAuthorizedAsTrial === true ? { firstAuthorizedAsTrial: true } : {}),
     messageIds: Array.isArray(state.messageIds)
       ? state.messageIds.filter((id): id is string => typeof id === 'string').slice(-32)
       : [],
@@ -117,6 +119,7 @@ export class ChannelAccessInboundNoticesRepository extends BaseRepository {
         }
         kind = 'first_authorized';
         state.firstAuthorized = true;
+        if (user.accessSource === 'trial') state.firstAuthorizedAsTrial = true;
       } else if (status === 'pending') {
         if (state.pendingStage === 0) {
           kind = 'pending_welcome';
@@ -130,6 +133,17 @@ export class ChannelAccessInboundNoticesRepository extends BaseRepository {
         }
         state.lastPendingAt = now.getTime();
       } else if (status === 'expired' || status === 'revoked') {
+        if (user.accessSource === 'trial' && status === 'expired') {
+          const recent = await this.queryOne<{ id: string }>(
+            `SELECT id FROM channel_access_notifications WHERE channel_user_id=$1
+             AND kind='trial_expired' AND status IN ('sending','delivered')
+             AND access_granted_at IS NOT DISTINCT FROM $2::timestamptz
+             AND access_expires_at IS NOT DISTINCT FROM $3::timestamptz
+             AND send_started_at > $4::timestamptz - INTERVAL '15 minutes' LIMIT 1`,
+            [user.id, user.accessGrantedAt, user.accessExpiresAt, now]
+          );
+          if (recent) return null;
+        }
         if (
           state.inactiveCycle === cycle &&
           now.getTime() - state.lastInactiveAt < ACCESS_NOTICE_COOLDOWN_MS

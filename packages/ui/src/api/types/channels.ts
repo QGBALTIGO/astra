@@ -43,7 +43,7 @@ export interface ChannelUser {
   isOwner?: boolean;
   accessExpiresAt?: string | null;
   accessGrantedAt?: string | null;
-  accessSource?: 'manual' | 'cakto' | null;
+  accessSource?: 'manual' | 'cakto' | 'trial' | null;
   accessStatus?: 'active' | 'expired' | 'revoked' | 'blocked' | 'pending';
   /** False for a number authorized before its first incoming message. */
   hasInteracted?: boolean;

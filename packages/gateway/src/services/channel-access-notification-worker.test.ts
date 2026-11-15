@@ -111,6 +111,74 @@ describe('ChannelAccessNotificationWorker', () => {
   const loadSettings = vi.fn<() => Promise<typeof settings>>();
   const render = vi.fn<typeof buildAccessMessage>();
 
+  it('sends the trusted trial expiry template through the private transport only', async () => {
+    user.accessSource = 'trial';
+    user.accessExpiresAt = new Date(now.getTime() - 1);
+    entry = { ...makeEntry(user), kind: 'trial_expired' };
+    api.sendMessage.mockResolvedValue('trial-receipt');
+    const result = await worker.dispatch();
+    expect(result.delivered).toBe(1);
+    expect(api.sendMessage).toHaveBeenCalledOnce();
+    expect(channels.send).not.toHaveBeenCalled();
+    expect(render.mock.calls[0]?.[0]).toBe('expired');
+  });
+  it('cancels an expiry notice when the trial was converted to a paid account', async () => {
+    user.accessSource = 'cakto';
+    entry = { ...makeEntry(user), kind: 'trial_expired' };
+    await worker.dispatch();
+    expect(api.sendMessage).not.toHaveBeenCalled();
+    expect(channels.send).not.toHaveBeenCalled();
+  });
+  it('does not announce expiry before the deadline or after revocation', async () => {
+    user.accessSource = 'trial';
+    entry = { ...makeEntry(user), kind: 'trial_expired' };
+    await worker.dispatch();
+    expect(api.sendMessage).not.toHaveBeenCalled();
+  });
+  it('rechecks a payment arriving after the send claim', async () => {
+    user.accessSource = 'trial';
+    user.accessExpiresAt = new Date(now.getTime() - 1);
+    entry = { ...makeEntry(user), kind: 'trial_expired' };
+    notifications.beginSend.mockImplementationOnce(async () => {
+      user.accessSource = 'cakto';
+      user.accessExpiresAt = new Date(now.getTime() + 86400_000);
+      return true;
+    });
+    await worker.dispatch();
+    expect(api.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('confirms the first paid subscription after a trial welcome', async () => {
+    user.accessSource = 'cakto';
+    user.metadata = {
+      hasInteracted: true,
+      caktoManaged: true,
+      astraAccessNotices: { firstAuthorized: true, firstAuthorizedAsTrial: true },
+    };
+    entry = makeEntry(user);
+    const result = await worker.dispatch();
+    expect(result.delivered).toBe(1);
+    expect(channels.send).toHaveBeenCalledOnce();
+    expect(render.mock.calls[0]?.[0]).toBe('subscribed');
+  });
+  it('does not mark an ambiguous trial transport receipt as delivered', async () => {
+    user.accessSource = 'trial';
+    user.accessExpiresAt = new Date(now.getTime() - 1);
+    entry = { ...makeEntry(user), kind: 'trial_expired' };
+    api.sendMessage.mockResolvedValue('');
+    const result = await worker.dispatch();
+    expect(result.failed).toBe(1);
+    expect(result.delivered).toBe(0);
+    expect(api.sendMessage).toHaveBeenCalledOnce();
+    expect(notifications.finish).toHaveBeenCalledWith(
+      entry.id,
+      entry.leaseToken,
+      'failed',
+      expect.anything(),
+      now
+    );
+  });
+
   beforeEach(() => {
     vi.resetAllMocks();
     user = makeUser();
