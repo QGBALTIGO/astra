@@ -308,7 +308,7 @@ export function WhatsAppAccessPanel({
                     {user.hasInteracted === false
                       ? user.discoveredFromLinkedSession
                         ? 'Encontrado no WhatsApp vinculado'
-                        : 'Ainda não conversou'
+                        : 'Histórico da conversa ainda não sincronizado'
                       : 'Última atividade: ' + timeAgo(user.lastSeenAt)}
                   </p>
                 </div>

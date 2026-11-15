@@ -22,13 +22,15 @@ export class WhatsAppContactDiscoveryRepository extends BaseRepository {
         phone: c.phone,
         name: c.name?.trim().slice(0, 256) || null,
         seen_at: c.seenAt.toISOString(),
+        interacted: source === 'history' || c.interactionConfirmed === true,
       }));
       const result = await this.execute(
         `INSERT INTO channel_users
           (id, ownpilot_user_id, platform, platform_user_id, display_name, status, metadata, first_seen_at, last_seen_at)
          SELECT c.id, 'whatsapp:' || c.phone, 'whatsapp', c.phone, c.name, 'pending',
-                $2::jsonb, c.seen_at, c.seen_at
-         FROM jsonb_to_recordset($1::jsonb) AS c(id text, phone text, name text, seen_at timestamptz)
+                $2::jsonb || CASE WHEN c.interacted THEN '{"hasInteracted":true,"discoveredFromHistory":true}'::jsonb ELSE '{}'::jsonb END,
+                c.seen_at AT TIME ZONE 'UTC', c.seen_at AT TIME ZONE 'UTC'
+         FROM jsonb_to_recordset($1::jsonb) AS c(id text, phone text, name text, seen_at timestamptz, interacted boolean)
          WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE key = 'owner_whatsapp' AND value = c.phone)
            AND NOT EXISTS (SELECT 1 FROM customer_phone_aliases p JOIN customer_accounts a ON a.id=p.account_id
              WHERE p.phone_number=c.phone AND (p.retired_at IS NOT NULL OR a.current_phone <> c.phone))
@@ -36,7 +38,13 @@ export class WhatsAppContactDiscoveryRepository extends BaseRepository {
            display_name = CASE WHEN channel_users.display_name IS NULL OR channel_users.display_name = channel_users.platform_user_id
              THEN COALESCE(EXCLUDED.display_name, channel_users.display_name) ELSE channel_users.display_name END,
            first_seen_at = LEAST(channel_users.first_seen_at, EXCLUDED.first_seen_at),
-           last_seen_at = GREATEST(channel_users.last_seen_at, EXCLUDED.last_seen_at)`,
+           last_seen_at = CASE WHEN EXCLUDED.metadata->>'hasInteracted' = 'true'
+             THEN CASE WHEN channel_users.metadata->>'hasInteracted' = 'false' THEN EXCLUDED.last_seen_at
+                  ELSE GREATEST(channel_users.last_seen_at, EXCLUDED.last_seen_at) END
+             ELSE channel_users.last_seen_at END,
+           metadata = CASE WHEN EXCLUDED.metadata->>'hasInteracted' = 'true'
+             THEN COALESCE(channel_users.metadata,'{}'::jsonb) || '{"hasInteracted":true,"discoveredFromHistory":true}'::jsonb
+             ELSE channel_users.metadata END`,
         [
           JSON.stringify(rows),
           JSON.stringify(

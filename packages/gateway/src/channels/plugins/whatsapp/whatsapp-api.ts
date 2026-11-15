@@ -10,6 +10,7 @@
 
 import { whatsappPhoneSpellings } from '../../whatsapp-phone.js';
 import { readWhatsAppServerContacts } from './whatsapp-server-contacts.js';
+import { readWhatsAppLinkedPhones } from './whatsapp-linked-phones.js';
 import {
   discoverWhatsAppHistoryContacts,
   type WhatsAppHistoryContactInput,
@@ -1143,6 +1144,20 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     if (this.sock !== sock || this.status !== 'connected')
       throw new Error('O WhatsApp reconectou. Tente a sincronização novamente.');
     let contactsRecovered = await whatsAppContactDiscoveryRepo.recoverStoredInbound();
+    try {
+      const current = () => this.sock === sock && this.status === 'connected';
+      const phones = await readWhatsAppLinkedPhones(
+        sock,
+        getSessionDir(this.pluginId),
+        current,
+        (jid) => this.isSelfChat(jid)
+      );
+      if (!current()) throw new Error('WhatsApp connection changed');
+      contactsRecovered += await whatsAppContactDiscoveryRepo.remember(phones, 'linked_session');
+      log.info('WhatsApp linked-session phone mappings reconciled', { count: phones.length });
+    } catch {
+      log.warn('WhatsApp linked-session phone mappings unavailable; continuing directory recovery');
+    }
     try {
       const current = () => this.sock === sock && this.status === 'connected';
       const directory = await readWhatsAppServerContacts(

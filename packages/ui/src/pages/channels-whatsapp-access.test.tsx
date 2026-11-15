@@ -288,7 +288,10 @@ describe('WhatsApp access management', () => {
     async (state, label) => {
       await render(panel([user({ accessStatus: state, isVerified: state === 'active' })]));
       expect(container.querySelector('li')?.textContent).toContain(label);
-      expect(container.querySelector('li')?.textContent).toContain('Ainda não conversou');
+      expect(container.querySelector('li')?.textContent).toContain(
+        'Histórico da conversa ainda não sincronizado'
+      );
+      expect(container.querySelector('li')?.textContent).not.toContain('Ainda não conversou');
       expect(container.querySelector('time')?.getAttribute('dateTime')).toBe(
         '2099-12-10T16:00:00Z'
       );

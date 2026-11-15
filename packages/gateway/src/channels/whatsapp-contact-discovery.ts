@@ -3,6 +3,8 @@ export interface WhatsAppContactObservation {
   phone: string;
   name?: string;
   seenAt: Date;
+  /** Explicit private incoming-message evidence, never just an address-book lookup. */
+  interactionConfirmed?: boolean;
 }
 export interface WhatsAppHistoryContactInput {
   chats?: ReadonlyArray<{

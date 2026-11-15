@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WASocket } from '@whiskeysockets/baileys';
 const f = vi.hoisted(() => ({
+  patches: vi.fn(),
   extract: vi.fn(),
   decode: vi.fn(),
   query: vi.fn(),
@@ -10,6 +11,7 @@ const f = vi.hoisted(() => ({
 vi.mock('@whiskeysockets/baileys', () => ({
   extractSyncdPatches: f.extract,
   decodeSyncdSnapshot: f.decode,
+  decodePatches: f.patches,
 }));
 import { readWhatsAppServerContacts } from './whatsapp-server-contacts.js';
 const socket = () =>
@@ -34,6 +36,99 @@ beforeEach(() => {
   });
 });
 describe('read-only linked-session contact snapshots', () => {
+  it('includes recent signed patches after the base snapshot without advancing SDK state', async () => {
+    const at = Math.floor(new Date('2026-11-14T17:59:00Z').getTime() / 1000);
+    f.extract.mockResolvedValueOnce({ regular: { snapshot: {}, patches: [{}] } });
+    const state = { version: 7 };
+    f.decode.mockResolvedValueOnce({ state, mutationMap: {} });
+    f.patches.mockResolvedValueOnce({
+      mutationMap: {
+        recent: {
+          index: ['read', '244927000072@s.whatsapp.net'],
+          syncAction: {
+            value: {
+              markChatAsReadAction: {
+                messageRange: { messages: [{ key: { fromMe: false }, timestamp: at }] },
+              },
+            },
+          },
+        },
+      },
+    });
+    const rows = await readWhatsAppServerContacts(
+      socket(),
+      () => true,
+      async (key) => key.remoteJid ?? null,
+      () => false
+    );
+    expect(rows).toEqual([
+      {
+        phone: '244927000072',
+        name: undefined,
+        seenAt: new Date(at * 1000),
+        interactionConfirmed: true,
+      },
+    ]);
+    expect(f.patches).toHaveBeenCalledWith(
+      'regular',
+      [{}],
+      state,
+      expect.any(Function),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      undefined,
+      undefined,
+      true
+    );
+    expect(f.set).not.toHaveBeenCalled();
+  });
+  it('uses explicit authenticated incoming-message evidence but never an outgoing message or aggregate clock as proof', async () => {
+    const at = Math.floor(new Date('2026-11-14T17:59:00Z').getTime() / 1000);
+    f.decode.mockResolvedValueOnce({
+      mutationMap: {
+        incoming: {
+          index: ['markChatAsRead', '244927000072@s.whatsapp.net'],
+          syncAction: {
+            value: {
+              markChatAsReadAction: {
+                messageRange: {
+                  messages: [
+                    {
+                      key: { remoteJid: '244927000072@s.whatsapp.net', fromMe: false },
+                      timestamp: at,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        outgoing: {
+          index: ['archive', '5581999990101@s.whatsapp.net'],
+          syncAction: {
+            value: {
+              archiveChatAction: {
+                messageRange: {
+                  lastMessageTimestamp: at,
+                  messages: [{ key: { fromMe: true }, timestamp: at }],
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const rows = await readWhatsAppServerContacts(
+      socket(),
+      () => true,
+      async (key) => key.remoteJid ?? null,
+      () => false
+    );
+    expect(rows.find((row) => row.phone === '244927000072')).toMatchObject({
+      interactionConfirmed: true,
+      seenAt: new Date(at * 1000),
+    });
+    expect(rows.find((row) => row.phone === '5581999990101')?.interactionConfirmed).toBeUndefined();
+  });
   it('requests verified server snapshots without resetting keys, sync cursors or chats', async () => {
     const s = socket();
     const rows = await readWhatsAppServerContacts(

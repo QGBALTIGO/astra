@@ -60,7 +60,10 @@ describe.skipIf(!port)('WhatsApp directory with real isolated PostgreSQL', () =>
     await repo.remember([{ phone, name: 'Overwritten?', seenAt: now }]);
     expect(
       await db.queryOne(`SELECT * FROM channel_users WHERE platform_user_id=$1`, [phone])
-    ).toEqual(before);
+    ).toEqual({
+      ...before,
+      metadata: { hasInteracted: true, privateFlag: true, discoveredFromHistory: true },
+    });
     await db.exec(`INSERT INTO system_settings VALUES('owner_whatsapp','5511999900001');
    INSERT INTO customer_accounts VALUES('retired-account','5511999900003');
    INSERT INTO customer_phone_aliases VALUES('5511999900002','retired-account',NOW());`);
@@ -134,5 +137,36 @@ describe.skipIf(!port)('WhatsApp directory with real isolated PostgreSQL', () =>
     }
     expect(ids.length).toBe(expected.length);
     expect(new Set(ids)).toEqual(new Set(expected.map((row) => row.id)));
+  });
+  it('upgrades a manually authorized contact when history confirms interaction without changing access or treating inventory reads as activity', async () => {
+    const repo = new WhatsAppContactDiscoveryRepository();
+    const phone = '244927000072';
+    await repo.remember(
+      [{ phone, name: 'Contato de teste', seenAt: new Date('2026-11-14T23:41:00Z') }],
+      'linked_session'
+    );
+    await db.execute(
+      `UPDATE channel_users SET is_verified=true,status='active',access_source='manual',access_expires_at='2026-12-14',metadata=metadata || '{"privateFlag":true}'::jsonb WHERE platform_user_id=$1`,
+      [phone]
+    );
+    const before = await db.queryOne<{ metadata: Record<string, unknown>; last_seen_at: Date }>(
+      `SELECT * FROM channel_users WHERE platform_user_id=$1`,
+      [phone]
+    );
+    const actual = new Date('2026-11-14T17:59:00Z');
+    await repo.remember([{ phone, seenAt: actual, interactionConfirmed: true }], 'linked_session');
+    const after = await db.queryOne(`SELECT * FROM channel_users WHERE platform_user_id=$1`, [
+      phone,
+    ]);
+    expect(after).toEqual({
+      ...before,
+      metadata: { ...before!.metadata, hasInteracted: true, discoveredFromHistory: true },
+      first_seen_at: actual,
+      last_seen_at: actual,
+    });
+    await repo.remember([{ phone, seenAt: new Date('2026-11-15T23:00:00Z') }], 'linked_session');
+    expect(
+      await db.queryOne(`SELECT * FROM channel_users WHERE platform_user_id=$1`, [phone])
+    ).toEqual(after);
   });
 });
