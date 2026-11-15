@@ -11,9 +11,10 @@ import {
   customerLocalDay,
 } from '../services/customer-date.js';
 import { formatAstraMessage } from './response-presentation.js';
+import { morningComponents, type MorningComponents } from './morning-components.js';
 
 export type DailyGreetingCommand =
-  | { kind: 'enable'; hour: number; minute: number; withCuriosity: boolean }
+  | ({ kind: 'enable'; hour: number; minute: number; withCuriosity: boolean } & MorningComponents)
   | { kind: 'disable' }
   | { kind: 'missing_time' }
   | { kind: 'invalid_time' };
@@ -29,6 +30,12 @@ const normalized = (text: string) =>
 export function parseDailyGreetingCommand(text: string): DailyGreetingCommand | null {
   const input = normalized(text);
   if (!/\bbom\s+dia\b/u.test(input)) return null;
+  if (
+    /(?:\be\s+|;\s*)(?:tambem\s+)?(?:registre|anote|cancele|exclua|crie|agende|lembre|pague)\b/u.test(
+      input
+    )
+  )
+    return null;
 
   if (
     /\b(?:cancele|cancelar|desative|desativar|remova|remover|pare de|parar de|nao quero mais|nao mande mais)\b/u.test(
@@ -38,7 +45,9 @@ export function parseDailyGreetingCommand(text: string): DailyGreetingCommand | 
     return { kind: 'disable' };
   }
   if (
-    !/\b(?:todo dia|todos os dias|diariamente|cada dia|toda manha|todas as manhas)\b/u.test(input)
+    !/\b(?:todo dia|todos os dias|diario|diariamente|cada dia|toda manha|todas as manhas)\b/u.test(
+      input
+    )
   ) {
     return null;
   }
@@ -60,9 +69,8 @@ export function parseDailyGreetingCommand(text: string): DailyGreetingCommand | 
     kind: 'enable',
     hour,
     minute,
-    withCuriosity: /\b(?:curiosidade|curiosidades|fato interessante|fatos interessantes)\b/u.test(
-      input
-    ),
+    ...morningComponents(text),
+    withCuriosity: morningComponents(text).withCuriosity ?? false,
   };
 }
 
@@ -142,7 +150,7 @@ export async function tryDailyGreetingChannelReply(
       timeZone,
       hour: command.hour,
       minute: command.minute,
-      withCuriosity: command.withCuriosity,
+      ...morningComponents(message.text),
       nextRunAt,
     });
     const local = new Intl.DateTimeFormat('pt-BR', {
@@ -157,6 +165,24 @@ export async function tryDailyGreetingChannelReply(
         { label: 'Horário', value: hhmm + ' — todos os dias' },
         { label: 'Fuso horário', value: saved.timeZone },
         { label: 'Curiosidade do dia', value: saved.withCuriosity ? 'Incluída' : 'Desativada' },
+        ...(saved.withWeather
+          ? [
+              {
+                label: 'Temperatura',
+                value: 'Incluída · usa sua cidade salva; se faltar, vou avisar',
+              },
+            ]
+          : []),
+        ...(saved.withEmailDigest
+          ? [
+              {
+                label: 'Resumo de e-mails',
+                value:
+                  (saved.emailPreviousDay ? 'Dia anterior' : 'Últimas 24 horas') +
+                  ' · requer Gmail conectado em Painel → Conexões',
+              },
+            ]
+          : []),
         { label: 'Próximo envio', value: local },
       ],
       'Para parar, diga: cancele meu bom dia diário.'

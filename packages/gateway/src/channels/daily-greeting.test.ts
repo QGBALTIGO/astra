@@ -62,6 +62,40 @@ describe('daily good-morning commands', () => {
     });
   });
 
+  it('preserves all components from the combined morning screenshot', () => {
+    expect(
+      parseDailyGreetingCommand(
+        'Quero que as 6h todo dia você me dê bom dia, fale uma curiosidade do dia, a temperatura atual é um resumo dos e-mails mais importantes do dia anterior'
+      )
+    ).toMatchObject({
+      kind: 'enable',
+      hour: 6,
+      minute: 0,
+      withCuriosity: true,
+      withWeather: true,
+      withEmailDigest: true,
+      emailPreviousDay: true,
+    });
+  });
+
+  it('confirms weather and email preferences instead of silently omitting them', async () => {
+    mock.upsert.mockResolvedValueOnce({
+      ...stored,
+      withWeather: true,
+      withEmailDigest: true,
+      emailPreviousDay: true,
+    });
+    const reply = await tryDailyGreetingChannelReply(
+      message('Bom dia todo dia às 6h com temperatura e resumo dos e-mails de ontem'),
+      stored.userId
+    );
+    expect(mock.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ withWeather: true, withEmailDigest: true, emailPreviousDay: true })
+    );
+    expect(reply).toMatch(/Temperatura/);
+    expect(reply).toMatch(/e-mails/i);
+  });
+
   it.each([
     ['Me mande bom dia todos os dias às 06:30.', 6, 30],
     ['Bom dia diariamente às 7h15.', 7, 15],

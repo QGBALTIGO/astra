@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { safeChannelResponse, type ChannelToolReceipt } from './response-safety.js';
+import { verifiedChannelFacts } from './verified-facts.js';
 const receipt = (name: string, result: unknown): ChannelToolReceipt => ({
   name: 'core.' + name,
   content: JSON.stringify({ success: true, result }),
@@ -7,6 +8,30 @@ const receipt = (name: string, result: unknown): ChannelToolReceipt => ({
   isError: false,
 });
 describe('verified weather and calendar presentation', () => {
+  it('retains the email failure status when weather succeeds', () => {
+    const weather = receipt('get_local_weather', {
+      city: 'Aquidauana',
+      region: 'MS',
+      temperatureC: 31,
+      kind: 'model_estimate',
+    });
+    const mail = { ...receipt('manage_email_digest', {}), isError: true };
+    const text = verifiedChannelFacts('', [weather, mail]);
+    expect(text).toContain('31 °C');
+    expect(text).toContain('Não consegui confirmar o resumo de e-mails');
+  });
+  it('keeps the email digest and weather status when one component fails', () => {
+    const weather = { ...receipt('get_local_weather', {}), isError: true };
+    const text = verifiedChannelFacts('', [
+      weather,
+      receipt('manage_email_digest', {
+        kind: 'email_digest',
+        reply: '📬 Seus e-mails importantes: Consulta amanhã.',
+      }),
+    ]);
+    expect(text).toContain('Consulta amanhã');
+    expect(text).toContain('Não consegui consultar o tempo');
+  });
   it('replaces invented weather values, source and feels-like with the actual lookup', () => {
     const data = receipt('get_local_weather', {
       city: 'Aquidauana',

@@ -47,8 +47,13 @@ export function verifiedChannelFacts(
     /^(?:core[._])?manage_email_digest$/.test(r.name.replace(/__/g, '.'))
   );
   const digestResult = digest ? result(digest) : null;
-  if (digestResult?.kind === 'email_digest' && typeof digestResult.reply === 'string')
-    return digestResult.reply;
+  const digestReply =
+    digestResult?.kind === 'email_digest' && typeof digestResult.reply === 'string'
+      ? digestResult.reply
+      : digest
+        ? '📬 Não consegui confirmar o resumo de e-mails agora. Confira sua conexão em Painel → Conexões.'
+        : undefined;
+  const combined = (weather: string) => [weather, digestReply].filter(Boolean).join('\n\n');
   const weatherReceipts = receipts.filter((r) =>
     /^(?:core[._])?(?:get_local_weather|set_weather_city)$/.test(r.name.replace(/__/g, '.'))
   );
@@ -58,7 +63,8 @@ export function verifiedChannelFacts(
     .map(result)
     .find((r) => r?.saved === true);
   const data = read ? result(read) : null;
-  if (data?.needsCity === true) return plain(data.question) || 'Qual é a sua cidade e estado?';
+  if (data?.needsCity === true)
+    return combined(plain(data.question) || 'Qual é a sua cidade e estado?');
   if (
     data &&
     typeof data.temperatureC === 'number' &&
@@ -78,26 +84,29 @@ export function verifiedChannelFacts(
       fields.push({ label: 'Umidade', value: Math.round(data.humidityPercent) + '%' });
     if (typeof data.windKmH === 'number' && Number.isFinite(data.windKmH))
       fields.push({ label: 'Vento', value: data.windKmH + ' km/h' });
-    return (
+    return combined(
       opening(text) +
-      formatAstraMessage('🌤️ Tempo em ' + city, fields) +
-      (saved ? '\n\nCidade guardada para as próximas consultas.' : '')
+        formatAstraMessage('🌤️ Tempo em ' + city, fields) +
+        (saved ? '\n\nCidade guardada para as próximas consultas.' : '')
     );
   }
   if (weatherReceipts.length) {
     if (saved)
-      return formatAstraMessage(
-        '📍 Cidade guardada',
-        [
-          {
-            label: 'Cidade',
-            value: [plain(saved.city), plain(saved.region)].filter(Boolean).join(', '),
-          },
-        ],
-        'Ainda não consegui consultar a temperatura agora.'
+      return combined(
+        formatAstraMessage(
+          '📍 Cidade guardada',
+          [
+            {
+              label: 'Cidade',
+              value: [plain(saved.city), plain(saved.region)].filter(Boolean).join(', '),
+            },
+          ],
+          'Ainda não consegui consultar a temperatura agora.'
+        )
       );
-    return 'Não consegui consultar o tempo agora. Pode tentar de novo em instantes?';
+    return combined('Não consegui consultar o tempo agora. Pode tentar de novo em instantes?');
   }
+  if (digestReply) return digestReply;
   if (
     requiredChannelWeatherTool(context.requestText ?? '') &&
     /-?\d+(?:[.,]\d+)?\s*(?:°|graus)|(?:cidade.{0,25}(?:salva|guardada)|(?:salvei|guardei).{0,25}cidade)/i.test(
