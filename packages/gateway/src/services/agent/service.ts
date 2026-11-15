@@ -698,7 +698,7 @@ async function createChatAgentInstance(
 
   // A local-only installation needs enough time for the bridge to finish.
   const channelPrimaryTimeout = 8_000;
-  const channelFallbackPrimaryTimeout = 2_500;
+  const channelFallbackPrimaryTimeout = 5_000;
 
   const config: AgentConfig = {
     name: isCliProvider
@@ -824,7 +824,7 @@ async function createChatAgentInstance(
                 ? Math.min(outputBuffer, 768)
                 : outputBuffer,
           },
-          ...(channelMode ? { timeout: 3_000 } : {}),
+          ...(channelMode ? { timeout: 4_000 } : {}),
           // A second retry against the same exhausted key delays WhatsApp
           // responses and wastes quota. Use the next configured provider.
           maxRetries: 0,
@@ -859,7 +859,8 @@ async function createChatAgentInstance(
                 circuitBreakerCooldown: 300_000,
                 sharedCircuitBreaker: true,
                 preferLastSuccessful: true,
-                completionTimeoutMs: 7_500,
+                completionTimeoutMs: 12_000,
+                channelAdmission: true,
               }
             : {}),
           onFallback: (failed, _error, next) => {

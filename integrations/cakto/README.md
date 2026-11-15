@@ -40,3 +40,15 @@ No painel Cakto, em **Integrações → Webhooks → Astra**, edite a URL, mante
 A função não altera nem testa o checkout da Cakto nem reconfigura o webhook no painel. Eventos de `pix_gerado` recebidos antes desta correção (versão `astra-cakto-20261112-pix-pending-v2`) foram ignorados e **não podem ser recuperados pelo Astra**; consulte o payload no histórico da Cakto e, quando houver opção de reenvio autenticado, reenvie o evento. Para consultar os dados armazenados de novos Pix, use uma interface administrativa autenticada no banco; esta função não expõe endpoints públicos de leitura de dados pessoais. Eventos anteriores à troca da URL precisam ser reenviados pelo histórico Cakto. Sem evento real assinado e aprovado, **a ativação real ainda não foi validada ponta a ponta**. Não há migração em lote de assinantes anteriores.
 
 Referência: https://docs.cakto.com.br/conceitos/webhooks
+
+## Recuperação durável (v4)
+
+O receptor autentica assinatura, timestamp e segredo antes de gravar uma cópia mínima criptografada (AES-256-GCM) no bucket privado `astra-cakto-inbox`. CPF, corpo bruto, código Pix e segredo não são persistidos nessa fila. A aplicação no banco e a exclusão do objeto só ocorrem após o commit; uma falha do banco retorna 202 com `queued:true`. Um worker em cron de 5 minutos reprocessa os objetos. A chave do objeto é opaca e a idempotência no banco protege reprocessamentos e recibos duplicados.
+
+Use o mesmo arquivo da função para ambos os serviços. No receptor, deixe `CAKTO_INBOX_MODE` ausente. No worker, use `worker` e configure cron `*/5 * * * *` com política de reinício `NEVER`. O serviço temporário `astra-svg-preflight-temp` foi selecionado para ser reaproveitado como worker, evitando criar outro serviço. O modo `probe` valida escrita, leitura, autenticação da criptografia e exclusão de um objeto sintético, sem acessar tabelas de clientes.
+
+Variáveis adicionais: `CAKTO_INBOX_KEY` (32 bytes hex, compartilhada e mantida para ler o backlog), `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (referências do bucket) e `S3_VIRTUAL_HOSTED_STYLE=true`. O worker referencia a configuração do receptor. Não rotacionar a chave enquanto houver backlog sem migração explícita.
+
+O recebimento só é confirmado após uma gravação durável. Falha no armazenamento retorna 503 e exige alerta/reenvio, pois nenhuma infraestrutura elimina indisponibilidade simultânea de todos os destinos. Eventos retidos são mantidos e os logs do worker indicam contagens de processados/falhos, sem conteúdo pessoal. A rotina pagina até 1.000 objetos por execução; backlog maior continua na execução seguinte. O bucket não tem URL pública.
+
+Testes: `node --test integrations/cakto/railway-function.test.mjs` cobre indisponibilidade do banco, reinício, integridade da criptografia, assinatura, falha do armazenamento e preservação de e-mail. Não cria pagamentos em produção.
