@@ -180,3 +180,59 @@ describe('short AI expense consultation', () => {
     ).toBeNull();
   });
 });
+
+describe('natural explicit expense corrections', () => {
+  it.each([
+    'Corrige o gasto da farmácia de 58 pra 85',
+    'Altera a despesa da farmácia de R$ 58 para 85',
+    'Muda o valor do gasto farmácia de 58 para R$ 85',
+  ])('grounds both amounts and description without model interpretation: %s', (text) => {
+    expect(explicitFinancePlan(text, '2026-11-15')).toMatchObject({
+      op: 'update',
+      search: 'farmácia',
+      amount: 58,
+      newAmount: 85,
+      latest: false,
+    });
+  });
+  it.each([
+    'Corrige o gasto da farmácia de 58 pra 85 e apague o lembrete',
+    'Não corrige o gasto da farmácia de 58 pra 85',
+    'Se eu pedir, corrige o gasto da farmácia de 58 pra 85',
+    'Corrige o gasto da farmácia de 58 pra 85 ou 95',
+    'Corrige o gasto da farmácia de 58 pra 0',
+    'Corrige o gasto da farmácia de 58 pra 85,555',
+    'Corrige o gasto da farmácia de 58 pra 85 amanhã',
+  ])('does not execute incomplete, conditional or multiple corrections: %s', (text) => {
+    expect(explicitFinancePlan(text, '2026-11-15')).toBeNull();
+  });
+  it('updates the selected record without creating another transaction', async () => {
+    f.list.mockResolvedValue({
+      transactions: [{ ...saved, description: 'farmácia', amount: 58 }],
+      total: 1,
+    });
+    f.update.mockResolvedValue({ ...saved, description: 'farmácia', amount: 85 });
+    await tryQuickFinanceReply(
+      message('Corrige o gasto da farmácia de 58 pra 85'),
+      'whatsapp:synthetic',
+      async () => true
+    );
+    expect(f.update).toHaveBeenCalledWith(saved.id, { amount: 85 }, saved.updatedAt);
+  });
+  it('asks for identification instead of choosing between equal matching records', async () => {
+    f.list.mockResolvedValue({
+      transactions: [
+        { ...saved, description: 'farmácia', amount: 58 },
+        { ...saved, id: 'another', description: 'farmácia', amount: 58 },
+      ],
+      total: 2,
+    });
+    const reply = await tryQuickFinanceReply(
+      message('Corrige o gasto da farmácia de 58 pra 85'),
+      'whatsapp:synthetic',
+      async () => true
+    );
+    expect(f.update).not.toHaveBeenCalled();
+    expect(reply).toContain('Qual destes gastos');
+  });
+});

@@ -28,7 +28,7 @@ export function explicitFinancePlan(request: string, today: string): Plan | null
   const input = fold(request);
   if (/\b(?:nao|nunca|se|talvez|exemplo|ficticio|e depois|tambem)\b/.test(input)) return null;
   const amountEdit =
-    /^(?:astra[,!]?\s+)?(?:corrija|altere|mude|troque)\s+(?:o\s+)?valor\s+(?:do|da)\s+(?:gasto|despesa|lançamento)\s+["“]?([\p{L}\p{M}][\p{L}\p{M}\d '-]{0,100}?)["”]?\s+de\s+r\$\s*(\d+(?:\.\d{3})*(?:,\d{1,2})?)\s+para\s+r\$\s*(\d+(?:\.\d{3})*(?:,\d{1,2})?)(?:,?\s+sem\s+(?:criar outro(?: lançamento)?|duplicar))?[.!]?$/iu.exec(
+    /^(?:astra[,!]?\s+)?(?:corrija|corrige|altere|altera|mude|muda|troque|troca)\s+(?:(?:o\s+)?valor\s+(?:do|da)\s+|(?:o|a)\s+)?(?:gasto|despesa|lançamento)\s+(?:(?:do|da|de)\s+)?["“]?([\p{L}\p{M}][\p{L}\p{M}\d '-]{0,100}?)["”]?\s+de\s+(?:r\$\s*)?((?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?)\s+(?:para|pra)\s+(?:r\$\s*)?((?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?)(?:,?\s+sem\s+(?:criar outro(?: lançamento)?|duplicar))?[.!]?$/iu.exec(
       request.trim()
     );
   if (amountEdit) {
@@ -61,7 +61,9 @@ export function explicitFinancePlan(request: string, today: string): Plan | null
     /\bpara\s+(alimenta[cç][aã]o|transporte|sa[uú]de|outros|compras|lazer|assinaturas|educa[cç][aã]o|moradia)\b/iu.exec(
       request
     )?.[1] ?? null;
-  const op = /\b(?:mude|altere|corrija|troque)\b/.test(input) ? 'update' : 'list';
+  const op = /\b(?:mude|muda|altere|altera|corrija|corrige|troque|troca)\b/.test(input)
+    ? 'update'
+    : 'list';
   if (op === 'update' && (!target || !/categoria/.test(input))) return null;
   const subject =
     /\b(?:gastos?|despesas?|lan[cç]amentos?)\s+(?:com (?:a )?descri[cç][aã]o\s+)?["“]?([\p{L}\p{M}][\p{L}\p{M} '-]{0,100}?)(?:["”]|\s+de\s+r\$)/iu
@@ -149,7 +151,7 @@ export async function tryQuickFinanceReply(
     isConversationalOnlyChannelRequest(message.text) ||
     /\b(?:total|totalize|som[ae]|somar|juntos|juntas)\b/.test(input) ||
     !/\b(?:gastos?|despesas?|lancamentos?|financeiro|transacoes)\b/.test(input) ||
-    !/\b(?:liste|listar|mostre|consulte|consultar|qual|quais|quanto|mude|altere|corrija|troque|categoria)\b/.test(
+    !/\b(?:liste|listar|mostre|consulte|consultar|qual|quais|quanto|mude|muda|altere|altera|corrija|corrige|troque|troca|categoria)\b/.test(
       input
     ) ||
     /\b(?:apague|exclua|remova|registre|crie|pague|cancele|nao (?:mude|altere|corrija)|sem (?:alterar|corrigir).*(?:mude|altere))\b/.test(
@@ -221,7 +223,7 @@ export async function tryQuickFinanceReply(
     return null;
   if (
     plan.op === 'update' &&
-    (!/\b(?:mude|altere|corrija|troque)\b/.test(input) ||
+    (!/\b(?:mude|muda|altere|altera|corrija|corrige|troque|troca)\b/.test(input) ||
       (!plan.newAmount && !/categoria/.test(input)))
   )
     return null;
