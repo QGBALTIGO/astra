@@ -1,6 +1,7 @@
 import { scenarios, scenarioState, base, money } from './scenarios.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
+const pagePath = (path) => (/^\/julio(?:\/|$)/.test(location.pathname) ? '/julio' + path : path);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const icon = (name) =>
   `<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#${name}"></use></svg>`;
@@ -346,7 +347,7 @@ form?.addEventListener('submit', async (event) => {
     form.hidden = true;
     $('#contact-success').hidden = false;
     $('#receipt').value = result.receipt;
-    $('#removal-link').href = `/remover#${result.cancellationToken}`;
+    $('#removal-link').href = pagePath('/remover') + '#' + result.cancellationToken;
     $('#success-title').focus({ preventScroll: true });
   } catch (error) {
     if (formRun !== run || !contact.open) return;
@@ -489,7 +490,7 @@ function showDay(id, animate = true, focus = false) {
     }
   });
   $('#day-content').setAttribute('aria-labelledby', 'day-tab-' + id);
-  $('#day-explore').href = '/demonstracao#' + data.scenario;
+  $('#day-explore').href = pagePath('/demonstracao') + '#' + data.scenario;
   const finish = () => {
     $('#day-messages').innerHTML =
       dayBubble(data.user, true) +
