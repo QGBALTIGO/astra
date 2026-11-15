@@ -171,9 +171,22 @@ describe('retention-service', () => {
       vi.setSystemTime(new Date('2026-11-15T02:01:00Z'));
       registerRetentionCleanupWorker();
       const handler = mockStartWorker.mock.calls[0]![0];
-      await handler({ payload: { scheduledUtc: '2026-11-15T02:00:00Z' } });
+      await handler({
+        name: 'nightly_retention_cleanup',
+        payload: { scheduledUtc: '2026-11-15T02:00:00Z' },
+      });
       expect(mockEnqueue).toHaveBeenCalledOnce();
       expect(mockEnqueue.mock.calls[0]![2].runAfter.toISOString()).toBe('2026-11-16T02:00:00.000Z');
+    });
+
+    it('does not perform cleanup for an unrelated system job', async () => {
+      registerRetentionCleanupWorker();
+      const handler = mockStartWorker.mock.calls[0]![0];
+      await expect(handler({ name: 'other', payload: {} })).rejects.toThrow(
+        'Unexpected maintenance job'
+      );
+      expect(mockCleanupOld).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
     });
   });
 });

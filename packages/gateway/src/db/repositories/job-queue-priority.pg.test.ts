@@ -111,4 +111,32 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)('job priorities in real Postg
     expect(await repo.claimJob('test', 0, true)).toBeNull();
     expect((await repo.getById('legacy'))?.status).toBe('available');
   });
+
+  it('rejects a changed request reusing an existing recurring reservation', async () => {
+    const input = { id: 'daily', name: 'daily', queue: 'system', payload: { day: '2090-01-01' } };
+    await repo.create(input, true);
+    await expect(repo.create({ ...input, payload: { day: '2090-01-02' } }, true)).rejects.toThrow(
+      'reservation conflict'
+    );
+    expect((await repo.getById('daily'))?.payload).toEqual(input.payload);
+  });
+
+  it('lets a typed worker claim only its own job name from a shared queue', async () => {
+    await repo.create({
+      id: 'other',
+      name: 'other',
+      queue: 'system',
+      priority: 200,
+      payload: { _astraQueueVersion: 1 },
+    });
+    await repo.create({
+      id: 'daily',
+      name: 'nightly_retention_cleanup',
+      queue: 'system',
+      priority: 100,
+      payload: { _astraQueueVersion: 1 },
+    });
+    expect((await repo.claimJob('system', 0, true, 'nightly_retention_cleanup'))?.id).toBe('daily');
+    expect((await repo.getById('other'))?.status).toBe('available');
+  });
 });

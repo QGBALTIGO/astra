@@ -85,7 +85,7 @@ describe('JobQueueService durable scheduling', () => {
     const stop = svc.startWorker(async () => ({}), { queue: 'system', name: 'versioned-test' });
     try {
       await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(mockRepo.claimJob).toHaveBeenCalledWith('system', 0, true);
+      expect(mockRepo.claimJob).toHaveBeenCalledWith('system', 0, true, undefined);
     } finally {
       stop();
     }

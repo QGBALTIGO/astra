@@ -31,6 +31,7 @@ interface WorkerOptions {
   queue?: string;
   concurrency?: number;
   name?: string;
+  jobName?: string;
 }
 
 interface RunningWorker {
@@ -38,6 +39,7 @@ interface RunningWorker {
   queue: string;
   concurrency: number;
   handler: JobHandler;
+  jobName?: string;
   activeJobs: Set<string>;
   stopped: boolean;
   /**
@@ -132,6 +134,7 @@ export class JobQueueService {
       queue,
       concurrency,
       handler,
+      jobName: options.jobName,
       activeJobs: new Set(),
       stopped: false,
       polling: false,
@@ -199,7 +202,7 @@ export class JobQueueService {
       const availableSlots = worker.concurrency - worker.activeJobs.size;
       for (let i = 0; i < availableSlots; i++) {
         if (worker.stopped) break;
-        const job = await this.repo.claimJob(worker.queue, 0, true);
+        const job = await this.repo.claimJob(worker.queue, 0, true, worker.jobName);
         if (!job) break;
 
         worker.activeJobs.add(job.id);

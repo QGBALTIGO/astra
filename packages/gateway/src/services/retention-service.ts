@@ -103,6 +103,7 @@ export function registerRetentionCleanupWorker(): () => void {
   const queue = JobQueueService.getInstance();
   return queue.startWorker(
     async (job) => {
+      if (job.name !== 'nightly_retention_cleanup') throw new Error('Unexpected maintenance job');
       log.info('Running nightly retention cleanup...');
       const results = await runRetentionCleanup();
       const scheduled = new Date(String(job.payload.scheduledUtc ?? ''));
@@ -111,7 +112,12 @@ export function registerRetentionCleanupWorker(): () => void {
       );
       return { cleaned: results };
     },
-    { queue: 'system', concurrency: 1, name: 'retention_cleanup_worker' }
+    {
+      queue: 'system',
+      concurrency: 1,
+      name: 'retention_cleanup_worker',
+      jobName: 'nightly_retention_cleanup',
+    }
   );
 }
 

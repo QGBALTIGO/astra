@@ -4,6 +4,7 @@
  */
 
 import { BaseRepository } from './base.js';
+import { isDeepStrictEqual } from 'node:util';
 
 const JOBS_TABLE = 'jobs';
 const JOB_HISTORY_TABLE = 'job_history';
@@ -77,7 +78,8 @@ class JobsRepository extends BaseRepository {
   async claimJob(
     queue = 'default',
     maxPriority = 2_147_483_647,
-    allowVersionedPriority = false
+    allowVersionedPriority = false,
+    jobName?: string
   ): Promise<JobRecord | null> {
     // Atomic claim-and-update via CTE: SELECT FOR UPDATE locks the row, then UPDATE
     // modifies it — all in one round-trip. This prevents two workers from claiming
@@ -91,6 +93,7 @@ class JobsRepository extends BaseRepository {
         WHERE status = 'available'
           AND queue = $1
           AND (priority <= $2 OR ($3::boolean AND payload->>'_astraQueueVersion' = '1'))
+          AND ($4::text IS NULL OR name = $4)
           AND run_after <= NOW()
         ORDER BY priority DESC, run_after ASC
         LIMIT 1
@@ -123,7 +126,7 @@ class JobsRepository extends BaseRepository {
       max_attempts: number;
       created_at: Date;
       updated_at: Date;
-    }>(sql, [queue, maxPriority, allowVersionedPriority]);
+    }>(sql, [queue, maxPriority, allowVersionedPriority, jobName ?? null]);
 
     if (rows.length === 0) return null;
 
@@ -153,6 +156,7 @@ class JobsRepository extends BaseRepository {
    */
   async create(input: CreateJobInput, ifAbsent = false): Promise<JobRecord> {
     const now = new Date().toISOString();
+    const payloadJson = JSON.stringify(input.payload ?? {});
     const sql = `
       INSERT INTO ${JOBS_TABLE} (id, name, queue, priority, payload, max_attempts, run_after, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -179,7 +183,7 @@ class JobsRepository extends BaseRepository {
       input.name,
       input.queue ?? 'default',
       input.priority ?? 0,
-      JSON.stringify(input.payload ?? {}),
+      payloadJson,
       input.maxAttempts ?? 3,
       (input.runAfter ?? new Date()).toISOString(),
       now,
@@ -189,12 +193,18 @@ class JobsRepository extends BaseRepository {
     if (!r) {
       if (ifAbsent) {
         const existing = await this.getById(input.id);
-        if (
-          existing &&
-          existing.name === input.name &&
-          existing.queue === (input.queue ?? 'default')
-        )
+        if (existing) {
+          if (
+            existing.name !== input.name ||
+            existing.queue !== (input.queue ?? 'default') ||
+            existing.priority !== (input.priority ?? 0) ||
+            existing.maxAttempts !== (input.maxAttempts ?? 3) ||
+            !isDeepStrictEqual(existing.payload, JSON.parse(payloadJson)) ||
+            (input.runAfter && existing.runAfter.getTime() !== input.runAfter.getTime())
+          )
+            throw new Error('Job reservation conflict');
           return existing;
+        }
       }
       throw new Error('Failed to reserve job');
     }
