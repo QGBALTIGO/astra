@@ -68,6 +68,8 @@ type Fixture = {
 const fixtures: Fixture[] = [];
 const metrics: Record<string, number[]> = {};
 const errors: { user: number; phase: string; message: string }[] = [];
+let requestCount = 0;
+let failedRequestCount = 0;
 type Identified = { id: string; description?: string };
 function percentile(values: number[]) {
   const a = values.toSorted((x, y) => x - y);
@@ -84,6 +86,7 @@ async function request<T>(
   key?: string
 ) {
   const started = performance.now();
+  requestCount++;
   try {
     const response = await fetch(origin + '/api/v1/customer' + path, {
       method,
@@ -100,6 +103,9 @@ async function request<T>(
     if (!response.ok || !data.success)
       throw new Error(phase + '_http_' + response.status + '_' + JSON.stringify(data.error));
     return data.data;
+  } catch (error) {
+    failedRequestCount++;
+    throw error;
   } finally {
     (metrics[phase] ??= []).push(performance.now() - started);
   }
@@ -151,6 +157,9 @@ try {
   fixtures.sort((a, b) => a.i - b.i);
   const runs = [];
   for (const size of [10, 50, 100, 250, 500]) {
+    const startRequests = requestCount;
+    const startFailedRequests = failedRequestCount;
+    const startCpu = process.cpuUsage();
     const metricOffsets = Object.fromEntries(
       Object.entries(metrics).map(([key, values]) => [key, values.length])
     );
@@ -241,14 +250,24 @@ try {
           assert.ok(summary.expenses > 0);
           phase = 'isolation';
           const other = fixtures[(f.i + 1) % fixtures.length]!;
-          const cross = await fetch(
-            origin + '/api/v1/customer/finance/transactions/' + first.transaction.id,
-            {
-              headers: { Cookie: 'astra_customer_session=' + other.token },
-              signal: AbortSignal.timeout(20000),
-            }
-          );
-          assert.equal(cross.status, 404, 'cross-customer record exposed');
+          const isolationStarted = performance.now();
+          requestCount++;
+          try {
+            const cross = await fetch(
+              origin + '/api/v1/customer/finance/transactions/' + first.transaction.id,
+              {
+                headers: { Cookie: 'astra_customer_session=' + other.token },
+                signal: AbortSignal.timeout(20000),
+              }
+            );
+            await cross.arrayBuffer();
+            assert.equal(cross.status, 404, 'cross-customer record exposed');
+          } catch (error) {
+            failedRequestCount++;
+            throw error;
+          } finally {
+            (metrics.isolation ??= []).push(performance.now() - isolationStarted);
+          }
         } catch (e) {
           errors.push({
             user: f.i,
@@ -265,10 +284,19 @@ try {
       { active: 0, queued: 0 },
       'request capacity leaked'
     );
+    const wallMs = performance.now() - begin;
+    const requests = requestCount - startRequests;
+    const failedRequests = failedRequestCount - startFailedRequests;
+    const cpu = process.cpuUsage(startCpu);
     runs.push({
       users: size,
       errors: errors.length - startErrors,
-      wallMs: Math.round(performance.now() - begin),
+      wallMs: Math.round(wallMs),
+      requests,
+      failedRequests,
+      requestErrorRate: requests ? failedRequests / requests : 0,
+      throughputRequestsPerSecond: Math.round((requests * 100000) / wallMs) / 100,
+      nodeCpuMs: { user: cpu.user / 1000, system: cpu.system / 1000 },
       peakRssMiB: Math.round(peakRss / 1048576),
       eventLoopP99Ms: Math.round(delay.percentile(99) / 1e6),
       completed: size - (errors.length - startErrors),
@@ -292,6 +320,7 @@ try {
     errors,
     externalAttempts,
     excluded: [
+      'PostgreSQL process CPU and memory (resource metrics cover the Node process only)',
       'public Railway ingress',
       'global gateway middleware outside the customer router',
       'browser rendering',

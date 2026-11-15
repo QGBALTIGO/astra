@@ -10,6 +10,14 @@ import { Agent } from 'undici';
 
 const mockWarn = vi.hoisted(() => vi.fn());
 
+// Exercise the real SSRF policy without depending on external DNS availability
+// or a workspace resolver that maps public domains to a private egress proxy.
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(async (hostname: string) => [
+    { address: hostname === 'private.example.test' ? '10.0.0.1' : '93.184.216.34', family: 4 },
+  ]),
+}));
+
 // =============================================================================
 // Mocks
 // =============================================================================
@@ -71,6 +79,14 @@ function makeResponse(
 describe('safeFetch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('blocks a hostname resolving to a private address before invoking fetch', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse());
+    await expect(safeFetch('https://private.example.test/data')).rejects.toMatchObject({
+      code: 'SSRF_BLOCKED',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   // ---------------------------------------------------------------------------

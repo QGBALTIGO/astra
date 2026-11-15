@@ -14,9 +14,9 @@ import { CHANNEL_ASSET_TTL_MS, CHANNEL_ASSET_MAX_FILENAME_LENGTH } from '../conf
 const DEFAULT_TTL_MS = CHANNEL_ASSET_TTL_MS;
 
 function safeSegment(value: string): string {
-  return (
-    value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, CHANNEL_ASSET_MAX_FILENAME_LENGTH) || 'unknown'
-  );
+  const segment =
+    value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, CHANNEL_ASSET_MAX_FILENAME_LENGTH) || 'unknown';
+  return segment === '.' || segment === '..' ? 'unknown' : segment;
 }
 
 function extensionForAttachment(attachment: ChannelAttachment): string {
@@ -88,8 +88,6 @@ export class ChannelAssetStore {
         safeSegment(params.platformChatId),
         safeSegment(params.messageId)
       );
-      await mkdir(dir, { recursive: true });
-
       const filename =
         attachment.filename ?? `${attachment.type}${extensionForAttachment(attachment)}`;
       const storagePath = join(
@@ -97,9 +95,11 @@ export class ChannelAssetStore {
         `${assetId}${extensionForAttachment(attachment) || extname(filename)}`
       );
       const data = Buffer.from(attachment.data);
-      await writeFile(storagePath, data);
-
       const sha256 = createHash('sha256').update(data).digest('hex');
+      // Persist the TTL cleanup reference before writing private bytes. This
+      // ordering also handles an ambiguous database commit: no file is written
+      // unless the durable record was acknowledged, so no compensating delete
+      // can remove a file that the database successfully committed.
       await this.repo.create({
         id: assetId,
         channelMessageId: params.messageId,
@@ -116,6 +116,8 @@ export class ChannelAssetStore {
         expiresAt,
         metadata: {},
       });
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      await writeFile(storagePath, data, { flag: 'wx', mode: 0o600 });
 
       stored.push({
         ...attachment,
@@ -135,15 +137,20 @@ export class ChannelAssetStore {
 
   async purgeExpired(): Promise<number> {
     const expired = await this.repo.listExpired(new Date().toISOString());
+    const removed: string[] = [];
     for (const asset of expired) {
       if (asset.storagePath) {
-        await rm(asset.storagePath, { force: true }).catch((e) =>
-          log.debug('Asset cleanup failed', { path: asset.storagePath, error: String(e) })
-        );
+        try {
+          await rm(asset.storagePath, { force: true });
+        } catch {
+          log.warn('Channel asset cleanup deferred', { assetId: asset.id });
+          continue;
+        }
       }
+      removed.push(asset.id);
     }
-    await this.repo.deleteMany(expired.map((asset) => asset.id));
-    return expired.length;
+    if (removed.length) await this.repo.deleteMany(removed);
+    return removed.length;
   }
 
   private async purgeExpiredIfNeeded(): Promise<void> {
@@ -154,8 +161,8 @@ export class ChannelAssetStore {
     try {
       const purged = await this.purgeExpired();
       if (purged > 0) log.info(`Purged ${purged} expired channel asset(s)`);
-    } catch (error) {
-      log.warn('Failed to purge expired channel assets', { error });
+    } catch {
+      log.warn('Failed to purge expired channel assets');
     }
   }
 }

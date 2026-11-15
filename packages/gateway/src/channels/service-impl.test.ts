@@ -2622,17 +2622,25 @@ describe('ChannelServiceImpl', () => {
         expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
       });
 
-      it('should tolerate save failure for incoming message', async () => {
+      it('does not execute an unjournaled message and permits a safely persisted retry', async () => {
         mockMessagesRepo.createIfNew.mockRejectedValueOnce(new Error('DB error'));
-
-        // Should not throw; continues processing
         await service.processIncomingMessage(message);
-
-        // Still broadcasts and processes
-        expect(mockWsGateway.broadcast).toHaveBeenCalledWith(
+        expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+        expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        expect(mockWsGateway.broadcast).not.toHaveBeenCalledWith(
           'channel:message',
-          expect.objectContaining({ direction: 'incoming' })
+          expect.anything()
         );
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: expect.stringContaining('não executei o pedido') })
+        );
+
+        mockMessagesRepo.createIfNew.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+        await service.processIncomingMessage(message);
+        const callsAfterRetry = mockGetOrCreateChatAgent.mock.calls.length;
+        expect(callsAfterRetry).toBeGreaterThan(0);
+        await service.processIncomingMessage(message);
+        expect(mockGetOrCreateChatAgent).toHaveBeenCalledTimes(callsAfterRetry);
       });
 
       it('should broadcast incoming message to WS clients', async () => {
