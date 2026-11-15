@@ -10,7 +10,13 @@ const source = (await readFile(new URL('./railway-function.ts', import.meta.url)
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const secret = 'synthetic-test-webhook-secret-not-production';
 function fixture() {
-  const state = { objects: new Map(), queries: [], dbDown: false, storageDown: false };
+  const state = {
+    objects: new Map(),
+    queries: [],
+    dbDown: false,
+    storageDown: false,
+    s3Options: null,
+  };
   class SQL {
     constructor() {
       const query = async (strings, ...values) => {
@@ -21,11 +27,15 @@ function fixture() {
         return [];
       };
       query.begin = (callback) => callback(query);
+      query.json = (value) => value;
       query.close = async () => {};
       return query;
     }
   }
   class S3Client {
+    constructor(options) {
+      state.s3Options = options;
+    }
     file(key) {
       return {
         write: async (bytes) => {
@@ -48,7 +58,7 @@ function fixture() {
       };
     }
   }
-  async function boot(mode) {
+  async function boot(mode, storageEnv = {}, sqlOverride) {
     let fetch;
     const Bun = {
       env: {
@@ -60,6 +70,13 @@ function fixture() {
         POSTGRES_PASSWORD: 'test',
         POSTGRES_DB: 'test',
         CAKTO_INBOX_MODE: mode,
+        S3_ENDPOINT: 'https://t3.storageapi.dev',
+        S3_BUCKET: 'synthetic-bucket',
+        S3_ACCESS_KEY_ID: 'synthetic',
+        S3_SECRET_ACCESS_KEY: 'synthetic',
+        S3_REGION: 'auto',
+        S3_VIRTUAL_HOSTED_STYLE: 'true',
+        ...storageEnv,
       },
       serve: (options) => {
         fetch = options.fetch;
@@ -72,7 +89,7 @@ function fixture() {
       ...Object.keys(crypto).filter((key) => key !== 'default'),
     ];
     await new AsyncFunction(...names, source)(
-      SQL,
+      sqlOverride ?? SQL,
       S3Client,
       Bun,
       ...Object.entries(crypto)
@@ -182,3 +199,143 @@ test('ignores other products without queueing or granting access', async () => {
   assert.equal(state.objects.size, 0);
   assert.equal(state.queries.length, 0);
 });
+
+test('constructs the bucket hostname for Bun virtual-host addressing', async () => {
+  const { state, boot } = fixture();
+  await boot();
+  assert.equal(new URL(state.s3Options.endpoint).hostname, 'synthetic-bucket.t3.storageapi.dev');
+  await boot(undefined, { S3_ENDPOINT: 'https://synthetic-bucket.t3.storageapi.dev' });
+  assert.equal(new URL(state.s3Options.endpoint).hostname, 'synthetic-bucket.t3.storageapi.dev');
+});
+test(
+  'the real Bun S3 client addresses the intended bucket',
+  { skip: !globalThis.Bun },
+  async () => {
+    const { state, boot } = fixture();
+    await boot();
+    const client = new globalThis.Bun.S3Client(state.s3Options);
+    const signed = new URL(client.presign('probe/address'));
+    assert.equal(signed.hostname, 'synthetic-bucket.t3.storageapi.dev');
+    assert.equal(signed.pathname, '/probe/address');
+  }
+);
+
+test(
+  'replays an encrypted paid event once through real PostgreSQL and preserves unpaid and revoked states',
+  { skip: !globalThis.Bun || !process.env.ASTRA_REVIEW_PG_PORT },
+  async () => {
+    const { SQL: NativeSQL } = await import('bun');
+    const connection = {
+      hostname: '127.0.0.1',
+      port: Number(process.env.ASTRA_REVIEW_PG_PORT),
+      username: process.env.ASTRA_REVIEW_PG_USER ?? 'astratest',
+      password: process.env.ASTRA_REVIEW_PG_PASSWORD,
+      database: process.env.ASTRA_REVIEW_PG_DATABASE ?? 'astratest_review',
+    };
+    const schema = 'review_cakto_' + crypto.randomUUID().replaceAll('-', '');
+    const admin = new NativeSQL(connection);
+    const clients = [];
+    const options = { ...connection, connection: { search_path: schema } };
+    const db = new NativeSQL(options);
+    class ReviewSQL {
+      constructor() {
+        const client = new NativeSQL(options);
+        clients.push(client);
+        return client;
+      }
+    }
+    try {
+      await admin.unsafe('CREATE SCHEMA ' + schema);
+      // Use the real contracts for every queried gateway table. Conversations
+      // are only a foreign-key target in this isolated payment fixture.
+      await db`CREATE TABLE conversations(id text PRIMARY KEY)`;
+      for (const [file, tables] of [
+        ['channels', ['channel_users', 'channel_sessions', 'channel_access_notifications']],
+        ['customer-accounts', ['customer_accounts', 'customer_phone_aliases']],
+        ['core', ['system_settings']],
+      ]) {
+        const contents = await readFile(
+          new URL('../../packages/gateway/src/db/schema/' + file + '.ts', import.meta.url),
+          'utf8'
+        );
+        for (const table of tables) {
+          const ddl = contents.match(
+            new RegExp('CREATE TABLE IF NOT EXISTS ' + table + ' \\([\\s\\S]*?\\n\\);')
+          )?.[0];
+          assert.ok(ddl, 'Missing real table schema: ' + table);
+          await db.unsafe(ddl);
+        }
+      }
+      const { state, boot } = fixture();
+      const paid = { status: 'paid', paidAt: new Date().toISOString() };
+      state.dbDown = true;
+      assert.equal((await (await boot())(request('purchase_approved', paid))).status, 202);
+      assert.equal(state.objects.size, 1);
+      assert.ok(![...state.objects.values()][0].toString().includes('5511999991234'));
+
+      await boot('worker', {}, ReviewSQL);
+      assert.equal(state.objects.size, 0);
+      const [user] = await db`SELECT id,is_verified,access_expires_at FROM channel_users`;
+      assert.equal(user.is_verified, true);
+      assert.ok(new Date(user.access_expires_at).getTime() > Date.now());
+      const fetch = await boot(undefined, {}, ReviewSQL);
+      assert.equal((await fetch(request('purchase_approved', paid))).status, 200);
+      assert.equal(Number((await db`SELECT count(*) AS n FROM channel_users`)[0].n), 1);
+      assert.equal(
+        Number((await db`SELECT count(*) AS n FROM channel_access_notifications`)[0].n),
+        1
+      );
+
+      // Reproduce the legacy JSON-string binding and repair it on renewal.
+      const legacy = { hasInteracted: true, manualPreauthorized: false, caktoManaged: true };
+      await db`UPDATE channel_users SET metadata=${db.json(JSON.stringify(legacy))}::jsonb`;
+      assert.equal(
+        (await fetch(request('subscription_renewed', { ...paid, id: 'renewal-order' }))).status,
+        200
+      );
+      assert.deepEqual((await db`SELECT metadata FROM channel_users`)[0].metadata, legacy);
+      assert.equal(
+        Number((await db`SELECT count(*) AS n FROM channel_access_notifications`)[0].n),
+        2
+      );
+
+      assert.equal((await fetch(request('pix_gerado', { id: 'unpaid-order' }))).status, 200);
+      assert.equal(
+        (await db`SELECT buyer_email FROM astra_cakto_pending_pix WHERE order_id='unpaid-order'`)[0]
+          .buyer_email,
+        'fulano.123@example.com'
+      );
+      assert.equal(Number((await db`SELECT count(*) AS n FROM astra_cakto_orders`)[0].n), 2);
+      assert.equal(
+        new Date(
+          (await db`SELECT access_expires_at FROM channel_users`)[0].access_expires_at
+        ).getTime(),
+        new Date(user.access_expires_at).getTime()
+      );
+
+      await db`INSERT INTO channel_sessions(id,channel_user_id,channel_plugin_id,platform_chat_id)
+        VALUES('session',${user.id},'channel.whatsapp','5511999991234')`;
+      assert.equal(
+        (await fetch(request('refund', { refundedAt: new Date().toISOString() }))).status,
+        200
+      );
+      assert.equal((await db`SELECT is_verified FROM channel_users`)[0].is_verified, true);
+      assert.equal(
+        (
+          await fetch(
+            request('refund', { id: 'renewal-order', refundedAt: new Date().toISOString() })
+          )
+        ).status,
+        200
+      );
+      assert.equal((await db`SELECT is_verified FROM channel_users`)[0].is_verified, false);
+      assert.equal((await db`SELECT is_active FROM channel_sessions`)[0].is_active, false);
+      assert.equal(state.objects.size, 0);
+    } finally {
+      await Promise.allSettled(clients.map((client) => client.close()));
+      await db.close();
+      await admin.unsafe('DROP SCHEMA IF EXISTS ' + schema + ' CASCADE');
+      await admin.close();
+    }
+  }
+);

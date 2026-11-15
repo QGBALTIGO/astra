@@ -70,6 +70,7 @@ async function deliver(entry: EmailDigestSchedule): Promise<boolean> {
     );
     if (latest?.ownpilotUserId !== entry.userId || !isChannelUserAccessActive(latest))
       throw new Error('recipient_access_inactive');
+    if (!(await emailDigestsRepo.isCurrent(entry))) return false;
     transportInvoked = true;
     const receipt = await channels.send(entry.channelPluginId, { platformChatId: recipient, text });
     if (typeof receipt !== 'string' || !receipt.trim()) throw new Error('delivery_uncertain');

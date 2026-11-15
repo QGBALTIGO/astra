@@ -707,6 +707,9 @@ export async function executeAgentPipeline(
   // Race: agent execution vs timeout vs optional cancellation
   const timeout = createTimeoutPromise(opts.timeoutMs, opts.timeoutLabel ?? 'Agent');
   const cancellation = opts.abortSignal ? createCancellationPromise(opts.abortSignal) : null;
+  const queueController = new AbortController();
+  let agentStarted = false;
+  let agentSettled = false;
   let chatResult: {
     ok: boolean;
     value?: { content?: string; usage?: { promptTokens?: number; completionTokens?: number } };
@@ -716,12 +719,13 @@ export async function executeAgentPipeline(
     // Acquire a concurrency slot before the LLM call fires
     const acquisition = llmSemaphore.acquire(
       opts.agentId ?? 'unknown',
-      opts.agentId ?? opts.timeoutLabel ?? 'agent'
+      opts.agentId ?? opts.timeoutLabel ?? 'agent',
+      queueController.signal
     );
     let waiting = true;
     acquisition.then((release) => {
       if (!waiting) release();
-    });
+    }, silentCatch('agentRunner.acquisition.cancelled'));
     try {
       releaseSemaphore = await Promise.race([
         acquisition,
@@ -735,9 +739,15 @@ export async function executeAgentPipeline(
     if (Date.now() - startTime >= opts.timeoutMs)
       throw new Error('Agent timed out before execution');
 
-    const agentPromise = opts.agent.chat(opts.message, {
+    const execution = opts.agent.chat(opts.message, {
       onToolEnd: wrappedOnToolEnd,
       onBeforeToolCall: opts.onBeforeToolCall,
+    });
+    agentStarted = true;
+    const agentPromise = execution.finally(() => {
+      agentSettled = true;
+      releaseSemaphore?.();
+      releaseSemaphore = null;
     });
     // If timeout or cancellation wins the race, agentPromise keeps running and
     // may eventually reject (provider error, late timeout). Without a handler,
@@ -750,7 +760,19 @@ export async function executeAgentPipeline(
     }
     chatResult = (await Promise.race(promises)) as typeof chatResult;
   } finally {
-    releaseSemaphore?.();
+    queueController.abort();
+    if (agentStarted && !agentSettled) {
+      // Stop future tool work, but retain the occupied slot until execution
+      // actually settles. A timeout alone does not release real capacity.
+      try {
+        opts.agent.cancel();
+      } catch {
+        log.warn('Agent cancellation did not complete');
+      }
+    } else {
+      releaseSemaphore?.();
+      releaseSemaphore = null;
+    }
     // Always clear the timeout and abort listener so we do not leak timers
     // or event listeners when the agent wins the race.
     timeout.cancel();

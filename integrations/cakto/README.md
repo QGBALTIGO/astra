@@ -52,3 +52,11 @@ Variáveis adicionais: `CAKTO_INBOX_KEY` (32 bytes hex, compartilhada e mantida 
 O recebimento só é confirmado após uma gravação durável. Falha no armazenamento retorna 503 e exige alerta/reenvio, pois nenhuma infraestrutura elimina indisponibilidade simultânea de todos os destinos. Eventos retidos são mantidos e os logs do worker indicam contagens de processados/falhos, sem conteúdo pessoal. A rotina pagina até 1.000 objetos por execução; backlog maior continua na execução seguinte. O bucket não tem URL pública.
 
 Testes: `node --test integrations/cakto/railway-function.test.mjs` cobre indisponibilidade do banco, reinício, integridade da criptografia, assinatura, falha do armazenamento e preservação de e-mail. Não cria pagamentos em produção.
+
+### Validação com o runtime e banco reais
+
+`bun test integrations/cakto/railway-function.test.mjs` também verifica o endereço gerado pelo cliente S3 nativo. No modo virtual-host, `S3_ENDPOINT` recebe o nome do bucket no hostname: informar só o endpoint regional faz o Bun consultar o bucket incorreto.
+
+Com `ASTRA_REVIEW_PG_PORT`, `ASTRA_REVIEW_PG_PASSWORD` e, opcionalmente, `ASTRA_REVIEW_PG_USER`/`ASTRA_REVIEW_PG_DATABASE`, o mesmo comando executa a recuperação de um evento criptografado em PostgreSQL de teste na interface local. O teste cria um esquema exclusivo, usa os contratos reais das tabelas envolvidas e o remove ao terminar. Cobre concessão, duplicação, renovação, Pix sem pagamento, reembolso com outra compra vigente e revogação da última compra. A CI executa esse caso em seu PostgreSQL descartável.
+
+Os parâmetros JSON são enviados com `tx.json(...)`: serializar o objeto previamente fazia o Bun gravar uma string JSON em vez de um objeto, impedindo a criação do aviso de acesso. Uma nova renovação também recupera os campos desse formato legado. Esses testes não simulam o checkout nem o envio final do aviso no WhatsApp de produção.

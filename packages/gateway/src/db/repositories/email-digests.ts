@@ -82,10 +82,13 @@ export class EmailDigestsRepository extends BaseRepository {
   async claimDue(limit = 5): Promise<EmailDigestSchedule[]> {
     await this.execute(`UPDATE channel_email_digests g SET next_run_at=
       (((NOW() AT TIME ZONE g.time_zone)::date+1+make_time(g.hour,g.minute,0)) AT TIME ZONE g.time_zone),
-      last_error='missed_window',updated_at=NOW() WHERE active=TRUE AND next_run_at<NOW()-INTERVAL '10 minutes'`);
+      claim_token=NULL,last_error='missed_window',updated_at=NOW() WHERE active=TRUE
+      AND (next_run_at<NOW()-INTERVAL '10 minutes'
+        OR (last_error='retry_before_send' AND last_attempt_at<=NOW()-INTERVAL '10 minutes'))`);
     const rows = await this.query<DigestRow>(
       `WITH due AS (SELECT id FROM channel_email_digests
       WHERE active=TRUE AND next_run_at<=NOW() AND next_run_at>=NOW()-INTERVAL '10 minutes'
+      AND (last_error IS DISTINCT FROM 'retry_before_send' OR last_attempt_at>NOW()-INTERVAL '10 minutes')
       ORDER BY next_run_at,id FOR UPDATE SKIP LOCKED LIMIT $1)
       UPDATE channel_email_digests g SET next_run_at=
       (((NOW() AT TIME ZONE g.time_zone)::date+1+make_time(g.hour,g.minute,0)) AT TIME ZONE g.time_zone),
@@ -98,7 +101,8 @@ export class EmailDigestsRepository extends BaseRepository {
   async isCurrent(entry: EmailDigestSchedule) {
     return !!(await this.queryOne(
       `SELECT id FROM channel_email_digests
-      WHERE id=$1 AND user_id=$2 AND active=TRUE AND version=$3 AND claim_token=$4`,
+      WHERE id=$1 AND user_id=$2 AND active=TRUE AND version=$3 AND claim_token=$4
+      AND last_attempt_at>NOW()-INTERVAL '10 minutes'`,
       [entry.id, entry.userId, entry.version, entry.claimToken]
     ));
   }

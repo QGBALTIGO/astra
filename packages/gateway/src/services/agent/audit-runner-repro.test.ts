@@ -152,6 +152,9 @@ import { executeAgentPipeline } from './runner-utils.js';
 
 const auditAcquire = vi.hoisted(() => vi.fn());
 vi.mock('../llm/semaphore.js', () => ({ getLlmSemaphore: () => ({ acquire: auditAcquire }) }));
+vi.mock('../../db/repositories/settings/index.js', () => ({
+  settingsRepo: { get: () => undefined },
+}));
 describe('audit: queued execution cancellation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -184,8 +187,10 @@ describe('audit: queued execution cancellation', () => {
     controller.abort();
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(state).toBe('rejected');
-    grant(vi.fn());
+    const release = vi.fn();
+    grant(release);
     await pending;
+    await vi.waitFor(() => expect(release).toHaveBeenCalledOnce());
     expect(chat).not.toHaveBeenCalled();
     expect(state).toBe('rejected');
   });
@@ -217,5 +222,60 @@ describe('audit: queued execution cancellation', () => {
     await pending;
     expect(chat).not.toHaveBeenCalled();
     expect(state).toBe('rejected');
+  });
+
+  it('clears cancelled pipeline waiters from the real semaphore without waiting for an active call', async () => {
+    const actual =
+      await vi.importActual<typeof import('../llm/semaphore.js')>('../llm/semaphore.js');
+    actual.resetLlmSemaphore();
+    const sem = actual.getLlmSemaphore();
+    sem.setMaxSlots(1);
+    const held = await sem.acquire('active', 'active');
+    auditAcquire.mockImplementation((id, label, signal) => sem.acquire(id, label, signal));
+    const chat = vi.fn();
+    const controllers = Array.from({ length: 10 }, () => new AbortController());
+    try {
+      const waiting = controllers.map((controller) =>
+        executeAgentPipeline('anthropic', 'audit-model', {
+          agent: { chat } as never,
+          message: 'synthetic',
+          timeoutMs: 5000,
+          abortSignal: controller.signal,
+        }).catch(() => 'cancelled')
+      );
+      await vi.waitFor(() => expect(sem.queuedCount).toBe(10));
+      for (const controller of controllers) controller.abort();
+      expect(await Promise.all(waiting)).toEqual(Array(10).fill('cancelled'));
+      expect(sem.queuedCount).toBe(0);
+      expect(sem.activeCount).toBe(1);
+      expect(chat).not.toHaveBeenCalled();
+    } finally {
+      held();
+      actual.resetLlmSemaphore();
+    }
+  });
+
+  it('cancels a timed-out execution but releases capacity only after it settles', async () => {
+    const release = vi.fn();
+    auditAcquire.mockResolvedValue(release);
+    let settle!: (value: { ok: boolean; value: { content: string } }) => void;
+    const chat = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          settle = resolve;
+        })
+    );
+    const cancel = vi.fn();
+    await expect(
+      executeAgentPipeline('anthropic', 'audit-model', {
+        agent: { chat, cancel } as never,
+        message: 'synthetic',
+        timeoutMs: 25,
+      })
+    ).rejects.toThrow(/timed out/);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(release).not.toHaveBeenCalled();
+    settle({ ok: true, value: { content: 'late' } });
+    await vi.waitFor(() => expect(release).toHaveBeenCalledOnce());
   });
 });
