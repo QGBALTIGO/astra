@@ -28,6 +28,7 @@ interface WorkerDependencies {
     | 'deferBeforeSend'
     | 'finish'
     | 'markCaktoWelcomeDelivered'
+    | 'markTrialWelcomeDelivered'
   >;
   users: Pick<typeof channelUsersRepo, 'getById'>;
   channels: () => Pick<IChannelService, 'getChannel' | 'listChannels' | 'send'>;
@@ -250,9 +251,11 @@ export class ChannelAccessNotificationWorker {
           const message = d.render(
             entry.kind === 'trial_expired'
               ? 'expired'
-              : entry.kind === 'approved' && hasTrialWelcome(freshUser!)
-                ? 'subscribed'
-                : entry.kind,
+              : entry.kind === 'approved' && freshUser!.accessSource === 'trial'
+                ? 'first_authorized'
+                : entry.kind === 'approved' && hasTrialWelcome(freshUser!)
+                  ? 'subscribed'
+                  : entry.kind,
             freshUser!,
             {
               ...settings,
@@ -273,6 +276,13 @@ export class ChannelAccessNotificationWorker {
               : await channels.send(channel.pluginId, outgoing);
           if (!deliveryId?.trim()) throw new Error('delivery_outcome_unknown');
           await d.notifications.finish(entry.id, token, 'delivered', { deliveryId }, d.now());
+          if (entry.kind === 'approved' && freshUser!.accessSource === 'trial') {
+            try {
+              await d.notifications.markTrialWelcomeDelivered(entry.id, freshUser!.id);
+            } catch {
+              log.warn('Trial welcome sent, but welcome state was not saved');
+            }
+          }
           if (isProactivePaidCaktoNotice(freshUser!, entry.kind)) {
             try {
               await d.notifications.markCaktoWelcomeDelivered(entry.id, freshUser!.id);

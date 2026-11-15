@@ -28,6 +28,10 @@ import {
 import { normalizeWhatsAppAccessPhone } from '../channels/channel-access-service.js';
 import { whatsappPhoneSpellings } from '../channels/whatsapp-phone.js';
 import { buildCustomerOtpMessage } from './customer-auth-messages.js';
+import {
+  ASTRA_TRIAL_START_MESSAGE,
+  ASTRA_JULIO_TRIAL_START_MESSAGE,
+} from '../channels/trial-entry.js';
 import { getLog } from './log.js';
 
 const log = getLog('CustomerAuth');
@@ -443,6 +447,19 @@ export class CustomerAuthService {
     const changed = await this.d.identity.getContext(accountId);
     if (!changed) throw new CustomerAuthError('Entre novamente com o novo número.', 401);
     return { customer: changed.customer, token, expiresAt: session.expiresAt };
+  }
+
+  /** Public business contact only. Does not inspect customers or create a trial. */
+  getWhatsAppStartUrl(referral?: 'julio'): string {
+    const selected = this.connectedChannel();
+    if (!selected)
+      throw new CustomerAuthError(
+        'O WhatsApp do Astra está reconectando. Tente novamente em instantes.',
+        503
+      );
+    const message =
+      referral === 'julio' ? ASTRA_JULIO_TRIAL_START_MESSAGE : ASTRA_TRIAL_START_MESSAGE;
+    return `https://wa.me/${selected.phone}?text=${encodeURIComponent(message)}`;
   }
 
   private connectedChannel() {

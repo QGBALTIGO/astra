@@ -11,6 +11,7 @@ export class WhatsAppTrialsRepository extends BaseRepository {
     displayName?: string;
     platformUsername?: string;
     avatarUrl?: string;
+    trialReferral?: 'julio';
   }): Promise<string | null> {
     const phone = input.platformUserId;
     if (
@@ -53,7 +54,7 @@ export class WhatsAppTrialsRepository extends BaseRepository {
           CASE WHEN $7 THEN 'trial' ELSE NULL END,
           CASE WHEN $7 THEN date_trunc('milliseconds',NOW()) ELSE NULL END,
           CASE WHEN $7 THEN date_trunc('milliseconds',NOW())+INTERVAL '72 hours' ELSE NULL END,
-          '{"hasInteracted":true,"accessWelcomePending":true}'::jsonb)
+          $8::jsonb)
          ON CONFLICT(platform,platform_user_id) DO NOTHING
          RETURNING id,access_granted_at,access_expires_at`,
         [
@@ -64,6 +65,11 @@ export class WhatsAppTrialsRepository extends BaseRepository {
           input.platformUsername ?? null,
           input.avatarUrl ?? null,
           eligible,
+          JSON.stringify({
+            hasInteracted: true,
+            accessWelcomePending: true,
+            ...(eligible && input.trialReferral === 'julio' ? { astraTrialReferral: 'julio' } : {}),
+          }),
         ]
       );
       if (!row) return null;
@@ -76,7 +82,8 @@ export class WhatsAppTrialsRepository extends BaseRepository {
         await this.execute(
           `INSERT INTO channel_access_notifications(id,channel_user_id,ownpilot_user_id,platform_user_id,
             kind,cycle_key,access_granted_at,access_expires_at,duration_days,available_at)
-           VALUES($1,$2,$3,$4,'trial_expired',$5,$6,$7,3,$7)`,
+           VALUES($1,$2,$3,$4,'trial_expired',$5,$6,$7,3,$7),
+                 ($8,$2,$3,$4,'approved',$9,$6,$7,3,$6)`,
           [
             randomUUID(),
             id,
@@ -85,6 +92,8 @@ export class WhatsAppTrialsRepository extends BaseRepository {
             `trial:${new Date(row.access_expires_at).toISOString()}`,
             row.access_granted_at,
             row.access_expires_at,
+            randomUUID(),
+            `trial-welcome:${new Date(row.access_expires_at).toISOString()}`,
           ]
         );
       }

@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { pages } from './src/legal.mjs';
 import { publicPages } from './src/public-pages.mjs';
 import { header, footer, dialogs } from './src/shared.mjs';
+import { trialCtas, trialAffiliateHtml } from './src/trial.mjs';
 import { minify } from 'terser';
 import CleanCSS from 'clean-css';
 import { minify as minifyHtml } from 'html-minifier-terser';
@@ -55,7 +56,7 @@ await asset('styles.css');
 await asset('app.js');
 const render = (html) =>
   replaceAssets(
-    html.replace(
+    trialCtas(html).replace(
       /\{\{icon:([a-z-]+)\}\}/g,
       (_, name) =>
         `<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#${name}"></use></svg>`
@@ -148,20 +149,33 @@ for (const [path, page] of Object.entries(pages)) {
   files[path] = html;
   await writeFile(join(dist, path.slice(1)), html);
 }
+const publicPaths = new Set(
+  Object.keys(files)
+    .filter((path) => path.endsWith('.html') && path !== '/404.html')
+    .map((path) => (path === '/index.html' ? '/' : path.slice(0, -5)))
+);
+for (const [path, html] of Object.entries({ ...files })) {
+  if (!path.endsWith('.html') || path === '/404.html') continue;
+  const page = path === '/index.html' ? '/' : path.slice(0, -5);
+  const target = '/julio' + (path === '/index.html' ? '.html' : path);
+  files[target] = trialAffiliateHtml(html, page, publicPaths);
+  await mkdir(dirname(join(dist, target.slice(1))), { recursive: true });
+  await writeFile(join(dist, target.slice(1)), files[target]);
+}
 const raw = Buffer.from(JSON.stringify(files));
 const sha = digest(raw);
 const packed = brotliCompressSync(raw, {
   params: { [constants.BROTLI_PARAM_QUALITY]: 11 },
 }).toString('base64');
-const loader = `import { brotliDecompressSync } from 'node:zlib';\nconst rawBundle=brotliDecompressSync(Buffer.from('${packed}','base64'));\nif(createHash('sha256').update(rawBundle).digest('hex')!=='${sha}')throw Error('Asset integrity check failed');\nconst files=JSON.parse(rawBundle.toString('utf8'));`;
+const loader = `const rawBundle=brotliDecompressSync(Buffer.from('${packed}','base64'));\nif(digest(rawBundle)!=='${sha}')throw Error('Asset hash mismatch');\nconst files=JSON.parse(rawBundle.toString('utf8'));`;
 const readableRuntime = (await readFile(join(root, 'runtime.ts'), 'utf8')).replace(
   '/* PUBLIC_ASSET_BUNDLE */',
   loader
 );
 const { code: runtime } = await minify(readableRuntime, {
   module: true,
-  compress: false,
-  mangle: { toplevel: false, reserved: ['SQL'] },
+  compress: { passes: 2 },
+  mangle: { toplevel: true, reserved: ['SQL'] },
   format: { comments: false },
 });
 const argumentBytes = Buffer.from(runtime).toString('base64').length;
@@ -173,7 +187,7 @@ await writeFile(
   join(dist, 'build.json'),
   JSON.stringify(
     {
-      release: 'demo-mobile-20261113',
+      release: 'trial-whatsapp-20261115',
       sha256: sha,
       files: Object.keys(files),
       paths,
@@ -188,7 +202,7 @@ await writeFile(
 );
 console.log(
   JSON.stringify({
-    release: 'demo-mobile-20261113',
+    release: 'trial-whatsapp-20261115',
     sha256: sha,
     files: Object.keys(files).length,
     htmlBytes: Buffer.byteLength(index),

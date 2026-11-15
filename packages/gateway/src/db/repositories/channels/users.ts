@@ -41,6 +41,7 @@ export interface ChannelUserEntity {
 interface CreateChannelUserInput {
   /** Trusted inbound WhatsApp only; existing contacts are never enrolled. */
   startWhatsAppTrial?: boolean;
+  trialReferral?: 'julio';
   ownpilotUserId?: string;
   platform: string;
   platformUserId: string;

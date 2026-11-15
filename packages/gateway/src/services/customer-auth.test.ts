@@ -158,6 +158,25 @@ describe('CustomerAuthService', () => {
       code: () => generatedCode,
     });
   });
+  it('opens only the authenticated business WhatsApp with a fixed trial message', () => {
+    const url = new URL(service.getWhatsAppStartUrl());
+    expect(url.origin).toBe('https://wa.me');
+    expect(url.searchParams.get('text')).toBe('Olá! Quero testar o Astra grátis por 3 dias.');
+    expect(auth.reserveChallenge).not.toHaveBeenCalled();
+    expect(identity.resolveLoginPhone).not.toHaveBeenCalled();
+    expect(api.sendMessage).not.toHaveBeenCalled();
+  });
+  it('uses a distinct fixed message only for the known referral', () => {
+    const url = new URL(service.getWhatsAppStartUrl('julio'));
+    expect(url.searchParams.get('text')).toContain('indicação do Júlio');
+  });
+  it('does not publish a stale or unresolvable connected account', () => {
+    api.getStatus.mockReturnValue('disconnected');
+    expect(() => service.getWhatsAppStartUrl()).toThrow('reconectando');
+    api.getStatus.mockReturnValue('connected');
+    api.getBotInfo.mockReturnValue({ username: 'invalid@lid' });
+    expect(() => service.getWhatsAppStartUrl()).toThrow('reconectando');
+  });
 
   it('returns the same generic envelope for known and unknown phones without synchronous delivery', async () => {
     const known = await service.requestCode('(67) 99999-8888', 'test-ip');

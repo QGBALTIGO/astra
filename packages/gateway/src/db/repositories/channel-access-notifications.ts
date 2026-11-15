@@ -327,6 +327,23 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
     });
   }
 
+  async markTrialWelcomeDelivered(notificationId: string, userId: string): Promise<boolean> {
+    const result = await this.execute(
+      `UPDATE channel_users u SET metadata=jsonb_set(COALESCE(u.metadata,'{}'::jsonb),
+         '{astraAccessNotices}',COALESCE(u.metadata->'astraAccessNotices','{}'::jsonb)
+         || '{"firstAuthorized":true,"firstAuthorizedAsTrial":true}'::jsonb)
+         || '{"accessWelcomePending":false}'::jsonb
+       FROM channel_access_notifications n WHERE n.id=$1 AND n.channel_user_id=u.id AND u.id=$2
+         AND n.kind='approved' AND n.status='delivered' AND u.access_source='trial'
+         AND u.platform='whatsapp' AND u.ownpilot_user_id=n.ownpilot_user_id
+         AND u.platform_user_id=n.platform_user_id
+         AND u.access_granted_at IS NOT DISTINCT FROM n.access_granted_at
+         AND u.access_expires_at IS NOT DISTINCT FROM n.access_expires_at`,
+      [notificationId, userId]
+    );
+    return result.changes === 1;
+  }
+
   /**
    * Suppress a second onboarding greeting after an accepted paid notification.
    * Never set hasInteracted from outbound activity.

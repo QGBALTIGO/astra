@@ -2,9 +2,10 @@
  * Form validation, CSRF, idempotency, deletion and SQL contracts are retained.
  */
 import { SQL } from 'bun';
-import { gzipSync } from 'node:zlib';
+import { gzipSync, brotliDecompressSync } from 'node:zlib';
 import { createHash, createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
-const RELEASE = 'demo-mobile-20261113';
+const RELEASE = 'trial-whatsapp-20261115';
+const digest = (value) => createHash('sha256').update(value).digest('hex');
 /* PUBLIC_ASSET_BUNDLE */
 const preview = Bun.env.LANDING_PREVIEW === 'true';
 const schema = preview ? 'astra_landing_preview' : 'astra_landing';
@@ -25,7 +26,6 @@ const formOrigins = new Set(
 const secret = createHash('sha256')
   .update(String(Bun.env.LANDING_PG_PASSWORD) + '|astra-landing-private-form-v1')
   .digest();
-const digest = (value) => createHash('sha256').update(value).digest('hex');
 const mac = (value) => createHmac('sha256', secret).update(value).digest('hex');
 const sql = new SQL({
   hostname: Bun.env.LANDING_PG_HOST,
@@ -234,7 +234,7 @@ function staticResponse(req, path, status = 200) {
     etag: a.etag,
     vary: 'Accept-Encoding',
   };
-  if (preview || path === '/remover.html' || status === 404)
+  if (preview || path === '/remover.html' || /^\/julio(?:\.html|\/)/.test(path) || status === 404)
     h['x-robots-tag'] = 'noindex, nofollow';
   if (req.headers.get('if-none-match') === a.etag && status === 200)
     return new Response(null, { status: 304, headers: h });
@@ -350,6 +350,11 @@ async function handle(req) {
     );
   if (path === '/favicon.ico')
     return Response.redirect(publicOrigin + '/assets/brand-ac0b1367fee7.png', 302);
+  if (/^\/julio(?:\/|$)/.test(path)) {
+    const source = routes[path.slice(6) || '/'];
+    if (source)
+      return staticResponse(req, '/julio' + (source === '/index.html' ? '.html' : source));
+  }
   if (routes[path]) return staticResponse(req, routes[path]);
   if (path.startsWith('/assets/') && assets.has(path)) return staticResponse(req, path);
   return staticResponse(req, '/404.html', 404);

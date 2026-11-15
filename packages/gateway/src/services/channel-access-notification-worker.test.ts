@@ -84,6 +84,8 @@ describe('ChannelAccessNotificationWorker', () => {
   let entry: ChannelAccessNotification;
   let worker: ChannelAccessNotificationWorker;
   const notifications = {
+    markTrialWelcomeDelivered:
+      vi.fn<ChannelAccessNotificationsRepository['markTrialWelcomeDelivered']>(),
     queueExpiringWithin24Hours:
       vi.fn<ChannelAccessNotificationsRepository['queueExpiringWithin24Hours']>(),
     claimDue: vi.fn<ChannelAccessNotificationsRepository['claimDue']>(),
@@ -111,6 +113,15 @@ describe('ChannelAccessNotificationWorker', () => {
   const loadSettings = vi.fn<() => Promise<typeof settings>>();
   const render = vi.fn<typeof buildAccessMessage>();
 
+  it('delivers a durable trial welcome after recovery without a new incoming message', async () => {
+    user.accessSource = 'trial';
+    entry = makeEntry(user);
+    const result = await worker.dispatch();
+    expect(result.delivered).toBe(1);
+    expect(render.mock.calls[0]?.[0]).toBe('first_authorized');
+    expect(channels.send).toHaveBeenCalledOnce();
+    expect(notifications.markTrialWelcomeDelivered).toHaveBeenCalledWith(entry.id, user.id);
+  });
   it('sends the trusted trial expiry template through the private transport only', async () => {
     user.accessSource = 'trial';
     user.accessExpiresAt = new Date(now.getTime() - 1);
@@ -189,6 +200,7 @@ describe('ChannelAccessNotificationWorker', () => {
     notifications.deferBeforeSend.mockResolvedValue(undefined);
     notifications.finish.mockResolvedValue(undefined);
     notifications.markCaktoWelcomeDelivered.mockResolvedValue(true);
+    notifications.markTrialWelcomeDelivered.mockResolvedValue(true);
     api.getPlatform.mockReturnValue('whatsapp');
     api.getStatus.mockReturnValue('connected');
     api.getBotInfo.mockReturnValue({ username: botPhone });

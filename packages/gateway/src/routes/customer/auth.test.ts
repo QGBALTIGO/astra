@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 
 const service = vi.hoisted(() => ({
+  getWhatsAppStartUrl: vi.fn(),
   requestCode: vi.fn(),
   verifyCode: vi.fn(),
   authenticate: vi.fn(),
@@ -108,6 +109,40 @@ describe('Customer HTTP authentication and account boundaries', () => {
     service.revokeOthers.mockResolvedValue(2);
   });
   afterEach(() => vi.unstubAllEnvs());
+
+  it('opens WhatsApp without registration, issuing a code, or creating a session', async () => {
+    const url = 'https://wa.me/5567999991111?text=Ol%C3%A1';
+    service.getWhatsAppStartUrl.mockReturnValue(url);
+    const res = await app.request('/api/v1/customer/auth/start');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(url);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(service.requestCode).not.toHaveBeenCalled();
+    expect(service.authenticate).not.toHaveBeenCalled();
+  });
+  it('accepts only the known referral and ignores destination injection', async () => {
+    service.getWhatsAppStartUrl.mockReturnValue('https://wa.me/5567999991111?text=teste');
+    const good = await app.request(
+      '/api/v1/customer/auth/start?ref=julio&url=https://evil.example'
+    );
+    expect(good.status).toBe(302);
+    expect(service.getWhatsAppStartUrl).toHaveBeenCalledWith('julio');
+    expect(good.headers.get('location')).toContain('https://wa.me/');
+    service.getWhatsAppStartUrl.mockClear();
+    expect((await app.request('/api/v1/customer/auth/start?ref=evil')).status).toBe(400);
+    expect(service.getWhatsAppStartUrl).not.toHaveBeenCalled();
+  });
+  it('explains temporary unavailability without exposing internal errors', async () => {
+    service.getWhatsAppStartUrl.mockImplementation(() => {
+      throw new Error('PRIVATE_PROVIDER_TOKEN');
+    });
+    const res = await app.request('/api/v1/customer/auth/start');
+    expect(res.status).toBe(503);
+    const text = await res.text();
+    expect(text).toContain('reconectando');
+    expect(text).not.toContain('PRIVATE_PROVIDER_TOKEN');
+    expect(res.headers.get('retry-after')).toBe('30');
+  });
 
   it('uses a dedicated secure, HttpOnly, customer-path cookie and never returns a browser token in JSON', async () => {
     const response = await request('/auth/verify-code', 'POST', { challengeId, code: '123456' });
