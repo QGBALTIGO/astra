@@ -27,6 +27,7 @@ vi.mock('./log.js', () => ({
 }));
 
 import { ChannelAccessNotificationWorker } from './channel-access-notification-worker.js';
+import { ChannelSendNotAttemptedError } from '../channels/send-not-attempted.js';
 
 const now = new Date('2026-11-10T16:00:00.000Z');
 const botPhone = '5567999991111';
@@ -533,20 +534,41 @@ describe('ChannelAccessNotificationWorker', () => {
     expect(channels.send).not.toHaveBeenCalled();
   });
 
-  it('never defers or retries after an ambiguous transport failure', async () => {
-    channels.send.mockRejectedValueOnce(new Error('delivery outcome unknown'));
-    expect((await worker.dispatch()).failed).toBe(1);
-    expect(notifications.finish).toHaveBeenCalledExactlyOnceWith(
+  it('defers a failure proven to have occurred inside the service before transport', async () => {
+    user.accessSource = 'trial';
+    entry = makeEntry(user);
+    channels.send.mockRejectedValueOnce(
+      new ChannelSendNotAttemptedError(new Error('authorization lookup unavailable'))
+    );
+    expect((await worker.dispatch()).deferred).toBe(1);
+    expect(notifications.deferBeforeSend).toHaveBeenCalledWith(
       entry.id,
       entry.leaseToken,
-      'failed',
-      { reason: 'delivery_outcome_unknown' },
-      now
+      new Date(now.getTime() + 60000),
+      'pre_send_error'
     );
-    expect(notifications.deferBeforeSend).not.toHaveBeenCalled();
-    await worker.dispatch();
-    expect(channels.send).toHaveBeenCalledOnce();
+    expect(notifications.finish).not.toHaveBeenCalled();
   });
+
+  it.each(['generic', 'same-name'])(
+    'never defers or retries after an ambiguous transport failure: %s',
+    async (variant) => {
+      const error = new Error('delivery outcome unknown');
+      if (variant === 'same-name') error.name = 'ChannelSendNotAttemptedError';
+      channels.send.mockRejectedValueOnce(error);
+      expect((await worker.dispatch()).failed).toBe(1);
+      expect(notifications.finish).toHaveBeenCalledExactlyOnceWith(
+        entry.id,
+        entry.leaseToken,
+        'failed',
+        { reason: 'delivery_outcome_unknown' },
+        now
+      );
+      expect(notifications.deferBeforeSend).not.toHaveBeenCalled();
+      await worker.dispatch();
+      expect(channels.send).toHaveBeenCalledOnce();
+    }
+  );
 
   it('never defers or repeats a successful transport send after its receipt write fails', async () => {
     notifications.finish.mockRejectedValueOnce(new Error('receipt write failed'));

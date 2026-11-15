@@ -76,6 +76,7 @@ import { getWhatsAppAccessMessageSettings } from './channel-access-message-setti
 import { resolveCustomerPhone } from '../services/customer-identity.js';
 import { resolveInboundWhatsAppSpelling } from './whatsapp-inbound-identity.js';
 import { isTrialStartMessage, trialReferralFromMessage } from './trial-entry.js';
+import { ChannelSendNotAttemptedError } from './send-not-attempted.js';
 import { whatsappPhoneSpellings } from './whatsapp-phone.js';
 import {
   channelSessionsRepo,
@@ -215,11 +216,17 @@ export class ChannelServiceImpl implements IChannelService {
   async send(channelPluginId: string, message: ChannelOutgoingMessage): Promise<string> {
     const api = this.getChannel(channelPluginId);
     if (!api) {
-      throw new Error(`Channel plugin not found: ${channelPluginId}`);
+      throw new ChannelSendNotAttemptedError(
+        new Error(`Channel plugin not found: ${channelPluginId}`)
+      );
     }
 
+    let transportInvoked = false;
     try {
       await this.assertOutgoingAccess(api, message.platformChatId);
+      if (api.getPlatform() === 'whatsapp' && api.getStatus() !== 'connected')
+        throw new Error('WhatsApp disconnected before transport');
+      transportInvoked = true;
       const messageId = await api.sendMessage(message);
       await recordOutboundQuality(channelPluginId, messageId, message.text);
 
@@ -254,7 +261,7 @@ export class ChannelServiceImpl implements IChannelService {
       } catch (emitErr) {
         log.warn('EventBus not available for MESSAGE_SEND_ERROR event', { error: emitErr });
       }
-      throw error;
+      throw transportInvoked ? error : new ChannelSendNotAttemptedError(error);
     }
   }
 
@@ -1666,6 +1673,8 @@ export class ChannelServiceImpl implements IChannelService {
           }
         }
       } catch (error) {
+        if (mode === 'first_authorized' && error instanceof ChannelSendNotAttemptedError)
+          transportInvoked = false;
         if (welcomeNotificationId && firstWelcomeToken && transportInvoked) {
           try {
             await channelAccessNotificationsRepo.finish(

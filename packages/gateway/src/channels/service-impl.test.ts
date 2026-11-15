@@ -1522,6 +1522,45 @@ describe('ChannelServiceImpl', () => {
         expect(mockAccessNoticeRelease).not.toHaveBeenCalled();
       });
 
+      it('releases a known-unsent welcome if the final outgoing access lookup fails', async () => {
+        reserveDurableWelcome();
+        mockBeginWelcomeSend.mockImplementationOnce(async () => {
+          mockUsersRepo.findByPlatform.mockRejectedValueOnce(
+            new Error('final access lookup unavailable')
+          );
+          return true;
+        });
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+        expect(mockFinishWelcomeSend).not.toHaveBeenCalled();
+        expect(mockAccessNoticeRelease).toHaveBeenCalledWith(
+          customer.id,
+          message.id,
+          inboundAccessCycle(customer),
+          'inline-lease'
+        );
+      });
+
+      it('releases the welcome if disconnected during the final outgoing access lookup', async () => {
+        reserveDurableWelcome();
+        mockBeginWelcomeSend.mockImplementationOnce(async () => {
+          mockUsersRepo.findByPlatform.mockImplementationOnce(async () => {
+            channelPlugin.api.getStatus.mockReturnValue('disconnected');
+            return customer;
+          });
+          return true;
+        });
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+        expect(mockFinishWelcomeSend).not.toHaveBeenCalled();
+        expect(mockAccessNoticeRelease).toHaveBeenCalledWith(
+          customer.id,
+          message.id,
+          inboundAccessCycle(customer),
+          'inline-lease'
+        );
+      });
+
       it.each([
         ['sem nome', '5511999990001', 'Oi', undefined],
         ['Brasil com nono dígito', '5581999990101', 'OLÁ!', undefined],
