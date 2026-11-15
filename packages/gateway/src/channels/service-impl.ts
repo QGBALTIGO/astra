@@ -109,6 +109,8 @@ import { bridgeIncomingMessage } from './bridge-runtime.js';
 
 const log = getLog('ChannelService');
 
+class InboundPersistenceError extends Error {}
+
 /** Try to get ISessionService via the core capability accessor.  *
  * Trust boundary: Channel plugin responses are normalised via per-plugin normalizers before reaching this code; the casts below adapt the normalised shape to the canonical channel-event type. The normalizer is the trust boundary.
  */
@@ -996,12 +998,10 @@ export class ChannelServiceImpl implements IChannelService {
           return;
         }
         savedInboundId = message.id;
-      } catch (error) {
-        // A save failure here must NOT silently fall through to a second AI
-        // reply on the next retry. But unlike a clean duplicate, we can't tell
-        // whether this delivery was already answered, so we continue (best
-        // effort) — the dedup above handles the common redelivery case.
-        log.warn('Failed to save incoming message', { error });
+      } catch {
+        // Without the durable idempotency gate, processing a retry could execute
+        // the same action twice. No routing, bridge or action has started yet.
+        throw new InboundPersistenceError('Inbound message persistence failed');
       }
 
       // This runs AFTER the idempotent inbound save. Even suppressed greetings
@@ -1384,8 +1384,14 @@ export class ChannelServiceImpl implements IChannelService {
       });
     } catch (error) {
       const reason = channelFailureKind(getErrorMessage(error));
-      log.error('Error processing message', { reason, platform: message.platform });
-      const userMessage = channelFailureReply(message.text, reason);
+      const persistenceFailed = error instanceof InboundPersistenceError;
+      log.error('Error processing message', {
+        reason: persistenceFailed ? 'inbound_persistence' : reason,
+        platform: message.platform,
+      });
+      const userMessage = persistenceFailed
+        ? 'Não consegui registrar sua mensagem agora, então não executei o pedido. Tente novamente em instantes.'
+        : channelFailureReply(message.text, reason);
 
       // Surface the error to the user. If a progress ("Thinking...") placeholder
       // is pending, replace it in place — otherwise it is orphaned in the chat
