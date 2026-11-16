@@ -10,12 +10,14 @@ import { ChannelSendNotAttemptedError } from '../../channels/send-not-attempted.
 import { resolveCustomerPhone } from '../customer-identity.js';
 import { getLog } from '../log.js';
 import { ASTRA_CUSTOMER_ORIGIN } from '../../config/astra-public-urls.js';
+import { newsCards, isRadarNewsCard } from './news-cards.js';
 import { fetchRadarResource, RADAR_POLL_SECONDS, snapshotFingerprint } from './providers.js';
 import { RadarSourceError } from './http.js';
 import { sourceAvailable, thresholdMatches } from './contracts.js';
 import {
   dailyWindow,
   digestText,
+  digestSection,
   freshSnapshot,
   inQuietHours,
   interestDecisions,
@@ -162,6 +164,7 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
     const rows = await radarRepo.claimDeliveries(1);
     for (const row of rows) {
       let attempted = false;
+      let confirmedParts = 0;
       try {
         if (!(await radarRepo.deliveryCurrent(row))) {
           await radarRepo.finishDelivery(row, 'cancelled');
@@ -186,20 +189,26 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
         }
         const repo = new CustomerRadarRepository(row.user_id);
         const requested = row.event_key.startsWith('requested:');
+        const preview = row.event_key.startsWith('preview:') && row.payload.newsPreview === true;
         const pref = await repo.preferences();
         const clock = localClock(now, account.timeZone);
-        if (!pref.preferences.enabled || pref.revision !== row.preference_revision) {
+        if (
+          (!pref.preferences.enabled && !preview) ||
+          pref.revision !== row.preference_revision ||
+          (preview && !sourceAvailable('news'))
+        ) {
           await radarRepo.finishDelivery(row, 'cancelled');
           continue;
         }
         if (
           !requested &&
+          !preview &&
           inQuietHours(clock.time, pref.preferences.quietStart, pref.preferences.quietEnd)
         ) {
           await radarRepo.deferDelivery(row, 60);
           continue;
         }
-        const interests = await radarRepo.rawInterests(row.user_id);
+        const interests = preview ? [] : await radarRepo.rawInterests(row.user_id);
         const interest = row.interest_id
           ? interests.find((i) => i.id === row.interest_id)
           : undefined;
@@ -226,7 +235,84 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
               now,
               account.timeZone
             );
-        if (!text) {
+        type Part = {
+          text: string;
+          urlButton: { label: string; url: string };
+          topics?: Array<{ id: string; revision: number }>;
+        };
+        let parts: Part[] = [];
+        const coveredContent = new Set<string>();
+        if (preview) {
+          const cards = row.payload.cards;
+          if (
+            Array.isArray(cards) &&
+            cards.length > 0 &&
+            cards.length <= 3 &&
+            cards.every(isRadarNewsCard)
+          )
+            parts = cards;
+        } else if (!row.interest_id) {
+          const chosen = requested
+            ? interests.map((i) => ({ ...i, last_content_key: null }))
+            : interests;
+          const other = chosen.filter((i) => i.input.source !== 'news');
+          const otherText = digestText(other, now, account.timeZone);
+          if (otherText)
+            for (const topic of other) {
+              const section = digestSection(topic, now, account.timeZone);
+              if (section && otherText.includes(section)) coveredContent.add(topic.id);
+            }
+          if (otherText)
+            parts.push({
+              text: otherText,
+              urlButton: { label: 'Meu Radar', url: ASTRA_CUSTOMER_ORIGIN + '/cliente/radar' },
+              topics: other.map((i) => ({ id: i.id, revision: i.revision })),
+            });
+          const seen = new Set<string>();
+          const articles: Part[] = chosen
+            .filter((i) => i.input.source === 'news' && digestSection(i, now, account.timeZone))
+            .flatMap((i) =>
+              newsCards(i.snapshot!.items, i.label).map((card) => ({
+                ...card,
+                topics: [{ id: i.id, revision: i.revision }],
+              }))
+            );
+          parts.push(
+            ...articles
+              .filter((card) => {
+                if (seen.has(card.urlButton.url)) return false;
+                seen.add(card.urlButton.url);
+                return true;
+              })
+              .slice(0, 3)
+          );
+          const shownUrls = new Set(
+            parts
+              .filter((part) => part.urlButton.label === 'Ler matéria')
+              .map((part) => part.urlButton.url)
+          );
+          for (const topic of chosen.filter(
+            (i) => i.input.source === 'news' && digestSection(i, now, account.timeZone)
+          )) {
+            const cards = newsCards(topic.snapshot!.items, topic.label);
+            if (cards.length && cards.every((card) => shownUrls.has(card.urlButton.url)))
+              coveredContent.add(topic.id);
+          }
+          if (!parts.length && text)
+            parts = [
+              {
+                text,
+                urlButton: { label: 'Meu Radar', url: ASTRA_CUSTOMER_ORIGIN + '/cliente/radar' },
+              },
+            ];
+        } else if (text)
+          parts = [
+            {
+              text,
+              urlButton: { label: 'Meu Radar', url: ASTRA_CUSTOMER_ORIGIN + '/cliente/radar' },
+            },
+          ];
+        if (!parts.length) {
           await radarRepo.finishDelivery(row, 'cancelled');
           continue;
         }
@@ -255,20 +341,66 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
         }
         if (!(await radarRepo.beginDelivery(row))) continue;
         attempted = true;
-        const receipt = await channels.send(descriptor.pluginId, {
-          platformChatId: account.phoneNumber,
-          text,
-          urlButton: { label: 'Meu Radar', url: ASTRA_CUSTOMER_ORIGIN + '/cliente/radar' },
-        });
+        let receipt = '';
+        let interrupted = false;
+        for (const [index, part] of parts.entries()) {
+          const [freshAccount, freshUser, freshAlias, authorized, currentTopics] =
+            await Promise.all([
+              customerAccountsRepo.getById(account.id),
+              channelUsersRepo.getById(account.channelUserId),
+              resolveCustomerPhone(account.phoneNumber),
+              radarRepo.sendingDeliveryCurrent(row),
+              part.topics?.length ? radarRepo.rawInterests(row.user_id) : Promise.resolve([]),
+            ]);
+          if (
+            !authorized ||
+            freshAccount?.phoneNumber !== account.phoneNumber ||
+            freshAccount?.dataUserId !== row.user_id ||
+            freshAccount?.timeZone !== account.timeZone ||
+            !freshUser ||
+            !isChannelUserAccessActive(freshUser) ||
+            freshUser.ownpilotUserId !== 'whatsapp:' + account.phoneNumber ||
+            freshAlias?.accountId !== account.id ||
+            freshAlias.retired ||
+            part.topics?.some(
+              (topic) =>
+                !currentTopics.some(
+                  (i) => i.id === topic.id && i.revision === topic.revision && i.active
+                )
+            )
+          ) {
+            interrupted = true;
+            break;
+          }
+          receipt = await channels.send(descriptor.pluginId, {
+            platformChatId: account.phoneNumber,
+            text: part.text,
+            urlButton: part.urlButton,
+            sendBefore: new Date(row.expires_at),
+          });
+          if (typeof receipt !== 'string' || !receipt.trim())
+            throw new Error('Radar receipt unavailable');
+          confirmedParts++;
+          if (!(await radarRepo.recordDeliveryPart(row, index, receipt, parts.length)))
+            throw new Error('Radar progress unavailable');
+        }
+        if (interrupted) {
+          await radarRepo.finishDelivery(row, confirmedParts ? 'unknown' : 'cancelled');
+          continue;
+        }
         await radarRepo.finishDelivery(
           row,
           typeof receipt === 'string' && receipt.trim() ? 'sent' : 'unknown',
           typeof receipt === 'string' ? receipt : undefined
         );
         if (typeof receipt === 'string' && receipt.trim()) delivered++;
-        if (!row.interest_id)
+        if (!row.interest_id && !preview)
           for (const i of interests)
-            if (i.snapshot && ['releases', 'energy', 'news'].includes(i.input.source))
+            if (
+              i.snapshot &&
+              coveredContent.has(i.id) &&
+              ['releases', 'energy', 'news'].includes(i.input.source)
+            )
               await radarRepo.markContent(
                 row.user_id,
                 i.id,
@@ -277,7 +409,7 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
               );
       } catch (error) {
         // A preflight rejection is provably not sent. Other post-invocation errors are ambiguous.
-        if (attempted && error instanceof ChannelSendNotAttemptedError) {
+        if (attempted && confirmedParts === 0 && error instanceof ChannelSendNotAttemptedError) {
           await radarRepo.deferDelivery(row, 60, true);
         } else if (attempted) await radarRepo.finishDelivery(row, 'unknown');
         else await radarRepo.deferDelivery(row, 60);

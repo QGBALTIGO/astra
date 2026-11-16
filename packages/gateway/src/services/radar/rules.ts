@@ -61,7 +61,7 @@ export function digestSection(
               ? item.text.replace(' · Global Voices · CC BY 3.0', '')
               : item.text)
           : null,
-        !football && item.url ? '  ' + item.url : null,
+        !football && interest.input.source !== 'news' && item.url ? '  ' + item.url : null,
       ]
         .filter(Boolean)
         .join('\n')
@@ -76,10 +76,9 @@ export function digestSection(
       : 'Nenhuma publicação encontrada no período consultado.') +
     (football
       ? ''
-      : '\nFonte: ' +
-        (interest.input.source === 'news' ? 'Global Voices · CC BY 3.0' : snap.sourceLabel) +
-        ' · ' +
-        snap.sourceUrl)
+      : interest.input.source === 'news'
+        ? '\nGlobal Voices · CC BY 3.0'
+        : '\nFonte: ' + snap.sourceLabel + ' · ' + snap.sourceUrl)
   );
 }
 export function digestText(

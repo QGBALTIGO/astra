@@ -54,6 +54,214 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       );
       return { i, row, revision, payload };
     }
+    const newsCards = () => [
+      {
+        text: '📰 *Uma notícia importante*\n\nPublicado em 16/11/2026\nGlobal Voices · CC BY 3.0',
+        urlButton: {
+          label: 'Ler matéria' as const,
+          url: 'https://pt.globalvoices.org/2026/11/16/noticia/',
+        },
+      },
+    ];
+    it('queues a private news read for an account with no Radar opt-in or interests', async () => {
+      expect(await publicRepo.queueNewsPreview(userA, 0, 'message-a', newsCards())).toBe('queued');
+      expect((await a.preferences()).preferences.enabled).toBe(false);
+      expect((await a.preferences()).revision).toBe(0);
+      expect(await a.list()).toEqual([]);
+      expect(await b.history()).toEqual([]);
+      const job = (await publicRepo.claimDeliveries())[0]!;
+      expect(job.event_key).toBe('preview:message-a');
+      expect(job.payload).toMatchObject({ newsPreview: true, cards: newsCards() });
+      expect(await publicRepo.deliveryCurrent(job)).toBe(true);
+      expect(await publicRepo.beginDelivery(job)).toBe(true);
+      expect(await publicRepo.sendingDeliveryCurrent(job)).toBe(true);
+      expect((await a.preferences()).preferences.enabled).toBe(false);
+    });
+    it('deduplicates previews including unknown sends and applies rate limits independently by account', async () => {
+      expect(await publicRepo.queueNewsPreview(userA, 0, 'message-a', newsCards())).toBe('queued');
+      const job = (await publicRepo.claimDeliveries())[0]!;
+      await publicRepo.beginDelivery(job);
+      await publicRepo.finishDelivery(job, 'unknown');
+      expect(await publicRepo.queueNewsPreview(userA, 0, 'message-a', newsCards())).toBe(
+        'existing'
+      );
+      expect(await publicRepo.queueNewsPreview(userA, 0, 'message-b', newsCards())).toBe(
+        'rate_limited'
+      );
+      expect(await publicRepo.queueNewsPreview(userB, 0, 'message-a', newsCards())).toBe('queued');
+      const later = await publicRepo.claimDeliveries(10);
+      expect(later).toHaveLength(1);
+      expect(later[0]!.user_id).toBe(userB);
+      expect((await a.history())[0]!.status).toBe('unknown');
+    });
+    it('requires the current preference revision even for an explicitly requested paused preview', async () => {
+      const pref = await a.savePreferences(RADAR_DEFAULT_PREFERENCES);
+      expect(await publicRepo.queueNewsPreview(userA, 0, 'stale', newsCards())).toBe('unavailable');
+      expect(await publicRepo.queueNewsPreview(userA, pref.revision, 'current', newsCards())).toBe(
+        'queued'
+      );
+      const job = (await publicRepo.claimDeliveries())[0]!;
+      expect(await publicRepo.beginDelivery(job)).toBe(true);
+      await a.savePreferences(RADAR_DEFAULT_PREFERENCES);
+      expect(await publicRepo.sendingDeliveryCurrent(job)).toBe(false);
+      // A receipt already accepted during an opt-out is still an audit fact.
+      expect(await publicRepo.recordDeliveryPart(job, 0, 'accepted-before-optout', 1)).toBe(true);
+    });
+    it('cancels a claimed paused preview when the customer changes preferences before it starts', async () => {
+      expect(await publicRepo.queueNewsPreview(userA, 0, 'message-a', newsCards())).toBe('queued');
+      const job = (await publicRepo.claimDeliveries())[0]!;
+      await a.savePreferences(RADAR_DEFAULT_PREFERENCES);
+      expect(await publicRepo.deliveryCurrent(job)).toBe(false);
+      expect(await publicRepo.beginDelivery(job)).toBe(false);
+      expect((await a.preferences()).preferences.enabled).toBe(false);
+    });
+    it('does not interpret an arbitrary payload flag as preview consent', async () => {
+      await prepare();
+      await db.execute(
+        "UPDATE customer_radar_outbox SET payload=jsonb_set(payload,'{newsPreview}','true'::jsonb)"
+      );
+      await db.execute(
+        "UPDATE customer_radar_preferences SET preferences=jsonb_set(preferences,'{enabled}','false'::jsonb)"
+      );
+      const job = (await publicRepo.claimDeliveries())[0]!;
+      expect(await publicRepo.deliveryCurrent(job)).toBe(false);
+      expect(await publicRepo.beginDelivery(job)).toBe(false);
+    });
+    it('rejects malformed news cards, unsafe destinations and oversized batches before creating preferences or jobs', async () => {
+      const valid = newsCards()[0]!;
+      const invalid = [
+        [],
+        [valid, valid, valid, valid],
+        [{ ...valid, text: '' }],
+        [{ ...valid, text: 'x'.repeat(501) }],
+        [
+          {
+            ...valid,
+            urlButton: { label: 'Ler matéria', url: 'http://pt.globalvoices.org/noticia/' },
+          },
+        ],
+        [
+          {
+            ...valid,
+            urlButton: {
+              label: 'Ler matéria',
+              url: 'https://pt.globalvoices.org.evil.test/noticia/',
+            },
+          },
+        ],
+        [
+          {
+            ...valid,
+            urlButton: {
+              label: 'Ler matéria',
+              url: 'https://private@pt.globalvoices.org/noticia/',
+            },
+          },
+        ],
+        [
+          {
+            ...valid,
+            urlButton: {
+              label: 'Ler matéria',
+              url: 'https://pt.globalvoices.org/' + 'x'.repeat(600),
+            },
+          },
+        ],
+        [{ ...valid, urlButton: { label: 'Enviar', url: valid.urlButton.url } }],
+      ];
+      for (const cards of invalid)
+        expect(await publicRepo.queueNewsPreview(userA, 0, 'invalid', cards as never)).toBe(
+          'unavailable'
+        );
+      expect(await db.query('SELECT * FROM customer_radar_preferences')).toEqual([]);
+      expect(await a.history()).toEqual([]);
+    });
+    it('records sequential confirmed parts atomically and keeps them after an unknown batch without replay', async () => {
+      await prepare();
+      const job = (await publicRepo.claimDeliveries())[0]!;
+      expect(await publicRepo.sendingDeliveryCurrent(job)).toBe(false);
+      expect(await publicRepo.recordDeliveryPart(job, 0, 'first', 3)).toBe(false);
+      expect(await publicRepo.beginDelivery(job)).toBe(true);
+      expect(
+        await Promise.all([
+          publicRepo.recordDeliveryPart(job, 0, 'first', 3),
+          publicRepo.recordDeliveryPart(job, 0, 'first', 3),
+        ])
+      ).toEqual([true, true]);
+      expect(await publicRepo.recordDeliveryPart(job, 0, 'other-receipt', 3)).toBe(false);
+      expect(await publicRepo.recordDeliveryPart(job, 2, 'third', 3)).toBe(false);
+      expect(await publicRepo.recordDeliveryPart(job, 1, 'second', 2)).toBe(false);
+      expect(await publicRepo.recordDeliveryPart(job, 1, 'second', 3)).toBe(true);
+      await publicRepo.finishDelivery(job, 'unknown');
+      expect(await publicRepo.claimDeliveries()).toEqual([]);
+      const saved = await db.queryOne<{ payload: typeof job.payload; status: string }>(
+        'SELECT payload,status FROM customer_radar_outbox WHERE id=$1',
+        [job.id]
+      );
+      expect(saved).toMatchObject({
+        status: 'unknown',
+        payload: {
+          totalParts: 3,
+          deliveredParts: [
+            { index: 0, transportId: 'first' },
+            { index: 1, transportId: 'second' },
+          ],
+        },
+      });
+      expect(await publicRepo.recordDeliveryPart(job, 2, 'third', 3)).toBe(false);
+    });
+    it('fences part receipts and every-part authorization against wrong owners, leases, expiry and interest changes', async () => {
+      const { i } = await prepare();
+      const job = (await publicRepo.claimDeliveries())[0]!;
+      const otherOwner = { ...job, user_id: userB };
+      expect(await publicRepo.deliveryCurrent(otherOwner)).toBe(false);
+      expect(await publicRepo.beginDelivery(otherOwner)).toBe(false);
+      expect(await publicRepo.beginDelivery(job)).toBe(true);
+      expect(await publicRepo.sendingDeliveryCurrent(job)).toBe(true);
+      expect(await publicRepo.sendingDeliveryCurrent(otherOwner)).toBe(false);
+      expect(await publicRepo.recordDeliveryPart(otherOwner, 0, 'wrong-owner', 1)).toBe(false);
+      expect(
+        await publicRepo.recordDeliveryPart({ ...job, lease_token: 'stale' }, 0, 'wrong-lease', 1)
+      ).toBe(false);
+      expect(await publicRepo.sendingDeliveryCurrent({ ...job, lease_token: 'stale' })).toBe(false);
+      await a.change(i.id, { active: false });
+      expect(await publicRepo.sendingDeliveryCurrent(job)).toBe(false);
+      await a.change(i.id, { active: true });
+      expect(await publicRepo.sendingDeliveryCurrent(job)).toBe(false);
+      await db.execute(
+        "UPDATE customer_radar_outbox SET interest_revision=(SELECT revision FROM customer_radar_interests WHERE id=$1),expires_at=NOW()-INTERVAL '1 second' WHERE id=$2",
+        [i.id, job.id]
+      );
+      expect(await publicRepo.sendingDeliveryCurrent(job)).toBe(false);
+      await db.execute(
+        "UPDATE customer_radar_outbox SET expires_at=NOW()+INTERVAL '1 hour',leased_until=NOW()-INTERVAL '1 second' WHERE id=$1",
+        [job.id]
+      );
+      expect(await publicRepo.sendingDeliveryCurrent(job)).toBe(false);
+      expect(await b.history()).toEqual([]);
+    });
+    it('rejects invalid part indexes, receipt IDs and changing batch sizes without touching the payload', async () => {
+      await prepare();
+      const job = (await publicRepo.claimDeliveries())[0]!;
+      await publicRepo.beginDelivery(job);
+      for (const [index, id, total] of [
+        [-1, 'receipt', 1],
+        [0.5, 'receipt', 1],
+        [1, 'receipt', 1],
+        [0, '', 1],
+        [0, 'x'.repeat(257), 1],
+        [0, 'bad\nreceipt', 1],
+        [0, 'receipt', 0],
+        [0, 'receipt', 11],
+      ] as const)
+        expect(await publicRepo.recordDeliveryPart(job, index, id, total)).toBe(false);
+      expect(
+        (await db.queryOne<{ payload: typeof job.payload }>(
+          'SELECT payload FROM customer_radar_outbox WHERE id=$1',
+          [job.id]
+        ))!.payload
+      ).toEqual(job.payload);
+    });
     it('starts every account with explicit opt-in disabled', async () => {
       expect((await a.preferences()).preferences.enabled).toBe(false);
       expect(await publicRepo.activeAccounts('')).toEqual([]);

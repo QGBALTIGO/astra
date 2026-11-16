@@ -296,7 +296,7 @@ describe('Radar rule variations', () => {
     expect(text).toContain('Flamengo × Palmeiras');
     expect(text).toContain('Data prevista; horário a confirmar.');
     expect(text).not.toMatch(/github\.com|2026_br1\.txt|openfootball/);
-    expect(text).toContain('https://pt.globalvoices.org/2026/11/09/noticia/');
+    expect(text).not.toContain('https://pt.globalvoices.org/2026/11/09/noticia/');
     expect(text).toContain('Global Voices · CC BY 3.0');
   });
 });

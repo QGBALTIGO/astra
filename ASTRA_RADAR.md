@@ -37,6 +37,8 @@ O futebol usa exclusivamente o arquivo público da temporada. Não usa escudos, 
 
 Notícias guardam apenas título, data e link original, com atribuição ao Global Voices e indicação da licença. Não guardam corpos de artigos, imagens ou perfis de autores. A data original permanece visível. Uma busca sem resultados é diferente de falha da fonte. Conteúdo já incluído no resumo não se repete enquanto a seleção de publicações não mudar.
 
+No WhatsApp, até três matérias são apresentadas em cartões individuais com título, data, crédito e um botão nativo **Ler matéria**. A URL original fica no botão, fora do texto. O restante do Radar continua em um resumo separado. Consultas avulsas também usam cartões e não ativam envios diários; têm deduplicação por mensagem e limite de uma consulta a cada dez segundos por cliente. Cada recibo do lote fica registrado. Uma falha ou interrupção depois de transmitir mantém o lote sem repetição automática; a autorização é conferida antes de cada cartão restante.
+
 As antigas dependências de `ASTRA_RADAR_FOOTBALL_KEY`, `ASTRA_RADAR_FOOTBALL_APPROVED`, football-data.org e GDELT foram removidas desses adaptadores. Uma limitação antiga do GDELT não pode bloquear o novo provedor. No início do coletor, observações antigas dessas fontes são invalidadas e consultas de notícias com erro são reagendadas, sem mudar preferências privadas.
 
 As demais fontes permanecem: MET Norway, Banco Central/PTAX, Frankfurter, TVmaze, Querido Diário, ANEEL e releases públicos no GitHub. Cada adaptador mantém cobertura, frequência, atribuição e tratamento de indisponibilidade próprios.

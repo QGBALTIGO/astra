@@ -14,6 +14,7 @@ import {
 } from './contracts.js';
 import { searchRadar, fetchRadarResource } from './providers.js';
 import { radarChatPending as pending } from './chat-pending.js';
+import { newsCards } from './news-cards.js';
 export { clearRadarChatPending } from './chat-pending.js';
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
@@ -407,6 +408,29 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     const snapshot = await fetchRadarResource({ id: 'preview', source: source.id, target, label });
     pending.delete(key);
     if (ctx.externalContentGuard) ctx.externalContentGuard.seen = true;
+    if (source.id === 'news' && snapshot.items.length) {
+      const cards = newsCards(snapshot.items, label);
+      if (!cards.length)
+        return reply(
+          'Não consegui preparar os botões dessas matérias agora. Pode me pedir para consultar novamente?'
+        );
+      await revalidate();
+      const queued = await radarRepo.queueNewsPreview(
+        ownerId,
+        pref.revision,
+        ctx.channelPluginId + ':' + ctx.channelMessageId,
+        cards
+      );
+      return reply(
+        queued === 'rate_limited'
+          ? 'Já estou preparando as notícias que você pediu. Aguarde alguns segundos antes de consultar outra vez.'
+          : queued === 'queued' || queued === 'existing'
+            ? `📰 *Notícias de ${label}*\n\nPedi o envio de ${cards.length} ${cards.length === 1 ? 'matéria' : 'matérias'}, cada uma com o botão *Ler matéria*. Essa consulta não ativa envios diários.`
+            : 'Seu Radar mudou durante a consulta. Pode me pedir as notícias novamente?',
+        false,
+        { queued: queued === 'queued' || queued === 'existing' }
+      );
+    }
     return reply(
       icons[source.id] +
         ' *' +
