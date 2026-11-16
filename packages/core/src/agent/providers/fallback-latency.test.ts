@@ -174,6 +174,25 @@ describe('opt-in channel fallback latency', () => {
     expect(primary.complete).toHaveBeenCalledTimes(1);
     expect(backup.complete).toHaveBeenCalledTimes(2);
   });
+  it('retries a recovered primary after a short shared 503 cooldown when the backup is rate limited', async () => {
+    let now = 100000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const { provider, config, primary, backup } = setup({ circuitBreakerCooldown: 300000 });
+    primary.complete
+      .mockResolvedValueOnce(err(new InternalError('API error: 503 Service Unavailable')) as never)
+      .mockResolvedValue(ok({ content: 'Primary recovered', usage: {} }) as never);
+    backup.complete
+      .mockResolvedValueOnce(ok({ content: 'Backup used', usage: {} }) as never)
+      .mockResolvedValue(err(new InternalError('API error: 429 Rate limit')) as never);
+    expect((await provider.complete(request)).ok).toBe(true);
+    now += 14999;
+    expect((await new FallbackProvider(config).complete(request)).ok).toBe(false);
+    expect(primary.complete).toHaveBeenCalledTimes(1);
+    now += 1;
+    const recovered = await new FallbackProvider(config).complete(request);
+    expect(recovered.ok && recovered.value.content).toBe('Primary recovered');
+    expect(primary.complete).toHaveBeenCalledTimes(2);
+  });
   it('keeps separate credentials out of each other’s circuits', async () => {
     const { provider, config, primary } = setup();
     await provider.complete(request);
@@ -225,6 +244,24 @@ describe('opt-in channel fallback latency', () => {
   });
   it('honors short minute-limit recovery without imposing an outage cooldown', () =>
     expect(providerCooldownMs(new Error('429 Please try again in 2.9s'), 300000)).toBe(3900));
+  it.each([
+    'API error: 503 Service Unavailable',
+    'HTTP 502 Bad Gateway',
+    'Request timed out',
+    'fetch failed',
+  ])('recovers a transient failure without a five-minute block: %s', (message) => {
+    expect(providerCooldownMs(new Error(message), 300000)).toBe(15000);
+  });
+  it('preserves quota and authentication cooldowns and explicit retry hints', () => {
+    expect(providerCooldownMs(new Error('API error: 429 Rate limit'), 300000)).toBe(300000);
+    expect(providerCooldownMs(new Error('API error: 401 Unauthorized'), 300000)).toBe(300000);
+    expect(
+      providerCooldownMs(
+        Object.assign(new Error('API error: 503'), { retryAfterMs: 90000 }),
+        300000
+      )
+    ).toBe(90000);
+  });
   it('keeps daily token limits out of the retry loop for the reported period', () =>
     expect(providerCooldownMs(new Error('429 TPD Please try again in 21m48.528s'), 60000)).toBe(
       1309528
