@@ -35,11 +35,12 @@ export class CustomerApiError extends Error {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
   params?: object;
   idempotencyKey?: string;
+  accountId?: string;
 }
 
 function url(path: string, params?: object) {
@@ -60,6 +61,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       signal: options.signal,
       headers: {
         Accept: 'application/json',
+        ...(options.accountId ? { 'X-Astra-Account': options.accountId } : {}),
         ...(!options.method || options.method === 'GET'
           ? {}
           : { 'Content-Type': 'application/json' }),
@@ -137,6 +139,30 @@ async function fetchCustomerAvatar(signal?: AbortSignal): Promise<Blob | null> {
 }
 
 export const customerApi = {
+  radar: (accountId: string, signal?: AbortSignal) =>
+    request<import('./radar-types').CustomerRadarData>('/radar', { accountId, signal }),
+  radarSearch: (accountId: string, source: string, q: string, signal?: AbortSignal) =>
+    request<{ choices: import('./radar-types').RadarChoice[] }>('/radar/search', {
+      accountId,
+      params: { source, q },
+      signal,
+    }),
+  radarPreferences: (accountId: string, preferences: import('./radar-types').RadarPreferences) =>
+    request('/radar/preferences', { method: 'PUT', accountId, body: preferences }),
+  radarCreate: (accountId: string, input: import('./radar-types').RadarInput) =>
+    request('/radar/interests', { method: 'POST', accountId, body: input }),
+  radarChange: (
+    accountId: string,
+    id: string,
+    patch: Partial<import('./radar-types').RadarInput> & { active?: boolean }
+  ) =>
+    request('/radar/interests/' + encodeURIComponent(id), {
+      method: 'PATCH',
+      accountId,
+      body: patch,
+    }),
+  radarRemove: (accountId: string, id: string) =>
+    request('/radar/interests/' + encodeURIComponent(id), { method: 'DELETE', accountId }),
   session: (signal?: AbortSignal) => request<{ customer: Customer }>('/auth/session', { signal }),
   requestCode: (phoneNumber: string) =>
     request<CustomerChallenge>('/auth/request-code', { method: 'POST', body: { phoneNumber } }),

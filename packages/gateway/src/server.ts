@@ -481,6 +481,8 @@ async function main() {
   const { startCustomerOtpWorker, stopCustomerOtpWorker } =
     await import('./services/customer-auth.js');
   startCustomerOtpWorker();
+  const { startRadarDelivery, stopRadar } = await import('./services/radar/worker.js');
+  startRadarDelivery();
 
   // Wire cross-channel bridges into the live pipeline (forwards inbound
   // messages between the owner's channels per configured bridges).
@@ -903,6 +905,7 @@ async function main() {
     stopChannelReminderWorker();
     stopChannelAccessNotificationWorker();
     stopCustomerOtpWorker();
+    stopRadar();
 
     // 5.2. Stop scheduler
     try {

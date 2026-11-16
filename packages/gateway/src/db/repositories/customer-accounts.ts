@@ -45,6 +45,16 @@ export interface NewCustomerSession {
   expiresAt: Date;
 }
 
+export function effectiveCustomerTimeZone(row: {
+  time_zone: string;
+  time_zone_source?: string;
+  current_phone: string;
+}): string {
+  return row.time_zone_source === 'manual' ||
+    (row.time_zone_source !== 'ddd' && row.time_zone !== 'America/Campo_Grande')
+    ? row.time_zone
+    : phoneTimeZone(row.current_phone);
+}
 function accountFrom(row: AccountRow): CustomerAccount {
   return {
     id: row.id,
@@ -52,11 +62,7 @@ function accountFrom(row: AccountRow): CustomerAccount {
     dataUserId: row.data_user_id,
     phoneNumber: row.current_phone,
     displayName: row.display_name,
-    timeZone:
-      row.time_zone_source === 'manual' ||
-      (row.time_zone_source !== 'ddd' && row.time_zone !== 'America/Campo_Grande')
-        ? row.time_zone
-        : phoneTimeZone(row.current_phone),
+    timeZone: effectiveCustomerTimeZone(row),
     currency: 'BRL',
     theme: row.theme,
     hideAmounts: row.hide_amounts,

@@ -1,4 +1,5 @@
-export type CustomerTab = 'inicio' | 'transacoes' | 'categorias' | 'agenda' | 'conexoes' | 'perfil';
+export type CustomerTab =
+  'inicio' | 'transacoes' | 'categorias' | 'agenda' | 'conexoes' | 'radar' | 'perfil';
 export type CustomerTheme = 'light' | 'dark' | 'system';
 export interface Customer {
   accountId: string;
