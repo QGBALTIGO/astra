@@ -17,6 +17,8 @@ const kinds: AccessMessageKind[] = [
   'pending_short',
   'approved',
   'first_authorized',
+  'trial_active',
+  'already_active',
   'expiring',
   'expired',
   'renewed',
