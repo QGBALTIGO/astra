@@ -2,6 +2,23 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { trialStartUrl } from '../../src/trial.mjs';
 
+test('referral survives dynamic demonstration navigation while the main site remains public', async ({
+  page,
+}) => {
+  for (const prefix of ['', '/julio']) {
+    await page.goto(prefix || '/');
+    await page.locator('[data-day="financas"]').click();
+    await expect(page.locator('#day-explore')).toHaveAttribute(
+      'href',
+      prefix + '/demonstracao#financas'
+    );
+    await page.locator('#day-explore').click();
+    await expect(page).toHaveURL(new RegExp(prefix + '/demonstracao#financas$'));
+    for (const link of await page.locator('a.trial-cta').all())
+      await expect(link).toHaveAttribute('href', trialStartUrl + (prefix ? '?ref=julio' : ''));
+  }
+});
+
 test('trial entry preserves responsive layout and accessibility in both themes', async ({
   page,
 }, info) => {

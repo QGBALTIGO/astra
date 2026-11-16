@@ -167,7 +167,8 @@ const sha = digest(raw);
 const packed = brotliCompressSync(raw, {
   params: { [constants.BROTLI_PARAM_QUALITY]: 11 },
 }).toString('base64');
-const loader = `const rawBundle=brotliDecompressSync(Buffer.from('${packed}','base64'));\nif(digest(rawBundle)!=='${sha}')throw Error('Asset hash mismatch');\nconst files=JSON.parse(rawBundle.toString('utf8'));`;
+// JSON.parse coerces the verified Buffer to UTF-8, retaining the transport size budget.
+const loader = `const rawBundle=brotliDecompressSync(Buffer.from('${packed}','base64'));\nif(digest(rawBundle)!=='${sha}')throw Error('Asset hash mismatch');\nconst files=JSON.parse(rawBundle);`;
 const readableRuntime = (await readFile(join(root, 'runtime.ts'), 'utf8')).replace(
   '/* PUBLIC_ASSET_BUNDLE */',
   loader
