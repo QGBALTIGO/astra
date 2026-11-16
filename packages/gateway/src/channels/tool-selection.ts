@@ -47,8 +47,34 @@ export function requiredChannelEmailDigestTool(
   return dailyEmail || timeAnswer ? 'core.manage_email_digest' : undefined;
 }
 
+export function requiredChannelRadarTool(text: string, previousText = ''): string | undefined {
+  if (isConversationalOnlyChannelRequest(text)) return undefined;
+  const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const direct =
+    /\b(?:radar|noticias|manchetes|brasileirao|futebol)\b/.test(input) &&
+    !/\b(?:gastei|paguei|recebi|lancamento|assinatura)\b/.test(input);
+  const team =
+    /\b(?:meu time|me avise quando.{0,35}jogar|acompanhe.{0,30}(?:flamengo|palmeiras|corinthians|vasco))\b/.test(
+      input
+    );
+  const recurringWeather =
+    /\b(?:clima|temperatura|previsao)\b/.test(input) &&
+    /\b(?:todo dia|todos os dias|diariamente|diario)\b/.test(input) &&
+    /\b(?:mande|envie|receber|acompanhe|quero)\b/.test(input);
+  const followup =
+    /\bradar\b/i.test(previousText.slice(-500)) &&
+    /^\s*(?:(?:as?|[àa]s?)\s+)?(?:\d{1,2}(?:(?:h|:)\d{0,2})?|[\p{L}\p{M}\s,.'()–-]{2,70})[.!?]?\s*$/u.test(
+      text
+    ) &&
+    !/\b(?:oi|ola|qual|quais|como|quando|quanto|temperatura|clima|reais|gastei|gastos?|paguei|recebi|lembre|lembretes?|assinaturas?|cancelar tudo|bom dia|boa tarde|boa noite|obrigad\w*)\b/.test(
+      input
+    );
+  return direct || team || recurringWeather || followup ? 'core.manage_radar' : undefined;
+}
+
 export function requiredChannelWeatherTool(text: string, previousText = ''): string | undefined {
   if (isConversationalOnlyChannelRequest(text)) return undefined;
+  if (requiredChannelRadarTool(text, previousText)) return undefined;
   const clean = (value: string) =>
     value
       .normalize('NFD')
@@ -182,6 +208,7 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     .toLowerCase();
   const tools = new Set<string>();
   const add = (...names: string[]) => names.forEach((name) => tools.add(`core.${name}`));
+  if (requiredChannelRadarTool(text, previousText)) add('manage_radar');
   if (/\bassinaturas?\b/.test(input)) add('list_customer_subscriptions');
   // A subscription lookup needs current planning facts, not the preceding
   // expense's mutation tools. The AI still resolves the reference and writes the reply.

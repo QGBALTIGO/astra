@@ -101,6 +101,38 @@ export class CustomerRadarRepository extends BaseRepository {
       )
     ).map(mapRadarInterest);
   }
+  /** Explicit chat opt-in starts only the requested topic when the entire Radar was off. */
+  async followFromChat(input: RadarInput, label: string, time: string) {
+    return this.transaction(async () => {
+      await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+        'radar:' + this.userId,
+      ]);
+      const pref = await this.preferences();
+      const current = (await this.list()).find(
+        (i) =>
+          resourceId(i.source, i.target, i.query) ===
+          resourceId(input.source, input.target, input.query)
+      );
+      const interest = current
+        ? await this.change(current.id, {
+            active: true,
+            delivery: input.delivery,
+            leadMinutes: input.leadMinutes,
+          })
+        : await this.create(input, label);
+      let keptPaused = 0;
+      if (!pref.preferences.enabled) {
+        keptPaused = (
+          await this.execute(
+            'UPDATE customer_radar_interests SET active=FALSE,revision=revision+1,updated_at=NOW() WHERE user_id=$1 AND id<>$2 AND active=TRUE',
+            [this.userId, interest!.id]
+          )
+        ).changes;
+      }
+      await this.savePreferences({ ...pref.preferences, enabled: true, time });
+      return { interest: interest!, keptPaused };
+    });
+  }
   async get(id: string): Promise<RadarInterestRow | null> {
     return this.queryOne<RadarInterestRow>(INTEREST_SELECT + ' WHERE i.user_id=$1 AND i.id=$2', [
       this.userId,
@@ -190,6 +222,13 @@ export class CustomerRadarRepository extends BaseRepository {
   }
 }
 export class RadarRepository extends BaseRepository {
+  async refreshReplacedSources(): Promise<void> {
+    await this
+      .execute(`UPDATE radar_resources SET snapshot=NULL,error_code=NULL,failures=0,next_poll_at=NOW()
+      WHERE (leased_until IS NULL OR leased_until<NOW()) AND (
+        (source='news' AND (snapshot->>'sourceLabel'='GDELT' OR error_code IS NOT NULL)) OR
+        (source='football' AND snapshot->>'sourceLabel'='football-data.org'))`);
+  }
   async rememberChoices(source: RadarSourceId, choices: Array<{ id: string; label: string }>) {
     for (const c of choices.slice(0, 8))
       await this.execute(
@@ -231,7 +270,7 @@ export class RadarRepository extends BaseRepository {
    AND (r.leased_until IS NULL OR r.leased_until<NOW())
    AND NOT EXISTS(SELECT 1 FROM radar_provider_limits p WHERE p.provider=CASE r.source
      WHEN 'currency' THEN 'api.frankfurter.dev' WHEN 'ptax' THEN 'olinda.bcb.gov.br'
-     WHEN 'football' THEN 'api.football-data.org' WHEN 'news' THEN 'api.gdeltproject.org'
+     WHEN 'football' THEN 'raw.githubusercontent.com' WHEN 'news' THEN 'pt.globalvoices.org'
      WHEN 'series' THEN 'api.tvmaze.com' WHEN 'gazettes' THEN 'api.queridodiario.ok.org.br'
      WHEN 'energy' THEN 'dadosabertos.aneel.gov.br' WHEN 'releases' THEN 'api.github.com' ELSE 'api.met.no' END
      AND (p.next_request_at>NOW() OR p.blocked_until>NOW()))

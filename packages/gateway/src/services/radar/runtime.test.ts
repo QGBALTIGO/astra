@@ -46,7 +46,6 @@ describe('Radar thread runtime', () => {
     expect(env).toEqual({
       DATABASE_URL: 'synthetic-db',
       POSTGRES_POOL_SIZE: '2',
-      ASTRA_RADAR_FOOTBALL_KEY: 'public-data-key',
       ASTRA_RADAR_ENABLED: 'true',
     });
   });

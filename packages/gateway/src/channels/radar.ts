@@ -4,6 +4,7 @@ import { CustomerRadarRepository } from '../db/repositories/customer-radar.js';
 import { resolveCustomerPhone } from '../services/customer-identity.js';
 import { ASTRA_CUSTOMER_ORIGIN } from '../config/astra-public-urls.js';
 import { integrationPrivateChat } from './customer-integrations.js';
+import { clearRadarChatPending } from '../services/radar/chat.js';
 
 /** Narrow, zero-inference intents. Ordinary reminders and unrelated messages are untouched. */
 export async function tryRadarChannelReply(
@@ -42,6 +43,7 @@ export async function tryRadarChannelReply(
       return null;
     const repo = new CustomerRadarRepository(account.dataUserId);
     if (stop) {
+      clearRadarChatPending(account.dataUserId);
       const pref = await repo.preferences();
       await repo.savePreferences({ ...pref.preferences, enabled: false });
       return (

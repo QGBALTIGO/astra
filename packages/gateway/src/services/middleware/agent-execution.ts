@@ -25,6 +25,7 @@ import {
   needsConversationalRewrite,
   recentChannelText,
   requiredChannelWeatherTool,
+  requiredChannelRadarTool,
   requiredChannelEmailDigestTool,
   requiredChannelSubscriptionTool,
 } from '../../channels/tool-selection.js';
@@ -51,6 +52,8 @@ export function userFacingAgentError(
   if (message.metadata?.source !== 'channel') return 'Error: ' + details;
   const verified = verifiedChannelFacts('', receipts, { timeZone, requestText: message.content });
   if (verified) return verified;
+  if (requiredChannelRadarTool(message.content))
+    return '📡 Não consegui concluir seu pedido do Radar agora. Seus assuntos continuam salvos. Pode me pedir para conferir de novo em instantes.';
   if (requiredChannelWeatherTool(message.content))
     return 'Não consegui consultar o tempo agora. Pode tentar de novo em instantes?';
   if (requiredChannelEmailDigestTool(message.content))
@@ -161,6 +164,9 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
     try {
       const chatOptions: Record<string, unknown> = {};
       const requiredFirst =
+        (message.metadata.source === 'channel' && !conversationOnly
+          ? requiredChannelRadarTool(message.content, recentChannelText(agent.getConversation()))
+          : undefined) ??
         requiredWeather ??
         (message.metadata.source === 'channel' && !conversationOnly
           ? (requiredChannelEmailDigestTool(

@@ -123,6 +123,9 @@ describe('native customer Radar opt-in and navigation', () => {
     expect(create).not.toHaveBeenCalled();
     expect(prefs).not.toHaveBeenCalled();
     expect(baseApi.summary).not.toHaveBeenCalled();
+    expect(dom.container.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(dom.container.textContent).toContain('É só me pedir no WhatsApp');
+    await dom.click(dom.button('Ajustar horários e notificações'));
     expect((dom.field('Receber meu Radar') as HTMLInputElement).checked).toBe(false);
     expect(read).toHaveBeenCalledWith(customerFixture.accountId, expect.any(AbortSignal));
   });
@@ -206,6 +209,7 @@ describe('native customer Radar opt-in and navigation', () => {
   });
   it('saves the explicit WhatsApp opt-in and preserves the chosen time', async () => {
     await mount();
+    await dom.click(dom.button('Ajustar horários e notificações'));
     await dom.click(dom.field('Receber meu Radar') as HTMLElement);
     await dom.fill(dom.field('Horário do resumo'), '08:30');
     await dom.click(dom.button('Salvar preferências'));
@@ -264,6 +268,7 @@ describe('native customer Radar opt-in and navigation', () => {
     vi.useFakeTimers();
     try {
       await mount();
+      await dom.click(dom.button('Ajustar horários e notificações'));
       await dom.fill(dom.field('Horário do resumo'), '09:15');
       const reads = read.mock.calls.length;
       await act(async () => {

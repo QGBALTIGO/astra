@@ -220,6 +220,7 @@ describe('Radar final delivery authorization and failures', () => {
     expect(m.defer).not.toHaveBeenCalled();
   });
   it('suppresses events whose source was disabled by the operator', async () => {
+    vi.stubEnv('ASTRA_RADAR_ENABLED', 'false');
     const i = followed();
     i.input.source = 'football';
     m.raw.mockResolvedValue([i]);

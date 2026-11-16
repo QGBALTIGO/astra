@@ -65,6 +65,7 @@ export interface RadarCatalogItem {
   disabledReason?: string;
 }
 export interface CustomerRadarData {
+  chatUrl?: string | null;
   catalog: RadarCatalogItem[];
   preferences: RadarPreferences;
   interests: RadarInterest[];

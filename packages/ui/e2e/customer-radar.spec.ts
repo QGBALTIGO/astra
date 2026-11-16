@@ -3,8 +3,8 @@ const RADAR_CATALOG = [
   ['weather', 'Clima', 'MET Norway'],
   ['ptax', 'Dólar e PTAX', 'Banco Central'],
   ['currency', 'Moedas e conversões', 'Frankfurter'],
-  ['football', 'Futebol', 'football-data.org'],
-  ['news', 'Notícias', 'GDELT'],
+  ['football', 'Futebol', 'openfootball'],
+  ['news', 'Notícias', 'Global Voices'],
   ['series', 'Séries', 'TVmaze'],
   ['gazettes', 'Editais e comunicados', 'Querido Diário'],
   ['energy', 'Energia', 'ANEEL'],
@@ -57,6 +57,7 @@ for (const theme of ['light', 'dark'] as const)
                 : {}),
             })),
             preferences: prefs,
+            chatUrl: 'https://wa.me/5599000000001?text=Quero%20configurar%20meu%20Radar',
             interests: [],
             history: [],
             timeZone: customer.timeZone,
@@ -78,7 +79,11 @@ for (const theme of ['light', 'dark'] as const)
         page.getByRole('heading', { name: 'Meus acompanhamentos', exact: true })
       ).toBeVisible();
       expect(mutations).toEqual([]);
-      await expect(page.getByLabel('Receber meu Radar no WhatsApp')).not.toBeChecked();
+      await expect(
+        page.getByRole('link', { name: 'Configurar pelo WhatsApp', exact: true })
+      ).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'É só me pedir no WhatsApp' })).toBeVisible();
+      await expect(page.getByLabel('Receber meu Radar no WhatsApp')).toHaveCount(0);
       await expect(page.locator('.ac-navigation a:visible')).toHaveCount(width <= 767 ? 6 : 7);
       if (width <= 767)
         await expect(page.getByRole('button', { name: 'Abrir meu Radar' })).toBeVisible();
@@ -114,6 +119,10 @@ for (const theme of ['light', 'dark'] as const)
       });
       await page.keyboard.press('Escape');
       await expect(dialog).not.toBeVisible();
+      await page
+        .getByRole('button', { name: 'Ajustar horários e notificações', exact: true })
+        .click();
+      await expect(page.getByLabel('Receber meu Radar no WhatsApp')).not.toBeChecked();
       await page.getByLabel('Receber meu Radar no WhatsApp').check();
       await page.getByRole('button', { name: 'Salvar preferências', exact: true }).click();
       await expect(page.getByText('Preferências do Radar salvas.', { exact: true })).toBeVisible();

@@ -14,8 +14,8 @@ export class RadarSourceError extends Error {
 const POLICY: Record<string, { interval: number; ttl: number }> = {
   'api.frankfurter.dev': { interval: 1000, ttl: 21600 },
   'olinda.bcb.gov.br': { interval: 1500, ttl: 1800 },
-  'api.football-data.org': { interval: 7000, ttl: 900 },
-  'api.gdeltproject.org': { interval: 5500, ttl: 3600 },
+  'raw.githubusercontent.com': { interval: 1500, ttl: 21600 },
+  'pt.globalvoices.org': { interval: 1500, ttl: 3600 },
   'api.tvmaze.com': { interval: 600, ttl: 3600 },
   'api.queridodiario.ok.org.br': { interval: 1500, ttl: 14400 },
   'dadosabertos.aneel.gov.br': { interval: 1500, ttl: 86400 },
@@ -25,8 +25,8 @@ const PATHS: Record<string, RegExp> = {
   'api.frankfurter.dev': /^\/v2\/rates$/,
   'olinda.bcb.gov.br':
     /^\/olinda\/servico\/PTAX\/versao\/v1\/odata\/CotacaoMoedaPeriodo\(moeda=@moeda,dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao\)$/,
-  'api.football-data.org': /^\/v4\/competitions\/BSA\/(?:teams|matches)$/,
-  'api.gdeltproject.org': /^\/api\/v2\/doc\/doc$/,
+  'raw.githubusercontent.com': /^\/openfootball\/south-america\/master\/brazil\/20\d{2}_br1\.txt$/,
+  'pt.globalvoices.org': /^\/wp-json\/wp\/v2\/posts$/,
   'api.tvmaze.com': /^(?:\/search\/shows|\/shows\/\d+)$/,
   'api.queridodiario.ok.org.br': /^\/(?:cities|gazettes)$/,
   'dadosabertos.aneel.gov.br':
@@ -57,29 +57,11 @@ export function minimizeRadarJson(url: URL, value: unknown): unknown {
           pick(r, ['dataHoraCotacao', 'cotacaoVenda', 'tipoBoletim'])
         ),
       };
-    case 'api.football-data.org': {
-      const data = record(value);
-      if (url.pathname.endsWith('/teams'))
-        return { teams: list(data.teams, 40).map((r) => pick(r, ['id', 'name'])) };
-      return {
-        matches: list(data.matches, 200).map((raw) => {
-          const m = record(raw),
-            score = m.score && typeof m.score === 'object' ? record(m.score) : {};
-          return {
-            ...pick(m, ['id', 'status', 'utcDate', 'lastUpdated']),
-            homeTeam: pick(m.homeTeam, ['id', 'name']),
-            awayTeam: pick(m.awayTeam, ['id', 'name']),
-            score: { fullTime: score.fullTime ?? null },
-          };
-        }),
-      };
-    }
-    case 'api.gdeltproject.org':
-      return {
-        articles: list(record(value).articles, 20).map((r) =>
-          pick(r, ['title', 'url', 'domain', 'seendate'])
-        ),
-      };
+    case 'pt.globalvoices.org':
+      return list(value, 20).map((r) => ({
+        ...pick(r, ['id', 'date_gmt', 'link']),
+        title: pick(record(r).title, ['rendered']),
+      }));
     case 'api.tvmaze.com': {
       if (url.pathname === '/search/shows')
         return list(value, 8).map((r) => ({
@@ -205,16 +187,8 @@ export async function radarText(
       throw new RadarSourceError('rate_wait', Math.ceil(policy.interval / 1000));
     const headers: Record<string, string> = {
       'User-Agent': 'Astra-Radar/1.0 (+https://astraacessor.pro)',
-      Accept: options.json === false ? 'text/csv' : 'application/json',
+      Accept: options.json === false ? 'text/plain,text/csv' : 'application/json',
     };
-    if (url.hostname === 'api.football-data.org') {
-      if (
-        !process.env.ASTRA_RADAR_FOOTBALL_KEY ||
-        process.env.ASTRA_RADAR_FOOTBALL_APPROVED !== 'true'
-      )
-        throw new RadarSourceError('source_not_configured', 3600);
-      headers['X-Auth-Token'] = process.env.ASTRA_RADAR_FOOTBALL_KEY;
-    }
     if (url.hostname === 'api.github.com') {
       headers['X-GitHub-Api-Version'] = '2022-11-28';
     }

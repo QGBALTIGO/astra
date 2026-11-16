@@ -18,8 +18,6 @@ export function radarWorkerEnvironment(env: NodeJS.ProcessEnv): Record<string, s
     'POSTGRES_DB',
     'OWNPILOT_DATA_DIR',
     'ASTRA_RADAR_ENABLED',
-    'ASTRA_RADAR_FOOTBALL_KEY',
-    'ASTRA_RADAR_FOOTBALL_APPROVED',
   ];
   const scoped = Object.fromEntries(
     Object.entries(env).filter(([k, v]) => typeof v === 'string' && names.includes(k))

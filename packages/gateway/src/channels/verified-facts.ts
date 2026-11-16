@@ -43,6 +43,38 @@ export function verifiedChannelFacts(
   receipts: ChannelToolReceipt[],
   context: { timeZone?: string; requestText?: string } = {}
 ): string | undefined {
+  const radar = receipts.findLast((r) =>
+    /^(?:core[._])?manage_radar$/.test(r.name.replace(/__/g, '.'))
+  );
+  if (
+    radar &&
+    receipts.every((r) =>
+      /^(?:(?:core[._])?manage_radar|search_tools|get_tool_help|use_tool|batch_use_tool)$/.test(
+        r.name.replace(/__/g, '.')
+      )
+    )
+  ) {
+    const data = result(radar);
+    let friendlyError: string | undefined;
+    try {
+      const envelope = JSON.parse(radar.content);
+      if (
+        typeof envelope.error === 'string' &&
+        envelope.error.length < 400 &&
+        /^(?:Me |Entre |Configure |Use |Peça |Envie |Renove |O calendário|Seu |Esse |Essa |Selecione|Escolha|Informe|Confira|Não consegui)/.test(
+          envelope.error
+        )
+      )
+        friendlyError = envelope.error;
+    } catch {
+      /* An invalid receipt cannot become a success acknowledgement. */
+    }
+    return data?.kind === 'radar' && typeof data.reply === 'string'
+      ? opening(text) + data.reply
+      : '📡 ' +
+          (friendlyError ??
+            'Não consegui confirmar essa alteração no Radar agora. Seus assuntos continuam salvos. Pode me pedir para conferir novamente.');
+  }
   const digest = receipts.findLast((r) =>
     /^(?:core[._])?manage_email_digest$/.test(r.name.replace(/__/g, '.'))
   );

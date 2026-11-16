@@ -12,6 +12,13 @@ import {
 } from './contracts.js';
 import { radarJson, radarText, RadarSourceError, type RadarFetchMetadata } from './http.js';
 import { searchWeatherCities, forecastWeatherCity } from '../customer-weather.js';
+import {
+  searchBrazilTeams,
+  brazilScheduleUrl,
+  parseBrazilSchedule,
+  brazilMatchItems,
+} from './football.js';
+import { newsQueryUrl, globalVoicesItems } from './news.js';
 
 type Obj = Record<string, unknown>;
 const object = (v: unknown): Obj =>
@@ -19,7 +26,6 @@ const object = (v: unknown): Obj =>
 const array = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const number = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : null;
-const fold = (v: string) => v.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 function required(v: unknown): string {
   const s = cleanText(v);
   if (!s) throw new RadarSourceError('invalid_response');
@@ -63,7 +69,7 @@ export const RADAR_POLL_SECONDS: Record<RadarSourceId, number> = {
   weather: 3600,
   ptax: 1800,
   currency: 21600,
-  football: 900,
+  football: 21600,
   news: 3600,
   series: 3600,
   gazettes: 14400,
@@ -96,16 +102,7 @@ export async function searchRadar(source: RadarSourceId, raw: string): Promise<R
       })
       .filter((x) => /^\d+$/.test(x.id));
   } else if (source === 'football') {
-    const data = object(
-      await radarJson('https://api.football-data.org/v4/competitions/BSA/teams', 86400)
-    );
-    if (!Array.isArray(data.teams)) throw new RadarSourceError('invalid_response');
-    choices = array(data.teams)
-      .map((x) => {
-        const team = object(x);
-        return { id: String(team.id), label: required(team.name) };
-      })
-      .filter((x) => /^\d+$/.test(x.id) && fold(x.label).includes(fold(query)));
+    choices = searchBrazilTeams(query);
   } else if (source === 'gazettes') {
     const data = object(
       await radarJson(
@@ -308,79 +305,15 @@ export async function fetchRadarResource(
     ];
     notice = 'Taxa combinada de referência do Frankfurter; não é cotação de negociação ao vivo.';
   } else if (resource.source === 'football') {
-    const data = object(
-      await readJson(
-        url('https://api.football-data.org/v4/competitions/BSA/matches', {
-          dateFrom: shift(now, -3),
-          dateTo: shift(now, 14),
-        })
-      )
-    );
-    if (!Array.isArray(data.matches)) throw new RadarSourceError('invalid_response');
-    items = array(data.matches)
-      .map(object)
-      .filter(
-        (m) => String(object(m.homeTeam).id) === target || String(object(m.awayTeam).id) === target
-      )
-      .map((m) => {
-        const status = String(m.status);
-        const home = required(object(m.homeTeam).name),
-          away = required(object(m.awayTeam).name);
-        const ft = object(object(m.score).fullTime);
-        const a = number(ft.home),
-          b = number(ft.away);
-        const finished = status === 'FINISHED' && a !== null && b !== null && a >= 0 && b >= 0;
-        return {
-          id: sourceId(m.id),
-          title: home + ' × ' + away,
-          text: finished
-            ? 'Resultado: ' + a + ' × ' + b
-            : status === 'POSTPONED'
-              ? 'Partida adiada.'
-              : status === 'CANCELLED'
-                ? 'Partida cancelada.'
-                : status === 'TIMED'
-                  ? 'Horário informado pela fonte.'
-                  : 'Horário ou resultado ainda não confirmado.',
-          ...(status === 'TIMED' && instant(m.utcDate) ? { at: instant(m.utcDate) } : {}),
-        };
-      });
+    const year = Number(brazilDay(now).slice(0, 4));
+    const text = await client.text(brazilScheduleUrl(year), { json: false, meta: metadata });
+    items = brazilMatchItems(parseBrazilSchedule(text, year), target, now);
     notice =
-      'Brasileirão Série A. Calendário e resultados podem ter atraso no plano gratuito. Dados: football-data.org.';
+      'Calendário comunitário openfootball · CC0. Datas previstas podem mudar. Sem placar ao vivo; o Astra não inventa horários nem agenda avisos antecipados sem confirmação.';
   } else if (resource.source === 'news') {
-    const data = object(
-      await readJson(
-        url('https://api.gdeltproject.org/api/v2/doc/doc', {
-          query: '"' + target + '" sourcelang:portuguese',
-          mode: 'artlist',
-          format: 'json',
-          sort: 'datedesc',
-          maxrecords: '20',
-          timespan: '24h',
-        })
-      )
-    );
-    if (!Array.isArray(data.articles)) throw new RadarSourceError('invalid_response');
-    const seen = new Set<string>();
-    items = array(data.articles)
-      .map(object)
-      .flatMap((a) => {
-        const rawLink = publicLink(a.url),
-          title = cleanText(a.title);
-        const canonical = rawLink ? new URL(rawLink) : null;
-        if (canonical) {
-          canonical.hash = '';
-          for (const k of [...canonical.searchParams.keys()])
-            if (/^utm_|^(?:fbclid|gclid|mc_cid|mc_eid)$/i.test(k)) canonical.searchParams.delete(k);
-          canonical.searchParams.sort();
-        }
-        const link = canonical?.href;
-        if (!link || !title || seen.has(link)) return [];
-        seen.add(link);
-        return [{ id: link, title, text: cleanText(a.domain, 100), url: link }];
-      });
+    items = globalVoicesItems(await readJson(newsQueryUrl(target, now)), now);
     notice =
-      'Manchetes encontradas pelo GDELT nas últimas 24h. Consulte o veículo original; não são fatos verificados pelo Astra.';
+      'Global Voices · CC BY 3.0. Títulos e links originais dos últimos 30 dias; cobertura e frequência variam por assunto. Consulte a data de cada publicação.';
   } else if (resource.source === 'series') {
     const data = object(
       await readJson('https://api.tvmaze.com/shows/' + target + '?embed=nextepisode')
