@@ -65,6 +65,23 @@ describe('verified weather and calendar presentation', () => {
     expect(text).toContain('Não consegui confirmar');
     expect(text).not.toMatch(/SQL|credentials|provider response/);
   });
+  it('allows an intermediate Radar status lookup before the requested pause or resume', () => {
+    const status = receipt('manage_radar', {
+      kind: 'radar',
+      changed: false,
+      reply: 'Seus acompanhamentos',
+      interests: [],
+    });
+    expect(
+      verifiedRadarToolReply(
+        {
+          content: '',
+          toolCalls: [{ name: 'core.manage_radar', arguments: '{"action":"status"}' }],
+        },
+        [status]
+      )
+    ).toBeUndefined();
+  });
   it('retains the email failure status when weather succeeds', () => {
     const weather = receipt('get_local_weather', {
       city: 'Aquidauana',
