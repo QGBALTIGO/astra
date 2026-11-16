@@ -16,7 +16,11 @@ export const CUSTOMER_RADAR_TOOLS: ToolDefinition[] = [
           enum: ['status', 'follow', 'preview', 'configure', 'pause', 'resume'],
         },
         source: { type: 'string', enum: [...RADAR_SOURCE_IDS] },
-        subject: { type: 'string' },
+        subject: {
+          type: 'string',
+          description:
+            'Assunto informado pelo cliente: notícias do mundo => mundo; notícias de tecnologia => tecnologia; próximo jogo do Flamengo => Flamengo. Em consultas use action=preview, não peça de novo um assunto que já foi dito.',
+        },
         interestId: { type: 'string', description: 'Somente ID retornado por status.' },
         choiceId: { type: 'string', description: 'Somente ID retornado pela busca.' },
         time: {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { safeChannelResponse, type ChannelToolReceipt } from './response-safety.js';
-import { verifiedChannelFacts } from './verified-facts.js';
+import { verifiedChannelFacts, verifiedRadarToolReply } from './verified-facts.js';
 const receipt = (name: string, result: unknown): ChannelToolReceipt => ({
   name: 'core.' + name,
   content: JSON.stringify({ success: true, result }),
@@ -8,6 +8,63 @@ const receipt = (name: string, result: unknown): ChannelToolReceipt => ({
   isError: false,
 });
 describe('verified weather and calendar presentation', () => {
+  it('finishes a verified Radar question with a short AI greeting and no invented confirmation', () => {
+    const data = receipt('manage_radar', {
+      kind: 'radar',
+      changed: false,
+      needsTime: true,
+      reply: 'Em qual horário você quer receber o resumo?',
+    });
+    expect(
+      verifiedRadarToolReply(
+        { content: 'Claro, Kayky!\n\nAtivei às 7h.', toolCalls: [{ name: 'core__manage_radar' }] },
+        [data]
+      )
+    ).toBe('Claro, Kayky!\n\nEm qual horário você quer receber o resumo?');
+  });
+  it('does not finish another tool, a mixed operation, failed result or malformed receipt as Radar success', () => {
+    const valid = receipt('manage_radar', { kind: 'radar', reply: 'Assunto consultado.' });
+    expect(
+      verifiedRadarToolReply({ content: '', toolCalls: [{ name: 'core.record_transaction' }] }, [
+        valid,
+      ])
+    ).toBeUndefined();
+    expect(
+      verifiedRadarToolReply(
+        {
+          content: '',
+          toolCalls: [{ name: 'core.manage_radar' }, { name: 'core.record_transaction' }],
+        },
+        [valid, valid]
+      )
+    ).toBeUndefined();
+    expect(
+      verifiedRadarToolReply({ content: '', toolCalls: [{ name: 'core.manage_radar' }] }, [
+        { ...valid, isError: true },
+      ])
+    ).toBeUndefined();
+    expect(
+      verifiedRadarToolReply({ content: '', toolCalls: [{ name: 'core.manage_radar' }] }, [
+        { content: 'not JSON', isError: false },
+      ])
+    ).toBeUndefined();
+  });
+  it('finishes a failed Radar attempt safely without asking the model to retry an uncertain action', () => {
+    const text = verifiedRadarToolReply(
+      { content: '', toolCalls: [{ name: 'core.manage_radar' }] },
+      [
+        {
+          content: JSON.stringify({
+            success: false,
+            error: 'SQL credentials and provider response must stay private',
+          }),
+          isError: true,
+        },
+      ]
+    );
+    expect(text).toContain('Não consegui confirmar');
+    expect(text).not.toMatch(/SQL|credentials|provider response/);
+  });
   it('retains the email failure status when weather succeeds', () => {
     const weather = receipt('get_local_weather', {
       city: 'Aquidauana',

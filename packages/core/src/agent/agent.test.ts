@@ -632,6 +632,48 @@ function createAgentWithMockProvider(
 }
 
 describe('Agent processConversation (via chat)', () => {
+  it('can finish from an audited tool reply without another inference or replaying the action', async () => {
+    const { agent, provider } = createAgentWithMockProvider();
+    vi.mocked(provider.complete).mockResolvedValueOnce(
+      ok({
+        id: 'first',
+        model: 'test',
+        content: '',
+        finishReason: 'tool_calls',
+        createdAt: new Date(),
+        toolCalls: [{ id: 'call', name: 'test_tool', arguments: '{}' }],
+      })
+    );
+    const finalize = vi.fn((_response, results) =>
+      results[0].content === 'result:none' ? 'Qual horário você prefere?' : undefined
+    );
+    const reply = await agent.chat('Configure o acompanhamento', { onToolResults: finalize });
+    expect(reply.ok && reply.value.content).toBe('Qual horário você prefere?');
+    expect(provider.complete).toHaveBeenCalledTimes(1);
+    expect(finalize).toHaveBeenCalledTimes(1);
+    expect((await agent.chat('Outro assunto')).ok).toBe(true);
+    expect(provider.complete).toHaveBeenCalledTimes(2);
+    const nextContext = vi.mocked(provider.complete).mock.calls[1]![0].messages;
+    expect(
+      nextContext.some((m) => m.role === 'assistant' && m.content === 'Qual horário você prefere?')
+    ).toBe(true);
+    expect(nextContext.some((m) => m.role === 'tool')).toBe(true);
+  });
+  it('continues normal reasoning when the tool-result mapper declines a reply', async () => {
+    const { agent, provider } = createAgentWithMockProvider();
+    vi.mocked(provider.complete).mockResolvedValueOnce(
+      ok({
+        id: 'first',
+        model: 'test',
+        content: '',
+        finishReason: 'tool_calls',
+        createdAt: new Date(),
+        toolCalls: [{ id: 'call', name: 'test_tool', arguments: '{}' }],
+      })
+    );
+    expect((await agent.chat('Consulte', { onToolResults: () => undefined })).ok).toBe(true);
+    expect(provider.complete).toHaveBeenCalledTimes(2);
+  });
   it('requires only the audited first tool and restores normal choice after its result', async () => {
     const { agent, provider } = createAgentWithMockProvider();
     vi.mocked(provider.complete).mockResolvedValueOnce(

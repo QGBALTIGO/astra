@@ -6,7 +6,7 @@
  */
 
 import { withRecentReceiptContext } from '../../channels/recent-chat-replies.js';
-import { verifiedChannelFacts } from '../../channels/verified-facts.js';
+import { verifiedChannelFacts, verifiedRadarToolReply } from '../../channels/verified-facts.js';
 import { randomUUID } from 'node:crypto';
 import type { MessageMiddleware, StreamCallbacks } from '@ownpilot/core/services';
 import { getExecContext, runInExecContext, type ContentPart } from '@ownpilot/core/agent';
@@ -177,6 +177,8 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
             requiredFinanceReadTool(message.content))
           : undefined);
       if (requiredFirst) chatOptions.requiredFirstTool = requiredFirst;
+      if (message.metadata.source === 'channel' && !conversationOnly)
+        chatOptions.onToolResults = verifiedRadarToolReply;
 
       // Add thinking config if provided
       const thinking = ctx.get<{

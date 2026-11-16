@@ -4,6 +4,7 @@ import {
   isConversationalOnlyChannelRequest,
   recentChannelText,
   requiredChannelWeatherTool,
+  requiredChannelRadarTool,
   requiredChannelEmailDigestTool,
   requiredChannelSubscriptionTool,
 } from './tool-selection.js';
@@ -15,6 +16,21 @@ const financeTools = [
   'core.delete_transaction',
   'core.financial_summary',
 ];
+it.each([
+  'Qual é o próximo jogo do Flamengo?',
+  'Quando o Palmeiras joga?',
+  'Me mostre os resultados do Grêmio',
+  'Qual o placar do Botafogo?',
+  'O Santos joga amanhã?',
+])('consults the available football source rather than claiming it is unavailable: %s', (text) => {
+  expect(requiredChannelRadarTool(text)).toBe('core.manage_radar');
+});
+it.each(['Tenho um jogo de panelas', 'Qual é o próximo lembrete?', 'Gastei 50 reais no Flamengo'])(
+  'does not route unrelated requests to football: %s',
+  (text) => {
+    expect(requiredChannelRadarTool(text)).toBeUndefined();
+  }
+);
 it.each([
   'E a assinatura da revista, qual valor ficou e quando renova?',
   'Qual o preço da assinatura da música?',

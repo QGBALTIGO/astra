@@ -118,8 +118,9 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       continuing = true;
     } else if (
       prior.needs === 'subject' &&
+      !(args.source && prior.args.source && args.source !== prior.args.source) &&
       /^[\p{L}\p{M}\s,.'()–-]{2,100}$/u.test(text) &&
-      !/\b(?:nao|sim|pare|cancel\w*|gastei|paguei|recebi|lembre|lembrete|assinatura)\b/.test(
+      !/\b(?:nao|sim|pare|cancel\w*|gastei|paguei|recebi|lembre|lembrete|assinatura|consulte|quero|qual|quais|mostre|veja|preciso|pode|sem cadastrar)\b/.test(
         fold(text)
       )
     ) {
@@ -202,7 +203,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     throw new Error(
       'Renove seu acesso para ativar ou consultar o Radar. Você continua podendo pausar os envios.'
     );
-  const time =
+  let time =
     typeof args.time === 'string'
       ? args.time
       : pref.preferences.enabled
@@ -224,8 +225,12 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
             Number(args.time.slice(0, 2)),
             Number(args.time.slice(3))
           )))
-    )
-      throw new Error('Me diga o horário do resumo, por exemplo: todos os dias às 8h.');
+    ) {
+      delete args.time;
+      time = pref.preferences.enabled ? pref.preferences.time : undefined;
+      if (!time || action === 'configure')
+        return ask('time', '📡 Em qual horário você quer receber o resumo diário?');
+    }
   }
   if (action === 'configure') {
     if (typeof args.enabled !== 'boolean')
@@ -288,14 +293,24 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   const source = RADAR_CATALOG.find((s) => s.id === args.source);
   if (!source || !sourceAvailable(source.id))
     throw new Error('Me diga qual assunto você quer acompanhar.');
-  const subject = cleanText(args.subject, 100);
+  // Recover an explicitly stated news topic when the model omits this argument.
+  // This only reads the customer's request, never a retrieved article or inferred consent.
+  const statedNewsSubject =
+    source.id === 'news'
+      ? (ctx.channelRequestText ?? '').match(
+          /\b(?:notícias|noticias|manchetes)\s+(?:do|da|de|sobre)\s+(.+?)(?=\s+(?:voc[eê]|no (?:meu )?radar|todo dia|todos os dias|diariamente|[àa]s(?=\s+\d)|agora|hoje)(?=$|[^\p{L}\p{N}])|[.!?,;]|$)/iu
+        )?.[1]
+      : undefined;
+  const subject = cleanText(args.subject || statedNewsSubject, 100);
   if (!subject)
     return ask(
       'subject',
       source.id === 'football'
         ? '⚽ Qual time do Brasileirão você quer acompanhar no Radar?'
         : source.id === 'news'
-          ? '📰 Sobre qual assunto você quer receber notícias no Radar?'
+          ? action === 'preview'
+            ? '📰 Sobre qual assunto você quer consultar notícias?'
+            : '📰 Sobre qual assunto você quer receber notícias no Radar?'
           : '📡 Qual ' + source.hint.toLowerCase() + ' você quer acompanhar no Radar?'
     );
   if (action === 'follow' && !time)
@@ -324,6 +339,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   target = normalizeRadarTarget(source.id, target);
   if (action === 'preview') {
     const snapshot = await fetchRadarResource({ id: 'preview', source: source.id, target, label });
+    pending.delete(key);
     if (ctx.externalContentGuard) ctx.externalContentGuard.seen = true;
     return reply(
       icons[source.id] +
@@ -333,15 +349,28 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
         (snapshot.items.length
           ? snapshot.items
               .slice(0, 3)
-              .map((i) => '*' + i.title + '*\n' + [i.text, i.url].filter(Boolean).join('\n'))
+              .map(
+                (i) =>
+                  '*' +
+                  i.title +
+                  '*\n' +
+                  [
+                    source.id === 'news'
+                      ? i.text?.replace(' · Global Voices · CC BY 3.0', '')
+                      : i.text,
+                    i.url,
+                  ]
+                    .filter(Boolean)
+                    .join('\n')
+              )
               .join('\n\n')
           : source.id === 'news'
             ? 'Não encontrei publicações desse assunto nos últimos 30 dias do Global Voices. Posso acompanhar e avisar quando surgir uma nova leitura.'
             : 'Não há atualizações informadas para essa escolha no período consultado.') +
         '\n\n' +
-        snapshot.sourceLabel +
-        ' · ' +
-        source.license,
+        (source.id === 'news'
+          ? 'Global Voices · CC BY 3.0'
+          : snapshot.sourceLabel + ' · ' + source.license),
       false,
       { snapshot }
     );

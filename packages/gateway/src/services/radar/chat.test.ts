@@ -95,6 +95,55 @@ beforeEach(() => {
   m.change.mockResolvedValue({ label: 'Tecnologia', source: 'news', active: false });
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it('uses the news subject already stated in the real request when the model omits it', async () => {
+    m.fetch.mockResolvedValue({
+      items: [
+        {
+          id: 'one',
+          title: 'Leitura pública',
+          text: 'Publicado em 09/11/2026 · Global Voices · CC BY 3.0',
+          url: 'https://pt.globalvoices.org/2026/11/09/example/',
+        },
+      ],
+      sourceLabel: 'Global Voices',
+    });
+    const result = await message(
+      user,
+      'Quais notícias do mundo você tem agora? Só consulte, sem ativar envios.',
+      { action: 'preview', source: 'news' }
+    );
+    expect(m.fetch).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'mundo', label: 'mundo' })
+    );
+    expect(result.reply).toContain('Leitura pública');
+    expect(result.reply.match(/CC BY 3\.0/g)).toHaveLength(1);
+    expect(m.follow).not.toHaveBeenCalled();
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it('asks only for a genuinely missing query topic and clears continuity after consulting it', async () => {
+    m.fetch.mockResolvedValue({ items: [], sourceLabel: 'Global Voices' });
+    expect(
+      (await message(user, 'Consulte notícias', { action: 'preview', source: 'news' })).reply
+    ).toContain('consultar');
+    await message(user, 'Mundo', { action: 'preview', source: 'news', subject: 'Mundo' });
+    await message(user, 'Flamengo', { action: 'preview', source: 'football', subject: 'Flamengo' });
+    expect(m.fetch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ source: 'football', target: 'br:cr-flamengo' })
+    );
+  });
+  it('does not reinterpret a fresh football request as the answer to an earlier news question', async () => {
+    m.fetch.mockResolvedValue({ items: [], sourceLabel: 'openfootball' });
+    await message(user, 'Consulte notícias', { action: 'preview', source: 'news' });
+    await message(user, 'Consulte o calendário de futebol do Flamengo no Radar, sem cadastrar.', {
+      action: 'preview',
+      source: 'football',
+      subject: 'Flamengo',
+    });
+    expect(m.fetch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ source: 'football', target: 'br:cr-flamengo' })
+    );
+    expect(m.follow).not.toHaveBeenCalled();
+  });
   it.each(['Não quero mais notícias', 'Não me mande notícias'])(
     'honors a natural opt-out: %s',
     async (text) => {
@@ -128,6 +177,28 @@ describe('Radar chat consent, continuity and private account scope', () => {
       subject: 'Flamengo',
     });
     expect(first.needsTime).toBe(true);
+    const next = await message(user, 'às 8h', {
+      action: 'configure',
+      enabled: true,
+      time: '08:00',
+    });
+    expect(next.changed).toBe(true);
+    expect(m.follow).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({ source: 'football', target: 'br:cr-flamengo' }),
+      'Flamengo',
+      '08:00'
+    );
+  });
+  it('asks once instead of rejecting an invented default clock and keeps the team for the real answer', async () => {
+    const first = await message(user, 'Quero acompanhar o Flamengo no meu Radar todos os dias.', {
+      action: 'follow',
+      source: 'football',
+      subject: 'Flamengo',
+      time: '07:00',
+    });
+    expect(first.needsTime).toBe(true);
+    expect(m.follow).not.toHaveBeenCalled();
     const next = await message(user, 'às 8h', {
       action: 'configure',
       enabled: true,
@@ -206,14 +277,16 @@ describe('Radar chat consent, continuity and private account scope', () => {
     expect(m.follow).not.toHaveBeenCalled();
   });
   it('requires the schedule actually requested rather than a model-invented clock', async () => {
-    await expect(
-      message(user, 'Quero receber notícias às 8h', {
-        action: 'follow',
-        source: 'news',
-        subject: 'IA',
-        time: '09:00',
-      })
-    ).rejects.toThrow('horário');
+    expect(
+      (
+        await message(user, 'Quero receber notícias às 8h', {
+          action: 'follow',
+          source: 'news',
+          subject: 'IA',
+          time: '09:00',
+        })
+      ).needsTime
+    ).toBe(true);
     expect(m.follow).not.toHaveBeenCalled();
   });
   it.each([
