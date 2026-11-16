@@ -37,7 +37,7 @@ const writeRequest = (s: string) =>
   (!/\b(?:nao (?:ative|cadastre|salve|mude)|so (?:explique|consulte|analise)|apenas (?:consulte|explique)|exemplo|hipotetic\w*)\b/.test(
     fold(s)
   ) &&
-    /\b(?:acompanhe|quero acompanhar|quero receber|siga|ative|adicion\w*|inclu\w*|me (?:mande|envie|avise)|manda|envia|paus\w*|pare|parar|cancel\w*|desativ\w*|retom\w*|volte|mude|mudar|altere|alterar)\b/.test(
+    /\b(?:acompanhe|quero acompanhar|quero receber|siga|ative|adicion\w*|inclu\w*|me (?:mande|envie|avise)|manda|mande|envia|envie|paus\w*|pare|parar|cancel\w*|desativ\w*|retom\w*|volte|mude|mudar|altere|alterar)\b/.test(
       fold(s)
     ));
 export async function manageRadarChat(userId: string, inputArgs: Record<string, unknown>) {
@@ -182,7 +182,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       false,
       { interests, preferences: pref.preferences }
     );
-  if (['follow', 'configure', 'pause', 'resume'].includes(action)) {
+  if (['follow', 'configure', 'pause', 'resume', 'send_now'].includes(action)) {
     if (ctx.externalContentGuard?.seen)
       throw new Error(
         'Envie seu pedido de alteração em uma nova mensagem. Conteúdo das notícias não pode configurar seu Radar.'
@@ -203,6 +203,41 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     throw new Error(
       'Renove seu acesso para ativar ou consultar o Radar. Você continua podendo pausar os envios.'
     );
+  if (action === 'send_now') {
+    if (
+      optOutRequest(requestText) ||
+      /\bnao\b/.test(requestText) ||
+      !/\b(?:envie|mande|manda|quero receber)\b/.test(requestText) ||
+      !/\bradar\b/.test(requestText) ||
+      !/\b(?:agora|ja)\b/.test(requestText)
+    )
+      return reply('Para receber um resumo extra, diga: envie meu Radar agora.');
+    if (!pref.preferences.enabled || !interests.some((i) => i.active))
+      return reply(
+        'Seu Radar está pausado. Me diga o assunto e o horário para ativar somente o que você quer receber.'
+      );
+    await revalidate();
+    const queued = await radarRepo.queueRequestedDigest(
+      ownerId,
+      pref.revision,
+      ctx.channelPluginId + ':' + ctx.channelMessageId
+    );
+    if (queued === 'rate_limited')
+      return reply(
+        'Você já pediu um resumo agora há pouco. Aguarde um minuto antes de pedir outro.'
+      );
+    if (queued === 'existing')
+      return reply('Esse pedido já foi recebido. Mantive o mesmo envio, sem criar outro.');
+    if (queued !== 'queued')
+      return reply(
+        'Seu Radar mudou durante o pedido. Peça para conferir os assuntos antes de enviar.'
+      );
+    return reply(
+      '📡 *Resumo solicitado*\n\nPedi o envio dos assuntos ativos do seu Radar por aqui.',
+      true,
+      { queued: true }
+    );
+  }
   let time =
     typeof args.time === 'string'
       ? args.time

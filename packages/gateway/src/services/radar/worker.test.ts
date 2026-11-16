@@ -117,6 +117,17 @@ beforeEach(() => {
   m.send.mockResolvedValue('receipt');
 });
 describe('Radar final delivery authorization and failures', () => {
+  it('delivers an explicit extra digest without repeating an uncertain daily job or hiding already seen news', async () => {
+    m.claim.mockResolvedValue([{ ...structuredClone(job), event_key: 'requested:message-new' }]);
+    const news = followed();
+    news.input.source = 'news' as never;
+    news.label = 'Mundo';
+    news.last_content_key = 'hash';
+    m.raw.mockResolvedValue([news]);
+    expect(await dispatchRadar(now)).toBe(1);
+    expect(m.send).toHaveBeenCalledTimes(1);
+    expect(m.mark).toHaveBeenCalledWith(account.dataUserId, news.id, news.revision, 'hash');
+  });
   it('submits one combined message to the current verified phone', async () => {
     expect(await dispatchRadar(now)).toBe(1);
     expect(m.send).toHaveBeenCalledWith(

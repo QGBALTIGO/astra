@@ -58,6 +58,36 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect((await a.preferences()).preferences.enabled).toBe(false);
       expect(await publicRepo.activeAccounts('')).toEqual([]);
     });
+    it('queues one explicit extra digest without replaying an uncertain daily delivery', async () => {
+      await create();
+      const revision = await enable();
+      await publicRepo.queueDigest(userA, revision, '2026-11-16', new Date(Date.now() + 3600000));
+      await db.execute("UPDATE customer_radar_outbox SET status='unknown' WHERE user_id=$1", [
+        userA,
+      ]);
+      expect(await publicRepo.queueRequestedDigest(userA, revision, 'private-message-a')).toBe(
+        'queued'
+      );
+      expect(await publicRepo.queueRequestedDigest(userA, revision, 'private-message-a')).toBe(
+        'existing'
+      );
+      expect(await publicRepo.queueRequestedDigest(userA, revision, 'private-message-b')).toBe(
+        'rate_limited'
+      );
+      expect(
+        (await db.queryOne<{ status: string }>(
+          "SELECT status FROM customer_radar_outbox WHERE user_id=$1 AND event_key='digest:2026-11-16'",
+          [userA]
+        ))!.status
+      ).toBe('unknown');
+      expect(await b.history()).toHaveLength(0);
+    });
+    it('does not queue an extra digest without active matching preferences', async () => {
+      expect(await publicRepo.queueRequestedDigest(userB, 0, 'private-message-c')).toBe(
+        'unavailable'
+      );
+      expect(await b.history()).toHaveLength(0);
+    });
     it('stores a user choice without enrolling any other account', async () => {
       await create();
       expect(await a.list()).toHaveLength(1);
