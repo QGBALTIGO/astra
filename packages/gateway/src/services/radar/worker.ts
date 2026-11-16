@@ -185,13 +185,17 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
           continue;
         }
         const repo = new CustomerRadarRepository(row.user_id);
+        const requested = row.event_key.startsWith('requested:');
         const pref = await repo.preferences();
         const clock = localClock(now, account.timeZone);
         if (!pref.preferences.enabled || pref.revision !== row.preference_revision) {
           await radarRepo.finishDelivery(row, 'cancelled');
           continue;
         }
-        if (inQuietHours(clock.time, pref.preferences.quietStart, pref.preferences.quietEnd)) {
+        if (
+          !requested &&
+          inQuietHours(clock.time, pref.preferences.quietStart, pref.preferences.quietEnd)
+        ) {
           await radarRepo.deferDelivery(row, 60);
           continue;
         }
@@ -217,7 +221,11 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
             row.payload.source +
             ' · ' +
             row.payload.url
-          : digestText(interests, now, account.timeZone);
+          : digestText(
+              requested ? interests.map((i) => ({ ...i, last_content_key: null })) : interests,
+              now,
+              account.timeZone
+            );
         if (!text) {
           await radarRepo.finishDelivery(row, 'cancelled');
           continue;
@@ -260,7 +268,7 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
         if (typeof receipt === 'string' && receipt.trim()) delivered++;
         if (!row.interest_id)
           for (const i of interests)
-            if (i.snapshot && ['releases', 'energy'].includes(i.input.source))
+            if (i.snapshot && ['releases', 'energy', 'news'].includes(i.input.source))
               await radarRepo.markContent(
                 row.user_id,
                 i.id,

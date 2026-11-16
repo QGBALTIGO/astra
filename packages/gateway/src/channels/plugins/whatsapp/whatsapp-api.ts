@@ -57,7 +57,7 @@ import {
   renderUrlButtonAsText,
 } from '../../utils/url-button.js';
 import { containsCustomerLoginLink } from '../../../config/astra-public-urls.js';
-import { buildWhatsAppUrlCtaPayload } from './whatsapp-url-cta.js';
+import { buildWhatsAppUrlCtaPayload, validateWhatsAppUrlCta } from './whatsapp-url-cta.js';
 import { getSessionDir, clearSession } from './session-store.js';
 import { buildWhatsAppCopyCodePayload } from './whatsapp-copy-code.js';
 import { fetchWhatsAppProfilePicture } from './whatsapp-profile-picture.js';
@@ -718,9 +718,11 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     const loginButton = containsCustomerLoginLink(
       normalizeChannelUrl(message.urlButton?.url) ?? ''
     );
-    const loginBodyTooLong = loginButton && renderUrlButtonAsText(message).length > 1024;
+    if (message.urlButton) validateWhatsAppUrlCta(message.urlButton);
+    const urlBodyTooLong =
+      Boolean(message.urlButton) && renderUrlButtonAsText(message).length > 1024;
     const urlPayload =
-      message.urlButton && !loginBodyTooLong
+      message.urlButton && !urlBodyTooLong
         ? buildWhatsAppUrlCtaPayload(message.text, message.urlButton)
         : undefined;
     const interactivePayload = copyPayload ?? urlPayload;

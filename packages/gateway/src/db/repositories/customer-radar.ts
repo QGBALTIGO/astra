@@ -404,14 +404,57 @@ export class RadarRepository extends BaseRepository {
       [userId, id, revision, key]
     );
   }
-  async queueDigest(userId: string, preferenceRevision: number, day: string, expiresAt: Date) {
+  async queueRequestedDigest(userId: string, preferenceRevision: number, requestId: string) {
+    return this.transaction(async () => {
+      await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+        'radar:' + userId,
+      ]);
+      const key = 'requested:' + requestId;
+      if (
+        await this.queryOne(
+          'SELECT id FROM customer_radar_outbox WHERE user_id=$1 AND event_key=$2',
+          [userId, key]
+        )
+      )
+        return 'existing' as const;
+      if (
+        await this.queryOne(
+          "SELECT id FROM customer_radar_outbox WHERE user_id=$1 AND event_key LIKE 'requested:%' AND created_at>NOW()-INTERVAL '60 seconds'",
+          [userId]
+        )
+      )
+        return 'rate_limited' as const;
+      return (await this.queueDigest(
+        userId,
+        preferenceRevision,
+        '',
+        new Date(Date.now() + 300000),
+        key
+      ))
+        ? ('queued' as const)
+        : ('unavailable' as const);
+    });
+  }
+  async queueDigest(
+    userId: string,
+    preferenceRevision: number,
+    day: string,
+    expiresAt: Date,
+    requestedKey?: string
+  ) {
     return !!(await this.queryOne(
       `INSERT INTO customer_radar_outbox(id,user_id,interest_id,interest_revision,preference_revision,event_key,payload,expires_at)
    SELECT $1,p.user_id,NULL,0,p.revision,$3,'{}'::jsonb,$4 FROM customer_radar_preferences p
    WHERE p.user_id=$2 AND p.revision=$5 AND p.preferences->>'enabled'='true'
    ON CONFLICT(user_id,event_key) DO UPDATE SET status='pending',preference_revision=EXCLUDED.preference_revision,expires_at=EXCLUDED.expires_at
    WHERE customer_radar_outbox.status='cancelled' RETURNING id`,
-      [randomUUID(), userId, 'digest:' + day, expiresAt.toISOString(), preferenceRevision]
+      [
+        randomUUID(),
+        userId,
+        requestedKey ?? 'digest:' + day,
+        expiresAt.toISOString(),
+        preferenceRevision,
+      ]
     ));
   }
   async claimDeliveries(limit = 2): Promise<RadarDeliveryRow[]> {

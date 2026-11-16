@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   search: vi.fn(),
   fetch: vi.fn(),
   context: vi.fn(),
+  request: vi.fn(),
   lists: new Map<string, unknown[]>(),
   prefs: new Map<string, unknown>(),
 }));
@@ -26,7 +27,10 @@ vi.mock('../customer-identity.js', () => ({
   getCustomerIdentityService: () => ({ getContext: m.context }),
 }));
 vi.mock('../../db/repositories/customer-radar.js', () => ({
-  radarRepo: { rememberChoices: vi.fn() },
+  radarRepo: {
+    rememberChoices: vi.fn(),
+    queueRequestedDigest: (...args: unknown[]) => m.request(...args),
+  },
   CustomerRadarRepository: class {
     constructor(readonly user: string) {}
     list = async () => m.lists.get(this.user) ?? [];
@@ -95,6 +99,25 @@ beforeEach(() => {
   m.change.mockResolvedValue({ label: 'Tecnologia', source: 'news', active: false });
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it('queues an explicitly requested extra digest only for the caller with opt-in active', async () => {
+    m.prefs.set(user, { enabled: true, time: '08:00', quietStart: '22:00', quietEnd: '07:00' });
+    m.lists.set(user, [{ id: 'topic', active: true, label: 'Flamengo', source: 'football' }]);
+    m.request.mockResolvedValueOnce('queued');
+    expect((await message(user, 'Envie meu Radar agora', { action: 'send_now' })).queued).toBe(
+      true
+    );
+    expect(m.request).toHaveBeenCalledWith(user, 0, expect.stringContaining('channel.whatsapp:'));
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it('does not enable a paused Radar or queue an unsolicited extra digest', async () => {
+    expect((await message(user, 'Envie meu Radar agora', { action: 'send_now' })).reply).toContain(
+      'pausado'
+    );
+    await expect(
+      message(user, 'Como seria enviar meu Radar agora?', { action: 'send_now' })
+    ).rejects.toThrow();
+    expect(m.request).not.toHaveBeenCalled();
+  });
   it('uses the news subject already stated in the real request when the model omits it', async () => {
     m.fetch.mockResolvedValue({
       items: [

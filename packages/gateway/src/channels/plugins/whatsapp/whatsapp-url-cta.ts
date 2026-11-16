@@ -13,13 +13,9 @@ import {
  * exception can happen AFTER WhatsApp accepted the interactive message.
  * The public login also stays readable on clients that hide the native button.
  */
-export function buildWhatsAppUrlCtaPayload(
-  text: string,
-  action: NonNullable<ChannelOutgoingMessage['urlButton']>
-): {
-  body: string;
-  content: proto.IMessage;
-  relayOptions: Pick<MessageRelayOptions, 'additionalNodes'>;
+export function validateWhatsAppUrlCta(action: NonNullable<ChannelOutgoingMessage['urlButton']>): {
+  url: string;
+  label: string;
 } {
   const url = normalizeChannelUrl(action?.url);
   const label = typeof action?.label === 'string' ? action.label.trim() : '';
@@ -30,11 +26,23 @@ export function buildWhatsAppUrlCtaPayload(
     !url.startsWith('https://') ||
     !label ||
     label.length > 20 ||
-    /[\p{Cc}\p{Cf}*_~<>[\]]/u.test(label) ||
-    typeof text !== 'string'
+    /[\p{Cc}\p{Cf}*_~<>[\]]/u.test(label)
   ) {
     throw new Error('Invalid WhatsApp URL CTA');
   }
+  return { url, label };
+}
+
+export function buildWhatsAppUrlCtaPayload(
+  text: string,
+  action: NonNullable<ChannelOutgoingMessage['urlButton']>
+): {
+  body: string;
+  content: proto.IMessage;
+  relayOptions: Pick<MessageRelayOptions, 'additionalNodes'>;
+} {
+  const { url, label } = validateWhatsAppUrlCta(action);
+  if (typeof text !== 'string') throw new Error('Invalid WhatsApp URL CTA');
 
   const login = containsCustomerLoginLink(url);
   const body = (

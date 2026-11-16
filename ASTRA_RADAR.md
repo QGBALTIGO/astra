@@ -6,6 +6,10 @@ O cliente escolhe o que quer acompanhar na conversa particular do Astra. O Dashb
 
 A IA tem a ferramenta restrita `manage_radar`: consultar, acompanhar, testar uma consulta agora, configurar o resumo, pausar ou retomar um assunto. Pedidos de notícias e Radar exigem uma chamada real; o modelo não deve responder que não tem acesso sem consultar a ferramenta.
 
+“Envie meu Radar agora” pede um resumo extra dos assuntos ativos, sem mudar horários ou ativar envios pausados. A solicitação é identificada pela mensagem original e limitada a uma por minuto e cliente. Ela cria um pedido novo e preserva os envios anteriores sem confirmação; esses registros nunca são repetidos automaticamente. A autorização e a preferência são conferidas novamente antes de transmitir.
+
+Mensagens com mais de 1.024 caracteres usam texto com o link do painel, pois não cabem no botão nativo do WhatsApp. Os parâmetros do botão continuam sendo validados antes dessa escolha. Uma falha após transmitir permanece incerta e não gera um segundo envio automático.
+
 Exemplos:
 
 - “Quero receber notícias de tecnologia todo dia às 8h.”

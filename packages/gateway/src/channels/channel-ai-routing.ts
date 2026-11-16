@@ -66,6 +66,7 @@ import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 import { tryMorningBriefingChannelReply } from './morning-briefing.js';
 import { tryRadarChannelReply } from './radar.js';
 import { verifiedRadarToolReply } from './verified-facts.js';
+import { isPendingRadarReply } from '../services/radar/chat-pending.js';
 import { withContactStyleContext } from './channel-personalization.js';
 
 /** Generate the standard demo-mode reply. */
@@ -834,10 +835,18 @@ async function processDirectAgentInSession(
   const conversationOnly =
     isConversationalOnlyChannelRequest(message.text) ||
     (!interpreted.attachments?.length && isConversationalOnlyChannelRequest(interpreted.text));
+  const pendingRadar =
+    !conversationOnly &&
+    isPendingRadarReply(userId, message.channelPluginId, message.platformChatId, interpreted.text);
   agent.setAdditionalTools?.(
     conversationOnly
       ? []
-      : channelToolsForMessage(interpreted.text, recentChannelText(agent.getConversation()))
+      : [
+          ...new Set([
+            ...channelToolsForMessage(interpreted.text, recentChannelText(agent.getConversation())),
+            ...(pendingRadar ? ['core.manage_radar'] : []),
+          ]),
+        ]
   );
   let result;
   try {
@@ -865,18 +874,22 @@ async function processDirectAgentInSession(
                 }),
               }
             )
-          : (requiredChannelRadarTool(
+          : ((pendingRadar ? 'core.manage_radar' : undefined) ??
+              requiredChannelRadarTool(
                 interpreted.text,
                 recentChannelText(agent.getConversation())
-              ) ?? requiredChannelSubscriptionTool(interpreted.text))
+              ) ??
+              requiredChannelSubscriptionTool(interpreted.text))
             ? agent.chat(
                 withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts),
                 {
                   requiredFirstTool:
+                    (pendingRadar ? 'core.manage_radar' : undefined) ??
                     requiredChannelRadarTool(
                       interpreted.text,
                       recentChannelText(agent.getConversation())
-                    ) ?? requiredChannelSubscriptionTool(interpreted.text),
+                    ) ??
+                    requiredChannelSubscriptionTool(interpreted.text),
                   onToolResults: verifiedRadarToolReply,
                 }
               )

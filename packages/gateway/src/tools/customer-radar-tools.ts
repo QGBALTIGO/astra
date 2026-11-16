@@ -13,7 +13,9 @@ export const CUSTOMER_RADAR_TOOLS: ToolDefinition[] = [
       properties: {
         action: {
           type: 'string',
-          enum: ['status', 'follow', 'preview', 'configure', 'pause', 'resume'],
+          enum: ['status', 'follow', 'preview', 'configure', 'pause', 'resume', 'send_now'],
+          description:
+            'Use send_now SOMENTE para pedido explícito como envie meu Radar agora; é um resumo extra, limitado a um por minuto, sem repetir automaticamente envios incertos. Para perguntas sobre os acompanhamentos use status.',
         },
         source: { type: 'string', enum: [...RADAR_SOURCE_IDS] },
         subject: {

@@ -14,6 +14,28 @@ const prior = [
   { action: 'Despesa registrada', facts: 'R$ 5,00 · café' },
 ];
 describe('recalling recent private receipts', () => {
+  it('answers the category just shown from the private read receipt instead of rejecting the missing new tool call', async () => {
+    vi.mocked(writeShortChannelReply).mockResolvedValueOnce(null);
+    const reference = expenseReadContext(
+      '🔎 *Seu último gasto*\n\n• *Valor:* R$ 3,45\n• *Descrição:* Café da tarde\n• *Categoria:* Alimentação\n• *Data:* 16/11/2026'
+    )!;
+    const answer = await quickPrivateReply(
+      'channel.whatsapp',
+      'E qual é a categoria desse gasto?',
+      [reference]
+    );
+    expect(answer).toContain('Alimentação');
+    expect(answer).toContain('Café da tarde');
+    expect(answer).not.toContain('R$');
+    expect(
+      await quickPrivateReply('channel.whatsapp', 'E qual é a categoria desse gasto?', [])
+    ).toBeNull();
+    expect(
+      await quickPrivateReply('channel.whatsapp', 'Mude a categoria desse gasto para Saúde', [
+        reference,
+      ])
+    ).toBeNull();
+  });
   it('keeps the verified last-expense read for a category follow-up without treating it as a write', () => {
     const answer =
       'Seu pagamento recente apareceu por aqui.\n\n🔎 *Seu último gasto*\n\n• *Valor:* R$ 3,45\n• *Descrição:* Café da tarde\n• *Categoria:* Alimentação\n• *Data:* 16/11/2026\n• *Registrado às:* 14:15';

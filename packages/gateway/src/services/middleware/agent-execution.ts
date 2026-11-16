@@ -7,6 +7,7 @@
 
 import { withRecentReceiptContext } from '../../channels/recent-chat-replies.js';
 import { verifiedChannelFacts, verifiedRadarToolReply } from '../../channels/verified-facts.js';
+import { isPendingRadarReply } from '../radar/chat-pending.js';
 import { randomUUID } from 'node:crypto';
 import type { MessageMiddleware, StreamCallbacks } from '@ownpilot/core/services';
 import { getExecContext, runInExecContext, type ContentPart } from '@ownpilot/core/agent';
@@ -120,12 +121,24 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
       message.metadata.source === 'channel' &&
       (ctx.get<boolean>('channelConversationOnly') === true ||
         (!message.attachments?.length && isConversationalOnlyChannelRequest(message.content)));
+    const channelContext = getExecContext();
+    const pendingRadar =
+      message.metadata.source === 'channel' &&
+      !conversationOnly &&
+      isPendingRadarReply(
+        userId,
+        channelContext?.channelPluginId,
+        channelContext?.platformChatId,
+        message.content
+      );
     const directTools =
       message.metadata.source === 'channel'
         ? conversationOnly
           ? []
           : channelToolsForMessage(message.content, recentChannelText(agent.getConversation()))
         : ctx.get<string[]>('directTools');
+    if (pendingRadar && directTools && !directTools.includes('core.manage_radar'))
+      directTools.push('core.manage_radar');
     const stream = ctx.get<StreamCallbacks>('stream');
     const requiredWeather =
       message.metadata.source === 'channel' && !conversationOnly
@@ -164,6 +177,7 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
     try {
       const chatOptions: Record<string, unknown> = {};
       const requiredFirst =
+        (pendingRadar ? 'core.manage_radar' : undefined) ??
         (message.metadata.source === 'channel' && !conversationOnly
           ? requiredChannelRadarTool(message.content, recentChannelText(agent.getConversation()))
           : undefined) ??

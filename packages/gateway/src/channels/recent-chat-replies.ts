@@ -163,7 +163,14 @@ export async function quickPrivateReply(
     }
     return null;
   }
-  if (/\b(?:gasto|despesa)\b/iu.test(text)) return null;
+  const categoryQuestion =
+    /^(?:e\s+)?(?:qual\s+(?:e\s+)?)?a categoria (?:d(?:esse|este) (?:gasto|despesa)|d(?:ele|ela)|do ultimo gasto|da ultima despesa)[.!?]*$/u.test(
+      text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim()
+    );
+  const categoryRecall = categoryQuestion
+    ? receipts.find((r) => r.action === 'Consulta de gasto' && expenseReadContext(r.facts))
+    : undefined;
+  if (/\b(?:gasto|despesa)\b/iu.test(text) && !categoryRecall) return null;
 
   const weekly = isWeeklyPortalGuide(text);
   // A self-contained request for a short planning tip needs neither data nor tools.
@@ -202,17 +209,24 @@ export async function quickPrivateReply(
     }
     return null;
   }
-  if (!weekly && !asksAboutRecentReceipts(text)) return null;
-  let selected = receipts;
-  const kind = /\b(gasto|despesa|assinatura|lembrete)\b/iu.exec(text)?.[1]?.toLowerCase();
-  if (kind) {
-    const action = kind === 'gasto' || kind === 'despesa' ? 'despesa' : kind;
-    selected = receipts.filter((r) => r.action.toLowerCase().includes(action)).slice(0, 1);
-  } else if (/^(?:qual|o que)/iu.test(text.trim())) selected = receipts.slice(0, 1);
-  else selected = receipts.slice(0, 3).reverse();
+  if (!weekly && !asksAboutRecentReceipts(text) && !categoryRecall) return null;
+  let selected = categoryRecall ? [categoryRecall] : receipts;
+  if (!categoryRecall) {
+    const kind = /\b(gasto|despesa|assinatura|lembrete)\b/iu.exec(text)?.[1]?.toLowerCase();
+    if (kind) {
+      const action = kind === 'gasto' || kind === 'despesa' ? 'despesa' : kind;
+      selected = receipts.filter((r) => r.action.toLowerCase().includes(action)).slice(0, 1);
+    } else if (/^(?:qual|o que)/iu.test(text.trim())) selected = receipts.slice(0, 1);
+    else selected = receipts.slice(0, 3).reverse();
+  }
   if (!weekly && !selected.length) return null;
   const facts = selected.map((r) => r.facts).join('\n');
-  const blocks = selected.map((r) => receiptBlock(r, selected.length === 1)).join('\n\n');
+  const blocks = categoryRecall
+    ? formatAstraMessage('🏷️ Categoria informada', [
+        { label: 'Descrição', value: /^• \*Descrição:\* (.+)$/mu.exec(categoryRecall.facts)![1]! },
+        { label: 'Categoria', value: /^• \*Categoria:\* (.+)$/mu.exec(categoryRecall.facts)![1]! },
+      ])
+    : selected.map((r) => receiptBlock(r, selected.length === 1)).join('\n\n');
   const history = selected.length > 1 ? '🗂️ *Seus últimos pedidos*\n\n' + blocks : blocks;
   const fallback = weekly ? ASTRA_WEEKLY_PORTAL_REPLY : history;
   if (!weekly && isDiscreetSubject(facts)) return fallback;

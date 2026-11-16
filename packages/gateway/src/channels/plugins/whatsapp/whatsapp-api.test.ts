@@ -496,6 +496,35 @@ describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
     );
     expect(mockRecordOutboundQuality.mock.calls[0]?.[2]).not.toContain(url);
   });
+  it('sends a long Radar digest once as readable text with its dashboard link', async () => {
+    const { api, socket } = prepare();
+    const text = '📡 *Seu Radar Astra*\n\n' + 'Uma notícia com data e link.\n'.repeat(50);
+    const radarUrl = 'https://app.astraacessor.pro/cliente/radar';
+    await api.sendMessage({
+      platformChatId: '5511999999999',
+      text,
+      urlButton: { label: 'Meu Radar', url: radarUrl },
+    });
+    expect(socket.relayMessage).not.toHaveBeenCalled();
+    expect(mockGenerateNative).not.toHaveBeenCalled();
+    expect(socket.sendMessage).toHaveBeenCalledTimes(1);
+    const output = socket.sendMessage.mock.calls[0]![1].text;
+    expect(output).toContain('Seu Radar Astra');
+    expect(output).toContain('Uma notícia com data e link.');
+    expect(output.match(/https:\/\/app\.astraacessor\.pro\/cliente\/radar/g)).toHaveLength(1);
+  });
+  it('rejects an unsafe button even when its long body would use plain text', async () => {
+    const { api, socket } = prepare();
+    await expect(
+      api.sendMessage({
+        platformChatId: '5511999999999',
+        text: 'x'.repeat(1500),
+        urlButton: { label: 'Meu Radar', url: 'javascript:alert(1)' },
+      })
+    ).rejects.toThrow('Invalid WhatsApp URL CTA');
+    expect(socket.sendMessage).not.toHaveBeenCalled();
+    expect(socket.relayMessage).not.toHaveBeenCalled();
+  });
 
   it('never retries an ambiguous native CTA failure as an exposed link', async () => {
     const { api, socket } = prepare();

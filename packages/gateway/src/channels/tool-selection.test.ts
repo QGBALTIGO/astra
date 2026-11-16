@@ -78,6 +78,14 @@ it('handles the clock-only answer after asking for a digest time', () =>
       'Consigo separar seus e-mails importantes todos os dias. 📬 Em qual horário você quer receber o resumo?'
     )
   ).toBe('core.manage_email_digest'));
+it('does not mistake a Radar time question for an email routine', () => {
+  expect(
+    requiredChannelEmailDigestTool(
+      'às 15:09',
+      'Em qual horário você quer receber o resumo diário de Flamengo?'
+    )
+  ).toBeUndefined();
+});
 
 describe('channel finance tool selection', () => {
   it.each([

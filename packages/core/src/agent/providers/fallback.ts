@@ -64,6 +64,14 @@ export function providerCooldownMs(error: Error | undefined, baseline: number): 
     );
   if (/free-models-per-day|tokens per day|\bTPD\b/i.test(text))
     return Math.max(baseline, 15 * 60000);
+  // An overload or transport hiccup must not disable a healthy model for minutes.
+  // Explicit retry hints above still win; quota/authentication failures keep their baseline.
+  if (
+    /(?:API error:|stream error:|HTTP)\s*5\d{2}\b|timeout|timed out|ECONNRESET|ECONNREFUSED|fetch failed|network error/i.test(
+      text
+    )
+  )
+    return Math.min(baseline, 15_000);
   return baseline;
 }
 

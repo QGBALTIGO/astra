@@ -36,6 +36,7 @@ vi.mock('../log.js', () => ({
 // Import after mocks are set up
 import { getExecContext, runInExecContext } from '@ownpilot/core/agent';
 import { createAgentExecutionMiddleware } from './agent-execution.js';
+import { radarChatPending } from '../radar/chat-pending.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -119,6 +120,44 @@ function createNextResult(overrides?: Partial<MessageProcessingResult>): Message
 // ---------------------------------------------------------------------------
 
 describe('createAgentExecutionMiddleware', () => {
+  it('exposes and requires Radar for a pending clock even when older history mentions an email digest', async () => {
+    const key = JSON.stringify(['user-a', 'channel.whatsapp', 'chat-a']);
+    radarChatPending.set(key, {
+      accountId: 'account-a',
+      args: { action: 'follow', source: 'football', subject: 'Flamengo' },
+      needs: 'time',
+      expires: Date.now() + 60000,
+      messageId: 'previous',
+    });
+    const agent = createAgent({
+      getConversation: vi.fn().mockReturnValue({
+        id: 'conv-a',
+        messages: [
+          { content: 'Seus e-mails importantes. Em qual horário você quer receber o resumo?' },
+        ],
+      }),
+    });
+    try {
+      await runInExecContext(
+        { channelPluginId: 'channel.whatsapp', platformChatId: 'chat-a', channelIsPrivate: true },
+        () =>
+          createAgentExecutionMiddleware()(
+            createMessage({ content: 'às 15:09', metadata: { source: 'channel' } }),
+            createContext({ store: { agent, userId: 'user-a' } }),
+            vi.fn().mockResolvedValue(createNextResult())
+          )
+      );
+      expect(agent.setAdditionalTools).toHaveBeenCalledWith(
+        expect.arrayContaining(['core.manage_radar'])
+      );
+      expect(agent.chat).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ requiredFirstTool: 'core.manage_radar' })
+      );
+    } finally {
+      radarChatPending.delete(key);
+    }
+  });
   it.each(['whatsapp', 'telegram'])(
     'requires saved subscription facts for a follow-up on %s',
     async (platform) => {
