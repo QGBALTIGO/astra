@@ -424,7 +424,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
                     source.id === 'news'
                       ? i.text?.replace(' · Global Voices · CC BY 3.0', '')
                       : i.text,
-                    i.url,
+                    source.id === 'football' ? undefined : i.url,
                   ]
                     .filter(Boolean)
                     .join('\n')
@@ -433,10 +433,12 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
           : source.id === 'news'
             ? 'Não encontrei publicações desse assunto nos últimos 30 dias do Global Voices. Posso acompanhar e avisar quando surgir uma nova leitura.'
             : 'Não há atualizações informadas para essa escolha no período consultado.') +
-        '\n\n' +
-        (source.id === 'news'
-          ? 'Global Voices · CC BY 3.0'
-          : snapshot.sourceLabel + ' · ' + source.license),
+        (source.id === 'football'
+          ? ''
+          : '\n\n' +
+            (source.id === 'news'
+              ? 'Global Voices · CC BY 3.0'
+              : snapshot.sourceLabel + ' · ' + source.license)),
       false,
       { snapshot }
     );

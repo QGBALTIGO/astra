@@ -352,6 +352,10 @@
   align-items: center;
   gap: 6px;
 }
+.astra-customer .ac-radar-calendar-note {
+  color: var(--ac-muted);
+  font-size: 12px;
+}
 .astra-customer .ac-radar-wait {
   color: var(--ac-muted);
   font-size: 13px;

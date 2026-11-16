@@ -323,7 +323,9 @@ export function CustomerRadar({
           <div>
             <h2 id="radar-following">Meus acompanhamentos</h2>
             <p>
-              {loaded.interests.filter((i) => i.active).length} ativos · você escolhe quais manter.
+              {loaded.interests.filter((i) => i.active).length}{' '}
+              {loaded.interests.filter((i) => i.active).length === 1 ? 'ativo' : 'ativos'} · você
+              escolhe quais manter.
             </p>
           </div>
           <Bell aria-hidden="true" />
@@ -407,7 +409,7 @@ export function CustomerRadar({
                             <span>{dateTimeLabel(item.at, customer.timeZone)}</span>
                           ) : null}
                           {item.text ? <p>{item.text}</p> : null}
-                          {item.url?.startsWith('https://') ? (
+                          {i.source !== 'football' && item.url?.startsWith('https://') ? (
                             <a href={item.url} target="_blank" rel="noopener noreferrer">
                               Ver na fonte <ExternalLink aria-hidden="true" />
                             </a>
@@ -443,10 +445,14 @@ export function CustomerRadar({
                     </p>
                   )}
                   <div className="ac-radar-follow-footer">
-                    <a href={source?.url} target="_blank" rel="noopener noreferrer">
-                      {source?.provider}
-                      <ExternalLink aria-hidden="true" />
-                    </a>
+                    {i.source === 'football' ? (
+                      <span className="ac-radar-calendar-note">Calendário previsto</span>
+                    ) : (
+                      <a href={source?.url} target="_blank" rel="noopener noreferrer">
+                        {source?.provider}
+                        <ExternalLink aria-hidden="true" />
+                      </a>
+                    )}
                     <div>
                       <button
                         className="ac-text-button"

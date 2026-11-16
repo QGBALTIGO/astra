@@ -263,4 +263,40 @@ describe('Radar rule variations', () => {
     expect(text).toContain('Mais acompanhamentos');
     expect(text.length).toBeLessThan(3600);
   });
+  it('shows football fixtures without dataset URLs while preserving original news links and attribution', () => {
+    const football = interest({
+      label: 'Flamengo',
+      input: { source: 'football', target: 'br:cr-flamengo', delivery: 'digest', leadMinutes: 60 },
+    });
+    football.snapshot!.sourceLabel = 'openfootball';
+    football.snapshot!.sourceUrl = 'https://github.com/openfootball/south-america';
+    football.snapshot!.items = [
+      {
+        id: 'match',
+        title: 'Flamengo × Palmeiras',
+        text: '18/11/2026 · Data prevista; horário a confirmar.',
+        url: 'https://github.com/openfootball/south-america/blob/master/brazil/2026_br1.txt',
+      },
+    ];
+    const news = interest({
+      label: 'Mundo',
+      input: { source: 'news', target: 'mundo', delivery: 'digest', leadMinutes: 60 },
+    });
+    news.snapshot!.sourceLabel = 'Global Voices';
+    news.snapshot!.sourceUrl = 'https://pt.globalvoices.org/';
+    news.snapshot!.items = [
+      {
+        id: 'article',
+        title: 'Manchete pública',
+        text: 'Publicado em 09/11/2026 · Global Voices · CC BY 3.0',
+        url: 'https://pt.globalvoices.org/2026/11/09/noticia/',
+      },
+    ];
+    const text = digestText([football, news], now, 'America/Cuiaba')!;
+    expect(text).toContain('Flamengo × Palmeiras');
+    expect(text).toContain('Data prevista; horário a confirmar.');
+    expect(text).not.toMatch(/github\.com|2026_br1\.txt|openfootball/);
+    expect(text).toContain('https://pt.globalvoices.org/2026/11/09/noticia/');
+    expect(text).toContain('Global Voices · CC BY 3.0');
+  });
 });
