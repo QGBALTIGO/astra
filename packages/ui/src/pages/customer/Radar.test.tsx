@@ -117,6 +117,64 @@ const submitInterest = async () => {
   });
 };
 describe('native customer Radar opt-in and navigation', () => {
+  it('keeps football cards free of dataset links and preserves useful news article links', async () => {
+    Object.assign(
+      data.catalog.find((s) => s.id === 'football')!,
+      {
+        available: true,
+        provider: 'openfootball',
+        url: 'https://github.com/openfootball/south-america',
+        license: 'CC0 1.0',
+      }
+    );
+    const football = {
+      ...interest(),
+      id: 'team',
+      source: 'football' as const,
+      target: 'br:cr-flamengo',
+      label: 'Flamengo',
+      snapshot: {
+        items: [
+          {
+            id: 'match',
+            title: 'Flamengo × Palmeiras',
+            text: '18/11/2026 · Horário a confirmar.',
+            url: 'https://github.com/openfootball/south-america/blob/master/brazil/2026_br1.txt',
+          },
+        ],
+        observedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+        sourceLabel: 'openfootball',
+        sourceUrl: 'https://github.com/openfootball/south-america',
+      },
+    };
+    data.interests = [
+      football,
+      {
+        ...interest(),
+        id: 'news',
+        source: 'news',
+        target: 'mundo',
+        label: 'Mundo',
+        snapshot: {
+          ...football.snapshot,
+          items: [
+            { id: 'article', title: 'Uma notícia', url: 'https://pt.globalvoices.org/noticia/' },
+          ],
+          sourceLabel: 'Global Voices',
+          sourceUrl: 'https://pt.globalvoices.org/',
+        },
+      },
+    ];
+    await mount();
+    const team = dom.container.querySelector('article[aria-label="Flamengo"]')!;
+    expect(team.textContent).toContain('Flamengo × Palmeiras');
+    expect(team.textContent).toContain('Calendário previsto');
+    expect(team.querySelector('a')).toBeNull();
+    expect(
+      dom.container.querySelector('a[href="https://pt.globalvoices.org/noticia/"]')
+    ).toBeTruthy();
+  });
   it('opens natively without loading finance or creating unwanted subscriptions', async () => {
     await mount();
     expect(dom.container.textContent).toContain('Seu Radar começa pelos seus interesses');

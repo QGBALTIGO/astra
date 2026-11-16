@@ -38,6 +38,7 @@ export function digestSection(
   )
     return null;
   const snap = interest.snapshot;
+  const football = interest.input.source === 'football';
   if (
     ['releases', 'energy', 'news'].includes(interest.input.source) &&
     interest.last_content_key === snapshotFingerprint(snap)
@@ -60,20 +61,25 @@ export function digestSection(
               ? item.text.replace(' · Global Voices · CC BY 3.0', '')
               : item.text)
           : null,
-        item.url ? '  ' + item.url : null,
+        !football && item.url ? '  ' + item.url : null,
       ]
         .filter(Boolean)
         .join('\n')
     );
   return (
+    (football ? '⚽ ' : '') +
     '*' +
     interest.label +
-    '*\n' +
-    (lines.length ? lines.join('\n') : 'Nenhuma publicação encontrada no período consultado.') +
-    '\nFonte: ' +
-    (interest.input.source === 'news' ? 'Global Voices · CC BY 3.0' : snap.sourceLabel) +
-    ' · ' +
-    snap.sourceUrl
+    '*\n\n' +
+    (lines.length
+      ? lines.join(football ? '\n\n' : '\n')
+      : 'Nenhuma publicação encontrada no período consultado.') +
+    (football
+      ? ''
+      : '\nFonte: ' +
+        (interest.input.source === 'news' ? 'Global Voices · CC BY 3.0' : snap.sourceLabel) +
+        ' · ' +
+        snap.sourceUrl)
   );
 }
 export function digestText(

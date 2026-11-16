@@ -99,6 +99,28 @@ beforeEach(() => {
   m.change.mockResolvedValue({ label: 'Tecnologia', source: 'news', active: false });
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it('answers a football consultation with the fixtures and no technical source links', async () => {
+    m.fetch.mockResolvedValue({
+      items: [
+        {
+          id: 'match',
+          title: 'Flamengo × Palmeiras',
+          text: '18/11/2026 · Horário a confirmar.',
+          url: 'https://github.com/openfootball/south-america/blob/master/brazil/2026_br1.txt',
+        },
+      ],
+      sourceLabel: 'openfootball',
+    });
+    const result = await message(user, 'Qual é o próximo jogo do Flamengo?', {
+      action: 'preview',
+      source: 'football',
+      subject: 'Flamengo',
+    });
+    expect(result.reply).toContain('Flamengo × Palmeiras');
+    expect(result.reply).toContain('18/11/2026');
+    expect(result.reply).not.toMatch(/https?:|github|CC0|openfootball/);
+    expect(m.follow).not.toHaveBeenCalled();
+  });
   it.each(['resume', 'status', 'send_now'])(
     'keeps explicit recurring consent when the model chooses %s for a paused saved topic',
     async (action) => {
