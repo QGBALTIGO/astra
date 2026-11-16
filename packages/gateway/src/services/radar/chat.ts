@@ -109,6 +109,13 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     prior.accountId === account!.id
   ) {
     const text = (ctx.channelRequestText ?? '').trim();
+    // A short answer belongs to the verified pending question. Do not depend
+    // on the model repeating (or correctly parsing) the customer's clock.
+    const clock = text.match(
+      /^\s*(?:[aà]s?\s*)?([01]?\d|2[0-3])(?:(?:h|:)([0-5]?\d)?)?\s*(?:horas?)?[.!]?\s*$/iu
+    );
+    if (prior.needs === 'time' && clock)
+      args.time = clock[1]!.padStart(2, '0') + ':' + (clock[2] ?? '0').padStart(2, '0');
     if (
       prior.needs === 'time' &&
       typeof args.time === 'string' &&
@@ -151,7 +158,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     };
   };
   const repo = new CustomerRadarRepository(ownerId);
-  const action = String(args.action);
+  let action = String(args.action);
   const requestText = fold(ctx.channelRequestText ?? '');
   if (
     (action === 'follow' &&
@@ -167,6 +174,30 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     ...extra,
   });
   const [interests, pref] = await Promise.all([repo.list(), repo.preferences()]);
+  // Explicit recurring consent is a follow request even when the model
+  // chooses resume/status/send_now for a previously saved, globally paused
+  // topic. Recover only a topic actually named in this customer's message.
+  if (
+    !continuing &&
+    writeRequest(requestText) &&
+    !optOutRequest(requestText) &&
+    !/\bnao\b/.test(requestText) &&
+    /\b(?:acompanhe|quero acompanhar|quero receber|me (?:mande|envie))\b/.test(requestText) &&
+    /\b(?:todos os dias|todo dia|diariamente)\b/.test(requestText)
+  ) {
+    const named = interests.filter((i) => requestText.includes(fold(i.label)));
+    const suppliedSubject =
+      typeof args.subject === 'string' && requestText.includes(fold(args.subject))
+        ? args.subject
+        : undefined;
+    args = {
+      ...args,
+      action: 'follow',
+      subject: suppliedSubject ?? (named.length === 1 ? named[0]!.label : undefined),
+      source: args.source ?? (named.length === 1 ? named[0]!.source : undefined),
+    };
+    action = 'follow';
+  }
   if (action === 'status')
     return reply(
       '📡 *Seu Radar*\n\n' +

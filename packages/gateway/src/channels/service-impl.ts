@@ -28,6 +28,7 @@ import {
 } from './astra-access.js';
 import { receiptContext, maybePersonalizeConfirmedReply } from './confirmed-reply-personality.js';
 import { enforceAstraScopeOutput } from './astra-scope.js';
+import { quickSubscriptionReadReply } from './subscription-read-reply.js';
 import {
   expenseReadContext,
   needsRecentReplyContext,
@@ -1234,7 +1235,11 @@ export class ChannelServiceImpl implements IChannelService {
       message = { ...message, metadata: { ...message.metadata, astraRecentReceipts: recent } };
       const quick =
         privateText && !session.context?.preferredModel
-          ? await quickPrivateReply(message.channelPluginId, message.text, recent)
+          ? ((await quickSubscriptionReadReply(
+              message.channelPluginId,
+              message.text,
+              dataUserId
+            )) ?? (await quickPrivateReply(message.channelPluginId, message.text, recent)))
           : null;
 
       // Try MessageBus pipeline first
