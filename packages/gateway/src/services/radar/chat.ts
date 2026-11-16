@@ -13,6 +13,8 @@ import {
   type RadarSourceId,
 } from './contracts.js';
 import { searchRadar, fetchRadarResource } from './providers.js';
+import { radarChatPending as pending } from './chat-pending.js';
+export { clearRadarChatPending } from './chat-pending.js';
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 const icons: Record<RadarSourceId, string> = {
@@ -26,26 +28,18 @@ const icons: Record<RadarSourceId, string> = {
   energy: '💡',
   releases: '🚀',
 };
-const pending = new Map<
-  string,
-  {
-    args: Record<string, unknown>;
-    accountId: string;
-    needs: 'time' | 'subject';
-    expires: number;
-    messageId: string;
-  }
->();
-export function clearRadarChatPending(userId: string) {
-  for (const key of pending.keys()) if (JSON.parse(key)[1] === userId) pending.delete(key);
-}
-const writeRequest = (s: string) =>
-  !/\b(?:nao (?:ative|cadastre|salve|mude)|so (?:explique|consulte|analise)|apenas (?:consulte|explique)|exemplo|hipotetic\w*)\b/.test(
-    fold(s)
-  ) &&
-  /\b(?:acompanhe|quero acompanhar|quero receber|siga|ative|adicion\w*|inclu\w*|me (?:mande|envie|avise)|manda|envia|paus\w*|pare|parar|cancel\w*|desativ\w*|retom\w*|volte|mude|mudar|altere|alterar)\b/.test(
+const optOutRequest = (s: string) =>
+  /\bnao (?:quero (?:mais )?(?:receber|acompanhar|noticias|avisos|o radar)|me (?:mande|envie|avise))\b/.test(
     fold(s)
   );
+const writeRequest = (s: string) =>
+  optOutRequest(s) ||
+  (!/\b(?:nao (?:ative|cadastre|salve|mude)|so (?:explique|consulte|analise)|apenas (?:consulte|explique)|exemplo|hipotetic\w*)\b/.test(
+    fold(s)
+  ) &&
+    /\b(?:acompanhe|quero acompanhar|quero receber|siga|ative|adicion\w*|inclu\w*|me (?:mande|envie|avise)|manda|envia|paus\w*|pare|parar|cancel\w*|desativ\w*|retom\w*|volte|mude|mudar|altere|alterar)\b/.test(
+      fold(s)
+    ));
 export async function manageRadarChat(userId: string, inputArgs: Record<string, unknown>) {
   if (
     JSON.stringify(inputArgs).length > 4096 ||
@@ -159,8 +153,10 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   const action = String(args.action);
   const requestText = fold(ctx.channelRequestText ?? '');
   if (
-    action === 'follow' &&
-    /\b(?:nao quero|nao (?:me )?(?:mande|envie|ative|acompanhe))\b/.test(requestText)
+    (action === 'follow' &&
+      /\b(?:nao quero|nao (?:me )?(?:mande|envie|ative|acompanhe))\b/.test(requestText)) ||
+    (optOutRequest(requestText) &&
+      (action === 'resume' || (action === 'configure' && args.enabled !== false)))
   )
     throw new Error('Me diga o assunto que você quer pausar no Radar.');
   const reply = (text: string, changed = false, extra: Record<string, unknown> = {}) => ({
@@ -274,6 +270,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     const saved = await repo.change(matches[0]!.id, { active: action === 'resume' });
     if (!saved)
       throw new Error('Esse acompanhamento mudou. Peça para conferir seu Radar novamente.');
+    pending.delete(key);
     return reply(
       icons[saved.source] +
         ' *' +

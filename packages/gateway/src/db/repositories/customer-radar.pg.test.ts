@@ -109,6 +109,33 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(await a.list()).toHaveLength(1);
       expect((await a.preferences()).preferences.enabled).toBe(true);
     });
+    it('rolls back the interest, other topics and public resource when the preference write fails', async () => {
+      const old = await create();
+      await db.exec(
+        `ALTER TABLE customer_radar_preferences ADD CONSTRAINT radar_test_reject_schedule CHECK (preferences->>'time' <> '08:13')`
+      );
+      try {
+        await expect(
+          a.followFromChat(
+            { source: 'news', target: 'Tecnologia', delivery: 'digest', leadMinutes: 60 },
+            'Tecnologia',
+            '08:13'
+          )
+        ).rejects.toThrow();
+        expect(await a.list()).toHaveLength(1);
+        expect((await a.get(old.id))!.active).toBe(true);
+        expect((await a.preferences()).preferences.enabled).toBe(false);
+        expect(
+          (await db.queryOne<{ n: string }>(
+            "SELECT COUNT(*) AS n FROM radar_resources WHERE source='news'"
+          ))!.n
+        ).toBe('0');
+      } finally {
+        await db.exec(
+          'ALTER TABLE customer_radar_preferences DROP CONSTRAINT radar_test_reject_schedule'
+        );
+      }
+    });
     it('does not let B read, pause, edit or delete A even with a known ID', async () => {
       const i = await create();
       expect(await b.get(i.id)).toBeNull();

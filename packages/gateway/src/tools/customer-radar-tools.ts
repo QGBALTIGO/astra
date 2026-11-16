@@ -1,6 +1,5 @@
 import type { ToolDefinition } from '@ownpilot/core/tools';
 import { ZodError } from 'zod';
-import { manageRadarChat } from '../services/radar/chat.js';
 import { RADAR_SOURCE_IDS } from '../services/radar/contracts.js';
 export const CUSTOMER_RADAR_TOOLS: ToolDefinition[] = [
   {
@@ -42,6 +41,7 @@ export async function executeCustomerRadarTool(
 ) {
   try {
     if (name !== 'manage_radar') throw new Error('Pedido do Radar indisponível.');
+    const { manageRadarChat } = await import('../services/radar/chat.js');
     return { success: true, result: await manageRadarChat(userId, args) };
   } catch (error) {
     return {

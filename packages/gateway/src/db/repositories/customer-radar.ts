@@ -81,17 +81,21 @@ export class CustomerRadarRepository extends BaseRepository {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
         'radar:' + this.userId,
       ]);
-      const r = await this.queryOne<{ preferences: RadarPreferences; revision: number }>(
-        `INSERT INTO customer_radar_preferences(user_id,preferences) VALUES($1,$2::jsonb)
-    ON CONFLICT(user_id) DO UPDATE SET preferences=$2::jsonb,revision=customer_radar_preferences.revision+1,updated_at=NOW() RETURNING preferences,revision`,
-        [this.userId, JSON.stringify(input)]
-      );
-      await this.execute(
-        "UPDATE customer_radar_outbox SET status='cancelled' WHERE user_id=$1 AND status IN ('pending','leased')",
-        [this.userId]
-      );
-      return r!;
+      return this.writePreferences(input);
     });
+  }
+  /** Caller holds the account lock in its existing transaction; never open a nested one. */
+  private async writePreferences(input: RadarPreferences) {
+    const r = await this.queryOne<{ preferences: RadarPreferences; revision: number }>(
+      `INSERT INTO customer_radar_preferences(user_id,preferences) VALUES($1,$2::jsonb)
+    ON CONFLICT(user_id) DO UPDATE SET preferences=$2::jsonb,revision=customer_radar_preferences.revision+1,updated_at=NOW() RETURNING preferences,revision`,
+      [this.userId, JSON.stringify(input)]
+    );
+    await this.execute(
+      "UPDATE customer_radar_outbox SET status='cancelled' WHERE user_id=$1 AND status IN ('pending','leased')",
+      [this.userId]
+    );
+    return r!;
   }
   async list(): Promise<ReturnType<typeof mapRadarInterest>[]> {
     return (
@@ -103,34 +107,40 @@ export class CustomerRadarRepository extends BaseRepository {
   }
   /** Explicit chat opt-in starts only the requested topic when the entire Radar was off. */
   async followFromChat(input: RadarInput, label: string, time: string) {
+    input = radarInputSchema.parse(input);
+    input.target = normalizeRadarTarget(input.source, input.target);
+    const rid = resourceId(input.source, input.target, input.query);
     return this.transaction(async () => {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
         'radar:' + this.userId,
       ]);
       const pref = await this.preferences();
-      const current = (await this.list()).find(
-        (i) =>
-          resourceId(i.source, i.target, i.query) ===
-          resourceId(input.source, input.target, input.query)
+      const nextPreferences = radarPreferencesSchema.parse({
+        ...pref.preferences,
+        enabled: true,
+        time,
+      });
+      await this.execute(
+        `INSERT INTO radar_resources(id,source,target,label,query) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO NOTHING`,
+        [rid, input.source, input.target, label, input.query ?? null]
       );
-      const interest = current
-        ? await this.change(current.id, {
-            active: true,
-            delivery: input.delivery,
-            leadMinutes: input.leadMinutes,
-          })
-        : await this.create(input, label);
+      const row = await this.queryOne<{ id: string }>(
+        `INSERT INTO customer_radar_interests(id,user_id,resource_id,input,label) VALUES($1,$2,$3,$4::jsonb,$5)
+        ON CONFLICT(user_id,resource_id) DO UPDATE SET active=TRUE,input=EXCLUDED.input,
+        revision=customer_radar_interests.revision+1,last_digest_day=NULL,threshold_state=NULL,updated_at=NOW() RETURNING id`,
+        [randomUUID(), this.userId, rid, JSON.stringify(input), label]
+      );
       let keptPaused = 0;
       if (!pref.preferences.enabled) {
         keptPaused = (
           await this.execute(
             'UPDATE customer_radar_interests SET active=FALSE,revision=revision+1,updated_at=NOW() WHERE user_id=$1 AND id<>$2 AND active=TRUE',
-            [this.userId, interest!.id]
+            [this.userId, row!.id]
           )
         ).changes;
       }
-      await this.savePreferences({ ...pref.preferences, enabled: true, time });
-      return { interest: interest!, keptPaused };
+      await this.writePreferences(nextPreferences);
+      return { interest: mapRadarInterest((await this.get(row!.id))!), keptPaused };
     });
   }
   async get(id: string): Promise<RadarInterestRow | null> {

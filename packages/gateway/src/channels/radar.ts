@@ -4,7 +4,7 @@ import { CustomerRadarRepository } from '../db/repositories/customer-radar.js';
 import { resolveCustomerPhone } from '../services/customer-identity.js';
 import { ASTRA_CUSTOMER_ORIGIN } from '../config/astra-public-urls.js';
 import { integrationPrivateChat } from './customer-integrations.js';
-import { clearRadarChatPending } from '../services/radar/chat.js';
+import { clearRadarChatPending } from '../services/radar/chat-pending.js';
 
 /** Narrow, zero-inference intents. Ordinary reminders and unrelated messages are untouched. */
 export async function tryRadarChannelReply(

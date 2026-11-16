@@ -95,6 +95,26 @@ beforeEach(() => {
   m.change.mockResolvedValue({ label: 'Tecnologia', source: 'news', active: false });
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it.each(['Não quero mais notícias', 'Não me mande notícias'])(
+    'honors a natural opt-out: %s',
+    async (text) => {
+      m.lists.set(user, [{ id: 'news-topic', label: 'Tecnologia', source: 'news', active: true }]);
+      const result = await message(user, text, { action: 'pause', interestId: 'news-topic' });
+      expect(result.changed).toBe(true);
+      expect(m.change).toHaveBeenCalledWith(user, 'news-topic', { active: false });
+      expect(m.follow).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    { action: 'follow', source: 'news', subject: 'Tecnologia', time: '08:00' },
+    { action: 'resume', interestId: 'news-topic' },
+    { action: 'configure', enabled: true, time: '08:00' },
+  ])('cannot interpret an opt-out as enabling delivery: %j', async (args) => {
+    await expect(message(user, 'Não quero mais notícias', args)).rejects.toThrow();
+    expect(m.save).not.toHaveBeenCalled();
+    expect(m.follow).not.toHaveBeenCalled();
+    expect(m.change).not.toHaveBeenCalled();
+  });
   it('asks the missing subject before a clock and never writes a guess', async () => {
     expect(
       (await message(user, 'Quero receber notícias', { action: 'follow', source: 'news' })).reply
