@@ -99,6 +99,49 @@ beforeEach(() => {
   m.change.mockResolvedValue({ label: 'Tecnologia', source: 'news', active: false });
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it.each(['resume', 'status', 'send_now'])(
+    'keeps explicit recurring consent when the model chooses %s for a paused saved topic',
+    async (action) => {
+      m.lists.set(user, [
+        { id: 'saved-team', active: true, label: 'Flamengo', source: 'football' },
+      ]);
+      const first = await message(user, 'Quero acompanhar o Flamengo no meu Radar todos os dias.', {
+        action,
+        interestId: 'saved-team',
+      });
+      expect(first.needsTime).toBe(true);
+      expect(first.reply).toContain('Flamengo');
+      expect(m.follow).not.toHaveBeenCalled();
+      expect(m.request).not.toHaveBeenCalled();
+      const next = await message(user, 'às 15:43', { action: 'configure', time: '09:00' });
+      expect(next.changed).toBe(true);
+      expect(m.follow).toHaveBeenCalledWith(
+        user,
+        expect.objectContaining({ source: 'football', target: 'br:cr-flamengo' }),
+        'Flamengo',
+        '15:43'
+      );
+    }
+  );
+  it('parses a pending clock even when the model omits the time argument', async () => {
+    await message(user, 'Acompanhe o Flamengo', {
+      action: 'follow',
+      source: 'football',
+      subject: 'Flamengo',
+    });
+    expect((await message(user, 'às 8h30', { action: 'status' })).changed).toBe(true);
+    expect(m.follow).toHaveBeenLastCalledWith(user, expect.anything(), 'Flamengo', '08:30');
+  });
+  it('does not turn a hypothetical daily follow into consent', async () => {
+    await expect(
+      message(user, 'Exemplo: quero acompanhar o Flamengo todos os dias.', {
+        action: 'follow',
+        source: 'football',
+        subject: 'Flamengo',
+      })
+    ).rejects.toThrow();
+    expect(m.follow).not.toHaveBeenCalled();
+  });
   it('queues an explicitly requested extra digest only for the caller with opt-in active', async () => {
     m.prefs.set(user, { enabled: true, time: '08:00', quietStart: '22:00', quietEnd: '07:00' });
     m.lists.set(user, [{ id: 'topic', active: true, label: 'Flamengo', source: 'football' }]);
