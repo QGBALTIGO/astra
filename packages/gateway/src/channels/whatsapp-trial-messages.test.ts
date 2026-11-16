@@ -43,7 +43,11 @@ describe('WhatsApp trial copy', () => {
     expect(reply.urlButton).toBeUndefined();
   });
   it('acknowledges already-active access without promising a fresh trial', () => {
-    const reply = buildAccessMessage('already_active', { ...trial, accessSource: 'cakto' }, settings);
+    const reply = buildAccessMessage(
+      'already_active',
+      { ...trial, accessSource: 'cakto' },
+      settings
+    );
     expect(reply.text).toContain('Seu acesso ao Astra já está ativo');
     expect(reply.text).not.toContain('Seus 3 dias grátis já começaram');
     expect(reply.text).not.toContain('página de login');
