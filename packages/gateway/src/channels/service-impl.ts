@@ -1059,6 +1059,28 @@ export class ChannelServiceImpl implements IChannelService {
 
       if (greetingBurst.suppressReply) return;
 
+      // A landing trial request is an account operation, not a question for the
+      // LLM. New customers have already been enrolled/welcomed above. For an
+      // existing customer or owner, acknowledge the current access without
+      // restarting the trial, changing entitlements or exposing a login flow.
+      // This must run AFTER createIfNew so WhatsApp redeliveries stay idempotent.
+      if (
+        message.platform === 'whatsapp' &&
+        !message.attachments?.length &&
+        isTrialStartMessage(message.text)
+      ) {
+        const settings = await getWhatsAppAccessMessageSettings();
+        await this.send(message.channelPluginId, {
+          platformChatId: message.platformChatId,
+          ...buildAccessMessage(
+            channelUser.accessSource === 'trial' ? 'trial_active' : 'already_active',
+            channelUser,
+            settings
+          ),
+        });
+        return;
+      }
+
       // 6. Find or create session -> conversation (serialized per chat to prevent duplicates)
       const sessionLockKey = `${channelUser.id}:${message.channelPluginId}:${message.platformChatId}`;
       const session = await this.withSessionLock(sessionLockKey, async () => {

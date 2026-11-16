@@ -9,6 +9,8 @@ export type AccessMessageKind =
   | 'pending_short'
   | 'approved'
   | 'first_authorized'
+  | 'trial_active'
+  | 'already_active'
   | 'expiring'
   | 'expired'
   | 'renewed'
@@ -83,6 +85,24 @@ function dateFormatter(timeZone: string | null | undefined): Intl.DateTimeFormat
       year: 'numeric',
     });
   }
+}
+
+function trialDeadline(expires: Date, timeZone?: string | null): string {
+  let zone = timeZone?.trim() || DEFAULT_ACCESS_MESSAGE_TIME_ZONE;
+  try {
+    new Intl.DateTimeFormat('pt-BR', { timeZone: zone });
+  } catch {
+    zone = DEFAULT_ACCESS_MESSAGE_TIME_ZONE;
+  }
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: zone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(expires);
 }
 
 function calendarDay(date: Date, formatter: Intl.DateTimeFormat): number {
@@ -175,31 +195,16 @@ export function buildAccessMessage(
       };
     case 'first_authorized':
       if (user.accessSource === 'trial' && expires) {
-        let zone = settings.timeZone?.trim() || DEFAULT_ACCESS_MESSAGE_TIME_ZONE;
-        try {
-          new Intl.DateTimeFormat('pt-BR', { timeZone: zone });
-        } catch {
-          zone = DEFAULT_ACCESS_MESSAGE_TIME_ZONE;
-        }
-        const deadline = new Intl.DateTimeFormat('pt-BR', {
-          timeZone: zone,
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          timeZoneName: 'short',
-        }).format(expires);
         return {
           text: paragraphs(
-            `${hello} Seja bem-vindo ao *Astra*! 💙`,
-            '*Seus 3 dias grátis já começaram!* São 72 horas para experimentar, sem cadastro, sem cartão e sem cobrança automática.',
-            `⏳ *Seu teste é válido até ${deadline}.*`,
-            'Pode conversar comigo do seu jeito para:',
-            '💸 Organizar finanças, registrar gastos e receitas.\n📅 Anotar compromissos e criar lembretes.\n✅ Cuidar de tarefas e pendências.\n🎯 Criar metas e acompanhar seu progresso.\n🧠 Guardar ideias, preferências e memórias.\n☀️ Preparar resumos da sua rotina e um bom-dia diário.',
-            '🎙️ Você também pode enviar áudios, imagens e documentos para me ajudar a entender seus pedidos.',
-            'Para consultar o clima, me conte sua cidade. Para resumos de e-mail e outras integrações, é preciso conectar sua própria conta pelo painel.',
-            'Experimente:\n💬 “Gastei R$ 35 no almoço.”\n💬 “Me lembre de pagar a conta amanhã às 9h.”\n💬 “Quero juntar R$ 2 mil para uma viagem.”',
+            '🎉 *Seus 3 dias grátis já começaram!*',
+            `${hello} 💙 Eu sou o *Astra*, seu assessor pessoal no WhatsApp.`,
+            'Você tem *72 horas* para experimentar aqui mesmo — sem cadastro para começar, sem cartão e sem cobrança automática.',
+            '✨ *Olha o que podemos fazer juntos:*',
+            '💸 *Finanças:* registrar gastos e receitas e acompanhar seu dinheiro.\n📅 *Agenda:* criar lembretes, tarefas e compromissos.\n🎯 *Metas:* planejar objetivos e acompanhar o progresso.\n🧠 *Memórias:* guardar ideias e informações importantes.\n🎙️ *Áudios, fotos e documentos:* você pode me enviar tudo por aqui.',
+            '📬 *Integrações:* você pode conectar seu e-mail e outros serviços pelo painel, se quiser.',
+            `⏳ *Seu teste vai até ${trialDeadline(expires, settings.timeZone)}.*`,
+            '🚀 *Experimente agora:*\n💬 “Gastei R$ 35 no almoço.”\n💬 “Me lembre de pagar a conta amanhã às 9h.”',
             '*O que vamos organizar primeiro?* ✨'
           ),
         };
@@ -211,6 +216,28 @@ export function buildAccessMessage(
           'Você pode contar comigo para organizar tarefas, criar lembretes, acompanhar compromissos, registrar gastos e guardar suas ideias.',
           'É só conversar comigo por aqui, do seu jeito.',
           '*Me conta: o que você gostaria de organizar primeiro?*'
+        ),
+      };
+    case 'trial_active':
+      return {
+        text: paragraphs(
+          `${hello} 💙`,
+          '*Seu teste grátis do Astra já está em andamento!* Não precisa solicitar outro teste.',
+          expires
+            ? `⏳ *Seu acesso é válido até ${trialDeadline(expires, settings.timeZone)}.*`
+            : undefined,
+          'Pode me enviar seus gastos, tarefas, lembretes, metas, ideias, áudios e imagens normalmente.',
+          '🚀 *Quer experimentar?* Diga: “Me lembre de beber água amanhã às 9h.”'
+        ),
+      };
+    case 'already_active':
+      return {
+        text: paragraphs(
+          `${hello} 💙`,
+          '✅ *Seu acesso ao Astra já está ativo!* Não precisa iniciar um teste grátis.',
+          'Estou aqui para ajudar com finanças, agenda, tarefas, lembretes, metas e muito mais.',
+          expiryDate ? `📅 *Seu acesso é válido até ${expiryDate}.*` : undefined,
+          '💬 *Pode começar agora:* “Gastei R$ 35 no almoço” ou “Me lembre de pagar a conta amanhã às 9h”.'
         ),
       };
     case 'expiring': {

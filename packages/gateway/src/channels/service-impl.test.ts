@@ -1800,6 +1800,72 @@ describe('ChannelServiceImpl', () => {
         }
       );
 
+      it('answers a repeat trial request from an active trial without AI or resetting the deadline', async () => {
+        const deadline = new Date('2099-01-01T16:00:00Z');
+        customer = {
+          ...customer,
+          isVerified: true,
+          status: 'active',
+          accessSource: 'trial',
+          accessExpiresAt: deadline,
+          firstInteraction: false,
+          metadata: {
+            hasInteracted: true,
+            accessWelcomePending: false,
+            astraAccessNotices: { firstAuthorized: true },
+          },
+        };
+        message.text = 'Olá! Quero testar o Astra grátis por 3 dias.';
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            text: expect.stringContaining('Seu teste grátis do Astra já está em andamento'),
+          })
+        );
+        expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        expect(mockMessagesRepo.createIfNew).toHaveBeenCalledOnce();
+        expect(customer.accessExpiresAt).toBe(deadline);
+      });
+
+      it('tells an already subscribed user their Astra is active instead of starting a trial', async () => {
+        customer = {
+          ...customer,
+          isVerified: true,
+          status: 'active',
+          accessSource: 'cakto',
+          accessExpiresAt: new Date('2099-01-01T16:00:00Z'),
+          firstInteraction: false,
+          metadata: { hasInteracted: true, caktoWelcomeDelivered: true },
+        };
+        message.text = 'Olá! Quero testar o Astra grátis por 3 dias.';
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+        const sent = channelPlugin.api.sendMessage.mock.calls[0]?.[0];
+        expect(sent.text).toContain('Seu acesso ao Astra já está ativo');
+        expect(sent.text).not.toContain('Seus 3 dias grátis já começaram');
+        expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        expect(mockAccessNoticeClaim).not.toHaveBeenCalled();
+      });
+
+      it('does not send a second trial-status reply when WhatsApp redelivers the same message', async () => {
+        customer = {
+          ...customer,
+          isVerified: true,
+          status: 'active',
+          accessSource: 'trial',
+          accessExpiresAt: new Date('2099-01-01T16:00:00Z'),
+          firstInteraction: false,
+          metadata: { hasInteracted: true, accessWelcomePending: false },
+        };
+        message.text = 'Olá! Quero testar o Astra grátis por 3 dias.';
+        mockMessagesRepo.createIfNew.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+        await service.processIncomingMessage(message);
+        await service.processIncomingMessage(message);
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+        expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+      });
+
       it('welcomes a preauthorized first greeting without an extra AI response', async () => {
         customer = {
           ...customer,

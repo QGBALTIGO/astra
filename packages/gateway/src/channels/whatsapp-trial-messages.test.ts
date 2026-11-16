@@ -34,6 +34,33 @@ describe('WhatsApp trial copy', () => {
     expect(reply.text).not.toContain('aguardando liberação');
     expect(reply.urlButton).toBeUndefined();
   });
+  it('keeps active trial requests on the existing 72-hour window without sending a login flow', () => {
+    const reply = buildAccessMessage('trial_active', trial, settings);
+    expect(reply.text).toContain('teste grátis do Astra já está em andamento');
+    expect(reply.text).toContain('20/11/2026');
+    expect(reply.text).toContain('12:25');
+    expect(reply.text).not.toMatch(/login|código de 6 dígitos|seu teste começou agora/iu);
+    expect(reply.urlButton).toBeUndefined();
+  });
+  it('acknowledges already-active access without promising a fresh trial', () => {
+    const reply = buildAccessMessage(
+      'already_active',
+      { ...trial, accessSource: 'cakto' },
+      settings
+    );
+    expect(reply.text).toContain('Seu acesso ao Astra já está ativo');
+    expect(reply.text).not.toContain('Seus 3 dias grátis já começaram');
+    expect(reply.text).not.toContain('página de login');
+    expect(reply.urlButton).toBeUndefined();
+  });
+  it('uses real line breaks in the trial welcome and offers WhatsApp-first examples', () => {
+    const reply = buildAccessMessage('first_authorized', trial, settings);
+    expect(reply.text).toContain('💸 *Finanças:');
+    expect(reply.text).toContain('\n📅 *Agenda:');
+    expect(reply.text).toContain('\n💬 “Gastei R$ 35 no almoço.”');
+    expect(reply.text).not.toContain('\\n📅');
+    expect(reply.text).not.toMatch(/página de login|precisa acessar a página/iu);
+  });
   it('offers the checkout after expiration and promises no automatic charge', () => {
     const reply = buildAccessMessage('expired', trial, settings);
     expect(reply.text).toContain('teste grátis de 3 dias chegou ao fim');
