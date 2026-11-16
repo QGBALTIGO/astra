@@ -50,6 +50,7 @@ export function requiredChannelEmailDigestTool(
 export function requiredChannelRadarTool(text: string, previousText = ''): string | undefined {
   if (isConversationalOnlyChannelRequest(text)) return undefined;
   const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  if (/\b(?:gastei|paguei|recebi|lancamento|assinatura)\b/.test(input)) return undefined;
   const direct =
     /\b(?:radar|noticias|manchetes|brasileirao|futebol)\b/.test(input) &&
     !/\b(?:gastei|paguei|recebi|lancamento|assinatura)\b/.test(input);

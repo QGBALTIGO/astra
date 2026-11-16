@@ -25,12 +25,15 @@ it.each([
 ])('consults the available football source rather than claiming it is unavailable: %s', (text) => {
   expect(requiredChannelRadarTool(text)).toBe('core.manage_radar');
 });
-it.each(['Tenho um jogo de panelas', 'Qual é o próximo lembrete?', 'Gastei 50 reais no Flamengo'])(
-  'does not route unrelated requests to football: %s',
-  (text) => {
-    expect(requiredChannelRadarTool(text)).toBeUndefined();
-  }
-);
+it.each([
+  'Tenho um jogo de panelas',
+  'Qual é o próximo lembrete?',
+  'Gastei 50 reais no Flamengo',
+  'Gastei 50 reais no jogo do Flamengo',
+  'Paguei a entrada para o jogo do meu time',
+])('does not route unrelated requests to football: %s', (text) => {
+  expect(requiredChannelRadarTool(text)).toBeUndefined();
+});
 it.each([
   'E a assinatura da revista, qual valor ficou e quando renova?',
   'Qual o preço da assinatura da música?',
