@@ -26,6 +26,9 @@ interface ForecastPoint {
 interface Forecast {
   properties: { meta: { updated_at: string }; timeseries: ForecastPoint[] };
 }
+
+// Read-only Radar adapter shares the commercial geocoder and forecast cache.
+export { resolveCity as searchWeatherCities, forecast as forecastWeatherCity };
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const SOURCE = 'astra-weather-city';
 const headers = {
@@ -88,11 +91,14 @@ function cityQuery(value: string): string {
     throw new Error('Me diga somente a cidade e o estado ou país, sem endereço.');
   return query;
 }
-async function jsonRequest<T>(url: string): Promise<{ data: T; expires: number }> {
+async function jsonRequest<T>(
+  url: string,
+  timeoutMs = 4000
+): Promise<{ data: T; expires: number }> {
   const response = await fetch(url, {
     headers,
     redirect: 'error',
-    signal: AbortSignal.timeout(4000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok)
     throw new Error('Não consegui consultar o tempo agora. Tente novamente em instantes.');
@@ -184,7 +190,7 @@ async function resolveCity(query: string): Promise<WeatherCity[]> {
     cityLookups.delete(key);
   }
 }
-async function forecast(city: WeatherCity): Promise<Forecast> {
+async function forecast(city: WeatherCity, timeoutMs = 4000): Promise<Forecast> {
   const key = `weather:forecast:${city.latitude},${city.longitude}`;
   const cached = await settingsRepo.getAsync<{ data: Forecast; expires: number }>(key);
   if (cached && cached.expires > Date.now()) return cached.data;
@@ -193,7 +199,8 @@ async function forecast(city: WeatherCity): Promise<Forecast> {
     if (weatherLookups.size >= 4)
       throw new Error('O tempo está sendo consultado agora. Tente novamente em alguns segundos.');
     pending = jsonRequest<Forecast>(
-      `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${city.latitude}&lon=${city.longitude}`
+      `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${city.latitude}&lon=${city.longitude}`,
+      timeoutMs
     );
     weatherLookups.set(key, pending);
   }

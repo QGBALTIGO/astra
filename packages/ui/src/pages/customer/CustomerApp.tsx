@@ -27,6 +27,7 @@ import {
   UserCircle,
   X,
   Globe,
+  Bell,
 } from '../../components/icons';
 import { CUSTOMER_SESSION_EXPIRED, CustomerApiError, customerApi } from './api';
 import { CustomerAvatar, CustomerBrand, CustomerError, CustomerSkeleton } from './components';
@@ -39,6 +40,7 @@ import { CustomerCategories } from './Categories';
 import { CustomerAgenda } from './Agenda';
 import { CustomerProfile } from './Profile';
 import { CustomerConnectedApps } from './ConnectedApps';
+import { CustomerRadar } from './Radar';
 import type {
   Customer,
   CustomerTab,
@@ -52,6 +54,7 @@ const NAVIGATION = [
   { id: 'categorias', path: '/cliente/categorias', label: 'Categorias', icon: Layers },
   { id: 'agenda', path: '/cliente/agenda', label: 'Agenda', icon: Calendar },
   { id: 'conexoes', path: '/cliente/conexoes', label: 'Conexões', icon: Globe },
+  { id: 'radar', path: '/cliente/radar', label: 'Radar', icon: Bell },
   { id: 'perfil', path: '/cliente/perfil', label: 'Perfil', icon: UserCircle },
 ] as const;
 
@@ -281,7 +284,11 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
                 key={item.id}
                 to={item.path}
                 end={item.id === 'inicio'}
-                className={({ isActive }) => 'ac-nav-item' + (isActive ? ' is-active' : '')}
+                className={({ isActive }) =>
+                  'ac-nav-item' +
+                  (item.id === 'radar' ? ' ac-nav-radar' : '') +
+                  (isActive ? ' is-active' : '')
+                }
               >
                 <Icon aria-hidden="true" />
                 <span>{item.label}</span>
@@ -321,6 +328,16 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
           </div>
           <p className="ac-topbar-caption">Tudo o que importa, no seu ritmo.</p>
           <div className="ac-topbar-actions">
+            <button
+              className="ac-icon-button ac-radar-mobile-entry"
+              type="button"
+              onClick={() => navigate('/cliente/radar')}
+              aria-label="Abrir meu Radar"
+              title="Meu Radar"
+              aria-current={activeTab === 'radar' ? 'page' : undefined}
+            >
+              <Bell aria-hidden="true" />
+            </button>
             <button
               className="ac-text-button ac-refresh"
               type="button"
@@ -462,6 +479,16 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
                   />
                 </section>
               </div>
+            ) : null}
+          </div>
+          <div className="ac-tab-panel" hidden={activeTab !== 'radar'}>
+            {visible('radar') ? (
+              <CustomerRadar
+                customer={customer}
+                active={activeTab === 'radar'}
+                revision={revision}
+                onChanged={changed}
+              />
             ) : null}
           </div>
           <div className="ac-tab-panel" hidden={activeTab !== 'perfil'}>

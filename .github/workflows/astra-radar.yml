@@ -1,0 +1,57 @@
+name: Astra Radar verification
+on:
+  pull_request:
+    paths:
+      - 'packages/gateway/**'
+      - 'packages/ui/**'
+      - '.github/workflows/astra-radar.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: astra-radar-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: radar-local-tests-only
+          POSTGRES_DB: astratest_radar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astratest -d astratest_radar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ownpilot/core build
+      - run: pnpm --filter @ownpilot/gateway build
+      - name: Rules, provider contracts and channel regressions
+        run: pnpm --filter @ownpilot/gateway exec vitest run src/services/radar/contracts.test.ts src/services/radar/providers.test.ts src/services/radar/worker.test.ts src/services/customer-weather.test.ts src/channels/radar.test.ts src/channels/morning-briefing.test.ts
+      - name: Real PostgreSQL isolation, HTTP cache, cancellation and recovery
+        env:
+          ASTRA_RADAR_TEST_PORT: '5432'
+        run: pnpm --filter @ownpilot/gateway exec vitest run src/db/repositories/customer-radar.pg.test.ts src/services/radar/http.pg.test.ts src/routes/customer/radar.pg.test.ts
+      - name: Synthetic evaluator scenarios without external APIs or WhatsApp
+        env:
+          ASTRA_RADAR_TEST_PORT: '5432'
+          ASTRA_RADAR_LOAD_TEST: 'true'
+        run: pnpm --filter @ownpilot/gateway exec vitest run src/services/radar/load.pg.test.ts
+      - name: Start and stop dedicated worker against the full pgvector schema
+        env:
+          ASTRA_RADAR_TEST_PORT: '5432'
+          ASTRA_RADAR_WORKER_SMOKE: 'true'
+        run: pnpm --filter @ownpilot/gateway exec vitest run src/services/radar/startup.pg.test.ts

@@ -24,6 +24,7 @@ import './pages/customer/interaction.css';
 // a lazy chunk's CSS; these scoped styles belong to the document entry instead.
 import './pages/customer/customer.css';
 import './pages/customer/premium.css';
+import './pages/customer/radar.css';
 
 const disposeCustomerInput = installCustomerInputModality(document);
 if (import.meta.hot) import.meta.hot.dispose(disposeCustomerInput);

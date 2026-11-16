@@ -225,6 +225,7 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
         'X-Request-ID',
         'X-Session-Token',
         'Idempotency-Key',
+        'X-Astra-Account',
       ],
       exposeHeaders: ['X-Request-ID', 'X-Response-Time'],
       maxAge: SECONDS_PER_DAY,

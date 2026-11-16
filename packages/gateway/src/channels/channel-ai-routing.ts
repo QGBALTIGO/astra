@@ -63,6 +63,7 @@ import { tryWeekReminderConversation } from './week-reminders.js';
 import { expenseConfirmationKey, expenseDuplicateGuard } from './expense-duplicate-guard.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 import { tryMorningBriefingChannelReply } from './morning-briefing.js';
+import { tryRadarChannelReply } from './radar.js';
 import { withContactStyleContext } from './channel-personalization.js';
 
 /** Generate the standard demo-mode reply. */
@@ -349,6 +350,10 @@ function tryAuthorizedChannelShortcut(
 ): Promise<string | null> {
   const key = expenseConfirmationKey(userId, message);
   return runInSessionLane('channel-finance:' + key, async () => {
+    const radarReply = await tryRadarChannelReply(message, userId, () =>
+      canProcessChannelMessage(message, isAccessAllowed)
+    );
+    if (radarReply) return radarReply;
     if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
       expenseDuplicateGuard.observe(key, '');
       return INACTIVE_CHANNEL_ACCESS_REPLY;

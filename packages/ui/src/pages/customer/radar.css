@@ -1,0 +1,351 @@
+/* Native customer portal tokens; the mobile navigation keeps its six existing entries. */
+.astra-customer .ac-radar-mobile-entry {
+  display: none;
+}
+.astra-customer .ac-radar h2 {
+  font-size: 18px;
+}
+.astra-customer .ac-radar-settings {
+  padding: 24px;
+}
+.astra-customer .ac-radar-settings > div > p,
+.astra-customer .ac-radar-section-head p {
+  color: var(--ac-muted);
+  font-size: 13px;
+  margin-top: 5px;
+}
+.astra-customer .ac-radar-settings form {
+  margin-top: 20px;
+}
+.astra-customer .ac-radar-optin {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+.astra-customer .ac-radar-optin input {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin-top: 3px;
+  accent-color: var(--ac-accent);
+}
+.astra-customer .ac-radar-optin span {
+  display: grid;
+  gap: 3px;
+}
+.astra-customer .ac-radar-optin small {
+  color: var(--ac-muted);
+  font-size: 12px;
+}
+.astra-customer .ac-radar-times {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+.astra-customer .ac-radar-times label,
+.astra-customer .ac-radar-form label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 0;
+}
+.astra-customer .ac-radar input:not([type='checkbox']):not([type='radio']),
+.astra-customer .ac-radar select,
+.astra-customer .ac-radar-search input,
+.astra-customer .ac-radar-form input,
+.astra-customer .ac-radar-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--ac-border);
+  border-radius: 10px;
+  background: var(--ac-surface);
+  color: var(--ac-text);
+  box-sizing: border-box;
+}
+.astra-customer .ac-radar-settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 18px;
+}
+.astra-customer .ac-radar-settings-footer > span {
+  font-size: 12px;
+  color: var(--ac-muted);
+  max-width: 480px;
+}
+.astra-customer .ac-radar-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px;
+}
+.astra-customer .ac-radar-section-head > svg {
+  width: 20px;
+  height: 20px;
+  color: var(--ac-muted);
+  flex: none;
+}
+.astra-customer .ac-radar-follow {
+  padding: 22px 24px;
+  border-top: 1px solid var(--ac-border);
+}
+.astra-customer .ac-radar-follow-heading {
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.astra-customer .ac-radar-category {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ac-muted);
+}
+.astra-customer .ac-radar-follow h3 {
+  font-size: 16px;
+  margin-top: 3px;
+}
+.astra-customer .ac-radar-follow-heading p {
+  color: var(--ac-muted);
+  font-size: 12px;
+  margin-top: 5px;
+}
+.astra-customer .ac-radar-status {
+  background: var(--ac-soft);
+  padding: 4px 9px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--ac-muted);
+  flex: none;
+  max-width: 170px;
+}
+.astra-customer .ac-radar-status.is-current {
+  color: var(--ac-positive);
+}
+.astra-customer .ac-radar-preview {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  margin-top: 16px;
+  background: var(--ac-soft);
+  border-radius: 10px;
+}
+.astra-customer .ac-radar-preview-item {
+  display: grid;
+  gap: 3px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.astra-customer .ac-radar-preview-item > span,
+.astra-customer .ac-radar-preview-item > p {
+  color: var(--ac-muted);
+  font-size: 12px;
+}
+.astra-customer .ac-radar-preview-item > a,
+.astra-customer .ac-radar-follow-footer > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ac-link);
+  font-size: 12px;
+}
+.astra-customer .ac-radar-preview-item > a > svg,
+.astra-customer .ac-radar-follow-footer > a > svg {
+  width: 13px;
+  height: 13px;
+}
+.astra-customer .ac-radar-preview > small {
+  color: var(--ac-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.astra-customer .ac-radar-follow-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+.astra-customer .ac-radar-follow-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.astra-customer .ac-radar-wait {
+  color: var(--ac-muted);
+  font-size: 13px;
+  padding: 4px 24px 22px;
+}
+.astra-customer .ac-radar-follow > .ac-radar-wait {
+  padding: 14px 0 0;
+}
+.astra-customer .ac-radar-history {
+  padding: 0 24px 16px;
+}
+.astra-customer .ac-radar-history li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--ac-border);
+  font-size: 12px;
+}
+.astra-customer .ac-radar-history li > div {
+  display: grid;
+  gap: 3px;
+}
+.astra-customer .ac-radar-history li span {
+  color: var(--ac-muted);
+}
+.astra-customer .ac-radar-footnote {
+  color: var(--ac-muted);
+  font-size: 12px;
+  padding: 0 4px;
+}
+.astra-customer .ac-radar-catalog {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.astra-customer .ac-radar-source {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 6px;
+  padding: 15px;
+  border: 1px solid var(--ac-border);
+  border-radius: 12px;
+  background: var(--ac-surface);
+  color: var(--ac-text);
+}
+.astra-customer .ac-radar-source:hover:not(:disabled) {
+  border-color: var(--ac-accent);
+  background: var(--ac-accent-soft);
+}
+.astra-customer .ac-radar-source > strong {
+  font-size: 14px;
+}
+.astra-customer .ac-radar-source > span {
+  font-size: 12px;
+  color: var(--ac-muted);
+}
+.astra-customer .ac-radar-source > small {
+  font-size: 11px;
+  color: var(--ac-muted);
+  margin-top: auto;
+}
+.astra-customer .ac-radar-search {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+}
+.astra-customer .ac-radar-search > label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.astra-customer .ac-radar-search > div {
+  display: flex;
+  gap: 8px;
+}
+.astra-customer .ac-radar-search > div > .ac-button {
+  flex: none;
+}
+.astra-customer .ac-radar-choices {
+  display: grid;
+  gap: 8px;
+  border: 0;
+  padding: 8px 0;
+}
+.astra-customer .ac-radar-choices legend {
+  font-size: 12px;
+  color: var(--ac-muted);
+}
+.astra-customer .ac-radar-choices > label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--ac-border);
+  padding: 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.astra-customer .ac-radar-choices > label span {
+  display: grid;
+  gap: 3px;
+}
+.astra-customer .ac-radar-choices small {
+  font-size: 11px;
+  color: var(--ac-muted);
+}
+.astra-customer .ac-radar-choices input {
+  accent-color: var(--ac-accent);
+}
+.astra-customer .ac-radar-form {
+  margin-top: 16px;
+  display: grid;
+  gap: 16px;
+}
+.astra-customer .ac-radar-threshold {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.astra-customer .ac-radar-source-note {
+  font-size: 12px;
+  color: var(--ac-muted);
+  padding: 12px;
+  background: var(--ac-soft);
+  border-radius: 10px;
+}
+@media (max-width: 767px) {
+  .astra-customer .ac-navigation .ac-nav-radar {
+    display: none;
+  }
+  .astra-customer .ac-radar-mobile-entry {
+    display: inline-flex;
+  }
+}
+@media (max-width: 600px) {
+  .astra-customer .ac-radar-settings,
+  .astra-customer .ac-radar-section-head,
+  .astra-customer .ac-radar-follow {
+    padding: 18px 16px;
+  }
+  .astra-customer .ac-radar-times {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .astra-customer .ac-radar-settings-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .astra-customer .ac-radar-follow-heading {
+    flex-direction: column;
+    gap: 9px;
+  }
+  .astra-customer .ac-radar-status {
+    max-width: none;
+  }
+  .astra-customer .ac-radar-catalog {
+    grid-template-columns: 1fr;
+  }
+  .astra-customer .ac-radar-follow-footer {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .astra-customer .ac-radar-history {
+    padding: 0 16px 12px;
+  }
+  .astra-customer .ac-radar-threshold {
+    grid-template-columns: 1fr;
+  }
+}

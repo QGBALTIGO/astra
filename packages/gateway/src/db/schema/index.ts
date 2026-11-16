@@ -7,6 +7,7 @@
 
 import { getLog } from '../../services/log.js';
 import { CUSTOMER_INTEGRATIONS_TABLES_SQL } from './customer-integrations.js';
+import { RADAR_TABLES_SQL, RADAR_INDEXES_SQL } from './radar.js';
 import { FINANCE_TABLES_SQL, FINANCE_MIGRATIONS_SQL, FINANCE_INDEXES_SQL } from './finance.js';
 import { EDGE_TABLES_SQL, EDGE_INDEXES_SQL } from './edge.js';
 import {
@@ -81,6 +82,7 @@ export const SCHEMA_SQL = [
   CUSTOMER_ACCOUNTS_TABLES_SQL,
   CUSTOMER_PORTAL_TABLES_SQL,
   CUSTOMER_INTEGRATIONS_TABLES_SQL,
+  RADAR_TABLES_SQL,
 ].join('\n');
 
 /**
@@ -124,6 +126,7 @@ export const INDEXES_SQL = [
   UI_SESSIONS_INDEXES_SQL,
   CUSTOMER_ACCOUNTS_INDEXES_SQL,
   CUSTOMER_PORTAL_INDEXES_SQL,
+  RADAR_INDEXES_SQL,
 ].join('\n');
 
 /**
