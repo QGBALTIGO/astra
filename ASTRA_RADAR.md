@@ -14,6 +14,7 @@ Exemplos:
 
 - “Quero receber notícias de tecnologia todo dia às 8h.”
 - “Acompanhe o Flamengo no meu resumo das 7h.”
+- “Me avise sempre que tiver jogo do Vasco.” → pergunta em qual horário do dia quer o aviso.
 - “Quero acompanhar meu time.” → pergunta o time e o horário que faltarem.
 - “Mude meu Radar para as 9h.”
 - “Pause o Flamengo.”
@@ -33,7 +34,9 @@ As respostas curtas de uma configuração incompleta têm prazo de dez minutos e
 | Futebol  | [openfootball/south-america](https://github.com/openfootball/south-america) | [CC0 1.0](https://github.com/openfootball/south-america/blob/master/LICENSE.md); sem chave, conta ou assinatura paga                            | Calendário comunitário do Brasileirão Série A e resultados efetivamente preenchidos na fonte. Datas previstas podem mudar. Não é placar ao vivo.       |
 | Notícias | [Global Voices em português](https://pt.globalvoices.org/)                  | API pública do próprio editor; CC BY 3.0, indicada no rodapé do site e vinculada a [esta licença](https://creativecommons.org/licenses/by/3.0/) | Busca por assunto nos últimos 30 dias. A frequência varia; não há promessa de cobertura de qualquer cidade ou tema, nem de notícias publicadas no dia. |
 
-O futebol usa exclusivamente o arquivo público da temporada. Não usa escudos, imagens, endpoints privados ou credenciais do operador. Uma partida sem placar permanece sem resultado; uma hora ausente não vira um alarme inventado. O acompanhamento disponível é o resumo diário. A regra de aviso antes do evento continua disponível para séries que tenham instante confirmado.
+O futebol usa exclusivamente o arquivo público da temporada. Não usa escudos, imagens, endpoints privados ou credenciais do operador. Uma partida sem placar permanece sem resultado; uma hora ausente não vira um alarme inventado. O cliente pode escolher o resumo diário ou avisos somente nos dias de jogo. “Me avise quando tiver jogo” escolhe o segundo modo, com horário individual obrigatório, informado pelo cliente. Esse horário não é o início da partida e não muda o horário do resumo dos outros assuntos. Pedidos de antecedência ao apito inicial recebem uma explicação da limitação, sem ativar outro modo silenciosamente.
+
+O modo `matchday` usa a data prevista no fuso da conta. Avaliação e entrega exigem o mesmo dia, partida ainda não concluída, fonte válida e janela de até duas horas após o horário escolhido, limitada à meia-noite local. Reagendamentos, revisões, pausas, silêncio e expiração são conferidos novamente antes do envio. A chave inclui partida e data; enviados, incertos e envios com recibo não são reabertos. A regra de aviso antes do evento continua disponível para séries que tenham instante confirmado.
 
 Notícias guardam apenas título, data e link original, com atribuição ao Global Voices e indicação da licença. Não guardam corpos de artigos, imagens ou perfis de autores. A data original permanece visível. Uma busca sem resultados é diferente de falha da fonte. Conteúdo já incluído no resumo não se repete enquanto a seleção de publicações não mudar.
 

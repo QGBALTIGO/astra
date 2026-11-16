@@ -15,6 +15,7 @@ import {
 import { searchRadar, fetchRadarResource } from './providers.js';
 import { radarChatPending as pending } from './chat-pending.js';
 import { newsCards } from './news-cards.js';
+import { BRAZIL_TEAMS } from './football.js';
 export { clearRadarChatPending } from './chat-pending.js';
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
@@ -33,14 +34,47 @@ const optOutRequest = (s: string) =>
   /\bnao (?:quero (?:mais )?(?:receber|acompanhar|noticias|avisos|o radar)|me (?:mande|envie|avise))\b/.test(
     fold(s)
   );
+const gameAlertRequest = (s: string) => {
+  const text = fold(s).replace(
+    /\b(?:mas )?nao (?:todo dia|todos os dias|diariamente)\b|\bsem (?:um )?resumo diario\b/g,
+    ''
+  );
+  return (
+    !/\b(?:nao|pare|parar|paus\w*|cancel\w*|desativ\w*|deslig\w*|exemplo|hipotetic\w*|so explique|apenas explique)\b/.test(
+      text
+    ) &&
+    /\b(?:me (?:avise|avisar|lembre|notifique)|avisa|quero (?:ser avisad[oa]|um aviso|avisos))\b/.test(
+      text
+    ) &&
+    /\b(?:jogos?|jogar|partidas?)\b/.test(text) &&
+    /\b(?:sempre|quando|cada|toda vez|todos os jogos|todas as partidas|nos dias de jogo)\b/.test(
+      text
+    ) &&
+    (!/\b(?:hoje|amanha|essa partida|esse jogo|nesta partida|neste jogo|dia \d)\b/.test(text) ||
+      /\b(?:sempre|cada|todos os jogos|todas as partidas)\b/.test(text)) &&
+    !/\b(?:resumo diario|todo dia|todos os dias|diariamente)\b/.test(text)
+  );
+};
+const namedFootballTeams = (text: string) =>
+  BRAZIL_TEAMS.filter((team) =>
+    [team[1], team[2]].some((name) =>
+      new RegExp(
+        '(?:^|[^\\p{L}\\p{N}])' +
+          fold(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+          '(?=$|[^\\p{L}\\p{N}])',
+        'u'
+      ).test(text)
+    )
+  );
 const writeRequest = (s: string) =>
   optOutRequest(s) ||
   (!/\b(?:nao (?:ative|cadastre|salve|mude)|so (?:explique|consulte|analise)|apenas (?:consulte|explique)|exemplo|hipotetic\w*)\b/.test(
     fold(s)
   ) &&
-    /\b(?:acompanhe|quero acompanhar|quero receber|siga|ative|adicion\w*|inclu\w*|me (?:mande|envie|avise)|manda|mande|envia|envie|paus\w*|pare|parar|cancel\w*|desativ\w*|retom\w*|volte|mude|mudar|altere|alterar)\b/.test(
-      fold(s)
-    ));
+    (gameAlertRequest(s) ||
+      /\b(?:acompanhe|quero acompanhar|quero receber|siga|ative|adicion\w*|inclu\w*|me (?:mande|envie|avise)|manda|mande|envia|envie|paus\w*|pare|parar|cancel\w*|desativ\w*|retom\w*|volte|mude|mudar|altere|alterar)\b/.test(
+        fold(s)
+      )));
 export async function manageRadarChat(userId: string, inputArgs: Record<string, unknown>) {
   if (
     JSON.stringify(inputArgs).length > 4096 ||
@@ -161,8 +195,10 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   const repo = new CustomerRadarRepository(ownerId);
   let action = String(args.action);
   const requestText = fold(ctx.channelRequestText ?? '');
+  const wantsGameAlerts = gameAlertRequest(requestText);
   if (
     (action === 'follow' &&
+      !wantsGameAlerts &&
       /\b(?:nao quero|nao (?:me )?(?:mande|envie|ative|acompanhe))\b/.test(requestText)) ||
     (optOutRequest(requestText) &&
       (action === 'resume' || (action === 'configure' && args.enabled !== false)))
@@ -175,6 +211,62 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     ...extra,
   });
   const [interests, pref] = await Promise.all([repo.list(), repo.preferences()]);
+  if (action === 'follow' && /\b(?:pare|parar|paus\w*|cancel\w*|desativ\w*)\b/.test(requestText))
+    throw new Error('Me diga o assunto que você quer pausar no Radar.');
+  if (
+    !continuing &&
+    args.source === 'football' &&
+    writeRequest(requestText) &&
+    /\b(?:me avise|me avisar|me lembre|avisa)\b/.test(requestText) &&
+    /\b(?:jogos?|jogar|partidas?)\b/.test(requestText) &&
+    /\b(?:antes|antecedencia)\b/.test(requestText)
+  ) {
+    pending.delete(key);
+    return reply(
+      '⚽ Ainda não tenho o horário confirmado das partidas para garantir um aviso antes do início. Posso te avisar *só nos dias de jogo*, no horário que você escolher. Se quiser, me diga o time e o horário do dia para esse aviso.'
+    );
+  }
+  // Delivery follows the customer's actual request, not a model default or a
+  // previously configured daily digest. A game-day clock never moves that digest.
+  if (!continuing && wantsGameAlerts) {
+    if (ctx.externalContentGuard?.seen)
+      throw new Error(
+        'Envie seu pedido de aviso em uma nova mensagem, fora do conteúdo consultado.'
+      );
+    if (/\b(?:antes|antecedencia)\b/.test(requestText)) {
+      pending.delete(key);
+      return reply(
+        '⚽ Ainda não tenho o horário confirmado das partidas para garantir um aviso antes do início. Posso te avisar *só nos dias de jogo*, no horário que você escolher. Se quiser, me diga o time e o horário do dia para esse aviso.'
+      );
+    }
+    const teams = namedFootballTeams(requestText);
+    const supplied =
+      typeof args.subject === 'string' && requestText.includes(fold(args.subject))
+        ? args.subject
+        : undefined;
+    args = {
+      ...args,
+      action: 'follow',
+      source: 'football',
+      delivery: 'matchday',
+      subject: teams.length === 1 ? teams[0]![1] : teams.length > 1 ? undefined : supplied,
+      choiceId: undefined,
+    };
+    action = 'follow';
+  }
+  if (
+    !continuing &&
+    action === 'follow' &&
+    args.source === 'football' &&
+    !wantsGameAlerts &&
+    /\b(?:me avise|me lembre|avisa)\b/.test(requestText) &&
+    /\b(?:hoje|amanha|essa partida|esse jogo|nesta partida|neste jogo|dia \d)\b/.test(requestText)
+  ) {
+    pending.delete(key);
+    return reply(
+      '⚽ Esse pedido é para uma partida específica. Não ativei avisos recorrentes. Para um lembrete único, me diga o dia e o horário em que quer ser lembrado.'
+    );
+  }
   // Explicit recurring consent is a follow request even when the model
   // chooses resume/status/send_now for a previously saved, globally paused
   // topic. Recover only a topic actually named in this customer's message.
@@ -203,12 +295,21 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     return reply(
       '📡 *Seu Radar*\n\n' +
         (pref.preferences.enabled
-          ? 'Resumo diário às *' + pref.preferences.time + '*.'
+          ? interests.some((i) => i.active && i.delivery === 'digest')
+            ? 'Resumo diário às *' + pref.preferences.time + '*.'
+            : 'Seus avisos estão ativos.'
           : 'Os envios estão pausados.') +
         '\n\n' +
         (interests.length
           ? interests
-              .map((i) => icons[i.source] + ' ' + i.label + (i.active ? '' : ' · pausado'))
+              .map(
+                (i) =>
+                  icons[i.source] +
+                  ' ' +
+                  i.label +
+                  (i.delivery === 'matchday' ? ' · só nos dias de jogo, às ' + i.notifyTime : '') +
+                  (i.active ? '' : ' · pausado')
+              )
               .join('\n')
           : 'Me diga o que quer acompanhar: seu time, notícias de um assunto, clima ou outro interesse.'),
       false,
@@ -236,6 +337,14 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       'Renove seu acesso para ativar ou consultar o Radar. Você continua podendo pausar os envios.'
     );
   if (action === 'send_now') {
+    if (
+      pref.preferences.enabled &&
+      interests.some((i) => i.active) &&
+      interests.filter((i) => i.active).every((i) => i.delivery === 'matchday')
+    )
+      return reply(
+        '⚽ Seus acompanhamentos estão configurados *só para os dias de jogo*, nos horários escolhidos. Para consultar agora, me peça os próximos jogos do seu time.'
+      );
     if (
       optOutRequest(requestText) ||
       /\bnao\b/.test(requestText) ||
@@ -273,7 +382,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   let time =
     typeof args.time === 'string'
       ? args.time
-      : pref.preferences.enabled
+      : args.delivery !== 'matchday' && pref.preferences.enabled
         ? pref.preferences.time
         : undefined;
   if (['follow', 'configure'].includes(action)) {
@@ -294,9 +403,19 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
           )))
     ) {
       delete args.time;
-      time = pref.preferences.enabled ? pref.preferences.time : undefined;
+      time =
+        args.delivery !== 'matchday' && pref.preferences.enabled
+          ? pref.preferences.time
+          : undefined;
       if (!time || action === 'configure')
-        return ask('time', '📡 Em qual horário você quer receber o resumo diário?');
+        return ask(
+          'time',
+          args.delivery === 'matchday'
+            ? '⚽ Posso te avisar *só nos dias de jogo*' +
+                (args.subject ? ' do *' + cleanText(args.subject, 100) + '*' : '') +
+                '. Em qual horário do dia você prefere receber o aviso?'
+            : '📡 Em qual horário você quer receber o resumo diário?'
+        );
     }
   }
   if (action === 'configure') {
@@ -313,9 +432,11 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     await repo.savePreferences({ ...pref.preferences, enabled: args.enabled, time: time! });
     pending.delete(key);
     return reply(
-      '📡 *Seu Radar está ativado*\n\nResumo diário às *' +
-        time +
-        '* no seu horário local. Você pode mudar os assuntos ou pedir para pausar por aqui.',
+      interests.some((i) => i.active && i.delivery === 'digest')
+        ? '📡 *Seu Radar está ativado*\n\nResumo diário às *' +
+            time +
+            '* no seu horário local. Você pode mudar os assuntos ou pedir para pausar por aqui.'
+        : '📡 *Seus avisos estão ativados*\n\nOs avisos de jogo mantêm os horários que você escolheu para cada time. Você pode conferir ou pausar por aqui.',
       true
     );
   }
@@ -350,7 +471,11 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
         (saved.active ? ' voltou ao seu Radar*' : ' pausado*') +
         '\n\n' +
         (saved.active
-          ? 'Ele entra no resumo diário das ' + pref.preferences.time + '.'
+          ? saved.delivery === 'matchday'
+            ? 'Vou te avisar só nos dias de jogo, às *' +
+              saved.notifyTime +
+              '* no seu horário local.'
+            : 'Ele entra no resumo diário das ' + pref.preferences.time + '.'
           : 'Os outros assuntos continuam como estavam. Você pode pedir para retomar quando quiser.'),
       true
     );
@@ -383,7 +508,11 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   if (action === 'follow' && !time)
     return ask(
       'time',
-      '📡 Em qual horário você quer receber o resumo diário de *' + subject + '*?'
+      args.delivery === 'matchday'
+        ? '⚽ Posso te avisar *só nos dias de jogo* do *' +
+            subject +
+            '*. Em qual horário do dia você prefere receber o aviso?'
+        : '📡 Em qual horário você quer receber o resumo diário de *' + subject + '*?'
     );
   let target = subject,
     label = subject;
@@ -472,12 +601,18 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     target,
     query: args.query,
     delivery: args.delivery ?? 'digest',
+    ...(args.delivery === 'matchday' ? { notifyTime: time } : {}),
     leadMinutes: args.leadMinutes ?? 60,
     threshold: args.threshold,
     comparison: args.comparison,
   });
   // A per-topic request cannot silently move the existing combined daily digest.
-  if (pref.preferences.enabled && time !== pref.preferences.time && interests.some((i) => i.active))
+  if (
+    input.delivery !== 'matchday' &&
+    pref.preferences.enabled &&
+    time !== pref.preferences.time &&
+    interests.some((i) => i.active)
+  )
     return reply(
       'Seu Radar reúne os assuntos às ' +
         pref.preferences.time +
@@ -493,11 +628,15 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     icons[source.id] +
       ' *' +
       label +
-      ' no seu Radar*\n\nResumo diário às *' +
+      (input.delivery === 'matchday'
+        ? ' · avisos de jogo ativados*\n\nVou te avisar *só nos dias de jogo*, às *'
+        : ' no seu Radar*\n\nResumo diário às *') +
       time +
       '* no seu horário local.\n' +
       (source.id === 'football'
-        ? '\nVou acompanhar o calendário previsto e os resultados disponíveis. Horários ainda não confirmados não viram alarmes.\n'
+        ? input.delivery === 'matchday'
+          ? '\nEsse é o horário do seu aviso. O horário da partida pode estar a confirmar; vou acompanhar as datas previstas do calendário.\n'
+          : '\nVou acompanhar o calendário previsto e os resultados disponíveis. Horários ainda não confirmados não viram alarmes.\n'
         : '') +
       (saved.keptPaused ? '\nOs outros assuntos que estavam sem envio continuam pausados.\n' : '') +
       '\nPara mudar ou pausar, é só me pedir por aqui.',

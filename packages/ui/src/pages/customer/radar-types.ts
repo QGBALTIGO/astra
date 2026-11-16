@@ -23,7 +23,8 @@ export interface RadarInput {
   source: RadarSourceId;
   target: string;
   query?: string;
-  delivery: 'digest' | 'before' | 'threshold';
+  delivery: 'digest' | 'before' | 'threshold' | 'matchday';
+  notifyTime?: string;
   threshold?: string;
   comparison?: 'above' | 'below';
   leadMinutes: number;
@@ -42,6 +43,8 @@ export interface RadarInterest extends RadarInput {
       text?: string;
       url?: string;
       at?: string;
+      date?: string;
+      status?: 'scheduled' | 'finished';
       value?: string;
     }>;
     observedAt: string;

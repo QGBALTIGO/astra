@@ -39,11 +39,13 @@ const defaults: RadarPreferences = {
 const message = (e: unknown) =>
   e instanceof Error ? e.message : 'Não foi possível concluir. Tente novamente.';
 const deliveryLabel = (i: RadarInterest) =>
-  i.delivery === 'before'
-    ? 'Aviso antes do evento'
-    : i.delivery === 'threshold'
-      ? 'Alerta de valor'
-      : 'No resumo diário';
+  i.delivery === 'matchday'
+    ? `Só nos dias de jogo${i.notifyTime ? ` · às ${i.notifyTime}` : ''}`
+    : i.delivery === 'before'
+      ? 'Aviso antes do evento'
+      : i.delivery === 'threshold'
+        ? 'Alerta de valor'
+        : 'No resumo diário';
 const states: Record<string, string> = {
   pending: 'Agendado',
   leased: 'Em processamento',
@@ -604,6 +606,7 @@ function RadarForm({
           target: editing.target,
           query: editing.query,
           delivery: editing.delivery,
+          notifyTime: editing.notifyTime,
           threshold: editing.threshold,
           comparison: editing.comparison,
           leadMinutes: editing.leadMinutes,
@@ -631,7 +634,7 @@ function RadarForm({
       source: s.id,
       target:
         s.id === 'energy' ? 'bandeira-tarifaria' : ['currency', 'ptax'].includes(s.id) ? 'USD' : '',
-      delivery: 'digest',
+      delivery: s.id === 'football' ? 'matchday' : 'digest',
       leadMinutes: 60,
     });
   };
@@ -664,22 +667,32 @@ function RadarForm({
       setError('Selecione um resultado da busca.');
       return;
     }
+    if (
+      input.delivery === 'matchday' &&
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.notifyTime ?? '')
+    ) {
+      setError('Escolha o horário do aviso no dia do jogo.');
+      return;
+    }
     lock.current = true;
     setBusy(true);
     setError(null);
+    const { notifyTime, ...baseInput } = input;
     try {
       if (editing)
         await customerApi.radarChange(customer.accountId, editing.id, {
           delivery: input.delivery,
           leadMinutes: input.leadMinutes,
+          ...(input.delivery === 'matchday' ? { notifyTime } : {}),
           ...(input.delivery === 'threshold'
             ? { threshold: input.threshold, comparison: input.comparison }
             : {}),
         });
       else
         await customerApi.radarCreate(customer.accountId, {
-          ...input,
+          ...baseInput,
           target: choice?.id ?? input.target,
+          ...(input.delivery === 'matchday' ? { notifyTime } : {}),
           ...(input.delivery === 'threshold' ? { comparison: input.comparison ?? 'above' } : {}),
         });
       onSaved();
@@ -860,6 +873,9 @@ function RadarForm({
                   setInput({ ...input, delivery: e.target.value as RadarInput['delivery'] })
                 }
               >
+                {source.id === 'football' ? (
+                  <option value="matchday">Só nos dias de jogo</option>
+                ) : null}
                 <option value="digest">Junto no resumo diário</option>
                 {source.id === 'series' ? <option value="before">Antes do evento</option> : null}
                 {['currency', 'ptax'].includes(source.id) ? (
@@ -867,6 +883,17 @@ function RadarForm({
                 ) : null}
               </select>
             </label>
+            {input.delivery === 'matchday' ? (
+              <label>
+                Horário do aviso no dia do jogo
+                <input
+                  type="time"
+                  required
+                  value={input.notifyTime ?? ''}
+                  onChange={(e) => setInput({ ...input, notifyTime: e.target.value })}
+                />
+              </label>
+            ) : null}
             {input.delivery === 'before' ? (
               <label>
                 Antecedência
@@ -914,7 +941,9 @@ function RadarForm({
             <p className="ac-radar-source-note">
               {source.provider} · {source.license}.{' '}
               {source.id === 'football'
-                ? 'Calendário comunitário aberto. Datas podem mudar e horários podem não estar confirmados. Sem placar ao vivo.'
+                ? input.delivery === 'matchday'
+                  ? 'Você recebe no horário escolhido, só nos dias com jogo previsto. A data pode mudar e o horário de início pode não estar confirmado. Sem placar ao vivo.'
+                  : 'Jogos previstos no seu resumo diário. A data pode mudar e o horário de início pode não estar confirmado. Sem placar ao vivo.'
                 : source.id === 'series'
                   ? 'A data da fonte não confirma estreia no Brasil.'
                   : source.id === 'ptax' || source.id === 'currency'

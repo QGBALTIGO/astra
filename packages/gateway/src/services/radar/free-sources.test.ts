@@ -36,7 +36,9 @@ describe('commercial public-data adapters', () => {
     expect(items[0]?.title).toBe('Flamengo × Athletico-PR');
     expect(items[0]?.text).toContain('18/11/2026');
     expect(items[0]?.text).toContain('horário a confirmar');
+    expect(items[0]).toMatchObject({ date: '2026-11-18', status: 'scheduled' });
     expect(items[1]?.text).toContain('2 × 1');
+    expect(items[1]).toMatchObject({ date: '2026-11-14', status: 'finished' });
     expect(items.every((i) => i.at === undefined)).toBe(true);
     expect(items.some((i) => i.title.includes('Bahia'))).toBe(false);
   });

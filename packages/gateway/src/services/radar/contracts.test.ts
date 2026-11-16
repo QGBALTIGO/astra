@@ -106,6 +106,43 @@ describe('Radar typed inputs and privacy boundaries', () => {
     expect(
       radarInputSchema.safeParse({ source: 'currency', target: 'USD', delivery: 'before' }).success
     ).toBe(false));
+  it('accepts an explicit match-day time only for football', () => {
+    const input = {
+      source: 'football',
+      target: 'br:cr-vasco-da-gama',
+      delivery: 'matchday',
+      notifyTime: '09:15',
+    };
+    expect(radarInputSchema.safeParse(input).success).toBe(true);
+    expect(radarInputSchema.safeParse({ ...input, notifyTime: undefined }).success).toBe(false);
+    expect(radarInputSchema.safeParse({ ...input, source: 'series' }).success).toBe(false);
+    expect(radarInputSchema.safeParse({ ...input, delivery: 'digest' }).success).toBe(false);
+  });
+  it.each(['24:00', '7:00', '07:60', 'amanhã'])(
+    'rejects an invalid match-day time %s',
+    (notifyTime) => {
+      expect(
+        radarInputSchema.safeParse({
+          source: 'football',
+          target: 'br:cr-vasco-da-gama',
+          delivery: 'matchday',
+          notifyTime,
+        }).success
+      ).toBe(false);
+    }
+  );
+  it('offers a match-day alert when kickoff time is unavailable', () => {
+    const result = radarInputSchema.safeParse({
+      source: 'football',
+      target: 'br:cr-vasco-da-gama',
+      delivery: 'before',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]!.message).toContain('no dia do jogo');
+      expect(result.error.issues[0]!.message).not.toContain('resumo diário');
+    }
+  });
   it('requires gazette subject', () =>
     expect(radarInputSchema.safeParse({ source: 'gazettes', target: '5002704' }).success).toBe(
       false
@@ -298,5 +335,137 @@ describe('Radar rule variations', () => {
     expect(text).not.toMatch(/github\.com|2026_br1\.txt|openfootball/);
     expect(text).not.toContain('https://pt.globalvoices.org/2026/11/09/noticia/');
     expect(text).toContain('Global Voices · CC BY 3.0');
+  });
+});
+
+describe('football match-day delivery', () => {
+  function matchday(at = now) {
+    const i = interest({
+      input: {
+        source: 'football',
+        target: 'br:cr-vasco-da-gama',
+        delivery: 'matchday',
+        notifyTime: '07:00',
+        leadMinutes: 60,
+      },
+    });
+    i.snapshot!.observedAt = at.toISOString();
+    i.snapshot!.expiresAt = new Date(at.getTime() + 6 * 3600000).toISOString();
+    i.snapshot!.items = [
+      {
+        id: 'round35:vasco:bahia',
+        title: 'Vasco × Bahia',
+        date: '2026-11-16',
+        status: 'scheduled',
+      },
+    ];
+    return i;
+  }
+  function pending(i: RadarInterestRow, at = now, zone = 'America/Cuiaba') {
+    const d = interestDecisions(i, at, zone)[0]!;
+    return {
+      interest_revision: i.revision,
+      payload: d.payload,
+      expires_at: d.expiresAt,
+    } as RadarDeliveryRow;
+  }
+  it('uses the account local date and never turns the chosen notification time into kickoff', () => {
+    const i = matchday();
+    const [d] = interestDecisions(i, now, 'America/Cuiaba');
+    expect(d!.payload).toMatchObject({
+      itemId: 'round35:vasco:bahia',
+      matchDate: '2026-11-16',
+      title: 'Vasco × Bahia',
+      url: '',
+    });
+    expect(d!.payload.text).toBe('Data: 16/11/2026 · horário a confirmar.');
+    expect(d!.payload.at).toBeUndefined();
+    expect(d!.payload.text).not.toMatch(/07:00|11:00|https?:/);
+    expect(d!.expiresAt.toISOString()).toBe('2026-11-16T13:00:00.000Z');
+    expect(stillMatchesDelivery(i, pending(i), now, 'America/Cuiaba')).toBe(true);
+  });
+  it('waits for the local match day in Tokyo even while Cuiabá is still on the previous date', () => {
+    const at = new Date('2026-11-16T15:30:00Z');
+    const i = matchday(at);
+    i.input.notifyTime = '00:15';
+    i.snapshot!.items[0]!.date = '2026-11-17';
+    expect(interestDecisions(i, at, 'Asia/Tokyo')).toHaveLength(1);
+    expect(interestDecisions(i, at, 'America/Cuiaba')).toEqual([]);
+    expect(stillMatchesDelivery(i, pending(i, at, 'Asia/Tokyo'), at, 'Asia/Tokyo')).toBe(true);
+    expect(stillMatchesDelivery(i, pending(i, at, 'Asia/Tokyo'), at, 'America/Cuiaba')).toBe(false);
+  });
+  it('does not send on days without a game, after completion, or for a past fixture', () => {
+    const i = matchday();
+    i.snapshot!.items[0]!.date = '2026-11-17';
+    expect(interestDecisions(i, now, 'America/Cuiaba')).toEqual([]);
+    i.snapshot!.items[0]!.date = '2026-11-15';
+    expect(interestDecisions(i, now, 'America/Cuiaba')).toEqual([]);
+    i.snapshot!.items[0]!.date = '2026-11-16';
+    i.snapshot!.items[0]!.status = 'finished';
+    expect(interestDecisions(i, now, 'America/Cuiaba')).toEqual([]);
+  });
+  it('has an inclusive opening, an exclusive 120-minute deadline and no late replay', () => {
+    const i = matchday();
+    expect(interestDecisions(i, new Date('2026-11-16T10:59:59Z'), 'America/Cuiaba')).toEqual([]);
+    expect(interestDecisions(i, new Date('2026-11-16T12:59:59Z'), 'America/Cuiaba')).toHaveLength(
+      1
+    );
+    expect(interestDecisions(i, new Date('2026-11-16T13:00:00Z'), 'America/Cuiaba')).toEqual([]);
+    expect(
+      stillMatchesDelivery(i, pending(i), new Date('2026-11-16T13:00:00Z'), 'America/Cuiaba')
+    ).toBe(false);
+  });
+  it('deduplicates the same match/date and gives rescheduled fixtures a new identity', () => {
+    const i = matchday();
+    const original = interestDecisions(i, now, 'America/Cuiaba')[0]!;
+    expect(interestDecisions(i, new Date('2026-11-16T11:40:00Z'), 'America/Cuiaba')[0]!.key).toBe(
+      original.key
+    );
+    const row = pending(i);
+    i.snapshot!.items[0]!.date = '2026-11-17';
+    expect(stillMatchesDelivery(i, row, now, 'America/Cuiaba')).toBe(false);
+    const tomorrow = new Date('2026-11-17T11:00:00Z');
+    i.snapshot!.observedAt = tomorrow.toISOString();
+    i.snapshot!.expiresAt = '2026-11-17T17:00:00Z';
+    expect(interestDecisions(i, tomorrow, 'America/Cuiaba')[0]!.key).not.toBe(original.key);
+  });
+  it('invalidates queued alerts after a mode change, cancellation, stale refresh or revision change', () => {
+    const i = matchday();
+    const row = pending(i);
+    expect(stillMatchesDelivery({ ...i, revision: 2 }, row, now, 'America/Cuiaba')).toBe(false);
+    expect(stillMatchesDelivery({ ...i, active: false }, row, now, 'America/Cuiaba')).toBe(false);
+    i.input.delivery = 'digest';
+    expect(stillMatchesDelivery(i, row, now, 'America/Cuiaba')).toBe(false);
+    i.input.delivery = 'matchday';
+    i.snapshot!.items[0]!.status = 'finished';
+    expect(stillMatchesDelivery(i, row, now, 'America/Cuiaba')).toBe(false);
+    i.snapshot!.items = [];
+    expect(stillMatchesDelivery(i, row, now, 'America/Cuiaba')).toBe(false);
+    const stale = matchday();
+    stale.snapshot!.expiresAt = now.toISOString();
+    expect(stillMatchesDelivery(stale, row, now, 'America/Cuiaba')).toBe(false);
+    expect(
+      stillMatchesDelivery(matchday(), { ...row, expires_at: now }, now, 'America/Cuiaba')
+    ).toBe(false);
+  });
+  it('does not include match-day interests in the daily digest', () => {
+    expect(digestText([matchday()], now, 'America/Cuiaba')).toBeNull();
+  });
+  it('expires the queued notice as soon as its source snapshot does', () => {
+    const i = matchday();
+    i.snapshot!.expiresAt = '2026-11-16T11:15:00Z';
+    expect(interestDecisions(i, now, 'America/Cuiaba')[0]!.expiresAt.toISOString()).toBe(
+      '2026-11-16T11:15:00.000Z'
+    );
+  });
+  it('expires late-night delivery at the end of the local match date', () => {
+    const at = new Date('2026-11-17T03:30:00Z');
+    const i = matchday(at);
+    i.input.notifyTime = '23:30';
+    const [d] = interestDecisions(i, at, 'America/Cuiaba');
+    expect(d!.expiresAt.toISOString()).toBe('2026-11-17T04:00:00.000Z');
+    expect(
+      stillMatchesDelivery(i, pending(i, at), new Date('2026-11-17T04:00:00Z'), 'America/Cuiaba')
+    ).toBe(false);
   });
 });

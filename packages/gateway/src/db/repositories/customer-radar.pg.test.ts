@@ -334,6 +334,185 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect((await a.get(old.id))!.active).toBe(true);
       expect((await a.preferences()).preferences.enabled).toBe(false);
     });
+    it('stores a matchday clock without replacing the digest clock or either customer time zone', async () => {
+      await a.savePreferences({ ...RADAR_DEFAULT_PREFERENCES, time: '08:15' });
+      await db.execute(
+        "UPDATE customer_accounts SET time_zone='America/Cuiaba' WHERE data_user_id=$1",
+        [userA]
+      );
+      const old = await create();
+      const other = await b.create(
+        { source: 'currency', target: 'USD', delivery: 'digest', leadMinutes: 60 },
+        'USD'
+      );
+      await enable(b);
+      const clocks = await db.query(
+        'SELECT data_user_id,time_zone,time_zone_source FROM customer_accounts ORDER BY data_user_id'
+      );
+      const next = await a.followFromChat(
+        {
+          source: 'football',
+          target: 'Vasco',
+          delivery: 'matchday',
+          notifyTime: '09:00',
+          leadMinutes: 60,
+        },
+        'Vasco',
+        '09:30'
+      );
+      expect(next.interest).toMatchObject({
+        delivery: 'matchday',
+        notifyTime: '09:30',
+        active: true,
+      });
+      expect(next.keptPaused).toBe(1);
+      expect((await a.get(old.id))!.active).toBe(false);
+      expect((await a.preferences()).preferences).toMatchObject({ enabled: true, time: '08:15' });
+      expect((await b.get(other.id))!.active).toBe(true);
+      expect((await b.preferences()).preferences.time).toBe('07:00');
+      expect(
+        await db.query(
+          'SELECT data_user_id,time_zone,time_zone_source FROM customer_accounts ORDER BY data_user_id'
+        )
+      ).toEqual(clocks);
+    });
+    it('keeps other enabled topics untouched when opting into matchday alerts', async () => {
+      const old = await create();
+      const preferences = await a.savePreferences({
+        ...RADAR_DEFAULT_PREFERENCES,
+        enabled: true,
+        time: '08:15',
+      });
+      const original = (await a.get(old.id))!;
+      await publicRepo.queue(
+        userA,
+        original,
+        preferences.revision,
+        'other-topic',
+        {
+          title: 'USD',
+          text: 'Referência',
+          source: 'Frankfurter',
+          url: 'https://frankfurter.dev/',
+        },
+        new Date(Date.now() + 3600000)
+      );
+      const otherDelivery = (await publicRepo.claimDeliveries())[0]!;
+      const next = await a.followFromChat(
+        {
+          source: 'football',
+          target: 'Vasco',
+          delivery: 'matchday',
+          notifyTime: '09:30',
+          leadMinutes: 60,
+        },
+        'Vasco',
+        '09:30'
+      );
+      expect(next.keptPaused).toBe(0);
+      expect(await a.get(old.id)).toMatchObject({
+        active: true,
+        revision: original.revision,
+        input: original.input,
+      });
+      expect((await a.preferences()).preferences).toMatchObject({ enabled: true, time: '08:15' });
+      expect(await a.preferences()).toEqual(preferences);
+      expect(await publicRepo.deliveryCurrent(otherDelivery)).toBe(true);
+    });
+    it.each(['22:00', '23:30', '06:59'])(
+      'rejects matchday time %s during quiet hours without partial opt-in',
+      async (time) => {
+        const old = await create();
+        const before = await a.preferences();
+        await expect(
+          a.followFromChat(
+            {
+              source: 'football',
+              target: 'Vasco',
+              delivery: 'matchday',
+              notifyTime: time,
+              leadMinutes: 60,
+            },
+            'Vasco',
+            time
+          )
+        ).rejects.toThrow('fora do período de silêncio');
+        expect(await a.preferences()).toEqual(before);
+        expect(await a.list()).toHaveLength(1);
+        expect((await a.get(old.id))!.active).toBe(true);
+        expect(
+          (await db.queryOne<{ n: string }>(
+            "SELECT COUNT(*) AS n FROM radar_resources WHERE source='football'"
+          ))!.n
+        ).toBe('0');
+      }
+    );
+    it('accepts the end of quiet hours and validates matchday schedule edits atomically', async () => {
+      const next = await a.followFromChat(
+        {
+          source: 'football',
+          target: 'Vasco',
+          delivery: 'matchday',
+          notifyTime: '07:00',
+          leadMinutes: 60,
+        },
+        'Vasco',
+        '07:00'
+      );
+      const original = (await a.get(next.interest.id))!;
+      await expect(a.change(original.id, { notifyTime: '22:00' })).rejects.toThrow(
+        'fora do período de silêncio'
+      );
+      expect(await a.get(original.id)).toEqual(original);
+      expect(await a.change(original.id, { notifyTime: '10:30' })).toMatchObject({
+        notifyTime: '10:30',
+        revision: original.revision + 1,
+      });
+      expect((await a.preferences()).preferences.time).toBe('07:00');
+      expect(await a.change(original.id, { delivery: 'digest' })).toMatchObject({
+        delivery: 'digest',
+      });
+      expect((await a.get(original.id))!.input.notifyTime).toBeUndefined();
+    });
+    it('does not let dashboard creation bypass the matchday quiet-hour validation', async () => {
+      await expect(
+        a.create(
+          {
+            source: 'football',
+            target: 'Vasco',
+            delivery: 'matchday',
+            notifyTime: '23:00',
+            leadMinutes: 60,
+          },
+          'Vasco'
+        )
+      ).rejects.toThrow('fora do período de silêncio');
+      expect(await a.list()).toEqual([]);
+      expect(
+        (await db.queryOne<{ n: string }>(
+          "SELECT COUNT(*) AS n FROM radar_resources WHERE source='football'"
+        ))!.n
+      ).toBe('0');
+    });
+    it('rejects quiet-hour edits that would silence an active matchday clock', async () => {
+      await a.followFromChat(
+        {
+          source: 'football',
+          target: 'Vasco',
+          delivery: 'matchday',
+          notifyTime: '09:30',
+          leadMinutes: 60,
+        },
+        'Vasco',
+        '09:30'
+      );
+      const before = await a.preferences();
+      await expect(
+        a.savePreferences({ ...before.preferences, quietStart: '08:00', quietEnd: '10:00' })
+      ).rejects.toThrow('fora do período de silêncio');
+      expect(await a.preferences()).toEqual(before);
+      expect((await a.list())[0]!).toMatchObject({ active: true, notifyTime: '09:30' });
+    });
     it('serializes duplicate chat requests without creating duplicate follows', async () => {
       const input = {
         source: 'news' as const,
@@ -487,6 +666,152 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
           row,
           revision,
           i.id + ':later',
+          payload,
+          new Date(Date.now() + 3600000)
+        )
+      ).toBe(false);
+      expect(await publicRepo.claimDeliveries()).toEqual([]);
+    });
+    it('rearms a cancelled matchday job only with the current topic and preference revisions', async () => {
+      const next = await a.followFromChat(
+        {
+          source: 'football',
+          target: 'Vasco',
+          delivery: 'matchday',
+          notifyTime: '09:30',
+          leadMinutes: 60,
+        },
+        'Vasco',
+        '09:30'
+      );
+      const original = (await a.get(next.interest.id))!;
+      const pref = await a.preferences();
+      const key = original.id + ':matchday:vasco-match:2026-11-16';
+      const payload = {
+        title: 'Vasco',
+        text: 'Jogo hoje',
+        source: 'openfootball',
+        url: '',
+        itemId: 'vasco-match',
+        matchDate: '2026-11-16',
+      };
+      const expiry = new Date(Date.now() + 3600000);
+      expect(await publicRepo.queue(userA, original, pref.revision, key, payload, expiry)).toBe(
+        true
+      );
+      const leased = (await publicRepo.claimDeliveries())[0]!;
+      await a.followFromChat({ ...original.input, notifyTime: '10:30' }, 'Vasco', '10:30');
+      const current = (await a.get(original.id))!;
+      await a.savePreferences({ ...(await a.preferences()).preferences, time: '08:15' });
+      const currentPref = await a.preferences();
+      await db.execute(
+        "UPDATE customer_radar_outbox SET not_before=NOW()+INTERVAL '1 hour' WHERE id=$1",
+        [leased.id]
+      );
+      expect(
+        await publicRepo.queue(userA, original, currentPref.revision, key, payload, expiry)
+      ).toBe(false);
+      expect(await publicRepo.queue(userA, current, pref.revision, key, payload, expiry)).toBe(
+        false
+      );
+      expect(
+        await publicRepo.queue(userB, current, currentPref.revision, key, payload, expiry)
+      ).toBe(false);
+      const updatedPayload = { ...payload, text: 'Aviso no novo horário' };
+      expect(
+        await publicRepo.queue(userA, current, currentPref.revision, key, updatedPayload, expiry)
+      ).toBe(true);
+      expect(
+        await publicRepo.queue(userA, current, currentPref.revision, key, updatedPayload, expiry)
+      ).toBe(false);
+      expect(await a.history()).toHaveLength(1);
+      const rearmed = (await publicRepo.claimDeliveries())[0]!;
+      expect(rearmed).toMatchObject({
+        id: leased.id,
+        interest_revision: current.revision,
+        preference_revision: currentPref.revision,
+        payload: updatedPayload,
+      });
+      expect(rearmed.lease_token).not.toBe(leased.lease_token);
+      expect(await publicRepo.beginDelivery(leased)).toBe(false);
+      expect(await publicRepo.beginDelivery(rearmed)).toBe(true);
+    });
+    it('can rearm an unsent cancelled event after an explicit topic resume', async () => {
+      const { i, row, revision, payload } = await prepare();
+      const key = i.id + ':event';
+      const expiry = new Date(Date.now() + 3600000);
+      await a.change(i.id, { active: false });
+      expect(await publicRepo.queue(userA, row, revision, key, payload, expiry)).toBe(false);
+      expect(
+        await publicRepo.queue(userA, (await a.get(i.id))!, revision, key, payload, expiry)
+      ).toBe(false);
+      await a.change(i.id, { active: true });
+      expect(
+        await publicRepo.queue(userA, (await a.get(i.id))!, revision, key, payload, expiry)
+      ).toBe(true);
+      expect(await publicRepo.claimDeliveries()).toHaveLength(1);
+    });
+    it.each(['sent', 'unknown'] as const)(
+      'never replays a %s event after rescheduling or a preference edit',
+      async (status) => {
+        const { i, payload } = await prepare();
+        const job = (await publicRepo.claimDeliveries())[0]!;
+        expect(await publicRepo.beginDelivery(job)).toBe(true);
+        await publicRepo.finishDelivery(
+          job,
+          status,
+          status === 'sent' ? 'confirmed-receipt' : undefined
+        );
+        await a.change(i.id, { active: false });
+        await a.change(i.id, { active: true });
+        const revision = await enable();
+        expect(
+          await publicRepo.queue(
+            userA,
+            (await a.get(i.id))!,
+            revision,
+            job.event_key,
+            payload,
+            new Date(Date.now() + 3600000)
+          )
+        ).toBe(false);
+        expect(await publicRepo.claimDeliveries()).toEqual([]);
+        expect((await a.history())[0]!.status).toBe(status);
+      }
+    );
+    it('does not reuse a cancelled event key for a different topic', async () => {
+      const { i, revision, payload } = await prepare();
+      await a.change(i.id, { active: false });
+      const another = await a.create(
+        { source: 'currency', target: 'EUR', delivery: 'digest', leadMinutes: 60 },
+        'EUR'
+      );
+      expect(
+        await publicRepo.queue(
+          userA,
+          (await a.get(another.id))!,
+          revision,
+          i.id + ':event',
+          payload,
+          new Date(Date.now() + 3600000)
+        )
+      ).toBe(false);
+      expect(await publicRepo.claimDeliveries()).toEqual([]);
+    });
+    it('does not rearm a cancelled event with proof of any prior transmission', async () => {
+      const { i, revision, payload } = await prepare();
+      await a.change(i.id, { active: false });
+      await a.change(i.id, { active: true });
+      await db.execute(
+        "UPDATE customer_radar_outbox SET payload=jsonb_set(payload,'{deliveredParts}',$1::jsonb)",
+        [JSON.stringify([{ index: 0, transportId: 'confirmed-part' }])]
+      );
+      expect(
+        await publicRepo.queue(
+          userA,
+          (await a.get(i.id))!,
+          revision,
+          i.id + ':event',
           payload,
           new Date(Date.now() + 3600000)
         )

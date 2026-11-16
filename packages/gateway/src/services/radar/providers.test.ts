@@ -155,6 +155,7 @@ describe('free Radar provider contracts', () => {
   it('uses the current public-domain season and never invents a kickoff instant', async () => {
     m.text.mockResolvedValue(schedule);
     const s = await fetchSource('football', 'br:cr-flamengo');
+    expect(s.items[0]).toMatchObject({ date: '2026-11-18', status: 'scheduled' });
     expect(s.items[0]?.at).toBeUndefined();
     expect(s.items[0]?.text).toContain('horário a confirmar');
     expect(s.sourceLabel).toBe('openfootball');
@@ -175,7 +176,9 @@ describe('free Radar provider contracts', () => {
         .replace('Nov 18', 'Nov 15')
         .replace('v SE Palmeiras', 'v SE Palmeiras             2-1 (1-0)')
     );
-    expect((await fetchSource('football', 'br:cr-flamengo')).items[0]?.text).toContain('2 × 1');
+    const result = (await fetchSource('football', 'br:cr-flamengo')).items[0];
+    expect(result?.text).toContain('2 × 1');
+    expect(result).toMatchObject({ date: '2026-11-15', status: 'finished' });
     expect((await fetchSource('football', 'br:santos-fc')).items).toHaveLength(0);
   });
   it('deduplicates tracking variants of the same news URL', async () => {

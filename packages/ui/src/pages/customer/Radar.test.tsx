@@ -116,7 +116,115 @@ const submitInterest = async () => {
     form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   });
 };
+const enableFootball = () => {
+  Object.assign(
+    data.catalog.find((s) => s.id === 'football')!,
+    {
+      available: true,
+      provider: 'openfootball',
+      license: 'CC0 1.0',
+    }
+  );
+  search.mockResolvedValue({ choices: [{ id: 'br:vasco-da-gama', label: 'Vasco' }] });
+};
+const chooseFootball = async () => {
+  enableFootball();
+  await mount();
+  await dom.click(dom.button('Adicionar assunto'));
+  await dom.click(source('Futebol'));
+  await dom.fill(dom.field('Time'), 'Vasco');
+  await dom.click(dom.button('Buscar'));
+  await dom.click(dom.container.querySelector<HTMLInputElement>('input[type="radio"]')!);
+};
 describe('native customer Radar opt-in and navigation', () => {
+  it('shows game-day follows with their chosen time rather than as daily summaries', async () => {
+    enableFootball();
+    data.interests = [
+      {
+        ...interest(),
+        source: 'football',
+        target: 'br:vasco-da-gama',
+        label: 'Vasco',
+        delivery: 'matchday',
+        notifyTime: '09:00',
+      },
+    ];
+    await mount();
+    const card = dom.container.querySelector('article[aria-label="Vasco"]')!;
+    expect(card.textContent).toContain('Só nos dias de jogo · às 09:00');
+    expect(card.textContent).not.toContain('No resumo diário');
+  });
+  it('creates a game-day follow at the chosen local time without enabling all notifications', async () => {
+    await chooseFootball();
+    const delivery = dom.field('Como quer receber?') as HTMLSelectElement;
+    expect(delivery.value).toBe('matchday');
+    expect(Array.from(delivery.options, (o) => o.value)).toEqual(['matchday', 'digest']);
+    expect(dom.container.textContent).toContain('o horário de início pode não estar confirmado');
+    await dom.fill(dom.field('Horário do aviso no dia do jogo'), '09:00');
+    await submitInterest();
+    expect(create).toHaveBeenCalledWith(customerFixture.accountId, {
+      source: 'football',
+      target: 'br:vasco-da-gama',
+      delivery: 'matchday',
+      notifyTime: '09:00',
+      leadMinutes: 60,
+    });
+    expect(prefs).not.toHaveBeenCalled();
+  });
+  it('requires a valid game-day clock without inventing a default time', async () => {
+    await chooseFootball();
+    const clock = dom.field('Horário do aviso no dia do jogo') as HTMLInputElement;
+    expect(clock.required).toBe(true);
+    expect(clock.value).toBe('');
+    await submitInterest();
+    expect(create).not.toHaveBeenCalled();
+    expect(dom.container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Escolha o horário do aviso no dia do jogo.'
+    );
+    await dom.fill(clock, '24:00');
+    await submitInterest();
+    expect(create).not.toHaveBeenCalled();
+  });
+  it('preserves and changes the clock when editing a game-day follow', async () => {
+    enableFootball();
+    data.interests = [
+      {
+        ...interest(),
+        source: 'football',
+        target: 'br:vasco-da-gama',
+        label: 'Vasco',
+        delivery: 'matchday',
+        notifyTime: '09:00',
+      },
+    ];
+    await mount();
+    await dom.click(dom.button('Editar Vasco'));
+    expect((dom.field('Como quer receber?') as HTMLSelectElement).value).toBe('matchday');
+    expect((dom.field('Horário do aviso no dia do jogo') as HTMLInputElement).value).toBe('09:00');
+    await dom.fill(dom.field('Horário do aviso no dia do jogo'), '10:30');
+    await submitInterest();
+    expect(change).toHaveBeenCalledWith(customerFixture.accountId, 'own-interest', {
+      delivery: 'matchday',
+      notifyTime: '10:30',
+      leadMinutes: 60,
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(prefs).not.toHaveBeenCalled();
+  });
+  it('keeps daily football summaries as an explicit choice without a game-day clock', async () => {
+    await chooseFootball();
+    await dom.fill(dom.field('Horário do aviso no dia do jogo'), '09:00');
+    await dom.fill(dom.field('Como quer receber?'), 'digest');
+    expect(dom.container.querySelector('input[type="time"]')).toBeNull();
+    await submitInterest();
+    expect(create).toHaveBeenCalledWith(customerFixture.accountId, {
+      source: 'football',
+      target: 'br:vasco-da-gama',
+      delivery: 'digest',
+      leadMinutes: 60,
+    });
+    expect(prefs).not.toHaveBeenCalled();
+  });
   it('keeps football cards free of dataset links and preserves useful news article links', async () => {
     Object.assign(
       data.catalog.find((s) => s.id === 'football')!,
