@@ -1,24 +1,56 @@
 import { CustomerPlanningRepository } from '../db/repositories/customer-planning.js';
 import { formatAstraMessage } from './response-presentation.js';
+import type { RecentReceipt } from './recent-chat-replies.js';
+
+/** A locally formatted, bounded read reference; it never confirms a write. */
+export function subscriptionReadContext(text: string): RecentReceipt | null {
+  const blocks = text.trim().split('\n\n');
+  const index = blocks.findIndex((b) => /^🔁 \*Sua (?:última )?assinatura\*$/u.test(b));
+  if (index < 0 || index > 1 || blocks.length !== index + 2) return null;
+  const fields = blocks[index + 1]!.split('\n');
+  const labels = ['Assinatura', 'Valor', 'Próxima renovação'];
+  if (
+    fields.length !== labels.length ||
+    fields.some((field, i) => !new RegExp('^• \\*' + labels[i] + ':\\* .{1,220}$', 'u').test(field))
+  )
+    return null;
+  const facts = blocks.slice(index).join('\n\n');
+  return facts.length <= 900 ? { action: 'Consulta de assinatura', facts } : null;
+}
 
 /** A narrow read needs no generated tool arguments, even during an AI outage. */
 export async function quickSubscriptionReadReply(
   channel: string,
   text: string,
-  userId: string
+  userId: string,
+  recent: RecentReceipt[] = []
 ): Promise<string | null> {
   const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
-  if (
-    !userId.trim() ||
-    !/^(?:e\s+)?(?:qual (?:foi|e|era) (?:o valor d[ae] )?(?:(?:a )?minha |a )?ultima assinatura|qual (?:o )?valor da (?:minha )?ultima assinatura|minha ultima assinatura)[.!?]*$/u.test(
+  const latestQuestion =
+    /^(?:e\s+)?(?:qual (?:foi|e|era) (?:o valor d[ae] )?(?:(?:a )?minha |a )?ultima assinatura|qual (?:o )?valor da (?:minha )?ultima assinatura|minha ultima assinatura)[.!?]*$/u.test(
       input
-    )
-  )
-    return null;
+    );
+  const followup =
+    /^(?:e\s+)?(?:quando (?:ela|essa assinatura) renova|qual (?:e )?(?:o )?valor (?:dela|dessa assinatura))[.!?]*$/u.test(
+      input
+    );
+  const reference =
+    followup && recent[0]?.action === 'Consulta de assinatura'
+      ? subscriptionReadContext(recent[0].facts)
+      : null;
+  const title = reference ? /^• \*Assinatura:\* (.+)$/mu.exec(reference.facts)?.[1] : undefined;
+  if (!userId.trim() || (!latestQuestion && !title)) return null;
   let answer: string;
   try {
     const plans = await new CustomerPlanningRepository(userId).subscriptions();
-    const latest = [...plans].sort(
+    const matches = title
+      ? plans.filter((plan) => plan.title.replace(/[\r\n*_`<>]/g, ' ').trim() === title)
+      : plans;
+    if (title && matches.length !== 1)
+      return matches.length
+        ? 'Encontrei mais de uma assinatura com esse nome. Qual delas você quer conferir?'
+        : 'Essa assinatura não está mais no seu planejamento. Quer consultar suas assinaturas atuais?';
+    const latest = [...matches].sort(
       (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || b.id.localeCompare(a.id)
     )[0];
     if (!latest)
@@ -27,7 +59,7 @@ export async function quickSubscriptionReadReply(
       return null;
     const plain = (value: string) => value.replace(/[\r\n*_`<>]/g, ' ').trim();
     const date = latest.nextDueDate?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    answer = formatAstraMessage('🔁 Sua última assinatura', [
+    answer = formatAstraMessage(title ? '🔁 Sua assinatura' : '🔁 Sua última assinatura', [
       { label: 'Assinatura', value: plain(latest.title) },
       {
         label: 'Valor',
@@ -46,7 +78,7 @@ export async function quickSubscriptionReadReply(
     const line = await writeShortChannelReply(
       channel,
       'Você é o Astra, assessor pessoal. Escreva uma abertura natural de até oito palavras para apresentar uma consulta já concluída. Não cite valores, nomes, datas, estados, telas nem confirme alterações. Não diga que ainda vai buscar os dados.',
-      'A pessoa pediu para conferir sua última assinatura cadastrada.',
+      'A pessoa pediu para conferir uma assinatura cadastrada.',
       26,
       Date.now() + 1200
     );
