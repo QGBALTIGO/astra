@@ -29,7 +29,8 @@ import {
 import { receiptContext, maybePersonalizeConfirmedReply } from './confirmed-reply-personality.js';
 import { enforceAstraScopeOutput } from './astra-scope.js';
 import {
-  asksAboutRecentReceipts,
+  expenseReadContext,
+  needsRecentReplyContext,
   quickPrivateReply,
   type RecentReceipt,
 } from './recent-chat-replies.js';
@@ -1195,15 +1196,7 @@ export class ChannelServiceImpl implements IChannelService {
         (message.platform === 'whatsapp' || message.platform === 'telegram') &&
         integrationPrivateChat(message);
       let recent: RecentReceipt[] = [];
-      if (
-        privateText &&
-        session.conversationId &&
-        (asksAboutRecentReceipts(message.text) ||
-          /^\s*(?:astra[,!:]?\s+)?e\s+(?:mais|tamb[eé]m)\s+r\$/iu.test(message.text) ||
-          /\b(?:essa|esse|isso|esses|essas|ela|ele|anterior|últim[oa]|acabei|mesm[oa]|dela|dele)\b/iu.test(
-            message.text
-          ))
-      ) {
+      if (privateText && session.conversationId && needsRecentReplyContext(message.text)) {
         try {
           recent = await this.messagesRepo.recentConfirmedReplies(
             session.conversationId,
@@ -1288,6 +1281,7 @@ export class ChannelServiceImpl implements IChannelService {
       const dashboardAction =
         confirmedAction ?? accessAction ?? weatherInfoAction(responseText, message.platform);
       const receipt = receiptContext(responseText);
+      const reference = receipt ?? expenseReadContext(responseText);
       if (
         receipt &&
         ((message.platform === 'whatsapp' && message.metadata?.isGroup !== true) ||
@@ -1375,7 +1369,9 @@ export class ChannelServiceImpl implements IChannelService {
             platformChatId: message.platformChatId,
             dataUserId,
             astraReceipt:
-              privateText && receipt ? { facts: receipt.facts, action: receipt.action } : undefined,
+              privateText && reference
+                ? { facts: reference.facts, action: reference.action }
+                : undefined,
           },
         });
       } catch (error) {
