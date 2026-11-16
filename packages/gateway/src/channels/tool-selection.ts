@@ -42,6 +42,7 @@ export function requiredChannelEmailDigestTool(
     /\bresumo\b/.test(input) &&
     /\b(?:diario|diariamente|todo dia|todos os dias|toda manha)\b/.test(input);
   const timeAnswer =
+    /\b(?:gmail|e-?mails?)\b/i.test(previousText.slice(-500)) &&
     /em qual horário você quer receber o resumo/i.test(previousText.slice(-500)) &&
     /^\s*(?:[aà]s?\s*)?\d{1,2}(?:(?:h|:)\d{0,2})?\s*(?:horas?)?[.!]?\s*$/i.test(text);
   return dailyEmail || timeAnswer ? 'core.manage_email_digest' : undefined;

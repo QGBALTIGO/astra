@@ -84,7 +84,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
         'Entre novamente para conferir seu Radar. Sua identificação ou acesso mudou.'
       );
   };
-  const key = JSON.stringify([account!.id, ownerId, ctx.channelPluginId, ctx.platformChatId]);
+  const key = JSON.stringify([ownerId, ctx.channelPluginId, ctx.platformChatId]);
   for (const [k, v] of pending) if (v.expires < Date.now()) pending.delete(k);
   const prior = pending.get(key);
   if (

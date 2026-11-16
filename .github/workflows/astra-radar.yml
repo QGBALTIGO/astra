@@ -40,7 +40,7 @@ jobs:
       - run: pnpm --filter @ownpilot/core build
       - run: pnpm --filter @ownpilot/gateway build
       - name: Rules, provider contracts and channel regressions
-        run: pnpm --filter @ownpilot/gateway exec vitest run src/services/radar/contracts.test.ts src/services/radar/providers.test.ts src/services/radar/free-sources.test.ts src/services/radar/chat.test.ts src/services/radar/runtime.test.ts src/services/radar/worker.test.ts src/services/customer-weather.test.ts src/channels/radar.test.ts src/channels/morning-briefing.test.ts
+        run: pnpm --filter @ownpilot/gateway exec vitest run src/services/radar/contracts.test.ts src/services/radar/providers.test.ts src/services/radar/free-sources.test.ts src/services/radar/chat.test.ts src/services/radar/chat-pending.test.ts src/services/radar/runtime.test.ts src/services/radar/worker.test.ts src/services/customer-weather.test.ts src/channels/radar.test.ts src/channels/morning-briefing.test.ts
       - name: Real PostgreSQL isolation, HTTP cache, cancellation and recovery
         env:
           ASTRA_RADAR_TEST_PORT: '5432'
