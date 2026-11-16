@@ -8,6 +8,25 @@ const receipt = (name: string, result: unknown): ChannelToolReceipt => ({
   isError: false,
 });
 describe('verified weather and calendar presentation', () => {
+  it.each([{ needsTime: true }, { needsSubject: true }, { changed: true }])(
+    'finishes a verified explicit Radar request corrected from model status: %j',
+    (outcome) => {
+      const data = receipt('manage_radar', {
+        kind: 'radar',
+        ...outcome,
+        reply: 'Resposta verificada.',
+      });
+      expect(
+        verifiedRadarToolReply(
+          {
+            content: '',
+            toolCalls: [{ name: 'core.manage_radar', arguments: '{"action":"status"}' }],
+          },
+          [data]
+        )
+      ).toBe('Resposta verificada.');
+    }
+  );
   it('finishes a verified Radar question with a short AI greeting and no invented confirmation', () => {
     const data = receipt('manage_radar', {
       kind: 'radar',

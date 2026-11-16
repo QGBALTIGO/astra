@@ -50,18 +50,24 @@ export function verifiedRadarToolReply(
     calls.some((c) => !/^(?:core[._])?manage_radar$/.test(c.name.replace(/__/g, '.')))
   )
     return;
-  // Listing can be an intermediate lookup before pausing or resuming a chosen topic.
+  const receipts = results.map((r) => ({ ...r, name: 'core.manage_radar', arguments: '' }));
+  // Listing can be intermediate, but a corrected explicit request that has
+  // already produced a question/confirmation needs no second model round.
   if (
-    calls.some((call) => {
+    calls.some((call, index) => {
       try {
-        return JSON.parse(call.arguments ?? '{}').action === 'status';
+        if (JSON.parse(call.arguments ?? '{}').action !== 'status') return false;
+        const data = result(receipts[index]!);
+        return !(
+          data?.kind === 'radar' &&
+          (data.needsTime === true || data.needsSubject === true || data.changed === true)
+        );
       } catch {
         return true;
       }
     })
   )
     return;
-  const receipts = results.map((r) => ({ ...r, name: 'core.manage_radar', arguments: '' }));
   if (
     receipts.some((r) => {
       const data = result(r);

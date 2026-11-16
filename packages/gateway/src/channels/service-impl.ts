@@ -28,7 +28,7 @@ import {
 } from './astra-access.js';
 import { receiptContext, maybePersonalizeConfirmedReply } from './confirmed-reply-personality.js';
 import { enforceAstraScopeOutput } from './astra-scope.js';
-import { quickSubscriptionReadReply } from './subscription-read-reply.js';
+import { quickSubscriptionReadReply, subscriptionReadContext } from './subscription-read-reply.js';
 import {
   expenseReadContext,
   needsRecentReplyContext,
@@ -1238,7 +1238,8 @@ export class ChannelServiceImpl implements IChannelService {
           ? ((await quickSubscriptionReadReply(
               message.channelPluginId,
               message.text,
-              dataUserId
+              dataUserId,
+              recent
             )) ?? (await quickPrivateReply(message.channelPluginId, message.text, recent)))
           : null;
 
@@ -1308,7 +1309,8 @@ export class ChannelServiceImpl implements IChannelService {
       const dashboardAction =
         confirmedAction ?? accessAction ?? weatherInfoAction(responseText, message.platform);
       const receipt = receiptContext(responseText);
-      const reference = receipt ?? expenseReadContext(responseText);
+      const reference =
+        receipt ?? expenseReadContext(responseText) ?? subscriptionReadContext(responseText);
       if (
         receipt &&
         ((message.platform === 'whatsapp' && message.metadata?.isGroup !== true) ||
