@@ -1772,9 +1772,13 @@ describe('ChannelServiceImpl', () => {
         expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
       });
 
-      it.each([false, true])(
-        'welcomes a new trial and preserves its first request: %s',
-        async (realRequest) => {
+      it.each([
+        { text: 'Oi', realRequest: false },
+        { text: 'Olá! Quero testar o Astra grátis por 3 dias.', realRequest: false },
+        { text: 'Anote minha ideia para o projeto', realRequest: true },
+      ])(
+        'welcomes a new trial and preserves its first request: $text',
+        async ({ text, realRequest }) => {
           customer = {
             ...customer,
             isVerified: true,
@@ -1784,7 +1788,7 @@ describe('ChannelServiceImpl', () => {
             accessExpiresAt: new Date('2099-01-01T16:00:00Z'),
           };
           reserve('first_authorized');
-          message.text = realRequest ? 'Anote minha ideia para o projeto' : 'Oi';
+          message.text = text;
           await service.processIncomingMessage(message);
           expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -1796,7 +1800,10 @@ describe('ChannelServiceImpl', () => {
             expect.objectContaining({ text: expect.stringContaining('3 dias grátis') })
           );
           if (realRequest) expect(mockGetOrCreateChatAgent).toHaveBeenCalled();
-          else expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+          else {
+            expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+            expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+          }
         }
       );
 

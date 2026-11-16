@@ -53,6 +53,7 @@ vi.mock('./providers.js', () => ({
   fetchRadarResource: vi.fn(),
 }));
 import { dispatchRadar } from './worker.js';
+import { interestDecisions } from './rules.js';
 import { ChannelSendNotAttemptedError } from '../../channels/send-not-attempted.js';
 const now = new Date('2026-11-16T11:00:00Z');
 const account = {
@@ -123,6 +124,46 @@ beforeEach(() => {
   m.send.mockResolvedValue('receipt');
 });
 describe('Radar final delivery authorization and failures', () => {
+  it('delivers a matchday alert at the account-local clock without technical URLs', async () => {
+    const team = {
+      ...followed(),
+      label: 'Vasco',
+      input: {
+        source: 'football',
+        target: 'br:cr-vasco-da-gama',
+        delivery: 'matchday',
+        notifyTime: '07:00',
+        leadMinutes: 60,
+      },
+      snapshot: {
+        ...followed().snapshot,
+        sourceLabel: 'openfootball',
+        sourceUrl: 'https://github.com/openfootball/south-america',
+        items: [
+          { id: 'match-vasco', title: 'Vasco × Santos', date: '2026-11-16', status: 'scheduled' },
+        ],
+      },
+    };
+    const [decision] = interestDecisions(team as never, now, account.timeZone);
+    expect(decision).toBeDefined();
+    m.raw.mockResolvedValue([team]);
+    m.claim.mockResolvedValue([
+      {
+        ...job,
+        interest_id: team.id,
+        payload: decision!.payload,
+        event_key: decision!.key,
+        expires_at: decision!.expiresAt.toISOString(),
+      },
+    ]);
+    expect(await dispatchRadar(now)).toBe(1);
+    expect(m.send.mock.calls[0]?.[1]).toMatchObject({
+      text: '⚽ *Vasco × Santos*\n\nData: 16/11/2026 · horário a confirmar.',
+      urlButton: { label: 'Meu Radar' },
+    });
+    expect(m.send.mock.calls[0]?.[1].text).not.toMatch(/https?:|github|openfootball|Fonte:/);
+    expect(m.finish).toHaveBeenCalledWith(expect.anything(), 'sent', 'receipt');
+  });
   const articleCards = [1, 2].map((n) => ({
     text: `📰 *Mundo · ${n}/2*\n\n*Matéria ${n}*\n\nGlobal Voices · CC BY 3.0`,
     urlButton: {

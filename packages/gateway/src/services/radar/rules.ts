@@ -112,6 +112,42 @@ export function interestDecisions(
 }> {
   const s = interest.snapshot;
   if (!interest.active || !freshSnapshot(s, now)) return [];
+  if (interest.input.delivery === 'matchday') {
+    if (interest.input.source !== 'football' || !interest.input.notifyTime) return [];
+    const window = dailyWindow(now, timeZone, interest.input.notifyTime);
+    if (!window.eligible) return [];
+    const clock = localClock(now, timeZone);
+    const minutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+    const currentMinute = minutes(clock.time);
+    const remainingMinutes = Math.min(
+      120 - (currentMinute - minutes(interest.input.notifyTime)),
+      1440 - currentMinute
+    );
+    const windowEnd =
+      now.getTime() +
+      remainingMinutes * 60000 -
+      now.getUTCSeconds() * 1000 -
+      now.getUTCMilliseconds();
+    return s.items
+      .filter(
+        (item) =>
+          item.date === window.day &&
+          item.status !== 'finished' &&
+          (!item.at || Date.parse(item.at) > now.getTime())
+      )
+      .map((item) => ({
+        key: interest.id + ':matchday:' + item.id + ':' + item.date,
+        payload: {
+          title: item.title,
+          text: 'Data: ' + item.date!.split('-').reverse().join('/') + ' · horário a confirmar.',
+          source: s.sourceLabel,
+          url: '',
+          itemId: item.id,
+          matchDate: item.date,
+        },
+        expiresAt: new Date(windowEnd),
+      }));
+  }
   if (interest.input.delivery === 'threshold') {
     const item = s.items.find((i) => i.value);
     if (
@@ -168,7 +204,8 @@ export function interestDecisions(
 export function stillMatchesDelivery(
   interest: RadarInterestRow,
   row: RadarDeliveryRow,
-  now: Date
+  now: Date,
+  timeZone = 'UTC'
 ): boolean {
   if (
     !interest.active ||
@@ -178,6 +215,20 @@ export function stillMatchesDelivery(
     return false;
   const item = interest.snapshot.items.find((i) => i.id === row.payload.itemId);
   if (!item) return false;
+  if (interest.input.delivery === 'matchday') {
+    if (
+      interest.input.source !== 'football' ||
+      !interest.input.notifyTime ||
+      !item.date ||
+      item.date !== row.payload.matchDate ||
+      item.status === 'finished' ||
+      (item.at && !(Date.parse(item.at) > now.getTime())) ||
+      !(new Date(row.expires_at).getTime() > now.getTime())
+    )
+      return false;
+    const window = dailyWindow(now, timeZone, interest.input.notifyTime);
+    return window.eligible && window.day === item.date;
+  }
   if (interest.input.delivery === 'before')
     return item.at === row.payload.at && !!item.at && Date.parse(item.at) > now.getTime();
   return (

@@ -217,6 +217,40 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(r.status).toBe(400);
       expect((await r.json()).error.message).toContain('horário');
     });
+    it('edits a selected club to matchday and its private clock through the dashboard API', async () => {
+      m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+      expect((await request('a', '/radar/search?source=football&q=Vasco')).status).toBe(200);
+      const created = await request('a', '/radar/interests', 'POST', {
+        source: 'football',
+        target: 'br:cr-vasco-da-gama',
+        delivery: 'digest',
+      });
+      expect(created.status).toBe(201);
+      const id = (await created.json()).data.interest.id;
+      const path = '/radar/interests/' + id;
+      const edited = await request('a', path, 'PATCH', {
+        delivery: 'matchday',
+        notifyTime: '09:30',
+      });
+      expect(edited.status).toBe(200);
+      expect((await edited.json()).data.interest).toMatchObject({
+        delivery: 'matchday',
+        notifyTime: '09:30',
+      });
+      expect((await request('b', path, 'PATCH', { notifyTime: '10:30' })).status).toBe(404);
+      expect((await request('a', path, 'PATCH', { notifyTime: '24:00' })).status).toBe(400);
+      const silent = await request('a', path, 'PATCH', { notifyTime: '23:00' });
+      expect(silent.status).toBe(400);
+      expect((await silent.json()).error.message).toContain('fora do período de silêncio');
+      expect((await (await request('a')).json()).data.interests[0]).toMatchObject({
+        delivery: 'matchday',
+        notifyTime: '09:30',
+      });
+      const updated = await request('a', path, 'PATCH', { notifyTime: '10:30' });
+      expect(updated.status).toBe(200);
+      expect((await updated.json()).data.interest.notifyTime).toBe('10:30');
+      expect((await (await request('a')).json()).data.preferences.time).toBe('07:00');
+    });
     it('only accepts a city selected from an actual prior search', async () => {
       expect(
         (

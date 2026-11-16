@@ -5,6 +5,7 @@ import {
   radarInputSchema,
   radarPreferencesSchema,
   RADAR_DEFAULT_PREFERENCES,
+  inQuietHours,
   normalizeRadarTarget,
   resourceId,
   type RadarInput,
@@ -44,6 +45,7 @@ export interface RadarDeliveryRow {
     url: string;
     itemId?: string;
     at?: string;
+    matchDate?: string;
     newsPreview?: boolean;
     cards?: RadarNewsCard[];
     totalParts?: number;
@@ -67,6 +69,13 @@ export function mapRadarInterest(r: RadarInterestRow) {
 function privateUser(user: string): void {
   if (!user?.trim() || user === 'default') throw new Error('Entre na sua conta para continuar.');
 }
+function validateMatchdayTime(input: RadarInput, preferences: RadarPreferences) {
+  if (
+    input.delivery === 'matchday' &&
+    inQuietHours(input.notifyTime!, preferences.quietStart, preferences.quietEnd)
+  )
+    throw new Error('Escolha um horário para o aviso de jogo fora do período de silêncio.');
+}
 const INTEREST_SELECT = `SELECT i.*,r.snapshot,r.error_code FROM customer_radar_interests i JOIN radar_resources r ON r.id=i.resource_id`;
 export class CustomerRadarRepository extends BaseRepository {
   constructor(readonly userId: string) {
@@ -86,6 +95,13 @@ export class CustomerRadarRepository extends BaseRepository {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
         'radar:' + this.userId,
       ]);
+      if (input.enabled) {
+        const topics = await this.query<{ input: RadarInput }>(
+          "SELECT input FROM customer_radar_interests WHERE user_id=$1 AND active AND input->>'delivery'='matchday'",
+          [this.userId]
+        );
+        for (const topic of topics) validateMatchdayTime(topic.input, input);
+      }
       return this.writePreferences(input);
     });
   }
@@ -112,7 +128,9 @@ export class CustomerRadarRepository extends BaseRepository {
   }
   /** Explicit chat opt-in starts only the requested topic when the entire Radar was off. */
   async followFromChat(input: RadarInput, label: string, time: string) {
-    input = radarInputSchema.parse(input);
+    input = radarInputSchema.parse(
+      input.delivery === 'matchday' ? { ...input, notifyTime: time } : input
+    );
     input.target = normalizeRadarTarget(input.source, input.target);
     const rid = resourceId(input.source, input.target, input.query);
     return this.transaction(async () => {
@@ -120,11 +138,14 @@ export class CustomerRadarRepository extends BaseRepository {
         'radar:' + this.userId,
       ]);
       const pref = await this.preferences();
+      validateMatchdayTime(input, pref.preferences);
       const nextPreferences = radarPreferencesSchema.parse({
         ...pref.preferences,
-        enabled: true,
-        time,
+        // Matchday uses its own validated clock; a paused digest keeps its clock unchanged.
+        enabled: input.delivery !== 'matchday',
+        time: input.delivery === 'matchday' ? pref.preferences.time : time,
       });
+      nextPreferences.enabled = true;
       await this.execute(
         `INSERT INTO radar_resources(id,source,target,label,query) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO NOTHING`,
         [rid, input.source, input.target, label, input.query ?? null]
@@ -144,7 +165,12 @@ export class CustomerRadarRepository extends BaseRepository {
           )
         ).changes;
       }
-      await this.writePreferences(nextPreferences);
+      if (input.delivery === 'matchday' && pref.preferences.enabled)
+        await this.execute(
+          "UPDATE customer_radar_outbox SET status='cancelled' WHERE user_id=$1 AND interest_id=$2 AND status IN ('pending','leased')",
+          [this.userId, row!.id]
+        );
+      else await this.writePreferences(nextPreferences);
       return { interest: mapRadarInterest((await this.get(row!.id))!), keptPaused };
     });
   }
@@ -162,6 +188,12 @@ export class CustomerRadarRepository extends BaseRepository {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
         'radar:' + this.userId,
       ]);
+      if (input.delivery === 'matchday')
+        validateMatchdayTime(input, (await this.preferences()).preferences);
+      if (input.delivery === 'digest') {
+        const { preferences } = await this.preferences();
+        radarPreferencesSchema.parse(preferences);
+      }
       await this.execute(
         `INSERT INTO radar_resources(id,source,target,label,query) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO NOTHING`,
         [rid, input.source, input.target, label, input.query ?? null]
@@ -181,6 +213,7 @@ export class CustomerRadarRepository extends BaseRepository {
     patch: {
       active?: boolean;
       delivery?: RadarInput['delivery'];
+      notifyTime?: string;
       threshold?: string;
       comparison?: RadarInput['comparison'];
       leadMinutes?: number;
@@ -193,7 +226,15 @@ export class CustomerRadarRepository extends BaseRepository {
       const old = await this.get(id);
       if (!old) return null;
       const { active, ...rest } = patch;
-      const input = radarInputSchema.parse({ ...old.input, ...rest });
+      const updated = { ...old.input, ...rest };
+      if (rest.delivery !== undefined && rest.delivery !== 'matchday') delete updated.notifyTime;
+      const input = radarInputSchema.parse(updated);
+      if (input.delivery === 'matchday' && (active ?? old.active)) {
+        const { preferences } = await this.preferences();
+        validateMatchdayTime(input, preferences);
+      }
+      if (input.delivery === 'digest' && (active ?? old.active))
+        radarPreferencesSchema.parse((await this.preferences()).preferences);
       await this.execute(
         `UPDATE customer_radar_interests SET active=$3,input=$4::jsonb,revision=revision+1,
     last_digest_day=NULL,threshold_state=NULL,updated_at=NOW() WHERE user_id=$1 AND id=$2`,
@@ -359,6 +400,7 @@ export class RadarRepository extends BaseRepository {
     expiresAt: Date,
     thresholdState?: boolean
   ) {
+    if (interest.user_id !== userId) return false;
     return this.transaction(async () => {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
         'radar:' + userId,
@@ -371,7 +413,16 @@ export class RadarRepository extends BaseRepository {
       if (!current) return false;
       const changed = await this.execute(
         `INSERT INTO customer_radar_outbox(id,user_id,interest_id,interest_revision,preference_revision,event_key,payload,expires_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8) ON CONFLICT(user_id,event_key) DO NOTHING`,
+    VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8)
+    ON CONFLICT(user_id,event_key) DO UPDATE SET
+      status='pending',interest_revision=EXCLUDED.interest_revision,
+      preference_revision=EXCLUDED.preference_revision,payload=EXCLUDED.payload,
+      expires_at=EXCLUDED.expires_at,not_before=NOW(),lease_token=NULL,leased_until=NULL
+    WHERE customer_radar_outbox.status='cancelled'
+      AND customer_radar_outbox.interest_id=EXCLUDED.interest_id
+      AND customer_radar_outbox.sent_at IS NULL
+      AND customer_radar_outbox.transport_id IS NULL
+      AND COALESCE(customer_radar_outbox.payload->'deliveredParts','[]'::jsonb)='[]'::jsonb`,
         [
           randomUUID(),
           userId,

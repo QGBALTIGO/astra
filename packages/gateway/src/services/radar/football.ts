@@ -108,6 +108,8 @@ export function brazilMatchItems(matches: BrazilMatch[], target: string, now: Da
     .slice(0, 6)
     .map((m) => ({
       id: m.id,
+      date: m.date,
+      status: m.score ? ('finished' as const) : ('scheduled' as const),
       title: name(m.home) + ' × ' + name(m.away),
       text:
         m.date.split('-').reverse().join('/') +

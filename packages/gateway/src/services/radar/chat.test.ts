@@ -102,6 +102,226 @@ beforeEach(() => {
   m.preview.mockResolvedValue('queued');
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it.each([undefined, '07:00'])(
+    'uses the game-day clock actually stated instead of the model time %s',
+    async (time) => {
+      m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+      const result = await message(user, 'Me avise sempre que tiver jogo do Vasco às 9h30', {
+        action: 'status',
+        time,
+      });
+      expect(result.changed).toBe(true);
+      expect(m.follow.mock.calls[0]?.[1]).toMatchObject({
+        delivery: 'matchday',
+        notifyTime: '09:30',
+      });
+    }
+  );
+  it('does not turn a one-off game reminder into a recurring follow', async () => {
+    const result = await message(user, 'Me lembre do jogo do Vasco amanhã às 09:00', {
+      action: 'follow',
+      source: 'football',
+      subject: 'Vasco',
+      delivery: 'matchday',
+      time: '09:00',
+    });
+    expect(result.changed).toBe(false);
+    expect(result.reply).toContain('partida específica');
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('preserves an explicit request not to send daily summaries', async () => {
+    m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+    m.prefs.set(user, { enabled: true, time: '08:00', quietStart: '22:00', quietEnd: '07:00' });
+    const first = await message(user, 'Me avise quando tiver jogo do Vasco, mas não todo dia', {
+      action: 'follow',
+      source: 'football',
+      subject: 'Vasco',
+      delivery: 'digest',
+    });
+    expect(first.needsTime).toBe(true);
+    expect(first.reply).toContain('só nos dias de jogo');
+    await message(user, 'às 09:00', { action: 'status' });
+    expect(m.follow.mock.calls[0]?.[1]).toMatchObject({
+      delivery: 'matchday',
+      notifyTime: '09:00',
+    });
+  });
+  it('never reactivates a game alert when asked to stop it', async () => {
+    m.lists.set(user, [
+      {
+        id: 'vasco',
+        label: 'Vasco',
+        source: 'football',
+        delivery: 'matchday',
+        notifyTime: '09:00',
+        active: true,
+      },
+    ]);
+    const result = await message(user, 'Pare de me avisar quando tiver jogo do Vasco', {
+      action: 'pause',
+      interestId: 'vasco',
+    });
+    expect(result.changed).toBe(true);
+    expect(m.change).toHaveBeenCalledWith(user, 'vasco', { active: false });
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('does not queue a nonexistent daily digest when only matchday alerts are active', async () => {
+    m.prefs.set(user, { enabled: true, time: '08:00', quietStart: '22:00', quietEnd: '07:00' });
+    m.lists.set(user, [
+      {
+        id: 'vasco',
+        label: 'Vasco',
+        source: 'football',
+        delivery: 'matchday',
+        notifyTime: '09:00',
+        active: true,
+      },
+    ]);
+    expect((await message(user, 'Envie meu Radar agora', { action: 'send_now' })).reply).toContain(
+      'próximos jogos'
+    );
+    expect(m.request).not.toHaveBeenCalled();
+  });
+  it('resumes matchday-only preferences without promising a daily digest', async () => {
+    m.lists.set(user, [
+      {
+        id: 'vasco',
+        label: 'Vasco',
+        source: 'football',
+        delivery: 'matchday',
+        notifyTime: '09:00',
+        active: true,
+      },
+    ]);
+    const result = await message(user, 'Ative meu Radar às 09:00', {
+      action: 'configure',
+      enabled: true,
+      time: '09:00',
+    });
+    expect(result.changed).toBe(true);
+    expect(result.reply).toContain('avisos estão ativados');
+    expect(result.reply).not.toContain('Resumo diário');
+  });
+  it.each(['follow', 'status', 'configure', 'resume', 'send_now'])(
+    'treats the exact Vasco game alert request as matchday even when the model selects %s',
+    async (action) => {
+      m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+      m.prefs.set(user, { enabled: true, time: '08:00', quietStart: '22:00', quietEnd: '07:00' });
+      const first = await message(user, 'Me avise sempre que tiver jogo do Vasco', {
+        action,
+        source: 'football',
+        subject: 'Vasco',
+        delivery: 'digest',
+        time: '08:00',
+      });
+      expect(first.needsTime).toBe(true);
+      expect(first.reply).toContain('só nos dias de jogo');
+      expect(first.reply).toContain('Vasco');
+      expect(first.reply).not.toContain('resumo diário');
+      expect(m.follow).not.toHaveBeenCalled();
+      const saved = await message(user, 'às 09:00', { action: 'status', time: '11:00' });
+      expect(saved.changed).toBe(true);
+      expect(saved.reply).toContain('só nos dias de jogo');
+      expect(saved.reply).toContain('*09:00*');
+      expect(saved.reply).not.toContain('Resumo diário');
+      expect(m.follow).toHaveBeenCalledWith(
+        user,
+        expect.objectContaining({
+          source: 'football',
+          target: 'br:cr-vasco-da-gama',
+          delivery: 'matchday',
+          notifyTime: '09:00',
+        }),
+        'Vasco',
+        '09:00'
+      );
+      expect(m.save).not.toHaveBeenCalled();
+      expect(m.request).not.toHaveBeenCalled();
+    }
+  );
+  it('accepts an explicit game-day clock without moving the existing digest', async () => {
+    m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+    m.prefs.set(user, { enabled: true, time: '08:00', quietStart: '22:00', quietEnd: '07:00' });
+    m.lists.set(user, [
+      { id: 'other', label: 'Mundo', active: true, source: 'news', delivery: 'digest' },
+    ]);
+    const result = await message(user, 'Me avise quando o Vasco jogar às 09:00', {
+      action: 'follow',
+      time: '09:00',
+    });
+    expect(result.changed).toBe(true);
+    expect(m.follow).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({ delivery: 'matchday', notifyTime: '09:00' }),
+      'Vasco',
+      '09:00'
+    );
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it('asks the team before the game-day clock and preserves the requested delivery over short answers', async () => {
+    m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+    expect(
+      (await message(user, 'Me lembre sempre que tiver jogo', { action: 'follow' })).needsSubject
+    ).toBe(true);
+    expect((await message(user, 'Vasco', { action: 'status' })).reply).toContain(
+      'só nos dias de jogo'
+    );
+    expect((await message(user, 'às 9h', { action: 'status' })).changed).toBe(true);
+    expect(m.follow.mock.calls[0]?.[1]).toMatchObject({
+      delivery: 'matchday',
+      notifyTime: '09:00',
+    });
+  });
+  it('asks which team when more than one was named rather than subscribing an invented choice', async () => {
+    expect(
+      (
+        await message(user, 'Me avise sempre dos jogos do Vasco e Flamengo', {
+          action: 'follow',
+          subject: 'Vasco',
+        })
+      ).needsSubject
+    ).toBe(true);
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('keeps an explicitly requested daily digest as a daily digest', async () => {
+    await message(user, 'Me avise todos os dias com um resumo dos jogos do Flamengo às 09:00', {
+      action: 'follow',
+      source: 'football',
+      subject: 'Flamengo',
+      time: '09:00',
+      delivery: 'digest',
+    });
+    expect(m.follow.mock.calls[0]?.[1]).toMatchObject({ delivery: 'digest' });
+    expect(m.follow.mock.calls[0]?.[1]).not.toHaveProperty('notifyTime');
+  });
+  it('does not promise kickoff alerts or silently subscribe a daily digest', async () => {
+    const result = await message(user, 'Me avise uma hora antes do jogo do Vasco', {
+      action: 'follow',
+      source: 'football',
+      subject: 'Vasco',
+      delivery: 'before',
+    });
+    expect(result.changed).toBe(false);
+    expect(result.reply).toContain('horário confirmado');
+    expect(result.reply).toContain('só nos dias de jogo');
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('shows matchday time in status without claiming it is a daily digest', async () => {
+    m.prefs.set(user, { enabled: true, time: '08:00', quietStart: '22:00', quietEnd: '07:00' });
+    m.lists.set(user, [
+      {
+        id: 'vasco',
+        label: 'Vasco',
+        source: 'football',
+        delivery: 'matchday',
+        notifyTime: '09:00',
+        active: true,
+      },
+    ]);
+    const result = await message(user, 'Como estão meus avisos?', { action: 'status' });
+    expect(result.reply).toContain('só nos dias de jogo, às 09:00');
+    expect(result.reply).not.toContain('Resumo diário');
+  });
   it('answers a football consultation with the fixtures and no technical source links', async () => {
     m.fetch.mockResolvedValue({
       items: [

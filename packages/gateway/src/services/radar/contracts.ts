@@ -24,6 +24,8 @@ export interface RadarItem {
   text?: string;
   url?: string;
   at?: string;
+  date?: string;
+  status?: 'scheduled' | 'finished';
   value?: string;
 }
 export interface RadarSnapshot {
@@ -164,7 +166,8 @@ export const radarInputSchema = z
     source: z.enum(RADAR_SOURCE_IDS),
     target: z.string().trim().min(1).max(160),
     query: z.string().trim().max(100).optional(),
-    delivery: z.enum(['digest', 'before', 'threshold']).default('digest'),
+    delivery: z.enum(['digest', 'before', 'threshold', 'matchday']).default('digest'),
+    notifyTime: clock.optional(),
     threshold: z
       .string()
       .regex(/^\d{1,8}(?:[.,]\d{1,6})?$/)
@@ -181,11 +184,19 @@ export const radarInputSchema = z
       });
     if (v.delivery === 'before' && !['football', 'series'].includes(v.source))
       c.addIssue({ code: 'custom', message: 'Aviso antecipado só vale para jogos e episódios.' });
+    if (v.delivery === 'matchday' && (v.source !== 'football' || !v.notifyTime))
+      c.addIssue({
+        code: 'custom',
+        message:
+          'Para avisar no dia do jogo, informe o time e o horário em que quer receber o aviso.',
+      });
+    if (v.notifyTime !== undefined && v.delivery !== 'matchday')
+      c.addIssue({ code: 'custom', message: 'O horário do aviso só vale para o dia do jogo.' });
     if (v.source === 'football' && v.delivery === 'before')
       c.addIssue({
         code: 'custom',
         message:
-          'O calendário aberto confirma o dia, mas nem sempre o horário. Escolha o resumo diário para acompanhar seu time.',
+          'Ainda não tenho o horário confirmado para avisar antes da partida. Posso avisar no dia do jogo; em qual horário você prefere?',
       });
     if (
       v.delivery === 'threshold' &&

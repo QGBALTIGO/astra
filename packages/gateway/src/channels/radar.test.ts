@@ -49,6 +49,14 @@ beforeEach(() => {
   m.list.mockResolvedValue([{ label: 'USD', active: true }]);
 });
 describe('WhatsApp Radar privacy and opt-out', () => {
+  it('shows the individual game-day clock in the fast status reply', async () => {
+    m.list.mockResolvedValue([
+      { label: 'Vasco', active: true, delivery: 'matchday', notifyTime: '09:00' },
+    ]);
+    const reply = await tryRadarChannelReply(message('Meu Radar'), user, async () => true);
+    expect(reply).toContain('Vasco · só nos dias de jogo, às 09:00');
+    expect(reply).not.toContain('resumo diário');
+  });
   it.each(['gastei 10', 'meu Radar'])(
     'ignores incomplete sender metadata for %s safely',
     async (text) => {

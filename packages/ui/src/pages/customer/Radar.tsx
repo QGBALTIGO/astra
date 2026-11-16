@@ -39,11 +39,13 @@ const defaults: RadarPreferences = {
 const message = (e: unknown) =>
   e instanceof Error ? e.message : 'Não foi possível concluir. Tente novamente.';
 const deliveryLabel = (i: RadarInterest) =>
-  i.delivery === 'before'
-    ? 'Aviso antes do evento'
-    : i.delivery === 'threshold'
-      ? 'Alerta de valor'
-      : 'No resumo diário';
+  i.delivery === 'matchday'
+    ? `Só nos dias de jogo${i.notifyTime ? ` · às ${i.notifyTime}` : ''}`
+    : i.delivery === 'before'
+      ? 'Aviso antes do evento'
+      : i.delivery === 'threshold'
+        ? 'Alerta de valor'
+        : 'No resumo diário';
 const states: Record<string, string> = {
   pending: 'Agendado',
   leased: 'Em processamento',
@@ -150,7 +152,19 @@ export function CustomerRadar({
     url.searchParams.set('text', text);
     return url.href;
   };
-  const activeCount = loaded.interests.filter((i) => i.active).length;
+  const activeInterests = loaded.interests.filter((i) => i.active);
+  const activeCount = activeInterests.length;
+  const digestCount = activeInterests.filter((i) => i.delivery === 'digest').length;
+  const hasIndividualAlerts = activeCount > digestCount;
+  const timingLabel = !loaded.preferences.enabled
+    ? 'Você decide quando começar'
+    : digestCount > 0
+      ? 'Todo dia, às ' + loaded.preferences.time
+      : activeCount > 0 && activeInterests.every((i) => i.delivery === 'matchday')
+        ? 'Só nos dias de jogo'
+        : activeCount > 0
+          ? 'Avisos nos dias escolhidos'
+          : 'Você escolhe o que acompanhar';
   return (
     <div className="ac-page ac-radar">
       <header className="ac-page-heading">
@@ -192,14 +206,13 @@ export function CustomerRadar({
                 ? 'Você está recebendo seu Radar'
                 : 'Seu Radar está em pausa'}
             </span>
-            <h2>
-              {loaded.preferences.enabled
-                ? 'Todo dia, às ' + loaded.preferences.time
-                : 'Você decide quando começar'}
-            </h2>
+            <h2>{timingLabel}</h2>
             <p>
-              {activeCount} {activeCount === 1 ? 'assunto escolhido' : 'assuntos escolhidos'} · seu
-              horário local
+              {activeCount} {activeCount === 1 ? 'assunto escolhido' : 'assuntos escolhidos'}
+              {digestCount > 0 && hasIndividualAlerts
+                ? ' · resumo diário e avisos individuais'
+                : ''}
+              {' · seu horário local'}
             </p>
           </div>
           <button
@@ -214,11 +227,14 @@ export function CustomerRadar({
         <section className="ac-card ac-radar-chat-help" aria-labelledby="radar-chat-title">
           <p className="ac-eyebrow">DO SEU JEITO</p>
           <h2 id="radar-chat-title">É só me pedir no WhatsApp</h2>
-          <p>Conte o assunto e o horário. Para mudar ou pausar, continue a conversa.</p>
+          <p>
+            Peça o que quer acompanhar. Para escolher o horário, mudar ou pausar, continue a
+            conversa.
+          </p>
           <div className="ac-radar-examples">
             {[
               'Quero receber notícias de tecnologia todo dia às 8h',
-              'Acompanhe o Flamengo no meu resumo das 7h',
+              'Me avise sempre que tiver jogo do Vasco',
               'Pause as notícias do meu Radar',
             ].map((example) =>
               loaded.chatUrl ? (
@@ -233,13 +249,14 @@ export function CustomerRadar({
         </section>
       </div>
       {settingsOpen ? (
-        <CustomerDialog title="Horários e notificações" onClose={() => setSettingsOpen(false)}>
+        <CustomerDialog title="Envios e horários do Radar" onClose={() => setSettingsOpen(false)}>
           <section className="ac-radar-settings" aria-labelledby="radar-preferences">
             <div>
-              <h2 id="radar-preferences">Seu resumo no WhatsApp</h2>
+              <h2 id="radar-preferences">Resumos e avisos no WhatsApp</h2>
               <p>
-                Um resumo com os assuntos que você escolheu. Você também pode ajustar estes horários
-                pelo WhatsApp.
+                Ative ou pause todos os envios do Radar. O horário do resumo vale só para os
+                assuntos marcados como resumo diário; os avisos individuais seguem seus próprios
+                horários. Você também pode ajustar pelo WhatsApp.
               </p>
             </div>
             <form onSubmit={savePrefs}>
@@ -254,8 +271,8 @@ export function CustomerRadar({
                   }}
                 />
                 <span>
-                  <strong>Receber meu Radar no WhatsApp</strong>
-                  <small>Você pode desativar quando quiser. Nada é enviado sem sua ativação.</small>
+                  <strong>Receber todos os envios do Radar</strong>
+                  <small>Ao desativar, você pausa resumos e avisos individuais.</small>
                 </span>
               </label>
               <div className="ac-radar-times">
@@ -301,8 +318,8 @@ export function CustomerRadar({
               </div>
               <div className="ac-radar-settings-footer">
                 <span>
-                  Horários em {loaded.timeZone.replaceAll('_', ' ')}. Alertas vencidos não são
-                  enviados depois.
+                  O período de silêncio vale para todos os envios. Horários em{' '}
+                  {loaded.timeZone.replaceAll('_', ' ')}. Alertas vencidos não são enviados depois.
                 </span>
                 <button
                   className="ac-button ac-button--secondary"
@@ -604,6 +621,7 @@ function RadarForm({
           target: editing.target,
           query: editing.query,
           delivery: editing.delivery,
+          notifyTime: editing.notifyTime,
           threshold: editing.threshold,
           comparison: editing.comparison,
           leadMinutes: editing.leadMinutes,
@@ -631,7 +649,7 @@ function RadarForm({
       source: s.id,
       target:
         s.id === 'energy' ? 'bandeira-tarifaria' : ['currency', 'ptax'].includes(s.id) ? 'USD' : '',
-      delivery: 'digest',
+      delivery: s.id === 'football' ? 'matchday' : 'digest',
       leadMinutes: 60,
     });
   };
@@ -664,22 +682,32 @@ function RadarForm({
       setError('Selecione um resultado da busca.');
       return;
     }
+    if (
+      input.delivery === 'matchday' &&
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.notifyTime ?? '')
+    ) {
+      setError('Escolha o horário do aviso no dia do jogo.');
+      return;
+    }
     lock.current = true;
     setBusy(true);
     setError(null);
+    const { notifyTime, ...baseInput } = input;
     try {
       if (editing)
         await customerApi.radarChange(customer.accountId, editing.id, {
           delivery: input.delivery,
           leadMinutes: input.leadMinutes,
+          ...(input.delivery === 'matchday' ? { notifyTime } : {}),
           ...(input.delivery === 'threshold'
             ? { threshold: input.threshold, comparison: input.comparison }
             : {}),
         });
       else
         await customerApi.radarCreate(customer.accountId, {
-          ...input,
+          ...baseInput,
           target: choice?.id ?? input.target,
+          ...(input.delivery === 'matchday' ? { notifyTime } : {}),
           ...(input.delivery === 'threshold' ? { comparison: input.comparison ?? 'above' } : {}),
         });
       onSaved();
@@ -860,6 +888,9 @@ function RadarForm({
                   setInput({ ...input, delivery: e.target.value as RadarInput['delivery'] })
                 }
               >
+                {source.id === 'football' ? (
+                  <option value="matchday">Só nos dias de jogo</option>
+                ) : null}
                 <option value="digest">Junto no resumo diário</option>
                 {source.id === 'series' ? <option value="before">Antes do evento</option> : null}
                 {['currency', 'ptax'].includes(source.id) ? (
@@ -867,6 +898,17 @@ function RadarForm({
                 ) : null}
               </select>
             </label>
+            {input.delivery === 'matchday' ? (
+              <label>
+                Horário do aviso no dia do jogo
+                <input
+                  type="time"
+                  required
+                  value={input.notifyTime ?? ''}
+                  onChange={(e) => setInput({ ...input, notifyTime: e.target.value })}
+                />
+              </label>
+            ) : null}
             {input.delivery === 'before' ? (
               <label>
                 Antecedência
@@ -914,7 +956,9 @@ function RadarForm({
             <p className="ac-radar-source-note">
               {source.provider} · {source.license}.{' '}
               {source.id === 'football'
-                ? 'Calendário comunitário aberto. Datas podem mudar e horários podem não estar confirmados. Sem placar ao vivo.'
+                ? input.delivery === 'matchday'
+                  ? 'Você recebe no horário escolhido, só nos dias com jogo previsto. A data pode mudar e o horário de início pode não estar confirmado. Sem placar ao vivo.'
+                  : 'Jogos previstos no seu resumo diário. A data pode mudar e o horário de início pode não estar confirmado. Sem placar ao vivo.'
                 : source.id === 'series'
                   ? 'A data da fonte não confirma estreia no Brasil.'
                   : source.id === 'ptax' || source.id === 'currency'

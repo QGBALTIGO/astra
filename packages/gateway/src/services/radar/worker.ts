@@ -216,20 +216,19 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
           row.interest_id &&
           (!interest ||
             !sourceAvailable(interest.input.source) ||
-            !stillMatchesDelivery(interest, row, now))
+            !stillMatchesDelivery(interest, row, now, account.timeZone))
         ) {
           await radarRepo.finishDelivery(row, 'cancelled');
           continue;
         }
         const text = row.interest_id
-          ? '📡 *' +
+          ? (interest?.input.source === 'football' ? '⚽ *' : '📡 *') +
             row.payload.title +
             '*\n\n' +
             row.payload.text +
-            '\n\nFonte: ' +
-            row.payload.source +
-            ' · ' +
-            row.payload.url
+            (interest?.input.source === 'football'
+              ? ''
+              : '\n\nFonte: ' + row.payload.source + ' · ' + row.payload.url)
           : digestText(
               requested ? interests.map((i) => ({ ...i, last_content_key: null })) : interests,
               now,

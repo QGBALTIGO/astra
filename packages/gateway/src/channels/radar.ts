@@ -73,7 +73,13 @@ export async function tryRadarChannelReply(
       (interests.length
         ? interests
             .slice(0, 15)
-            .map((i) => '• ' + i.label + (i.active ? '' : ' (pausado)'))
+            .map(
+              (i) =>
+                '• ' +
+                i.label +
+                (i.delivery === 'matchday' ? ' · só nos dias de jogo, às ' + i.notifyTime : '') +
+                (i.active ? '' : ' (pausado)')
+            )
             .join('\n')
         : 'Você ainda não escolheu assuntos para acompanhar.') +
       '\n\nGerencie seus assuntos: ' +
