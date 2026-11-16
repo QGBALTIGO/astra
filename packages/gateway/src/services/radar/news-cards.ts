@@ -31,7 +31,6 @@ export function isRadarNewsCard(card: unknown): card is RadarNewsCard {
       u.hostname === 'pt.globalvoices.org' &&
       u.href.length <= 600 &&
       renderUrlButtonAsText({
-        platformChatId: '',
         text: c.text,
         urlButton: { label: c.urlButton.label, url: u.href },
       }).length <= 1024 &&
