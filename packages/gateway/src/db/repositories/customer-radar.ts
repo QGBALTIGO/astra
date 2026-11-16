@@ -644,8 +644,8 @@ export class RadarRepository extends BaseRepository {
      CASE WHEN ${samePart} THEN ${parts} ELSE ${parts} || jsonb_build_array(jsonb_build_object('index',$3::int,'transportId',$4::text)) END,true)
    WHERE o.id=$1 AND o.lease_token=$2 AND o.user_id=$6 AND o.status='sending'
      AND jsonb_typeof(o.payload)='object'
-     AND (NOT(o.payload ? 'deliveredParts') OR jsonb_typeof(o.payload->'deliveredParts')='array')
-     AND (NOT(o.payload ? 'totalParts') OR o.payload->'totalParts'=to_jsonb($5::int))
+     AND (o.payload->'deliveredParts' IS NULL OR jsonb_typeof(o.payload->'deliveredParts')='array')
+     AND (o.payload->'totalParts' IS NULL OR o.payload->'totalParts'=to_jsonb($5::int))
      AND (${samePart} OR (jsonb_array_length(${parts})=$3 AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(${parts}) part WHERE part->'index'=to_jsonb($3::int))))
    RETURNING o.id`,
       [row.id, row.lease_token, index, transportId, totalParts, row.user_id]
