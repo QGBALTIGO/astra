@@ -178,7 +178,11 @@ customerRadarRoutes.post('/interests', async (c) => {
 const patchSchema = z
   .object({
     active: z.boolean().optional(),
-    delivery: z.enum(['digest', 'before', 'threshold']).optional(),
+    delivery: z.enum(['digest', 'before', 'threshold', 'matchday']).optional(),
+    notifyTime: z
+      .string()
+      .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
+      .optional(),
     threshold: z
       .string()
       .regex(/^\d{1,8}(?:[.,]\d{1,6})?$/)

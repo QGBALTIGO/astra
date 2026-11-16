@@ -141,9 +141,11 @@ export class CustomerRadarRepository extends BaseRepository {
       validateMatchdayTime(input, pref.preferences);
       const nextPreferences = radarPreferencesSchema.parse({
         ...pref.preferences,
-        enabled: true,
+        // Matchday uses its own validated clock; a paused digest keeps its clock unchanged.
+        enabled: input.delivery !== 'matchday',
         time: input.delivery === 'matchday' ? pref.preferences.time : time,
       });
+      nextPreferences.enabled = true;
       await this.execute(
         `INSERT INTO radar_resources(id,source,target,label,query) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO NOTHING`,
         [rid, input.source, input.target, label, input.query ?? null]
@@ -188,6 +190,10 @@ export class CustomerRadarRepository extends BaseRepository {
       ]);
       if (input.delivery === 'matchday')
         validateMatchdayTime(input, (await this.preferences()).preferences);
+      if (input.delivery === 'digest') {
+        const { preferences } = await this.preferences();
+        radarPreferencesSchema.parse(preferences);
+      }
       await this.execute(
         `INSERT INTO radar_resources(id,source,target,label,query) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO NOTHING`,
         [rid, input.source, input.target, label, input.query ?? null]
@@ -227,6 +233,8 @@ export class CustomerRadarRepository extends BaseRepository {
         const { preferences } = await this.preferences();
         validateMatchdayTime(input, preferences);
       }
+      if (input.delivery === 'digest' && (active ?? old.active))
+        radarPreferencesSchema.parse((await this.preferences()).preferences);
       await this.execute(
         `UPDATE customer_radar_interests SET active=$3,input=$4::jsonb,revision=revision+1,
     last_digest_day=NULL,threshold_state=NULL,updated_at=NOW() WHERE user_id=$1 AND id=$2`,

@@ -102,6 +102,21 @@ beforeEach(() => {
   m.preview.mockResolvedValue('queued');
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it.each([undefined, '07:00'])(
+    'uses the game-day clock actually stated instead of the model time %s',
+    async (time) => {
+      m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+      const result = await message(user, 'Me avise sempre que tiver jogo do Vasco às 9h30', {
+        action: 'status',
+        time,
+      });
+      expect(result.changed).toBe(true);
+      expect(m.follow.mock.calls[0]?.[1]).toMatchObject({
+        delivery: 'matchday',
+        notifyTime: '09:30',
+      });
+    }
+  );
   it('does not turn a one-off game reminder into a recurring follow', async () => {
     const result = await message(user, 'Me lembre do jogo do Vasco amanhã às 09:00', {
       action: 'follow',

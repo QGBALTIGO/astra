@@ -252,6 +252,11 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       subject: teams.length === 1 ? teams[0]![1] : teams.length > 1 ? undefined : supplied,
       choiceId: undefined,
     };
+    const statedClock = requestText.match(
+      /\bas\s+([01]?\d|2[0-3])(?:(?:h|:)([0-5]?\d)?)?(?=$|[\s.,!?])/u
+    );
+    if (statedClock)
+      args.time = statedClock[1]!.padStart(2, '0') + ':' + (statedClock[2] ?? '0').padStart(2, '0');
     action = 'follow';
   }
   if (

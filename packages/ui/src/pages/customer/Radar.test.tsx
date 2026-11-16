@@ -139,6 +139,7 @@ const chooseFootball = async () => {
 describe('native customer Radar opt-in and navigation', () => {
   it('shows game-day follows with their chosen time rather than as daily summaries', async () => {
     enableFootball();
+    data.preferences.enabled = true;
     data.interests = [
       {
         ...interest(),
@@ -153,6 +154,51 @@ describe('native customer Radar opt-in and navigation', () => {
     const card = dom.container.querySelector('article[aria-label="Vasco"]')!;
     expect(card.textContent).toContain('Só nos dias de jogo · às 09:00');
     expect(card.textContent).not.toContain('No resumo diário');
+    const summary = dom.container.querySelector('.ac-radar-summary')!;
+    expect(summary.querySelector('h2')?.textContent).toBe('Só nos dias de jogo');
+    expect(summary.textContent).not.toContain('07:00');
+    expect(summary.textContent).not.toContain('Todo dia');
+  });
+  it('uses the daily summary clock only when an active digest follow exists', async () => {
+    data.preferences.enabled = true;
+    data.preferences.time = '08:30';
+    data.interests = [interest()];
+    await mount();
+    const summary = dom.container.querySelector('.ac-radar-summary')!;
+    expect(summary.querySelector('h2')?.textContent).toBe('Todo dia, às 08:30');
+    expect(summary.textContent).not.toContain('avisos individuais');
+  });
+  it('explains when daily summaries and individual alerts are both active', async () => {
+    enableFootball();
+    data.preferences.enabled = true;
+    data.interests = [
+      interest(),
+      {
+        ...interest(),
+        id: 'football-follow',
+        source: 'football',
+        target: 'br:vasco-da-gama',
+        label: 'Vasco',
+        delivery: 'matchday',
+        notifyTime: '09:00',
+      },
+    ];
+    await mount();
+    const summary = dom.container.querySelector('.ac-radar-summary')!;
+    expect(summary.querySelector('h2')?.textContent).toBe('Todo dia, às 07:00');
+    expect(summary.textContent).toContain('resumo diário e avisos individuais');
+  });
+  it('does not describe individual alerts as daily summaries or count paused digests', async () => {
+    data.preferences.enabled = true;
+    data.interests = [
+      { ...interest(), active: false },
+      { ...interest(), id: 'value-alert', delivery: 'threshold', threshold: '5' },
+    ];
+    await mount();
+    const summary = dom.container.querySelector('.ac-radar-summary')!;
+    expect(summary.querySelector('h2')?.textContent).toBe('Avisos nos dias escolhidos');
+    expect(summary.textContent).not.toContain('07:00');
+    expect(summary.textContent).toContain('1 assunto escolhido');
   });
   it('creates a game-day follow at the chosen local time without enabling all notifications', async () => {
     await chooseFootball();
@@ -291,8 +337,15 @@ describe('native customer Radar opt-in and navigation', () => {
     expect(baseApi.summary).not.toHaveBeenCalled();
     expect(dom.container.querySelector('input[type="checkbox"]')).toBeNull();
     expect(dom.container.textContent).toContain('É só me pedir no WhatsApp');
+    expect(dom.container.textContent).toContain('Me avise sempre que tiver jogo do Vasco');
+    expect(dom.container.textContent).not.toContain('Acompanhe o Flamengo no meu resumo das 7h');
     await dom.click(dom.button('Ajustar horários e notificações'));
-    expect((dom.field('Receber meu Radar') as HTMLInputElement).checked).toBe(false);
+    expect((dom.field('Receber todos os envios do Radar') as HTMLInputElement).checked).toBe(false);
+    const settings = dom.container.querySelector('[role="dialog"]')!;
+    expect(settings.textContent).toContain('Resumos e avisos no WhatsApp');
+    expect(settings.textContent).toContain('os avisos individuais seguem seus próprios horários');
+    expect(settings.textContent).toContain('O período de silêncio vale para todos os envios');
+    expect(settings.textContent).toContain('Ao desativar, você pausa resumos e avisos individuais');
     expect(read).toHaveBeenCalledWith(customerFixture.accountId, expect.any(AbortSignal));
   });
   it('shows the unavailable football source honestly rather than creating a fake follow', async () => {
@@ -376,7 +429,7 @@ describe('native customer Radar opt-in and navigation', () => {
   it('saves the explicit WhatsApp opt-in and preserves the chosen time', async () => {
     await mount();
     await dom.click(dom.button('Ajustar horários e notificações'));
-    await dom.click(dom.field('Receber meu Radar') as HTMLElement);
+    await dom.click(dom.field('Receber todos os envios do Radar') as HTMLElement);
     await dom.fill(dom.field('Horário do resumo'), '08:30');
     await dom.click(dom.button('Salvar preferências'));
     expect(prefs).toHaveBeenCalledWith(customerFixture.accountId, {

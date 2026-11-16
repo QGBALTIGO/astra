@@ -3,6 +3,7 @@ import { CustomerRadarRepository, RadarRepository } from './customer-radar.js';
 import { radarTestDatabase, seedRadarAccounts } from './radar-pg-fixture.js';
 import type { PostgresAdapter } from '../adapters/postgres-adapter.js';
 import { RADAR_DEFAULT_PREFERENCES, type RadarSnapshot } from '../../services/radar/contracts.js';
+import { interestDecisions, stillMatchesDelivery } from '../../services/radar/rules.js';
 describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
   'Radar actual PostgreSQL isolation and recovery',
   () => {
@@ -352,7 +353,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       const next = await a.followFromChat(
         {
           source: 'football',
-          target: 'Vasco',
+          target: 'br:cr-vasco-da-gama',
           delivery: 'matchday',
           notifyTime: '09:00',
           leadMinutes: 60,
@@ -401,7 +402,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       const next = await a.followFromChat(
         {
           source: 'football',
-          target: 'Vasco',
+          target: 'br:cr-vasco-da-gama',
           delivery: 'matchday',
           notifyTime: '09:30',
           leadMinutes: 60,
@@ -419,6 +420,55 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(await a.preferences()).toEqual(preferences);
       expect(await publicRepo.deliveryCurrent(otherDelivery)).toBe(true);
     });
+    it('starts matchday with a paused digest clock in quiet hours without allowing that digest to resume', async () => {
+      await a.savePreferences({
+        ...RADAR_DEFAULT_PREFERENCES,
+        time: '09:00',
+        quietStart: '08:00',
+        quietEnd: '10:00',
+      });
+      const old = await create();
+      const followed = await a.followFromChat(
+        {
+          source: 'football',
+          target: 'br:cr-vasco-da-gama',
+          delivery: 'matchday',
+          notifyTime: '11:00',
+          leadMinutes: 60,
+        },
+        'Vasco',
+        '11:00'
+      );
+      expect((await a.preferences()).preferences).toMatchObject({ enabled: true, time: '09:00' });
+      expect(followed.interest).toMatchObject({
+        delivery: 'matchday',
+        notifyTime: '11:00',
+        active: true,
+      });
+      expect((await a.get(old.id))!.active).toBe(false);
+      await expect(a.change(old.id, { active: true })).rejects.toThrow('horário do resumo');
+      await expect(
+        a.create({ source: 'currency', target: 'EUR', delivery: 'digest', leadMinutes: 60 }, 'EUR')
+      ).rejects.toThrow('horário do resumo');
+      await expect(a.savePreferences((await a.preferences()).preferences)).rejects.toThrow(
+        'horário do resumo'
+      );
+      expect(
+        (
+          await a.followFromChat(
+            {
+              source: 'football',
+              target: 'br:cr-vasco-da-gama',
+              delivery: 'matchday',
+              notifyTime: '11:00',
+              leadMinutes: 60,
+            },
+            'Vasco',
+            '12:00'
+          )
+        ).interest.notifyTime
+      ).toBe('12:00');
+    });
     it.each(['22:00', '23:30', '06:59'])(
       'rejects matchday time %s during quiet hours without partial opt-in',
       async (time) => {
@@ -428,7 +478,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
           a.followFromChat(
             {
               source: 'football',
-              target: 'Vasco',
+              target: 'br:cr-vasco-da-gama',
               delivery: 'matchday',
               notifyTime: time,
               leadMinutes: 60,
@@ -451,7 +501,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       const next = await a.followFromChat(
         {
           source: 'football',
-          target: 'Vasco',
+          target: 'br:cr-vasco-da-gama',
           delivery: 'matchday',
           notifyTime: '07:00',
           leadMinutes: 60,
@@ -479,7 +529,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         a.create(
           {
             source: 'football',
-            target: 'Vasco',
+            target: 'br:cr-vasco-da-gama',
             delivery: 'matchday',
             notifyTime: '23:00',
             leadMinutes: 60,
@@ -498,7 +548,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       await a.followFromChat(
         {
           source: 'football',
-          target: 'Vasco',
+          target: 'br:cr-vasco-da-gama',
           delivery: 'matchday',
           notifyTime: '09:30',
           leadMinutes: 60,
@@ -676,7 +726,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       const next = await a.followFromChat(
         {
           source: 'football',
-          target: 'Vasco',
+          target: 'br:cr-vasco-da-gama',
           delivery: 'matchday',
           notifyTime: '09:30',
           leadMinutes: 60,
@@ -750,6 +800,79 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         await publicRepo.queue(userA, (await a.get(i.id))!, revision, key, payload, expiry)
       ).toBe(true);
       expect(await publicRepo.claimDeliveries()).toHaveLength(1);
+    });
+    it('rearms the same matchday key after stale source cancellation and a fresh snapshot', async () => {
+      const followed = await a.followFromChat(
+        {
+          source: 'football',
+          target: 'br:cr-vasco-da-gama',
+          delivery: 'matchday',
+          notifyTime: '09:30',
+          leadMinutes: 60,
+        },
+        'Vasco',
+        '09:30'
+      );
+      const now = new Date('2099-11-16T13:30:00Z');
+      const later = new Date('2099-11-16T13:31:00Z');
+      const snapshot: RadarSnapshot = {
+        items: [
+          { id: 'vasco-match', title: 'Vasco × Santos', date: '2099-11-16', status: 'scheduled' },
+        ],
+        observedAt: now.toISOString(),
+        expiresAt: '2099-11-16T13:30:30Z',
+        sourceLabel: 'openfootball',
+        sourceUrl: 'https://github.com/openfootball/south-america',
+      };
+      const original = (await a.get(followed.interest.id))!;
+      await db.execute('UPDATE radar_resources SET snapshot=$2::jsonb WHERE id=$1', [
+        original.resource_id,
+        JSON.stringify(snapshot),
+      ]);
+      const interest = (await a.get(original.id))!;
+      const [decision] = interestDecisions(interest, now, 'America/Campo_Grande');
+      const { revision } = await a.preferences();
+      expect(decision!.expiresAt.getTime()).toBeGreaterThan(later.getTime());
+      expect(
+        await publicRepo.queue(
+          userA,
+          interest,
+          revision,
+          decision!.key,
+          decision!.payload,
+          decision!.expiresAt
+        )
+      ).toBe(true);
+      const oldJob = (await publicRepo.claimDeliveries())[0]!;
+      expect(stillMatchesDelivery(interest, oldJob, later, 'America/Campo_Grande')).toBe(false);
+      await publicRepo.finishDelivery(oldJob, 'cancelled');
+      await db.execute('UPDATE radar_resources SET snapshot=$2::jsonb WHERE id=$1', [
+        interest.resource_id,
+        JSON.stringify({
+          ...snapshot,
+          observedAt: later.toISOString(),
+          expiresAt: '2099-11-16T14:31:00Z',
+        }),
+      ]);
+      const refreshed = (await a.get(interest.id))!;
+      const [next] = interestDecisions(refreshed, later, 'America/Campo_Grande');
+      expect(next!.key).toBe(decision!.key);
+      expect(refreshed.revision).toBe(interest.revision);
+      expect(
+        await publicRepo.queue(
+          userA,
+          refreshed,
+          revision,
+          next!.key,
+          next!.payload,
+          next!.expiresAt
+        )
+      ).toBe(true);
+      const rearmed = (await publicRepo.claimDeliveries())[0]!;
+      expect(rearmed.id).toBe(oldJob.id);
+      expect(stillMatchesDelivery(refreshed, rearmed, later, 'America/Campo_Grande')).toBe(true);
+      expect(await publicRepo.beginDelivery(oldJob)).toBe(false);
+      expect(await publicRepo.beginDelivery(rearmed)).toBe(true);
     });
     it.each(['sent', 'unknown'] as const)(
       'never replays a %s event after rescheduling or a preference edit',

@@ -145,7 +145,7 @@ export function interestDecisions(
           itemId: item.id,
           matchDate: item.date,
         },
-        expiresAt: new Date(Math.min(windowEnd, Date.parse(s.expiresAt))),
+        expiresAt: new Date(windowEnd),
       }));
   }
   if (interest.input.delivery === 'threshold') {

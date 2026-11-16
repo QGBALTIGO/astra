@@ -451,11 +451,23 @@ describe('football match-day delivery', () => {
   it('does not include match-day interests in the daily digest', () => {
     expect(digestText([matchday()], now, 'America/Cuiaba')).toBeNull();
   });
-  it('expires the queued notice as soon as its source snapshot does', () => {
+  it('keeps the event deadline while requiring fresh data after a short-lived snapshot expires', () => {
     const i = matchday();
-    i.snapshot!.expiresAt = '2026-11-16T11:15:00Z';
-    expect(interestDecisions(i, now, 'America/Cuiaba')[0]!.expiresAt.toISOString()).toBe(
-      '2026-11-16T11:15:00.000Z'
+    i.snapshot!.expiresAt = '2026-11-16T11:01:00Z';
+    const original = interestDecisions(i, now, 'America/Cuiaba')[0]!;
+    const row = pending(i);
+    expect(original.expiresAt.toISOString()).toBe('2026-11-16T13:00:00.000Z');
+    const reconnected = new Date('2026-11-16T11:02:00Z');
+    expect(interestDecisions(i, reconnected, 'America/Cuiaba')).toEqual([]);
+    expect(stillMatchesDelivery(i, row, reconnected, 'America/Cuiaba')).toBe(false);
+    i.snapshot!.observedAt = reconnected.toISOString();
+    i.snapshot!.expiresAt = '2026-11-16T17:02:00Z';
+    const refreshed = interestDecisions(i, reconnected, 'America/Cuiaba')[0]!;
+    expect(refreshed.key).toBe(original.key);
+    expect(refreshed.expiresAt).toEqual(original.expiresAt);
+    expect(stillMatchesDelivery(i, row, reconnected, 'America/Cuiaba')).toBe(true);
+    expect(stillMatchesDelivery(i, row, new Date('2026-11-16T13:00:00Z'), 'America/Cuiaba')).toBe(
+      false
     );
   });
   it('expires late-night delivery at the end of the local match date', () => {
