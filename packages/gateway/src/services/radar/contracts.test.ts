@@ -20,6 +20,9 @@ import {
 } from './rules.js';
 import type { RadarInterestRow, RadarDeliveryRow } from '../../db/repositories/customer-radar.js';
 const now = new Date('2026-11-16T11:00:00Z');
+it('shares public topic identity regardless of capitalization without changing user labels', () => {
+  expect(resourceId('news', 'Tecnologia')).toBe(resourceId('news', 'tecnologia'));
+});
 function interest(input: Record<string, unknown> = {}): RadarInterestRow {
   return {
     id: 'a',

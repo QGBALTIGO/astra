@@ -1,5 +1,24 @@
 import { expect, test } from '@playwright/test';
-import { RADAR_CATALOG } from '../../gateway/src/services/radar/contracts';
+const RADAR_CATALOG = [
+  ['weather', 'Clima', 'MET Norway'],
+  ['ptax', 'Dólar e PTAX', 'Banco Central'],
+  ['currency', 'Moedas e conversões', 'Frankfurter'],
+  ['football', 'Futebol', 'football-data.org'],
+  ['news', 'Notícias', 'GDELT'],
+  ['series', 'Séries', 'TVmaze'],
+  ['gazettes', 'Editais e comunicados', 'Querido Diário'],
+  ['energy', 'Energia', 'ANEEL'],
+  ['releases', 'Tecnologia', 'GitHub'],
+].map(([id, name, provider]) => ({
+  id,
+  name,
+  provider,
+  description: 'Acompanhe atualizações das fontes públicas.',
+  url: 'https://example.com/',
+  license: 'Fonte pública com atribuição',
+  hint: 'Assunto',
+  needsSearch: ['weather', 'football', 'series', 'gazettes'].includes(id!),
+}));
 
 // Synthetic browser fixtures only: no actual codes, accounts, providers or messages.
 for (const theme of ['light', 'dark'] as const)

@@ -31,11 +31,12 @@ function launch() {
   try {
     const instance = new Worker(
       new URL(
-        import.meta.url.endsWith('.ts') ? '../../radar-worker.ts' : '../../radar-worker.js',
+        import.meta.url.endsWith('.ts') ? '../../radar-worker-dev.mjs' : '../../radar-worker.js',
         import.meta.url
       ),
       {
         env: radarWorkerEnvironment(process.env),
+        execArgv: [],
         resourceLimits: { maxOldGenerationSizeMb: 128, stackSizeMb: 4 },
       }
     );
@@ -46,8 +47,10 @@ function launch() {
         log.info('Coletor Radar pronto em thread separada.');
       }
     });
-    instance.on('error', () =>
-      log.warn('Coletor Radar interrompido; nova tentativa será agendada.')
+    instance.on('error', (error: Error & { code?: string }) =>
+      log.warn('Coletor Radar interrompido; nova tentativa será agendada.', {
+        code: typeof error.code === 'string' ? error.code : 'worker_error',
+      })
     );
     instance.on('exit', () => {
       if (worker === instance) worker = undefined;

@@ -260,9 +260,19 @@ describe('native customer Radar opt-in and navigation', () => {
     expect(dom.button('Excluir USD').disabled).toBe(false);
   });
   it('preserves drafts when a background refresh returns older preferences', async () => {
-    await mount();
-    await dom.fill(dom.field('Horário do resumo'), '09:15');
-    await act(async () => window.dispatchEvent(new Event('focus')));
-    expect((dom.field('Horário do resumo') as HTMLInputElement).value).toBe('09:15');
+    data.interests = [interest()];
+    vi.useFakeTimers();
+    try {
+      await mount();
+      await dom.fill(dom.field('Horário do resumo'), '09:15');
+      const reads = read.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60000);
+      });
+      expect(read.mock.calls.length).toBeGreaterThan(reads);
+      expect((dom.field('Horário do resumo') as HTMLInputElement).value).toBe('09:15');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

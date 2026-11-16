@@ -79,6 +79,14 @@ export function CustomerRadar({
     [error, setError] = useState<string | null>(null);
   const lock = useRef(false);
   const [clock, setClock] = useState(Date.now());
+  const hasInterests = !!data.data?.interests.length;
+  useEffect(() => {
+    if (!active || !hasInterests) return;
+    const t = setInterval(() => {
+      if (document.visibilityState !== 'hidden') data.retry();
+    }, 60000);
+    return () => clearInterval(t);
+  }, [active, hasInterests, data.retry]);
   useEffect(() => {
     if (active) {
       setClock(Date.now());

@@ -8,7 +8,7 @@ import { radarTestDatabase } from '../../db/repositories/radar-pg-fixture.js';
 describe.skipIf(
   !process.env.ASTRA_RADAR_TEST_PORT || process.env.ASTRA_RADAR_WORKER_SMOKE !== 'true'
 )('dedicated Radar worker with actual pgvector schema', () => {
-  it.each(['standalone', 'thread'])(
+  it.each(['standalone', 'thread', 'compiled-thread'])(
     'boots in %s mode and stops cleanly without starting another channel gateway',
     async (mode) => {
       const fixture = await radarTestDatabase();
@@ -20,6 +20,10 @@ describe.skipIf(
           'SELECT current_database() AS name'
         ))!.name;
         if (!/^radar_lab_[a-f0-9]{32}$/.test(database)) throw Error('Refusing non-lab database');
+        const runtimePath =
+          mode === 'compiled-thread'
+            ? './dist/services/radar/runtime.js'
+            : './src/services/radar/runtime.ts';
         const args =
           mode === 'standalone'
             ? ['--import', 'tsx', 'src/radar-worker.ts']
@@ -27,7 +31,9 @@ describe.skipIf(
                 '--import',
                 'tsx',
                 '-e',
-                "void import('./src/services/radar/runtime.ts').then(({startRadarRuntime,stopRadarRuntime})=>{const keep=setInterval(()=>{},60000);process.once('SIGTERM',async()=>{clearInterval(keep);await stopRadarRuntime();});startRadarRuntime();});",
+                'void import(' +
+                  JSON.stringify(runtimePath) +
+                  ").then(({startRadarRuntime,stopRadarRuntime})=>{const keep=setInterval(()=>{},60000);process.once('SIGTERM',async()=>{clearInterval(keep);await stopRadarRuntime();});startRadarRuntime();});",
               ];
         child = spawn(process.execPath, args, {
           cwd: process.cwd(),

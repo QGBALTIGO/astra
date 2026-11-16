@@ -259,7 +259,11 @@ export function normalizeRadarTarget(source: RadarSourceId, input: string): stri
 export function resourceId(source: RadarSourceId, target: string, query?: string): string {
   return createHash('sha256')
     .update(
-      JSON.stringify([source, target, query?.normalize('NFC').toLocaleLowerCase('pt-BR') ?? ''])
+      JSON.stringify([
+        source,
+        source === 'news' ? target.normalize('NFC').toLocaleLowerCase('pt-BR') : target,
+        query?.normalize('NFC').toLocaleLowerCase('pt-BR') ?? '',
+      ])
     )
     .digest('hex');
 }
