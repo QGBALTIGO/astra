@@ -50,11 +50,17 @@ export function requiredChannelEmailDigestTool(
 export function requiredChannelRadarTool(text: string, previousText = ''): string | undefined {
   if (isConversationalOnlyChannelRequest(text)) return undefined;
   const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  if (/\b(?:gastei|paguei|recebi|lancamento|assinatura)\b/.test(input)) return undefined;
   const direct =
     /\b(?:radar|noticias|manchetes|brasileirao|futebol)\b/.test(input) &&
     !/\b(?:gastei|paguei|recebi|lancamento|assinatura)\b/.test(input);
   const team =
     /\b(?:meu time|me avise quando.{0,35}jogar|acompanhe.{0,30}(?:flamengo|palmeiras|corinthians|vasco))\b/.test(
+      input
+    );
+  const footballQuery =
+    /\b(?:jog[oa]s?|jogar|partidas?|calendario|tabela|resultados?|placar)\b/.test(input) &&
+    /\b(?:flamengo|palmeiras|corinthians|vasco|santos|sao paulo|spfc|gremio|internacional|botafogo|fluminense|cruzeiro|atletico|athletico|bahia|bragantino|chapecoense|coritiba|mirassol|remo|vitoria)\b/.test(
       input
     );
   const recurringWeather =
@@ -69,7 +75,9 @@ export function requiredChannelRadarTool(text: string, previousText = ''): strin
     !/\b(?:oi|ola|qual|quais|como|quando|quanto|temperatura|clima|reais|gastei|gastos?|paguei|recebi|lembre|lembretes?|assinaturas?|cancelar tudo|bom dia|boa tarde|boa noite|obrigad\w*)\b/.test(
       input
     );
-  return direct || team || recurringWeather || followup ? 'core.manage_radar' : undefined;
+  return direct || team || footballQuery || recurringWeather || followup
+    ? 'core.manage_radar'
+    : undefined;
 }
 
 export function requiredChannelWeatherTool(text: string, previousText = ''): string | undefined {

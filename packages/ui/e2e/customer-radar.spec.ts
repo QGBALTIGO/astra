@@ -82,6 +82,14 @@ for (const theme of ['light', 'dark'] as const)
       await expect(
         page.getByRole('link', { name: 'Configurar pelo WhatsApp', exact: true })
       ).toBeVisible();
+      if (width <= 600) {
+        const copy = (await page.locator('.ac-page-heading > div').first().boundingBox())!;
+        const action = (await page
+          .getByRole('link', { name: 'Configurar pelo WhatsApp', exact: true })
+          .boundingBox())!;
+        expect(action.y).toBeGreaterThanOrEqual(copy.y + copy.height);
+        expect(action.width).toBeGreaterThanOrEqual(width - 60);
+      }
       await expect(page.getByRole('heading', { name: 'É só me pedir no WhatsApp' })).toBeVisible();
       await expect(page.getByLabel('Receber meu Radar no WhatsApp')).toHaveCount(0);
       await expect(page.locator('.ac-navigation a:visible')).toHaveCount(width <= 767 ? 6 : 7);

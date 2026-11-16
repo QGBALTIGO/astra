@@ -40,6 +40,11 @@ interface AgentChatOptions {
     toolCall: ToolCall,
     result: { content: string; isError: boolean; durationMs: number }
   ) => void;
+  /** Let a caller finish from audited tool results without another inference round. */
+  onToolResults?: (
+    response: CompletionResponse,
+    results: readonly { toolCallId: string; content: string; isError: boolean }[]
+  ) => string | undefined;
   /** Callback for progress updates */
   onProgress?: (message: string, data?: Record<string, unknown>) => void;
   /** Extended thinking configuration (Anthropic) */
@@ -535,6 +540,19 @@ export class Agent {
           ...this.state,
           toolCallCount: this.state.toolCallCount + response.toolCalls.length,
         };
+
+        const completedReply = !signal?.aborted
+          ? options?.onToolResults?.(response, results)
+          : undefined;
+        if (typeof completedReply === 'string' && completedReply.trim()) {
+          this.memory.addAssistantMessage(this.state.conversation.id, completedReply);
+          return ok({
+            ...response,
+            content: completedReply,
+            toolCalls: undefined,
+            finishReason: 'stop',
+          });
+        }
 
         // Continue loop to get next response
         continue;

@@ -10,6 +10,38 @@ import {
 
 export type RecentReceipt = { facts: string; action: string };
 
+/** Retain a bounded, structured read result as context, never as a completed write. */
+export function expenseReadContext(text: string): RecentReceipt | null {
+  const blocks = text.trim().split('\n\n');
+  const index = blocks.findIndex((b) => /^🔎 \*Seu último gasto\*$/u.test(b));
+  if (index < 0 || index > 1 || blocks.length !== index + 2) return null;
+  const fields = blocks[index + 1]!.split('\n');
+  const labels = new Set<string>();
+  for (const field of fields) {
+    const match = /^• \*([^*\n]+):\* (.{1,220})$/u.exec(field);
+    if (
+      !match ||
+      labels.has(match[1]!) ||
+      !['Valor', 'Descrição', 'Categoria', 'Data', 'Registrado às'].includes(match[1]!)
+    )
+      return null;
+    labels.add(match[1]!);
+  }
+  if (!['Valor', 'Descrição', 'Categoria'].every((key) => labels.has(key))) return null;
+  const facts = blocks.slice(index).join('\n\n');
+  return facts.length <= 900 ? { action: 'Consulta de gasto', facts } : null;
+}
+
+export function needsRecentReplyContext(text: string): boolean {
+  return (
+    asksAboutRecentReceipts(text) ||
+    /^\s*(?:astra[,!:]?\s+)?e\s+(?:mais|tamb[eé]m)\s+r\$/iu.test(text) ||
+    /\b(?:essa|esse|isso|esses|essas|desse|dessa|desses|dessas|ela|ele|anterior|últim[oa]|acabei|mesm[oa]|dela|dele)\b/iu.test(
+      text
+    )
+  );
+}
+
 /** Render stored confirmations, including old receipts without parsed fields. */
 function receiptBlock({ facts, action }: RecentReceipt, latest: boolean): string {
   const expense =

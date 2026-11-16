@@ -38,6 +38,45 @@ function condition(value: unknown): string {
   if (/clearsky/.test(code)) return 'Céu aberto';
   return '';
 }
+/** Only the audited Radar tool's complete reply can finish this narrow channel turn. */
+export function verifiedRadarToolReply(
+  response: { content: string; toolCalls?: readonly { name: string; arguments?: string }[] },
+  results: readonly { content: string; isError: boolean }[]
+): string | undefined {
+  const calls = response.toolCalls ?? [];
+  if (
+    !calls.length ||
+    calls.length !== results.length ||
+    calls.some((c) => !/^(?:core[._])?manage_radar$/.test(c.name.replace(/__/g, '.')))
+  )
+    return;
+  // Listing can be an intermediate lookup before pausing or resuming a chosen topic.
+  if (
+    calls.some((call) => {
+      try {
+        return JSON.parse(call.arguments ?? '{}').action === 'status';
+      } catch {
+        return true;
+      }
+    })
+  )
+    return;
+  const receipts = results.map((r) => ({ ...r, name: 'core.manage_radar', arguments: '' }));
+  if (
+    receipts.some((r) => {
+      const data = result(r);
+      if (data?.kind === 'radar' && typeof data.reply === 'string') return false;
+      try {
+        const envelope = JSON.parse(r.content);
+        return envelope.success !== false || typeof envelope.error !== 'string';
+      } catch {
+        return true;
+      }
+    })
+  )
+    return;
+  return verifiedChannelFacts(response.content, receipts);
+}
 export function verifiedChannelFacts(
   text: string,
   receipts: ChannelToolReceipt[],

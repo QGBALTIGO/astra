@@ -54,7 +54,12 @@ export function digestSection(
       [
         '• ' + item.title,
         item.at ? '  ' + formatter.format(new Date(item.at)) : null,
-        item.text ? '  ' + item.text : null,
+        item.text
+          ? '  ' +
+            (interest.input.source === 'news'
+              ? item.text.replace(' · Global Voices · CC BY 3.0', '')
+              : item.text)
+          : null,
         item.url ? '  ' + item.url : null,
       ]
         .filter(Boolean)
@@ -66,7 +71,7 @@ export function digestSection(
     '*\n' +
     (lines.length ? lines.join('\n') : 'Nenhuma publicação encontrada no período consultado.') +
     '\nFonte: ' +
-    snap.sourceLabel +
+    (interest.input.source === 'news' ? 'Global Voices · CC BY 3.0' : snap.sourceLabel) +
     ' · ' +
     snap.sourceUrl
   );

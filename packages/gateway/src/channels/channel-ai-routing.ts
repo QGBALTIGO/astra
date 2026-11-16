@@ -65,6 +65,7 @@ import { expenseConfirmationKey, expenseDuplicateGuard } from './expense-duplica
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 import { tryMorningBriefingChannelReply } from './morning-briefing.js';
 import { tryRadarChannelReply } from './radar.js';
+import { verifiedRadarToolReply } from './verified-facts.js';
 import { withContactStyleContext } from './channel-personalization.js';
 
 /** Generate the standard demo-mode reply. */
@@ -876,6 +877,7 @@ async function processDirectAgentInSession(
                       interpreted.text,
                       recentChannelText(agent.getConversation())
                     ) ?? requiredChannelSubscriptionTool(interpreted.text),
+                  onToolResults: verifiedRadarToolReply,
                 }
               )
             : agent.chat(

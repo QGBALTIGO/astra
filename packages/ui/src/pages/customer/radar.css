@@ -145,12 +145,18 @@
   }
 }
 @media (max-width: 600px) {
+  .astra-customer .ac-radar > .ac-page-heading {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
+  }
   .astra-customer .ac-radar-heading-actions {
     width: 100%;
     justify-content: flex-start;
   }
   .astra-customer .ac-radar-heading-actions > .ac-button {
-    flex: 1 1 170px;
+    flex: 1 1 100%;
+    width: 100%;
     justify-content: center;
   }
   .astra-customer .ac-radar-overview {
