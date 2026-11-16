@@ -201,10 +201,10 @@ export function buildAccessMessage(
             `${hello} 💙 Eu sou o *Astra*, seu assessor pessoal no WhatsApp.`,
             'Você tem *72 horas* para experimentar aqui mesmo — sem cadastro para começar, sem cartão e sem cobrança automática.',
             '✨ *Olha o que podemos fazer juntos:*',
-            '💸 *Finanças:* registrar gastos e receitas e acompanhar seu dinheiro.\\n📅 *Agenda:* criar lembretes, tarefas e compromissos.\\n🎯 *Metas:* planejar objetivos e acompanhar o progresso.\\n🧠 *Memória:* guardar ideias e informações importantes.\\n🎙️ *Áudios, fotos e documentos:* você pode me enviar tudo por aqui.',
-            '📬 *Integrações:* conecte seu e-mail e outros serviços pelo painel, se quiser.',
+            '💸 *Finanças:* registrar gastos e receitas e acompanhar seu dinheiro.\n📅 *Agenda:* criar lembretes, tarefas e compromissos.\n🎯 *Metas:* planejar objetivos e acompanhar o progresso.\n🧠 *Memórias:* guardar ideias e informações importantes.\n🎙️ *Áudios, fotos e documentos:* você pode me enviar tudo por aqui.',
+            '📬 *Integrações:* você pode conectar seu e-mail e outros serviços pelo painel, se quiser.',
             `⏳ *Seu teste vai até ${trialDeadline(expires, settings.timeZone)}.*`,
-            '🚀 *Experimente agora:*\\n💬 “Gastei R$ 35 no almoço.”\\n💬 “Me lembre de pagar a conta amanhã às 9h.”',
+            '🚀 *Experimente agora:*\n💬 “Gastei R$ 35 no almoço.”\n💬 “Me lembre de pagar a conta amanhã às 9h.”',
             '*O que vamos organizar primeiro?* ✨'
           ),
         };
