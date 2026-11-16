@@ -409,6 +409,22 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         for (const msg of upsert.messages) {
           log.debug('[WhatsApp] Processing message', { fromMe: msg.key.fromMe === true });
 
+          // Baileys can notify a decryption placeholder before retransmitting
+          // readable content under the same ID. Only claim IDs that our handler
+          // can actually route; otherwise a new customer's real message is lost.
+          const content = normalizeMessageContent(msg.message);
+          if (!(
+            content?.conversation ||
+            content?.extendedTextMessage?.text ||
+            content?.imageMessage ||
+            content?.documentMessage ||
+            content?.audioMessage ||
+            content?.videoMessage
+          )) {
+            log.debug('[WhatsApp] Skipping notification without readable message content');
+            continue;
+          }
+
           // Anti-ban: deduplication — skip already-processed messages (reconnect replays)
           const msgId = msg.key.id;
           if (msgId && this.processedMsgIds.has(msgId)) {

@@ -603,6 +603,54 @@ describe('WhatsApp connection lifecycle', () => {
     await vi.waitFor(() => expect(receivedMessages()).toHaveLength(2));
   });
 
+  it.each([
+    { messageStubType: 2 },
+    { message: {} },
+    { message: { protocolMessage: { type: 3, ephemeralExpiration: 7776000 } } },
+  ])(
+    'does not consume a message ID before its readable content arrives: %j',
+    async (placeholder) => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      const api = newApi();
+      await api.connect();
+      sockets[0]!.emit('connection.update', { connection: 'open' });
+      const key = {
+        remoteJid: '90000123456789@lid',
+        remoteJidAlt: '5511988880101@s.whatsapp.net',
+        id: 'placeholder-before-trial',
+        fromMe: false,
+      };
+      sockets[0]!.emit('messages.upsert', {
+        type: 'notify',
+        messages: [{ key, ...placeholder }],
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(receivedMessages()).toHaveLength(0);
+      const readable = {
+        type: 'notify',
+        messages: [
+          {
+            key,
+            message: {
+              ephemeralMessage: {
+                message: {
+                  conversation: 'Olá! Quero testar o Astra grátis por 3 dias.',
+                },
+              },
+            },
+          },
+        ],
+      };
+      sockets[0]!.emit('messages.upsert', readable);
+      sockets[0]!.emit('messages.upsert', readable);
+      await vi.waitFor(() => expect(receivedMessages()).toHaveLength(1));
+      expect(receivedMessages()[0]!.message).toMatchObject({
+        text: 'Olá! Quero testar o Astra grátis por 3 dias.',
+        sender: { platformUserId: '5511988880101' },
+        metadata: { fromMe: false, isGroup: false },
+      });
+    }
+  );
   it('deduplicates concurrent upserts after an asynchronous identity lookup', async () => {
     vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
     const api = newApi();
