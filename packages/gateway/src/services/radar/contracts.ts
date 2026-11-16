@@ -75,20 +75,21 @@ export const RADAR_CATALOG = [
   {
     id: 'football',
     name: 'Futebol',
-    description: 'Jogos e resultados do Brasileirão Série A. A fonte gratuita tem atraso.',
-    provider: 'football-data.org',
-    url: 'https://www.football-data.org/',
-    license: 'Atribuição e termos do provedor',
+    description:
+      'Calendário e resultados comunitários do Brasileirão. Datas podem mudar; sem placar ao vivo.',
+    provider: 'openfootball',
+    url: 'https://github.com/openfootball/south-america',
+    license: 'CC0 1.0 · domínio público',
     hint: 'Time do Brasileirão',
     needsSearch: true,
   },
   {
     id: 'news',
     name: 'Notícias',
-    description: 'Manchetes e links sobre os assuntos que você acompanha.',
-    provider: 'GDELT',
-    url: 'https://www.gdeltproject.org/',
-    license: 'Dataset aberto; matérias mantêm direitos próprios',
+    description: 'Leituras em português do Global Voices, filtradas pelos seus assuntos.',
+    provider: 'Global Voices',
+    url: 'https://pt.globalvoices.org/',
+    license: 'CC BY 3.0 · uso comercial com atribuição',
     hint: 'Assunto ou cidade',
     needsSearch: false,
   },
@@ -180,6 +181,12 @@ export const radarInputSchema = z
       });
     if (v.delivery === 'before' && !['football', 'series'].includes(v.source))
       c.addIssue({ code: 'custom', message: 'Aviso antecipado só vale para jogos e episódios.' });
+    if (v.source === 'football' && v.delivery === 'before')
+      c.addIssue({
+        code: 'custom',
+        message:
+          'O calendário aberto confirma o dia, mas nem sempre o horário. Escolha o resumo diário para acompanhar seu time.',
+      });
     if (
       v.delivery === 'threshold' &&
       (!['ptax', 'currency'].includes(v.source) ||
@@ -203,14 +210,7 @@ export interface RadarInterest extends RadarInput {
   createdAt: string;
 }
 export function sourceAvailable(source: RadarSourceId): boolean {
-  if (process.env.ASTRA_RADAR_ENABLED === 'false') return false;
-  return (
-    source !== 'football' ||
-    !!(
-      process.env.ASTRA_RADAR_FOOTBALL_KEY?.trim() &&
-      process.env.ASTRA_RADAR_FOOTBALL_APPROVED === 'true'
-    )
-  );
+  return RADAR_SOURCE_IDS.includes(source) && process.env.ASTRA_RADAR_ENABLED !== 'false';
 }
 export function normalizeRadarTarget(source: RadarSourceId, input: string): string {
   const s = input.normalize('NFC').trim().replace(/\s+/g, ' ');
@@ -232,7 +232,8 @@ export function normalizeRadarTarget(source: RadarSourceId, input: string): stri
       throw new Error('Escolha uma moeda disponível.');
     return code;
   }
-  if (source === 'football' && !/^\d{1,8}$/.test(s)) throw new Error('Selecione um time da busca.');
+  if (source === 'football' && !/^br:[a-z-]{3,60}$/.test(s))
+    throw new Error('Selecione novamente seu time na busca do Brasileirão.');
   if (source === 'series' && !/^\d{1,8}$/.test(s)) throw new Error('Selecione uma série da busca.');
   if (source === 'gazettes' && !/^\d{7}$/.test(s))
     throw new Error('Selecione um município coberto.');

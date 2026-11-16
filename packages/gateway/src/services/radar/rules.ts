@@ -39,7 +39,7 @@ export function digestSection(
     return null;
   const snap = interest.snapshot;
   if (
-    ['releases', 'energy'].includes(interest.input.source) &&
+    ['releases', 'energy', 'news'].includes(interest.input.source) &&
     interest.last_content_key === snapshotFingerprint(snap)
   )
     return null;
@@ -89,7 +89,7 @@ export function digestText(
   }
   if (!shown) return null;
   if (shown < sections.length) text += '\n\nMais acompanhamentos estão no seu painel.';
-  return text + '\n\nGerencie assuntos e envios em Painel → Radar.';
+  return text + '\n\nQuer mudar algo? É só me pedir por aqui. Seu Radar também está no painel.';
 }
 export function interestDecisions(
   interest: RadarInterestRow,

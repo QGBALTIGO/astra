@@ -64,6 +64,78 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(await b.list()).toHaveLength(0);
       expect((await b.preferences()).preferences.enabled).toBe(false);
     });
+    it('chat opt-in enables only the requested topic and preserves the other customer', async () => {
+      const old = await create();
+      await b.create(
+        { source: 'currency', target: 'USD', delivery: 'digest', leadMinutes: 60 },
+        'USD'
+      );
+      await enable(b);
+      const next = await a.followFromChat(
+        { source: 'news', target: 'Tecnologia', delivery: 'digest', leadMinutes: 60 },
+        'Tecnologia',
+        '08:00'
+      );
+      expect(next.keptPaused).toBe(1);
+      expect((await a.get(old.id))!.active).toBe(false);
+      expect((await a.get(next.interest.id))!.active).toBe(true);
+      expect((await a.preferences()).preferences).toMatchObject({ enabled: true, time: '08:00' });
+      expect((await b.list())[0]!.active).toBe(true);
+      expect((await b.preferences()).preferences.time).toBe('07:00');
+    });
+    it('rolls back the whole chat opt-in when its schedule cannot be saved', async () => {
+      const old = await create();
+      await expect(
+        a.followFromChat(
+          { source: 'news', target: 'Tecnologia', delivery: 'digest', leadMinutes: 60 },
+          'Tecnologia',
+          '23:00'
+        )
+      ).rejects.toThrow();
+      expect(await a.list()).toHaveLength(1);
+      expect((await a.get(old.id))!.active).toBe(true);
+      expect((await a.preferences()).preferences.enabled).toBe(false);
+    });
+    it('serializes duplicate chat requests without creating duplicate follows', async () => {
+      const input = {
+        source: 'news' as const,
+        target: 'Tecnologia',
+        delivery: 'digest' as const,
+        leadMinutes: 60,
+      };
+      await Promise.all(
+        Array.from({ length: 12 }, () => a.followFromChat(input, 'Tecnologia', '08:00'))
+      );
+      expect(await a.list()).toHaveLength(1);
+      expect((await a.preferences()).preferences.enabled).toBe(true);
+    });
+    it('rolls back the interest, other topics and public resource when the preference write fails', async () => {
+      const old = await create();
+      await db.exec(
+        `ALTER TABLE customer_radar_preferences ADD CONSTRAINT radar_test_reject_schedule CHECK (preferences->>'time' <> '08:13')`
+      );
+      try {
+        await expect(
+          a.followFromChat(
+            { source: 'news', target: 'Tecnologia', delivery: 'digest', leadMinutes: 60 },
+            'Tecnologia',
+            '08:13'
+          )
+        ).rejects.toThrow();
+        expect(await a.list()).toHaveLength(1);
+        expect((await a.get(old.id))!.active).toBe(true);
+        expect((await a.preferences()).preferences.enabled).toBe(false);
+        expect(
+          (await db.queryOne<{ n: string }>(
+            "SELECT COUNT(*) AS n FROM radar_resources WHERE source='news'"
+          ))!.n
+        ).toBe('0');
+      } finally {
+        await db.exec(
+          'ALTER TABLE customer_radar_preferences DROP CONSTRAINT radar_test_reject_schedule'
+        );
+      }
+    });
     it('does not let B read, pause, edit or delete A even with a known ID', async () => {
       const i = await create();
       expect(await b.get(i.id)).toBeNull();
@@ -81,6 +153,34 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         (await db.queryOne<{ n: string }>('SELECT COUNT(*) AS n FROM radar_resources'))!.n
       ).toBe('1');
       expect((await a.list())[0]!.id).not.toBe((await b.list())[0]!.id);
+    });
+    it('ignores a retired provider throttle while respecting the replacement budget', async () => {
+      await a.create({ source: 'news', target: 'IA', delivery: 'digest', leadMinutes: 60 }, 'IA');
+      await publicRepo.reserveProvider('api.gdeltproject.org', 1000);
+      await publicRepo.blockProvider('api.gdeltproject.org', 86400);
+      await publicRepo.reserveProvider('pt.globalvoices.org', 1000);
+      await publicRepo.blockProvider('pt.globalvoices.org', 86400);
+      expect(await publicRepo.claimResources()).toEqual([]);
+      await db.execute(
+        "UPDATE radar_provider_limits SET next_request_at=NOW()-INTERVAL '1 second',blocked_until=NOW()-INTERVAL '1 second' WHERE provider='pt.globalvoices.org'"
+      );
+      expect(await publicRepo.claimResources()).toHaveLength(1);
+    });
+    it('refreshes an old failed public adapter without changing private opt-ins', async () => {
+      const interest = await a.create(
+        { source: 'news', target: 'IA', delivery: 'digest', leadMinutes: 60 },
+        'IA'
+      );
+      const row = await a.get(interest.id);
+      await db.execute(
+        "UPDATE radar_resources SET error_code='provider_throttled',next_poll_at=NOW()+INTERVAL '1 day' WHERE id=$1",
+        [row!.resource_id]
+      );
+      await publicRepo.refreshReplacedSources();
+      expect((await a.list())[0]!.errorCode).toBeNull();
+      expect((await a.preferences()).preferences.enabled).toBe(false);
+      expect((await b.preferences()).preferences.enabled).toBe(false);
+      expect(await publicRepo.claimResources()).toHaveLength(1);
     });
     it('serializes duplicate subscription creation', async () => {
       const results = await Promise.allSettled([create(), create(), create()]);

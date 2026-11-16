@@ -1,6 +1,175 @@
-/* Native customer portal tokens; the mobile navigation keeps its six existing entries. */
+/* Radar: chat-led setup and a compact, readable overview of chosen interests. */
 .astra-customer .ac-radar-mobile-entry {
   display: none;
+}
+.astra-customer .ac-radar-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.astra-customer .ac-radar-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.astra-customer .ac-radar-summary {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 16px;
+  padding: 24px;
+}
+.astra-customer .ac-radar-summary-copy {
+  flex: 1;
+  min-width: 0;
+}
+.astra-customer .ac-radar-summary h2 {
+  margin: 7px 0;
+  line-height: 1.35;
+}
+.astra-customer .ac-radar-summary-status,
+.astra-customer .ac-radar-summary-copy > p {
+  color: var(--ac-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.astra-customer .ac-radar-live-icon,
+.astra-customer .ac-radar-topic-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: var(--ac-soft);
+  color: var(--ac-muted);
+  font-size: 23px;
+}
+.astra-customer .ac-radar-live-icon.is-on {
+  color: var(--ac-accent);
+}
+.astra-customer .ac-radar-live-icon > svg {
+  width: 23px;
+  height: 23px;
+}
+.astra-customer .ac-radar-chat-help {
+  padding: 24px;
+}
+.astra-customer .ac-radar-chat-help h2 {
+  margin: 8px 0;
+}
+.astra-customer .ac-radar-chat-help > p:not(.ac-eyebrow) {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ac-muted);
+}
+.astra-customer .ac-radar-examples {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.astra-customer .ac-radar-examples > a,
+.astra-customer .ac-radar-examples > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--ac-border);
+  background: var(--ac-soft);
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--ac-text);
+  font-size: 12px;
+  line-height: 1.65;
+  text-decoration: none;
+}
+.astra-customer .ac-radar-examples > a:hover {
+  border-color: var(--ac-accent);
+}
+.astra-customer .ac-radar-examples svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--ac-muted);
+}
+.astra-customer .ac-radar-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 0 20px 20px;
+}
+.astra-customer .ac-radar .ac-radar-list .ac-radar-follow {
+  border: 1px solid var(--ac-border);
+  border-radius: 14px;
+  padding: 20px;
+  min-width: 0;
+}
+.astra-customer .ac-radar-follow-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.astra-customer .ac-radar-follow-title > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.astra-customer .ac-radar-source-details {
+  border-top: 1px solid var(--ac-border);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+.astra-customer .ac-radar-source-details > summary {
+  color: var(--ac-muted);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.astra-customer .ac-radar-source-details > small {
+  display: block;
+  margin-top: 8px;
+  color: var(--ac-muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+@media (max-width: 1100px) {
+  .astra-customer .ac-radar-overview,
+  .astra-customer .ac-radar-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .astra-customer .ac-radar-summary {
+    padding: 20px;
+  }
+}
+@media (max-width: 600px) {
+  .astra-customer .ac-radar-heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .astra-customer .ac-radar-heading-actions > .ac-button {
+    flex: 1 1 170px;
+    justify-content: center;
+  }
+  .astra-customer .ac-radar-overview {
+    gap: 14px;
+  }
+  .astra-customer .ac-radar-summary,
+  .astra-customer .ac-radar-chat-help {
+    padding: 18px;
+  }
+  .astra-customer .ac-radar-list {
+    padding: 0 12px 12px;
+    gap: 12px;
+  }
+  .astra-customer .ac-radar .ac-radar-list .ac-radar-follow {
+    padding: 16px;
+  }
+  .astra-customer .ac-radar-follow-heading {
+    flex-wrap: wrap;
+  }
 }
 .astra-customer .ac-radar h2 {
   font-size: 18px;

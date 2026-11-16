@@ -109,21 +109,20 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
     it('does not persist unnecessary article text, images or secrets in a public cache', async () => {
       fetchMock.mockResolvedValue(
         new Response(
-          JSON.stringify({
-            articles: [
-              {
-                title: 'Manchete',
-                url: 'https://example.com/a',
-                domain: 'example.com',
-                body: 'TEXTO_INTEGRAL_NAO_LICENCIADO',
-                socialimage: 'https://example.com/privado.jpg',
-                private_note: 'SEGREDO',
-              },
-            ],
-          })
+          JSON.stringify([
+            {
+              id: 1,
+              title: { rendered: 'Manchete' },
+              link: 'https://pt.globalvoices.org/a',
+              date_gmt: '2026-11-16T10:00:00',
+              body: 'TEXTO_INTEGRAL_NAO_LICENCIADO',
+              socialimage: 'https://example.com/privado.jpg',
+              private_note: 'SEGREDO',
+            },
+          ])
         )
       );
-      await radarJson('https://api.gdeltproject.org/api/v2/doc/doc?query=tecnologia&format=json');
+      await radarJson('https://pt.globalvoices.org/wp-json/wp/v2/posts?search=tecnologia');
       const r = await fixture.adapter.queryOne<{ body: string }>(
         'SELECT body FROM radar_http_cache WHERE body IS NOT NULL'
       );

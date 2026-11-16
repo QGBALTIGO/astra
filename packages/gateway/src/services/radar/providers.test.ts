@@ -150,59 +150,66 @@ describe('free Radar provider contracts', () => {
     m.weather.mockResolvedValue(f);
     await expect(fetchSource('weather', '0,0')).rejects.toThrow();
   });
-  const match = (
-    status: string,
-    utcDate: string | undefined,
-    score: unknown = { fullTime: { home: null, away: null } }
-  ) => ({
-    id: 1,
-    status,
-    utcDate,
-    homeTeam: { id: 1783, name: 'Flamengo' },
-    awayTeam: { id: 1769, name: 'Palmeiras' },
-    score,
+  const schedule =
+    '= Brasileiro Série A 2026\n\n▪ Matchday 35\n  Wed Nov 18\n           CR Flamengo             v SE Palmeiras\n';
+  it('uses the current public-domain season and never invents a kickoff instant', async () => {
+    m.text.mockResolvedValue(schedule);
+    const s = await fetchSource('football', 'br:cr-flamengo');
+    expect(s.items[0]?.at).toBeUndefined();
+    expect(s.items[0]?.text).toContain('horário a confirmar');
+    expect(s.sourceLabel).toBe('openfootball');
+    expect(m.text.mock.calls[0]?.[0]).toContain('/brazil/2026_br1.txt');
+    expect(m.json).not.toHaveBeenCalled();
   });
-  it.each(['SCHEDULED', 'POSTPONED', 'CANCELLED', 'SUSPENDED', 'FINISHED'])(
-    'never invents a pregame instant for status %s',
-    async (status) => {
-      m.json.mockResolvedValue({ matches: [match(status, '2026-11-16T12:00:00Z')] });
-      const s = await fetchSource('football', '1783');
-      expect(s.items[0]?.at).toBeUndefined();
-    }
-  );
-  it('does not render null scores as a goalless draw', async () => {
-    m.json.mockResolvedValue({ matches: [match('FINISHED', '2026-11-16T10:00:00Z')] });
-    expect((await fetchSource('football', '1783')).items[0]!.text).not.toContain('0 × 0');
+  it('does not render an unreported score as a goalless draw', async () => {
+    m.text.mockResolvedValue(schedule);
+    expect((await fetchSource('football', 'br:cr-flamengo')).items[0]?.text).not.toContain('0 × 0');
   });
-  it('rejects a match without a stable source ID', async () => {
-    m.json.mockResolvedValue({
-      matches: [{ ...match('TIMED', '2026-11-16T12:00:00Z'), id: undefined }],
-    });
-    await expect(fetchSource('football', '1783')).rejects.toThrow();
+  it('rejects an invalid football response instead of inventing matches', async () => {
+    m.text.mockResolvedValue('<html>unavailable</html>');
+    await expect(fetchSource('football', 'br:cr-flamengo')).rejects.toThrow();
   });
-  it('renders confirmed full-time scores only for the followed club', async () => {
-    m.json.mockResolvedValue({
-      matches: [match('FINISHED', '2026-11-16T10:00:00Z', { fullTime: { home: 2, away: 1 } })],
-    });
-    expect((await fetchSource('football', '1783')).items[0]!.text).toBe('Resultado: 2 × 1');
-    expect((await fetchSource('football', '9999')).items).toHaveLength(0);
+  it('renders only scores actually supplied for the followed club', async () => {
+    m.text.mockResolvedValue(
+      schedule
+        .replace('Nov 18', 'Nov 15')
+        .replace('v SE Palmeiras', 'v SE Palmeiras             2-1 (1-0)')
+    );
+    expect((await fetchSource('football', 'br:cr-flamengo')).items[0]?.text).toContain('2 × 1');
+    expect((await fetchSource('football', 'br:santos-fc')).items).toHaveLength(0);
   });
   it('deduplicates tracking variants of the same news URL', async () => {
-    m.json.mockResolvedValue({
-      articles: [
-        { title: 'Notícia', url: 'https://example.com/artigo?utm_source=a', domain: 'example.com' },
-        { title: 'Notícia', url: 'https://example.com/artigo?utm_source=b', domain: 'example.com' },
-      ],
-    });
+    m.json.mockResolvedValue([
+      {
+        id: 1,
+        title: { rendered: 'Notícia' },
+        date_gmt: '2026-11-15T12:00:00',
+        link: 'https://pt.globalvoices.org/artigo?utm_source=a',
+      },
+      {
+        id: 1,
+        title: { rendered: 'Notícia' },
+        date_gmt: '2026-11-15T12:00:00',
+        link: 'https://pt.globalvoices.org/artigo?utm_source=b',
+      },
+    ]);
     expect((await fetchSource('news', 'Tecnologia')).items).toHaveLength(1);
   });
   it('drops malicious news URLs and strips external markup', async () => {
-    m.json.mockResolvedValue({
-      articles: [
-        { title: '<img src=x>Olá', url: 'https://example.com/a' },
-        { title: 'malicioso', url: 'javascript:alert(1)' },
-      ],
-    });
+    m.json.mockResolvedValue([
+      {
+        id: 1,
+        title: { rendered: '<img src=x>Olá' },
+        date_gmt: '2026-11-15T12:00:00',
+        link: 'https://pt.globalvoices.org/a',
+      },
+      {
+        id: 2,
+        title: { rendered: 'malicioso' },
+        date_gmt: '2026-11-15T12:00:00',
+        link: 'javascript:alert(1)',
+      },
+    ]);
     expect((await fetchSource('news', 'Tecnologia')).items).toMatchObject([{ title: 'Olá' }]);
   });
   it('does not generate a countdown for a TV episode without airstamp', async () => {

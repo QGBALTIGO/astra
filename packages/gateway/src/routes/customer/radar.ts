@@ -13,6 +13,7 @@ import { searchRadar } from '../../services/radar/providers.js';
 import { RadarSourceError } from '../../services/radar/http.js';
 import type { CustomerSessionContext } from '../../middleware/customer-session.js';
 import { apiResponse, apiError } from '../helpers.js';
+import { getCustomerAuthService } from '../../services/customer-auth.js';
 export const customerRadarRoutes = new Hono<{ Variables: { customer: CustomerSessionContext } }>();
 customerRadarRoutes.use('*', async (c, next) => {
   const customer = c.get('customer');
@@ -79,7 +80,16 @@ customerRadarRoutes.get('/', async (c) => {
     repo.list(),
     repo.history(),
   ]);
+  let chatUrl: string | null = null;
+  try {
+    const link = new URL(getCustomerAuthService().getWhatsAppStartUrl());
+    link.searchParams.set('text', 'Quero configurar meu Radar');
+    chatUrl = link.href;
+  } catch {
+    /* The Dashboard remains usable while WhatsApp reconnects. */
+  }
   return apiResponse(c, {
+    chatUrl,
     catalog: RADAR_CATALOG.map((s) => ({
       ...s,
       available: sourceAvailable(s.id),

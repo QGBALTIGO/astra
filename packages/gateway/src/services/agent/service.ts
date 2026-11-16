@@ -43,6 +43,7 @@ import {
 import { registerExpenseOverrides } from '../../tools/overrides/expense.js';
 import { CUSTOMER_INTEGRATION_TOOLS } from '../../tools/customer-integration-tools.js';
 import { CUSTOMER_WEATHER_TOOLS } from '../../tools/customer-weather-tools.js';
+import { CUSTOMER_RADAR_TOOLS } from '../../tools/customer-radar-tools.js';
 import { FINANCING_TOOLS } from '../../tools/financing-tools.js';
 import { CUSTOMER_FINANCE_TOOLS } from '../../tools/customer-finance-tools.js';
 import { CUSTOMER_PLANNING_TOOLS } from '../../tools/customer-planning-tools.js';
@@ -569,6 +570,7 @@ async function createChatAgentInstance(
       ...CUSTOMER_PLANNING_TOOLS.map((def) => `core.${def.name}`),
       ...CUSTOMER_INTEGRATION_TOOLS.map((def) => `core.${def.name}`),
       ...CUSTOMER_WEATHER_TOOLS.map((def) => `core.${def.name}`),
+      ...CUSTOMER_RADAR_TOOLS.map((def) => `core.${def.name}`),
       'search_tools',
       'get_tool_help',
       'use_tool',
@@ -610,6 +612,7 @@ async function createChatAgentInstance(
           ...CUSTOMER_PLANNING_TOOLS,
           ...CUSTOMER_INTEGRATION_TOOLS,
           ...CUSTOMER_WEATHER_TOOLS,
+          ...CUSTOMER_RADAR_TOOLS,
         ]
       : []),
     ...DYNAMIC_TOOL_DEFINITIONS,

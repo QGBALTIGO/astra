@@ -54,6 +54,14 @@ export function classifyAstraScope(text: string): AstraScopeTopic | null {
     !/\bmodelo(?: de)? (?:orcamento|planilha|planejamento|agenda|mensagem|lembrete|rotina)\b/.test(
       input
     ) &&
+    !(
+      /\b(?:noticias|manchetes|artigos|reportagens)\b.{0,40}\b(?:sobre|de|da|do|a respeito de)\b/.test(
+        input
+      ) &&
+      !/\b(?:sua ia|seu modelo|suas instrucoes|seu prompt|suas credenciais|voce usa|voce utiliza)\b/.test(
+        input
+      )
+    ) &&
     privateTechnology.test(input) &&
     (/\b(?:voce|vc|voces|astra|seu modelo|sua ia|seu servidor)\b/.test(input) ||
       /\b(?:qual|que)\s+(?:e\s+)?(?:a\s+|o\s+)?(?:ia|modelo|provedor|tecnologia)\b/.test(input))

@@ -71,6 +71,7 @@ export function CustomerRadar({
     revision
   );
   const [adding, setAdding] = useState(false),
+    [settingsOpen, setSettingsOpen] = useState(false),
     [editing, setEditing] = useState<RadarInterest | null>(null),
     [deleting, setDeleting] = useState<RadarInterest | null>(null);
   const [prefs, setPrefs] = useState<RadarPreferences>(defaults),
@@ -142,104 +143,179 @@ export function CustomerRadar({
       </div>
     );
   const loaded = data.data;
+  const chatLink = (text: string) => {
+    if (!loaded.chatUrl) return undefined;
+    const url = new URL(loaded.chatUrl);
+    if (url.protocol !== 'https:' || url.hostname !== 'wa.me') return undefined;
+    url.searchParams.set('text', text);
+    return url.href;
+  };
+  const activeCount = loaded.interests.filter((i) => i.active).length;
   return (
     <div className="ac-page ac-radar">
       <header className="ac-page-heading">
         <div>
-          <p className="ac-eyebrow">SEUS INTERESSES, NO SEU RITMO</p>
+          <p className="ac-eyebrow">O QUE IMPORTA PARA VOCÊ</p>
           <h1>Radar</h1>
-          <p>Acompanhe só o que importa para você, com fontes e atualizações visíveis.</p>
+          <p>Escolha pelo WhatsApp. Acompanhe tudo por aqui.</p>
         </div>
-        <button
-          type="button"
-          className="ac-button"
-          disabled={!customer.access.canWrite}
-          onClick={() => setAdding(true)}
-        >
-          <Plus aria-hidden="true" />
-          Adicionar assunto
-        </button>
-      </header>
-      <section className="ac-card ac-radar-settings" aria-labelledby="radar-preferences">
-        <div>
-          <h2 id="radar-preferences">Seu resumo no WhatsApp</h2>
-          <p>
-            Uma mensagem reúne os assuntos do resumo. Jogos e alertas de valor seguem a regra
-            escolhida.
-          </p>
-        </div>
-        <form onSubmit={savePrefs}>
-          <label className="ac-radar-optin">
-            <input
-              type="checkbox"
-              checked={prefs.enabled}
-              disabled={busy !== null || (!customer.access.canWrite && !prefs.enabled)}
-              onChange={(e) => {
-                setPrefs({ ...prefs, enabled: e.target.checked });
-                setDirty(true);
-              }}
-            />
-            <span>
-              <strong>Receber meu Radar no WhatsApp</strong>
-              <small>Você pode desativar quando quiser. Nada é enviado sem sua ativação.</small>
-            </span>
-          </label>
-          <div className="ac-radar-times">
-            <label>
-              Horário do resumo
-              <input
-                type="time"
-                value={prefs.time}
-                required
-                disabled={!customer.access.canWrite || busy !== null}
-                onChange={(e) => {
-                  setPrefs({ ...prefs, time: e.target.value });
-                  setDirty(true);
-                }}
-              />
-            </label>
-            <label>
-              Silêncio a partir de
-              <input
-                type="time"
-                value={prefs.quietStart}
-                required
-                disabled={!customer.access.canWrite || busy !== null}
-                onChange={(e) => {
-                  setPrefs({ ...prefs, quietStart: e.target.value });
-                  setDirty(true);
-                }}
-              />
-            </label>
-            <label>
-              Voltar a receber às
-              <input
-                type="time"
-                value={prefs.quietEnd}
-                required
-                disabled={!customer.access.canWrite || busy !== null}
-                onChange={(e) => {
-                  setPrefs({ ...prefs, quietEnd: e.target.value });
-                  setDirty(true);
-                }}
-              />
-            </label>
-          </div>
-          <div className="ac-radar-settings-footer">
-            <span>
-              Horários em {loaded.timeZone.replaceAll('_', ' ')}. Alertas vencidos não são enviados
-              depois.
-            </span>
-            <button
-              className="ac-button ac-button--secondary"
-              disabled={!dirty || busy !== null}
-              type="submit"
+        <div className="ac-radar-heading-actions">
+          {loaded.chatUrl ? (
+            <a
+              className="ac-button"
+              href={chatLink('Quero configurar meu Radar')}
+              target="_blank"
+              rel="noopener noreferrer"
             >
-              {busy === 'preferences' ? 'Salvando…' : 'Salvar preferências'}
-            </button>
+              <Bell aria-hidden="true" /> Configurar pelo WhatsApp
+            </a>
+          ) : null}
+          <button
+            type="button"
+            className="ac-button ac-button--secondary"
+            disabled={!customer.access.canWrite}
+            onClick={() => setAdding(true)}
+          >
+            <Plus aria-hidden="true" />
+            Adicionar assunto
+          </button>
+        </div>
+      </header>
+      <div className="ac-radar-overview">
+        <section className="ac-card ac-radar-summary" aria-label="Resumo do Radar">
+          <div className={'ac-radar-live-icon' + (loaded.preferences.enabled ? ' is-on' : '')}>
+            <Bell aria-hidden="true" />
           </div>
-        </form>
-      </section>
+          <div className="ac-radar-summary-copy">
+            <span className="ac-radar-summary-status">
+              {loaded.preferences.enabled
+                ? 'Você está recebendo seu Radar'
+                : 'Seu Radar está em pausa'}
+            </span>
+            <h2>
+              {loaded.preferences.enabled
+                ? 'Todo dia, às ' + loaded.preferences.time
+                : 'Você decide quando começar'}
+            </h2>
+            <p>
+              {activeCount} {activeCount === 1 ? 'assunto escolhido' : 'assuntos escolhidos'} · seu
+              horário local
+            </p>
+          </div>
+          <button
+            type="button"
+            className="ac-icon-button"
+            aria-label="Ajustar horários e notificações"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings aria-hidden="true" />
+          </button>
+        </section>
+        <section className="ac-card ac-radar-chat-help" aria-labelledby="radar-chat-title">
+          <p className="ac-eyebrow">DO SEU JEITO</p>
+          <h2 id="radar-chat-title">É só me pedir no WhatsApp</h2>
+          <p>Conte o assunto e o horário. Para mudar ou pausar, continue a conversa.</p>
+          <div className="ac-radar-examples">
+            {[
+              'Quero receber notícias de tecnologia todo dia às 8h',
+              'Acompanhe o Flamengo no meu resumo das 7h',
+              'Pause as notícias do meu Radar',
+            ].map((example) =>
+              loaded.chatUrl ? (
+                <a key={example} href={chatLink(example)} target="_blank" rel="noopener noreferrer">
+                  “{example}” <ExternalLink aria-hidden="true" />
+                </a>
+              ) : (
+                <span key={example}>“{example}”</span>
+              )
+            )}
+          </div>
+        </section>
+      </div>
+      {settingsOpen ? (
+        <CustomerDialog title="Horários e notificações" onClose={() => setSettingsOpen(false)}>
+          <section className="ac-radar-settings" aria-labelledby="radar-preferences">
+            <div>
+              <h2 id="radar-preferences">Seu resumo no WhatsApp</h2>
+              <p>
+                Um resumo com os assuntos que você escolheu. Você também pode ajustar estes horários
+                pelo WhatsApp.
+              </p>
+            </div>
+            <form onSubmit={savePrefs}>
+              <label className="ac-radar-optin">
+                <input
+                  type="checkbox"
+                  checked={prefs.enabled}
+                  disabled={busy !== null || (!customer.access.canWrite && !prefs.enabled)}
+                  onChange={(e) => {
+                    setPrefs({ ...prefs, enabled: e.target.checked });
+                    setDirty(true);
+                  }}
+                />
+                <span>
+                  <strong>Receber meu Radar no WhatsApp</strong>
+                  <small>Você pode desativar quando quiser. Nada é enviado sem sua ativação.</small>
+                </span>
+              </label>
+              <div className="ac-radar-times">
+                <label>
+                  Horário do resumo
+                  <input
+                    type="time"
+                    value={prefs.time}
+                    required
+                    disabled={!customer.access.canWrite || busy !== null}
+                    onChange={(e) => {
+                      setPrefs({ ...prefs, time: e.target.value });
+                      setDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Silêncio a partir de
+                  <input
+                    type="time"
+                    value={prefs.quietStart}
+                    required
+                    disabled={!customer.access.canWrite || busy !== null}
+                    onChange={(e) => {
+                      setPrefs({ ...prefs, quietStart: e.target.value });
+                      setDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Voltar a receber às
+                  <input
+                    type="time"
+                    value={prefs.quietEnd}
+                    required
+                    disabled={!customer.access.canWrite || busy !== null}
+                    onChange={(e) => {
+                      setPrefs({ ...prefs, quietEnd: e.target.value });
+                      setDirty(true);
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="ac-radar-settings-footer">
+                <span>
+                  Horários em {loaded.timeZone.replaceAll('_', ' ')}. Alertas vencidos não são
+                  enviados depois.
+                </span>
+                <button
+                  className="ac-button ac-button--secondary"
+                  disabled={!dirty || busy !== null}
+                  type="submit"
+                >
+                  {busy === 'preferences' ? 'Salvando…' : 'Salvar preferências'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </CustomerDialog>
+      ) : null}
       {error && !deleting ? <CustomerError error={error} /> : null}
       {data.error ? <CustomerError error={data.error} onRetry={data.retry} /> : null}
       <section className="ac-card ac-card--flush" aria-labelledby="radar-following">
@@ -286,17 +362,37 @@ export function CustomerRadar({
               return (
                 <article key={i.id} className="ac-radar-follow" aria-label={i.label}>
                   <div className="ac-radar-follow-heading">
-                    <div>
-                      <span className="ac-radar-category">{source?.name}</span>
-                      <h3>{i.label}</h3>
-                      <p>
-                        {deliveryLabel(i)}
-                        {i.delivery === 'threshold'
-                          ? ' · ' +
-                            (i.comparison === 'above' ? 'acima de R$ ' : 'abaixo de R$ ') +
-                            i.threshold
-                          : ''}
-                      </p>
+                    <div className="ac-radar-follow-title">
+                      <span
+                        className={'ac-radar-topic-icon ac-radar-topic-' + i.source}
+                        aria-hidden="true"
+                      >
+                        {
+                          {
+                            weather: '🌤️',
+                            ptax: '💵',
+                            currency: '💱',
+                            football: '⚽',
+                            news: '📰',
+                            series: '🎬',
+                            gazettes: '📋',
+                            energy: '💡',
+                            releases: '🚀',
+                          }[i.source]
+                        }
+                      </span>
+                      <div>
+                        <span className="ac-radar-category">{source?.name}</span>
+                        <h3>{i.label}</h3>
+                        <p>
+                          {deliveryLabel(i)}
+                          {i.delivery === 'threshold'
+                            ? ' · ' +
+                              (i.comparison === 'above' ? 'acima de R$ ' : 'abaixo de R$ ') +
+                              i.threshold
+                            : ''}
+                        </p>
+                      </div>
                     </div>
                     <span className={'ac-radar-status' + (i.active && fresh ? ' is-current' : '')}>
                       {status}
@@ -319,18 +415,25 @@ export function CustomerRadar({
                         </div>
                       ))}
                       {!i.snapshot.items.length ? (
-                        <p>Nenhuma publicação encontrada no período consultado.</p>
+                        <p>
+                          {i.source === 'news'
+                            ? 'Nenhuma publicação desse assunto nos últimos 30 dias do Global Voices.'
+                            : 'Nenhuma atualização informada para essa escolha no período consultado.'}
+                        </p>
                       ) : null}
-                      <small>
-                        Consultado em {dateTimeLabel(i.snapshot.observedAt, customer.timeZone)}
-                        {i.snapshot.sourceUpdatedAt
-                          ? ' · Dados da fonte: ' +
-                            (/^\d{4}-\d{2}-\d{2}$/.test(i.snapshot.sourceUpdatedAt)
-                              ? i.snapshot.sourceUpdatedAt.split('-').reverse().join('/')
-                              : dateTimeLabel(i.snapshot.sourceUpdatedAt, customer.timeZone))
-                          : ''}
-                        {i.snapshot.notice ? ' · ' + i.snapshot.notice : ''}
-                      </small>
+                      <details className="ac-radar-source-details">
+                        <summary>Fonte e atualização</summary>
+                        <small>
+                          Consultado em {dateTimeLabel(i.snapshot.observedAt, customer.timeZone)}
+                          {i.snapshot.sourceUpdatedAt
+                            ? ' · Dados da fonte: ' +
+                              (/^\d{4}-\d{2}-\d{2}$/.test(i.snapshot.sourceUpdatedAt)
+                                ? i.snapshot.sourceUpdatedAt.split('-').reverse().join('/')
+                                : dateTimeLabel(i.snapshot.sourceUpdatedAt, customer.timeZone))
+                            : ''}
+                          {i.snapshot.notice ? ' · ' + i.snapshot.notice : ''}
+                        </small>
+                      </details>
                     </div>
                   ) : (
                     <p className="ac-radar-wait">
@@ -752,9 +855,7 @@ function RadarForm({
                 }
               >
                 <option value="digest">Junto no resumo diário</option>
-                {['football', 'series'].includes(source.id) ? (
-                  <option value="before">Antes do evento</option>
-                ) : null}
+                {source.id === 'series' ? <option value="before">Antes do evento</option> : null}
                 {['currency', 'ptax'].includes(source.id) ? (
                   <option value="threshold">Quando passar de um valor</option>
                 ) : null}
@@ -807,7 +908,7 @@ function RadarForm({
             <p className="ac-radar-source-note">
               {source.provider} · {source.license}.{' '}
               {source.id === 'football'
-                ? 'Somente Brasileirão Série A; horários e placares podem chegar com atraso.'
+                ? 'Calendário comunitário aberto. Datas podem mudar e horários podem não estar confirmados. Sem placar ao vivo.'
                 : source.id === 'series'
                   ? 'A data da fonte não confirma estreia no Brasil.'
                   : source.id === 'ptax' || source.id === 'currency'

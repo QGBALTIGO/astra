@@ -48,6 +48,7 @@ import {
   needsConversationalRewrite,
   recentChannelText,
   requiredChannelSubscriptionTool,
+  requiredChannelRadarTool,
 } from './tool-selection.js';
 import { restoreChannelHistory } from './restore-history.js';
 import { withRecentReceiptContext } from './recent-chat-replies.js';
@@ -863,10 +864,19 @@ async function processDirectAgentInSession(
                 }),
               }
             )
-          : requiredChannelSubscriptionTool(interpreted.text)
+          : (requiredChannelRadarTool(
+                interpreted.text,
+                recentChannelText(agent.getConversation())
+              ) ?? requiredChannelSubscriptionTool(interpreted.text))
             ? agent.chat(
                 withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts),
-                { requiredFirstTool: requiredChannelSubscriptionTool(interpreted.text) }
+                {
+                  requiredFirstTool:
+                    requiredChannelRadarTool(
+                      interpreted.text,
+                      recentChannelText(agent.getConversation())
+                    ) ?? requiredChannelSubscriptionTool(interpreted.text),
+                }
               )
             : agent.chat(
                 withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts)

@@ -188,19 +188,34 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       await createA();
       expect((await (await request('a')).json()).data.preferences.enabled).toBe(false);
     });
-    it('cannot enable football without the free source being configured', async () => {
+    it('uses keyless commercial football but still requires a real selected club', async () => {
+      const catalog = (await (await request('a')).json()).data.catalog;
+      expect(catalog.find((x: { id: string }) => x.id === 'football').available).toBe(true);
+      const invalid = await request('a', '/radar/interests', 'POST', {
+        source: 'football',
+        target: 'br:cr-flamengo',
+      });
+      expect(invalid.status).toBe(400);
+      m.search.mockResolvedValue([{ id: 'br:cr-flamengo', label: 'Flamengo' }]);
+      expect((await request('a', '/radar/search?source=football&q=Flamengo')).status).toBe(200);
+      expect(
+        (
+          await request('a', '/radar/interests', 'POST', {
+            source: 'football',
+            target: 'br:cr-flamengo',
+          })
+        ).status
+      ).toBe(201);
+    });
+    it('does not promise a pregame alarm without a confirmed kickoff', async () => {
       const r = await request('a', '/radar/interests', 'POST', {
         source: 'football',
-        target: '1783',
+        target: 'br:cr-flamengo',
         delivery: 'before',
         leadMinutes: 60,
       });
-      expect(r.status).toBe(503);
-      expect(
-        (await (await request('a')).json()).data.catalog.find(
-          (x: { id: string }) => x.id === 'football'
-        ).available
-      ).toBe(false);
+      expect(r.status).toBe(400);
+      expect((await r.json()).error.message).toContain('horário');
     });
     it('only accepts a city selected from an actual prior search', async () => {
       expect(

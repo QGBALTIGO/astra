@@ -81,17 +81,21 @@ export class CustomerRadarRepository extends BaseRepository {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
         'radar:' + this.userId,
       ]);
-      const r = await this.queryOne<{ preferences: RadarPreferences; revision: number }>(
-        `INSERT INTO customer_radar_preferences(user_id,preferences) VALUES($1,$2::jsonb)
-    ON CONFLICT(user_id) DO UPDATE SET preferences=$2::jsonb,revision=customer_radar_preferences.revision+1,updated_at=NOW() RETURNING preferences,revision`,
-        [this.userId, JSON.stringify(input)]
-      );
-      await this.execute(
-        "UPDATE customer_radar_outbox SET status='cancelled' WHERE user_id=$1 AND status IN ('pending','leased')",
-        [this.userId]
-      );
-      return r!;
+      return this.writePreferences(input);
     });
+  }
+  /** Caller holds the account lock in its existing transaction; never open a nested one. */
+  private async writePreferences(input: RadarPreferences) {
+    const r = await this.queryOne<{ preferences: RadarPreferences; revision: number }>(
+      `INSERT INTO customer_radar_preferences(user_id,preferences) VALUES($1,$2::jsonb)
+    ON CONFLICT(user_id) DO UPDATE SET preferences=$2::jsonb,revision=customer_radar_preferences.revision+1,updated_at=NOW() RETURNING preferences,revision`,
+      [this.userId, JSON.stringify(input)]
+    );
+    await this.execute(
+      "UPDATE customer_radar_outbox SET status='cancelled' WHERE user_id=$1 AND status IN ('pending','leased')",
+      [this.userId]
+    );
+    return r!;
   }
   async list(): Promise<ReturnType<typeof mapRadarInterest>[]> {
     return (
@@ -100,6 +104,44 @@ export class CustomerRadarRepository extends BaseRepository {
         [this.userId]
       )
     ).map(mapRadarInterest);
+  }
+  /** Explicit chat opt-in starts only the requested topic when the entire Radar was off. */
+  async followFromChat(input: RadarInput, label: string, time: string) {
+    input = radarInputSchema.parse(input);
+    input.target = normalizeRadarTarget(input.source, input.target);
+    const rid = resourceId(input.source, input.target, input.query);
+    return this.transaction(async () => {
+      await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+        'radar:' + this.userId,
+      ]);
+      const pref = await this.preferences();
+      const nextPreferences = radarPreferencesSchema.parse({
+        ...pref.preferences,
+        enabled: true,
+        time,
+      });
+      await this.execute(
+        `INSERT INTO radar_resources(id,source,target,label,query) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO NOTHING`,
+        [rid, input.source, input.target, label, input.query ?? null]
+      );
+      const row = await this.queryOne<{ id: string }>(
+        `INSERT INTO customer_radar_interests(id,user_id,resource_id,input,label) VALUES($1,$2,$3,$4::jsonb,$5)
+        ON CONFLICT(user_id,resource_id) DO UPDATE SET active=TRUE,input=EXCLUDED.input,
+        revision=customer_radar_interests.revision+1,last_digest_day=NULL,threshold_state=NULL,updated_at=NOW() RETURNING id`,
+        [randomUUID(), this.userId, rid, JSON.stringify(input), label]
+      );
+      let keptPaused = 0;
+      if (!pref.preferences.enabled) {
+        keptPaused = (
+          await this.execute(
+            'UPDATE customer_radar_interests SET active=FALSE,revision=revision+1,updated_at=NOW() WHERE user_id=$1 AND id<>$2 AND active=TRUE',
+            [this.userId, row!.id]
+          )
+        ).changes;
+      }
+      await this.writePreferences(nextPreferences);
+      return { interest: mapRadarInterest((await this.get(row!.id))!), keptPaused };
+    });
   }
   async get(id: string): Promise<RadarInterestRow | null> {
     return this.queryOne<RadarInterestRow>(INTEREST_SELECT + ' WHERE i.user_id=$1 AND i.id=$2', [
@@ -190,6 +232,13 @@ export class CustomerRadarRepository extends BaseRepository {
   }
 }
 export class RadarRepository extends BaseRepository {
+  async refreshReplacedSources(): Promise<void> {
+    await this
+      .execute(`UPDATE radar_resources SET snapshot=NULL,error_code=NULL,failures=0,next_poll_at=NOW()
+      WHERE (leased_until IS NULL OR leased_until<NOW()) AND (
+        (source='news' AND (snapshot->>'sourceLabel'='GDELT' OR error_code IS NOT NULL)) OR
+        (source='football' AND snapshot->>'sourceLabel'='football-data.org'))`);
+  }
   async rememberChoices(source: RadarSourceId, choices: Array<{ id: string; label: string }>) {
     for (const c of choices.slice(0, 8))
       await this.execute(
@@ -231,7 +280,7 @@ export class RadarRepository extends BaseRepository {
    AND (r.leased_until IS NULL OR r.leased_until<NOW())
    AND NOT EXISTS(SELECT 1 FROM radar_provider_limits p WHERE p.provider=CASE r.source
      WHEN 'currency' THEN 'api.frankfurter.dev' WHEN 'ptax' THEN 'olinda.bcb.gov.br'
-     WHEN 'football' THEN 'api.football-data.org' WHEN 'news' THEN 'api.gdeltproject.org'
+     WHEN 'football' THEN 'raw.githubusercontent.com' WHEN 'news' THEN 'pt.globalvoices.org'
      WHEN 'series' THEN 'api.tvmaze.com' WHEN 'gazettes' THEN 'api.queridodiario.ok.org.br'
      WHEN 'energy' THEN 'dadosabertos.aneel.gov.br' WHEN 'releases' THEN 'api.github.com' ELSE 'api.met.no' END
      AND (p.next_request_at>NOW() OR p.blocked_until>NOW()))
