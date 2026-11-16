@@ -7,6 +7,7 @@ export default defineConfig({
     'customer-premium.spec.ts',
     'customer-portal.spec.ts',
     'customer-mobile-controls.spec.ts',
+    'customer-radar.spec.ts',
   ],
   outputDir: '../test-results/customer-premium',
   timeout: 45000,

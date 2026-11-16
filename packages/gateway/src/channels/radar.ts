@@ -11,12 +11,7 @@ export async function tryRadarChannelReply(
   userId: string,
   hasAccess: () => Promise<boolean>
 ): Promise<string | null> {
-  if (
-    message.platform !== 'whatsapp' ||
-    message.attachments?.length ||
-    !integrationPrivateChat(message)
-  )
-    return null;
+  if (message.platform !== 'whatsapp' || message.attachments?.length) return null;
   const text = message.text
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
@@ -33,6 +28,7 @@ export async function tryRadarChannelReply(
       text
     );
   if (!stop && !list) return null;
+  if (!message.sender?.platformUserId || !integrationPrivateChat(message)) return null;
   try {
     const identity = await resolveCustomerPhone(message.sender.platformUserId);
     if (!identity || identity.retired || !identity.isCurrent) return null;

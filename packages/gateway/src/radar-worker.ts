@@ -1,5 +1,6 @@
 /** Dedicated public-data collector. Deliberately does not boot channels, agents or the HTTP server. */
 import 'dotenv/config';
+import { parentPort } from 'node:worker_threads';
 import { initializeAdapter, closeAdapter } from './db/adapters/index.js';
 import { startRadarCollectors, stopRadar } from './services/radar/worker.js';
 import { getLog } from './services/log.js';
@@ -14,7 +15,12 @@ async function stop() {
   stopRadar();
   clearInterval(keepAlive);
   await closeAdapter();
+  parentPort?.close();
 }
+parentPort?.once('message', (message) => {
+  if (message === 'shutdown') void stop();
+});
 process.once('SIGTERM', () => void stop());
 process.once('SIGINT', () => void stop());
 log.info('Coletor Astra Radar iniciado; envio permanece no gateway.');
+parentPort?.postMessage('ready');

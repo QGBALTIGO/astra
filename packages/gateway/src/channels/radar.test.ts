@@ -49,6 +49,15 @@ beforeEach(() => {
   m.list.mockResolvedValue([{ label: 'USD', active: true }]);
 });
 describe('WhatsApp Radar privacy and opt-out', () => {
+  it.each(['gastei 10', 'meu Radar'])(
+    'ignores incomplete sender metadata for %s safely',
+    async (text) => {
+      const msg = message(text);
+      delete (msg as Partial<ChannelIncomingMessage>).sender;
+      expect(await tryRadarChannelReply(msg, user, async () => true)).toBeNull();
+      expect(m.identity).not.toHaveBeenCalled();
+    }
+  );
   it.each([
     'Oi',
     'lembre de pagar amanhã',

@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: astratest
           POSTGRES_PASSWORD: radar-local-tests-only
@@ -49,3 +49,8 @@ jobs:
           ASTRA_RADAR_TEST_PORT: '5432'
           ASTRA_RADAR_LOAD_TEST: 'true'
         run: pnpm --filter @ownpilot/gateway exec vitest run src/services/radar/load.pg.test.ts
+      - name: Start and stop dedicated worker against the full pgvector schema
+        env:
+          ASTRA_RADAR_TEST_PORT: '5432'
+          ASTRA_RADAR_WORKER_SMOKE: 'true'
+        run: pnpm --filter @ownpilot/gateway exec vitest run src/services/radar/startup.pg.test.ts

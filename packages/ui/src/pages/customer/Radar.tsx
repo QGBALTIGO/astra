@@ -29,7 +29,6 @@ import type {
   RadarInterest,
   RadarPreferences,
 } from './radar-types';
-import './radar.css';
 
 const defaults: RadarPreferences = {
   enabled: false,
