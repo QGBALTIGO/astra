@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   fetch: vi.fn(),
   context: vi.fn(),
   request: vi.fn(),
+  preview: vi.fn(),
   lists: new Map<string, unknown[]>(),
   prefs: new Map<string, unknown>(),
 }));
@@ -30,6 +31,7 @@ vi.mock('../../db/repositories/customer-radar.js', () => ({
   radarRepo: {
     rememberChoices: vi.fn(),
     queueRequestedDigest: (...args: unknown[]) => m.request(...args),
+    queueNewsPreview: (...args: unknown[]) => m.preview(...args),
   },
   CustomerRadarRepository: class {
     constructor(readonly user: string) {}
@@ -97,6 +99,7 @@ beforeEach(() => {
   }));
   m.save.mockResolvedValue({});
   m.change.mockResolvedValue({ label: 'Tecnologia', source: 'news', active: false });
+  m.preview.mockResolvedValue('queued');
 });
 describe('Radar chat consent, continuity and private account scope', () => {
   it('answers a football consultation with the fixtures and no technical source links', async () => {
@@ -203,8 +206,22 @@ describe('Radar chat consent, continuity and private account scope', () => {
     expect(m.fetch).toHaveBeenCalledWith(
       expect.objectContaining({ target: 'mundo', label: 'mundo' })
     );
-    expect(result.reply).toContain('Leitura pública');
-    expect(result.reply.match(/CC BY 3\.0/g)).toHaveLength(1);
+    expect(result.reply).toContain('Ler matéria');
+    expect(result.reply).not.toContain('https://');
+    expect(m.preview).toHaveBeenCalledWith(
+      user,
+      0,
+      expect.stringContaining('channel.whatsapp:'),
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.stringContaining('Leitura pública'),
+          urlButton: {
+            label: 'Ler matéria',
+            url: 'https://pt.globalvoices.org/2026/11/09/example/',
+          },
+        }),
+      ])
+    );
     expect(m.follow).not.toHaveBeenCalled();
     expect(m.save).not.toHaveBeenCalled();
   });
@@ -434,7 +451,15 @@ describe('Radar chat consent, continuity and private account scope', () => {
       { action: 'preview', source: 'news', subject: 'IA' },
       { externalContentGuard: guard }
     );
-    expect(result.reply).toContain('Manchete');
+    expect(result.reply).toContain('Ler matéria');
+    expect(m.preview).toHaveBeenCalledWith(
+      user,
+      0,
+      expect.any(String),
+      expect.arrayContaining([
+        expect.objectContaining({ text: expect.stringContaining('Manchete') }),
+      ])
+    );
     expect(guard.seen).toBe(true);
     expect(m.follow).not.toHaveBeenCalled();
   });

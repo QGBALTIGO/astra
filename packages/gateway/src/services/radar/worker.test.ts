@@ -16,6 +16,8 @@ const m = vi.hoisted(() => ({
   list: vi.fn(),
   channel: vi.fn(),
   send: vi.fn(),
+  sending: vi.fn(),
+  part: vi.fn(),
 }));
 vi.mock('@ownpilot/core/channels', () => ({
   getChannelService: () => ({ listChannels: m.list, getChannel: m.channel, send: m.send }),
@@ -30,6 +32,8 @@ vi.mock('../../db/repositories/customer-radar.js', () => ({
     deferDelivery: m.defer,
     rawInterests: m.raw,
     markContent: m.mark,
+    sendingDeliveryCurrent: m.sending,
+    recordDeliveryPart: m.part,
   },
   CustomerRadarRepository: class {
     preferences = m.preferences;
@@ -95,6 +99,8 @@ beforeEach(() => {
   m.claim.mockResolvedValue([structuredClone(job)]);
   m.current.mockResolvedValue(true);
   m.begin.mockResolvedValue(true);
+  m.sending.mockResolvedValue(true);
+  m.part.mockResolvedValue(true);
   m.account.mockResolvedValue({ ...account });
   m.latest.mockResolvedValue({ ...account });
   m.user.mockResolvedValue({
@@ -117,16 +123,102 @@ beforeEach(() => {
   m.send.mockResolvedValue('receipt');
 });
 describe('Radar final delivery authorization and failures', () => {
+  const articleCards = [1, 2].map((n) => ({
+    text: `📰 *Mundo · ${n}/2*\n\n*Matéria ${n}*\n\nGlobal Voices · CC BY 3.0`,
+    urlButton: {
+      label: 'Ler matéria',
+      url: `https://pt.globalvoices.org/2026/11/16/materia-${n}/`,
+    },
+  }));
+  it('delivers individual native article buttons for an explicit consultation without enabling daily sends', async () => {
+    m.claim.mockResolvedValue([
+      {
+        ...structuredClone(job),
+        event_key: 'preview:message',
+        payload: { newsPreview: true, cards: articleCards },
+      },
+    ]);
+    m.preferences.mockResolvedValue({
+      preferences: { enabled: false, time: '07:00', quietStart: '00:00', quietEnd: '23:59' },
+      revision: 1,
+    });
+    expect(await dispatchRadar(now)).toBe(1);
+    expect(m.send).toHaveBeenCalledTimes(2);
+    expect(m.send.mock.calls[0]?.[1]).toMatchObject(articleCards[0]!);
+    expect(m.send.mock.calls[1]?.[1]).toMatchObject(articleCards[1]!);
+    expect(m.part).toHaveBeenNthCalledWith(1, expect.anything(), 0, 'receipt', 2);
+    expect(m.part).toHaveBeenNthCalledWith(2, expect.anything(), 1, 'receipt', 2);
+    expect(m.mark).not.toHaveBeenCalled();
+  });
+  it('preserves a confirmed first card and never retries the batch after the next transport fails before sending', async () => {
+    m.claim.mockResolvedValue([
+      {
+        ...structuredClone(job),
+        event_key: 'preview:message',
+        payload: { newsPreview: true, cards: articleCards },
+      },
+    ]);
+    m.send
+      .mockResolvedValueOnce('first-receipt')
+      .mockRejectedValueOnce(new ChannelSendNotAttemptedError('not attempted'));
+    expect(await dispatchRadar(now)).toBe(0);
+    expect(m.send).toHaveBeenCalledTimes(2);
+    expect(m.part).toHaveBeenCalledTimes(1);
+    expect(m.finish).toHaveBeenCalledWith(expect.anything(), 'unknown');
+    expect(m.defer).not.toHaveBeenCalled();
+  });
+  it('stops the remaining cards when access is revoked between messages', async () => {
+    m.claim.mockResolvedValue([
+      {
+        ...structuredClone(job),
+        event_key: 'preview:message',
+        payload: { newsPreview: true, cards: articleCards },
+      },
+    ]);
+    m.sending.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    expect(await dispatchRadar(now)).toBe(0);
+    expect(m.send).toHaveBeenCalledTimes(1);
+    expect(m.finish).toHaveBeenCalledWith(expect.anything(), 'unknown');
+  });
   it('delivers an explicit extra digest without repeating an uncertain daily job or hiding already seen news', async () => {
     m.claim.mockResolvedValue([{ ...structuredClone(job), event_key: 'requested:message-new' }]);
     const news = followed();
     news.input.source = 'news' as never;
     news.label = 'Mundo';
+    news.snapshot.items = [
+      {
+        id: 'news',
+        title: 'Matéria',
+        text: 'Publicado em 16/11/2026',
+        url: 'https://pt.globalvoices.org/2026/11/16/materia/',
+      },
+    ] as never;
     news.last_content_key = 'hash';
     m.raw.mockResolvedValue([news]);
     expect(await dispatchRadar(now)).toBe(1);
     expect(m.send).toHaveBeenCalledTimes(1);
     expect(m.mark).toHaveBeenCalledWith(account.dataUserId, news.id, news.revision, 'hash');
+  });
+  it('does not mark a topic omitted by the three-card limit as delivered', async () => {
+    const topics = ['Mundo', 'Tecnologia'].map((label, index) => ({
+      ...followed(),
+      id: 'topic-' + index,
+      label,
+      input: { source: 'news', target: label, delivery: 'digest', leadMinutes: 60 },
+      snapshot: {
+        ...followed().snapshot,
+        items: [1, 2, 3].map((n) => ({
+          id: label + n,
+          title: label + n,
+          url: `https://pt.globalvoices.org/2026/11/16/${label.toLowerCase()}-${n}/`,
+        })),
+      },
+    }));
+    m.raw.mockResolvedValue(topics);
+    expect(await dispatchRadar(now)).toBe(1);
+    expect(m.send).toHaveBeenCalledTimes(3);
+    expect(m.mark).toHaveBeenCalledTimes(1);
+    expect(m.mark).toHaveBeenCalledWith(account.dataUserId, 'topic-0', 1, 'hash');
   });
   it('submits one combined message to the current verified phone', async () => {
     expect(await dispatchRadar(now)).toBe(1);
@@ -207,7 +299,7 @@ describe('Radar final delivery authorization and failures', () => {
   it('does not treat an empty receipt as a successful send', async () => {
     m.send.mockResolvedValue('');
     expect(await dispatchRadar(now)).toBe(0);
-    expect(m.finish).toHaveBeenCalledWith(expect.anything(), 'unknown', '');
+    expect(m.finish).toHaveBeenCalledWith(expect.anything(), 'unknown');
   });
   it('does not blindly retry after a transport timeout', async () => {
     m.send.mockRejectedValue(new Error('timeout'));

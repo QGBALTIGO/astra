@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
+import { isRadarNewsCard, type RadarNewsCard } from '../../services/radar/news-cards.js';
 import {
   radarInputSchema,
   radarPreferencesSchema,
@@ -43,6 +44,10 @@ export interface RadarDeliveryRow {
     url: string;
     itemId?: string;
     at?: string;
+    newsPreview?: boolean;
+    cards?: RadarNewsCard[];
+    totalParts?: number;
+    deliveredParts?: Array<{ index: number; transportId: string }>;
   };
   expires_at: string | Date;
   lease_token: string;
@@ -435,6 +440,103 @@ export class RadarRepository extends BaseRepository {
         : ('unavailable' as const);
     });
   }
+  /** Queue an explicitly requested news read without subscribing the customer. */
+  async queueNewsPreview(
+    userId: string,
+    preferenceRevision: number,
+    requestId: string,
+    cards: readonly RadarNewsCard[]
+  ): Promise<'queued' | 'existing' | 'rate_limited' | 'unavailable'> {
+    if (
+      !userId?.trim() ||
+      userId === 'default' ||
+      !Number.isInteger(preferenceRevision) ||
+      preferenceRevision < 0 ||
+      preferenceRevision > 2147483647 ||
+      typeof requestId !== 'string' ||
+      !requestId ||
+      requestId.length > 256 ||
+      /[\p{Cc}\p{Cf}]/u.test(requestId) ||
+      !Array.isArray(cards) ||
+      cards.length < 1 ||
+      cards.length > 3 ||
+      !cards.every(isRadarNewsCard) ||
+      cards.some((card) => {
+        if (
+          typeof card?.text !== 'string' ||
+          !card.text.trim() ||
+          card.text.length > 500 ||
+          card.urlButton?.label !== 'Ler matéria' ||
+          typeof card.urlButton.url !== 'string' ||
+          card.urlButton.url.length > 600 ||
+          /[\s\p{Cc}\p{Cf}]/u.test(card.urlButton.url)
+        )
+          return true;
+        try {
+          const url = new URL(card.urlButton.url);
+          return (
+            url.protocol !== 'https:' ||
+            url.hostname !== 'pt.globalvoices.org' ||
+            !!url.port ||
+            !!url.username ||
+            !!url.password
+          );
+        } catch {
+          return true;
+        }
+      })
+    )
+      return 'unavailable';
+    const key = 'preview:' + requestId;
+    const payload = JSON.stringify({
+      title: 'Notícias',
+      text: '',
+      source: 'Global Voices',
+      url: '',
+      newsPreview: true,
+      cards: cards.map((card) => ({
+        text: card.text,
+        urlButton: { label: 'Ler matéria', url: card.urlButton.url },
+      })),
+    });
+    return this.transaction(async () => {
+      await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+        'radar:' + userId,
+      ]);
+      if (
+        await this.queryOne(
+          'SELECT id FROM customer_radar_outbox WHERE user_id=$1 AND event_key=$2',
+          [userId, key]
+        )
+      )
+        return 'existing';
+      if (
+        await this.queryOne(
+          "SELECT id FROM customer_radar_outbox WHERE user_id=$1 AND event_key LIKE 'preview:%' AND created_at>NOW()-INTERVAL '10 seconds'",
+          [userId]
+        )
+      )
+        return 'rate_limited';
+      // Missing preferences mean OFF/revision 0. Materialize only that default
+      // so the outbox FK can retain the requested read without opting into jobs.
+      if (preferenceRevision === 0)
+        await this.execute(
+          `INSERT INTO customer_radar_preferences(user_id,preferences,revision)
+           SELECT data_user_id,$2::jsonb,0 FROM customer_accounts WHERE data_user_id=$1
+           ON CONFLICT(user_id) DO NOTHING`,
+          [userId, JSON.stringify(RADAR_DEFAULT_PREFERENCES)]
+        );
+      return (await this.queryOne(
+        `INSERT INTO customer_radar_outbox(id,user_id,interest_id,interest_revision,preference_revision,event_key,payload,expires_at)
+         SELECT $1,p.user_id,NULL,0,p.revision,$3,$4::jsonb,NOW()+INTERVAL '5 minutes'
+         FROM customer_radar_preferences p WHERE p.user_id=$2 AND p.revision=$5
+         ON CONFLICT(user_id,event_key) DO NOTHING RETURNING id`,
+        [randomUUID(), userId, key, payload, preferenceRevision]
+      ))
+        ? 'queued'
+        : 'unavailable';
+    });
+  }
   async queueDigest(
     userId: string,
     preferenceRevision: number,
@@ -477,9 +579,10 @@ export class RadarRepository extends BaseRepository {
     return !!(await this.queryOne(
       `SELECT o.id FROM customer_radar_outbox o LEFT JOIN customer_radar_interests i ON i.id=o.interest_id AND i.user_id=o.user_id
    JOIN customer_radar_preferences p ON p.user_id=o.user_id
-   WHERE o.id=$1 AND o.lease_token=$2 AND o.status='leased' AND o.leased_until>NOW() AND o.expires_at>NOW()
-   AND (o.interest_id IS NULL OR (i.active AND i.revision=o.interest_revision)) AND p.revision=o.preference_revision AND p.preferences->>'enabled'='true'`,
-      [row.id, row.lease_token]
+   WHERE o.id=$1 AND o.lease_token=$2 AND o.user_id=$3 AND o.status='leased' AND o.leased_until>NOW() AND o.expires_at>NOW()
+   AND (o.interest_id IS NULL OR (i.active AND i.revision=o.interest_revision)) AND p.revision=o.preference_revision
+   AND (p.preferences->>'enabled'='true' OR (o.payload->>'newsPreview'='true' AND o.event_key LIKE 'preview:%'))`,
+      [row.id, row.lease_token, row.user_id]
     ));
   }
   async beginDelivery(row: RadarDeliveryRow): Promise<boolean> {
@@ -490,12 +593,63 @@ export class RadarRepository extends BaseRepository {
       return !!(await this.queryOne(
         `UPDATE customer_radar_outbox o SET status='sending'
    FROM customer_radar_preferences p
-   WHERE o.id=$1 AND o.lease_token=$2 AND o.status='leased' AND o.leased_until>NOW() AND o.expires_at>NOW()
+   WHERE o.id=$1 AND o.lease_token=$2 AND o.user_id=$3 AND o.status='leased' AND o.leased_until>NOW() AND o.expires_at>NOW()
      AND (o.interest_id IS NULL OR EXISTS(SELECT 1 FROM customer_radar_interests i WHERE i.id=o.interest_id AND i.user_id=o.user_id AND i.active AND i.revision=o.interest_revision))
-     AND p.user_id=o.user_id AND p.revision=o.preference_revision AND p.preferences->>'enabled'='true' RETURNING o.id`,
-        [row.id, row.lease_token]
+     AND p.user_id=o.user_id AND p.revision=o.preference_revision
+     AND (p.preferences->>'enabled'='true' OR (o.payload->>'newsPreview'='true' AND o.event_key LIKE 'preview:%')) RETURNING o.id`,
+        [row.id, row.lease_token, row.user_id]
       ));
     });
+  }
+  /** Revalidate opt-in, expiry and fencing before each remaining message in a batch. */
+  async sendingDeliveryCurrent(row: RadarDeliveryRow): Promise<boolean> {
+    return !!(await this.queryOne(
+      `SELECT o.id FROM customer_radar_outbox o LEFT JOIN customer_radar_interests i ON i.id=o.interest_id AND i.user_id=o.user_id
+   JOIN customer_radar_preferences p ON p.user_id=o.user_id
+   WHERE o.id=$1 AND o.lease_token=$2 AND o.user_id=$3 AND o.status='sending' AND o.leased_until>NOW() AND o.expires_at>NOW()
+   AND (o.interest_id IS NULL OR (i.active AND i.revision=o.interest_revision)) AND p.revision=o.preference_revision
+   AND (p.preferences->>'enabled'='true' OR (o.payload->>'newsPreview'='true' AND o.event_key LIKE 'preview:%'))`,
+      [row.id, row.lease_token, row.user_id]
+    ));
+  }
+  /**
+   * Persist a confirmed part with one fenced update, without holding a database
+   * transaction over transport. An uncertain batch is never replayed; these
+   * receipts are retained even if an opt-out/expiry happened during the send.
+   */
+  async recordDeliveryPart(
+    row: RadarDeliveryRow,
+    index: number,
+    transportId: string,
+    totalParts: number
+  ): Promise<boolean> {
+    if (
+      !Number.isInteger(index) ||
+      !Number.isInteger(totalParts) ||
+      totalParts < 1 ||
+      totalParts > 10 ||
+      index < 0 ||
+      index >= totalParts ||
+      typeof transportId !== 'string' ||
+      !transportId ||
+      transportId.length > 256 ||
+      /[\s\p{Cc}\p{Cf}]/u.test(transportId)
+    )
+      return false;
+    const parts = `CASE WHEN jsonb_typeof(o.payload->'deliveredParts')='array' THEN o.payload->'deliveredParts' ELSE '[]'::jsonb END`;
+    const samePart = `EXISTS(SELECT 1 FROM jsonb_array_elements(${parts}) part WHERE part->'index'=to_jsonb($3::int) AND part->>'transportId'=$4)`;
+    return !!(await this.queryOne(
+      `UPDATE customer_radar_outbox o
+   SET payload=jsonb_set(jsonb_set(o.payload,'{totalParts}',to_jsonb($5::int),true),'{deliveredParts}',
+     CASE WHEN ${samePart} THEN ${parts} ELSE ${parts} || jsonb_build_array(jsonb_build_object('index',$3::int,'transportId',$4::text)) END,true)
+   WHERE o.id=$1 AND o.lease_token=$2 AND o.user_id=$6 AND o.status='sending'
+     AND jsonb_typeof(o.payload)='object'
+     AND (o.payload->'deliveredParts' IS NULL OR jsonb_typeof(o.payload->'deliveredParts')='array')
+     AND (o.payload->'totalParts' IS NULL OR o.payload->'totalParts'=to_jsonb($5::int))
+     AND (${samePart} OR (jsonb_array_length(${parts})=$3 AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(${parts}) part WHERE part->'index'=to_jsonb($3::int))))
+   RETURNING o.id`,
+      [row.id, row.lease_token, index, transportId, totalParts, row.user_id]
+    ));
   }
   async finishDelivery(
     row: RadarDeliveryRow,
