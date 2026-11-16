@@ -223,7 +223,9 @@ export function buildAccessMessage(
         text: paragraphs(
           `${hello} 💙`,
           '*Seu teste grátis do Astra já está em andamento!* Não precisa solicitar outro teste.',
-          expires ? `⏳ *Seu acesso é válido até ${trialDeadline(expires, settings.timeZone)}.*` : undefined,
+          expires
+            ? `⏳ *Seu acesso é válido até ${trialDeadline(expires, settings.timeZone)}.*`
+            : undefined,
           'Pode me enviar seus gastos, tarefas, lembretes, metas, ideias, áudios e imagens normalmente.',
           '🚀 *Quer experimentar?* Diga: “Me lembre de beber água amanhã às 9h.”'
         ),
