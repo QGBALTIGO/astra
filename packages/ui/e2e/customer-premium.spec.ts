@@ -107,8 +107,9 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(page.locator('.ac-login-card h1')).toHaveCSS('font-family', /Poppins/);
       if (screen.width <= 900) {
         const header = await page.locator('.ac-login-story').boundingBox();
+        const contentWidth = await page.evaluate(() => document.documentElement.clientWidth);
         expect(header?.x).toBe(0);
-        expect(header?.width).toBe(screen.width);
+        expect(header?.width).toBe(contentWidth);
       }
       await geometry(page);
       await image(page, info, `${prefix}-login`, reference);
