@@ -35,6 +35,8 @@ export function accessWorkerIsResponsive(now = Date.now()): boolean {
 
 // No phone numbers, message bodies or account records leave this query. An uncertain
 // send is flagged for investigation, never automatically retried by this probe.
+// firstAuthorizedAsTrial is set when an inbound welcome is CLAIMED, before
+// transport. It is not a delivery receipt and must never exempt this check.
 export const ONBOARDING_BACKLOG_SQL = `SELECT
   to_regclass('whatsapp_trial_claims') IS NOT NULL
     AND to_regclass('customer_phone_aliases') IS NOT NULL AS ledger_ready,
@@ -46,7 +48,6 @@ export const ONBOARDING_BACKLOG_SQL = `SELECT
       AND u.access_granted_at < NOW() - INTERVAL '10 minutes'
       AND (u.metadata->>'hasInteracted'='true'
         OR u.metadata->'astraFirstContactRecovery'->>'source'='authorized_first_contact')
-      AND u.metadata->'astraAccessNotices'->>'firstAuthorizedAsTrial' IS DISTINCT FROM 'true'
       AND NOT EXISTS (
         SELECT 1 FROM channel_access_notifications n
         WHERE n.channel_user_id=u.id AND n.ownpilot_user_id=u.ownpilot_user_id
