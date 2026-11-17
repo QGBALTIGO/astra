@@ -756,7 +756,10 @@ describe('createAgentExecutionMiddleware', () => {
         vi.fn()
       );
 
-      expect(result.response.content).toContain('Não consegui terminar minha resposta agora');
+      expect(result.response.content).toContain('daqui a pouquinho');
+      expect(result.response.content).not.toMatch(
+        /registros?|painel|duplicidade|OpenAI|provedor|provider|HTTP|API/i
+      );
       expect(result.response.content).not.toContain('Groq');
       expect(result.response.content).not.toContain('limite');
       expect(result.response.content).not.toContain('org_secret');
