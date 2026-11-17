@@ -1807,6 +1807,46 @@ describe('ChannelServiceImpl', () => {
         }
       );
 
+      it.each([
+        { text: 'Oi', realRequest: false },
+        { text: 'Ol\u00e1! Quero testar o Astra gr\u00e1tis por 3 dias.', realRequest: false },
+        { text: 'Anote minha ideia para o projeto', realRequest: true },
+      ])(
+        'starts a scoped first-contact trial before owner pairing: $text',
+        async ({ text, realRequest }) => {
+          vi.stubEnv('ASTRA_WHATSAPP_AUTO_ENROLL', 'true');
+          mockGetOwnerUserId.mockResolvedValue(null);
+          // Unknown at admission; the repository returns the new, scoped grant.
+          mockUsersRepo.findByPlatform.mockResolvedValueOnce(null);
+          reserveDurableWelcome();
+          message.text = text;
+          await service.processIncomingMessage(message);
+          expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
+            expect.objectContaining({
+              startWhatsAppTrial: true,
+              ownpilotUserId: 'whatsapp:' + phone,
+            })
+          );
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+              platformChatId: phone,
+              text: expect.stringContaining('3 dias gr\u00e1tis'),
+            })
+          );
+          expect(mockClaimOwnership).not.toHaveBeenCalled();
+          expect(mockAutoClaimOwnership).not.toHaveBeenCalled();
+          expect(mockVerificationService.verifyViaWhitelist).not.toHaveBeenCalled();
+          if (realRequest) {
+            expect(mockGetOrCreateChatAgent.mock.calls.map((call) => call[7])).toContain(
+              'whatsapp:' + phone
+            );
+          } else {
+            expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+            expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+          }
+        }
+      );
+
       const onboardingOnlyInteractions = [
         { kind: 'sticker', text: '' },
         { kind: 'contact', text: '[Contato compartilhado]' },
@@ -2276,8 +2316,8 @@ describe('ChannelServiceImpl', () => {
 
       beforeEach(() => {
         vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
-        // Even permissive enrollment settings must not authorize new users
-        // while the channel has no owner.
+        // Trial opt-in is independent of administrative ownership; existing
+        // inactive identities must still never be enrolled again.
         vi.stubEnv('ASTRA_WHATSAPP_AUTO_ENROLL', 'true');
         vi.stubEnv('ASTRA_WHATSAPP_TRUSTED_NUMBERS', customerPhone);
         mockGetOwnerUserId.mockResolvedValue(null);
@@ -2379,7 +2419,6 @@ describe('ChannelServiceImpl', () => {
       });
 
       it.each([
-        ['unknown sender', null],
         ['default owner scope', { ownpilotUserId: 'default' }],
         ['another customer scope', { ownpilotUserId: 'whatsapp:5511999990003' }],
         ['unverified customer', { isVerified: false }],
@@ -2401,6 +2440,61 @@ describe('ChannelServiceImpl', () => {
         expect(mockVerificationService.verifyViaWhitelist).not.toHaveBeenCalled();
         expect(mockAutoClaimOwnership).not.toHaveBeenCalled();
         expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+      });
+
+      it.each(['false', '', 'TRUE'])(
+        'does not enroll an unknown contact without explicit trial opt-in (%s)',
+        async (enabled) => {
+          vi.stubEnv('ASTRA_WHATSAPP_AUTO_ENROLL', enabled);
+          mockUsersRepo.findByPlatform.mockResolvedValue(null);
+          await service.processIncomingMessage(message);
+          expect(mockUsersRepo.findOrCreate).not.toHaveBeenCalled();
+          expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+          expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+        }
+      );
+
+      it.each([
+        ['missing identity', undefined, 'connected'],
+        ['invalid identity', 'temporary@lid', 'connected'],
+        ['disconnected channel', botPhone, 'disconnected'],
+        ['connected account', customerPhone, 'connected'],
+        [
+          'alternate connected-account spelling',
+          customerPhone.slice(0, 4) + customerPhone.slice(5),
+          'connected',
+        ],
+      ])('does not enroll unknown senders with %s', async (_label, identity, status) => {
+        mockUsersRepo.findByPlatform.mockResolvedValue(null);
+        channelPlugin.api.getStatus.mockReturnValue(status);
+        channelPlugin.api.getBotInfo.mockReturnValue(identity ? { username: identity } : undefined);
+        await service.processIncomingMessage(message);
+        expect(mockUsersRepo.findOrCreate).not.toHaveBeenCalled();
+        expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        expect(mockAutoClaimOwnership).not.toHaveBeenCalled();
+        expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['missing origin', {}],
+        ['outgoing message', { fromMe: true, isSelfChat: false }],
+        ['incoming self chat', { fromMe: false, isSelfChat: true }],
+      ])('does not enroll unknown senders with %s', async (_label, metadata) => {
+        mockUsersRepo.findByPlatform.mockResolvedValue(null);
+        await service.processIncomingMessage({ ...message, metadata });
+        expect(mockUsersRepo.findOrCreate).not.toHaveBeenCalled();
+        expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        expect(mockClaimOwnership).not.toHaveBeenCalled();
+      });
+
+      it('does not enroll an unknown sender when the channel changes accounts during lookup', async () => {
+        mockUsersRepo.findByPlatform.mockImplementationOnce(async () => {
+          channelPlugin.api.getBotInfo.mockReturnValue({ username: '5521999990003' });
+          return null;
+        });
+        await service.processIncomingMessage(message);
+        expect(mockUsersRepo.findOrCreate).not.toHaveBeenCalled();
+        expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
       });
 
       it('does not re-enroll a customer whose approval was revoked during lookup', async () => {
