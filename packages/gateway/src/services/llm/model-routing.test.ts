@@ -2,7 +2,7 @@
  * Model Routing Service Tests
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Mocks — vi.hoisted lets the vi.mock factory below reference these vars
@@ -24,10 +24,12 @@ vi.mock('../../db/repositories/index.js', () => ({
 
 const mockGetDefaultProvider = vi.fn(async () => 'openai' as string | null);
 const mockGetDefaultModel = vi.fn(async (_provider?: string) => 'gpt-4o' as string | null);
+const mockHasApiKey = vi.fn(async (_provider: string) => true);
 
 vi.mock('../app-settings.js', () => ({
   getDefaultProvider: () => mockGetDefaultProvider(),
   getDefaultModel: (provider?: string) => mockGetDefaultModel(provider),
+  hasApiKey: (provider: string) => mockHasApiKey(provider),
 }));
 
 vi.mock('../log.js', () => ({
@@ -448,5 +450,117 @@ describe('opt-in local Ollama WhatsApp routing', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('explicit Groq primary for text channels', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv('ASTRA_CHANNEL_USE_PRIMARY', 'true');
+    vi.stubEnv('ASTRA_PRIMARY_PROVIDER', 'groq');
+    vi.stubEnv('ASTRA_GROQ_MODEL', 'openai/gpt-oss-20b');
+    vi.stubEnv('ASTRA_CHANNEL_LOCAL_OLLAMA', 'false');
+    mockHasApiKey.mockResolvedValue(true);
+    mockSettingsRepo.get.mockImplementation((key: string) => {
+      if (key.endsWith(':fallback_provider')) return 'openai';
+      if (key.endsWith(':fallback_model')) return 'gpt-4o';
+      if (key.endsWith(':provider')) return 'google';
+      if (key.endsWith(':model')) return 'gemini-stored';
+      return null;
+    });
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    'channel.whatsapp',
+    'channel.telegram',
+    'channel.whatsapp.support',
+    'channel.telegram-support',
+  ])('overrides stored Google routing for %s without changing settings', async (channel) => {
+    expect(await resolveForChannel(channel)).toEqual({
+      provider: 'groq',
+      model: 'openai/gpt-oss-20b',
+      source: 'channel-primary',
+      fallbackProvider: null,
+      fallbackModel: null,
+    });
+    expect(mockHasApiKey).toHaveBeenCalledWith('groq');
+    expect(getChannelScopedRouting(channel).provider).toBe('google');
+    expect(mockSettingsRepo.set).not.toHaveBeenCalled();
+    expect(mockSettingsRepo.delete).not.toHaveBeenCalled();
+    expect(mockSettingsRepo.deleteByPrefix).not.toHaveBeenCalled();
+  });
+  it.each(['openai/gpt-oss-20b', 'openai/gpt-oss-120b'])(
+    'accepts only a reviewed Groq model: %s',
+    async (model) => {
+      vi.stubEnv('ASTRA_GROQ_MODEL', model);
+      expect(await resolveForChannel('channel.whatsapp')).toMatchObject({
+        provider: 'groq',
+        model,
+        source: 'channel-primary',
+      });
+    }
+  );
+  it.each([
+    '',
+    'gpt-4o',
+    'groq/unknown',
+    'qwen/qwen3.8-27b',
+    'openai/gpt-oss-20b,google=gemini-2.5-flash-lite',
+  ])(
+    'preserves stored routing when the model is absent or not explicitly allowed: %s',
+    async (model) => {
+      vi.stubEnv('ASTRA_GROQ_MODEL', model);
+      expect(await resolveForChannel('channel.whatsapp')).toMatchObject({
+        provider: 'google',
+        model: 'gemini-stored',
+        source: 'channel',
+      });
+      expect(mockHasApiKey).not.toHaveBeenCalled();
+      expect(mockSettingsRepo.set).not.toHaveBeenCalled();
+    }
+  );
+  it('restores the original routing immediately when the operator disables the flag', async () => {
+    expect((await resolveForChannel('channel.whatsapp')).provider).toBe('groq');
+    vi.stubEnv('ASTRA_CHANNEL_USE_PRIMARY', 'false');
+    expect(await resolveForChannel('channel.whatsapp')).toMatchObject({
+      provider: 'google',
+      model: 'gemini-stored',
+      source: 'channel',
+    });
+    expect(mockSettingsRepo.set).not.toHaveBeenCalled();
+  });
+  it('does not pin another provider or a Groq route without an existing credential', async () => {
+    vi.stubEnv('ASTRA_PRIMARY_PROVIDER', 'openai');
+    expect((await resolveForChannel('channel.whatsapp')).provider).toBe('google');
+    vi.stubEnv('ASTRA_PRIMARY_PROVIDER', 'groq');
+    mockHasApiKey.mockResolvedValue(false);
+    expect((await resolveForChannel('channel.whatsapp')).provider).toBe('google');
+    expect(mockSettingsRepo.set).not.toHaveBeenCalled();
+  });
+  it('preserves media, other channels and UI/autonomous process routing', async () => {
+    for (const channel of ['channel.whatsapp', 'channel.telegram'])
+      expect((await resolveForChannel(channel, { hasMedia: true })).provider).toBe('google');
+    expect((await resolveForChannel('channel.slack')).provider).toBe('google');
+    expect((await resolveForProcess('chat')).provider).toBe('google');
+    expect((await resolveForProcess('pulse')).provider).toBe('google');
+    expect(mockHasApiKey).not.toHaveBeenCalled();
+  });
+  it('retains an explicitly configured allowed fallback without inferring a paid route', async () => {
+    mockSettingsRepo.get.mockImplementation((key: string) => {
+      if (key.endsWith(':fallback_provider')) return 'zai';
+      if (key.endsWith(':fallback_model')) return 'glm-4.7-flash';
+      return null;
+    });
+    expect(await resolveForChannel('channel.whatsapp')).toMatchObject({
+      provider: 'groq',
+      fallbackProvider: 'zai',
+      fallbackModel: 'glm-4.7-flash',
+    });
+  });
+  it('takes precedence over an older opt-in local WhatsApp pilot', async () => {
+    vi.stubEnv('ASTRA_CHANNEL_LOCAL_OLLAMA', 'true');
+    vi.stubEnv('ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN', 'synthetic'.repeat(8));
+    expect((await resolveForChannel('channel.whatsapp')).provider).toBe('groq');
   });
 });
