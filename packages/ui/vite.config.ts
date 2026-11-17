@@ -131,7 +131,7 @@ export default defineConfig(({ mode }) => {
           // Online customer navigations must ask the server for the current
           // shell. Only public HTML is cached for a network-failure fallback;
           // authenticated API requests never enter a service-worker cache.
-          navigateFallbackDenylist: [/^\/cliente(?:\/|$)/, /^\/$/],
+          navigateFallbackDenylist: [/^\/cliente(?:\/|$)/, /^\/$/, /^\/api(?:\/|$)/],
           runtimeCaching: [
             {
               urlPattern: ({ request, url }) =>
