@@ -1,5 +1,12 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
 import { isFinanceReadOnlyRequest } from '../channels/finance-intent.js';
+import { isBulkFinanceDeletionRequest } from '../channels/finance-bulk-intent.js';
+import { financeSelectionScope, rememberFinanceRead } from '../channels/finance-read-context.js';
+import { customerAccountBinding } from '../channels/customer-channel-access.js';
+import {
+  financeBulkSelectionRepo,
+  type FinanceSelectionFilter,
+} from '../db/repositories/finance-bulk-selection.js';
 /** User-scoped tools for the same income/expense ledger used by the customer portal. */
 import { createHash } from 'node:crypto';
 import { getExecContext } from '@ownpilot/core/agent';
@@ -193,12 +200,86 @@ async function validateSettlementDate(
     );
 }
 
+function privateToolMessage() {
+  const ctx = getExecContext();
+  const platform = /^channel\.(whatsapp|telegram)(?:[.-]|$)/u.exec(
+    ctx?.channelPluginId ?? ''
+  )?.[1] as 'whatsapp' | 'telegram' | undefined;
+  if (
+    !platform ||
+    !ctx?.channelIsPrivate ||
+    !ctx.channelPluginId ||
+    !ctx.platformChatId ||
+    !ctx.channelMessageId ||
+    !ctx.channelMessageTimestamp
+  )
+    return null;
+  return {
+    id: ctx.channelMessageId,
+    channelPluginId: ctx.channelPluginId,
+    platformChatId: ctx.platformChatId,
+    platform,
+    sender: { platform, platformUserId: ctx.platformChatId, displayName: '' },
+    timestamp: new Date(ctx.channelMessageTimestamp),
+    metadata: { chatType: 'private' },
+  };
+}
+async function rememberToolRead(userId: string, filter: FinanceSelectionFilter) {
+  const message = privateToolMessage();
+  if (!message) return;
+  const account = await customerAccountsRepo.getByDataUserId(userId);
+  const scope = financeSelectionScope(message, userId);
+  // A model's preparatory lookup cannot erase an outstanding bulk review and
+  // then use its IDs to perform unconfirmed individual deletions.
+  try {
+    if (
+      scope &&
+      (await financeBulkSelectionRepo.hasPreview(scope, customerAccountBinding(account)))
+    )
+      return;
+  } catch {
+    return;
+  }
+  await rememberFinanceRead(message, userId, filter, account);
+}
+
+async function rejectUnknownReadFilters(
+  userId: string,
+  args: Record<string, unknown>,
+  keys: string[]
+) {
+  if (Object.keys(args).every((key) => keys.includes(key))) return;
+  const message = privateToolMessage();
+  const scope = message && financeSelectionScope(message, userId);
+  if (scope && message) {
+    const account = await customerAccountsRepo.getByDataUserId(userId);
+    await financeBulkSelectionRepo.invalidateRead(
+      scope,
+      message.id,
+      message.timestamp,
+      customerAccountBinding(account)
+    );
+  }
+  throw new CustomerFinanceError(
+    'Não consegui aplicar todos os filtros dessa consulta. Nenhuma seleção foi autorizada para exclusão; refaça a consulta com tipo, período ou descrição.'
+  );
+}
+
 export async function executeCustomerFinanceTool(
   toolName: string,
   args: Record<string, unknown>,
   userId?: string
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   if (!userId) return { success: false, error: 'Usuário autenticado obrigatório.' };
+  if (
+    toolName === 'delete_transaction' &&
+    isBulkFinanceDeletionRequest(getExecContext()?.channelRequestText ?? '')
+  )
+    return {
+      success: false,
+      error:
+        'A exclusão em lote precisa da revisão e confirmação na conversa. Nenhum item foi excluído por esta chamada.',
+    };
   if (
     ['record_transaction', 'update_transaction', 'delete_transaction'].includes(toolName) &&
     isFinanceReadOnlyRequest(getExecContext()?.channelRequestText ?? '')
@@ -211,6 +292,14 @@ export async function executeCustomerFinanceTool(
   const repo = new CustomerFinanceRepository(userId);
   try {
     if (toolName === 'list_transactions') {
+      await rejectUnknownReadFilters(userId, args, [
+        'search',
+        'type',
+        'status',
+        'from',
+        'to',
+        'page',
+      ]);
       const query: CustomerTransactionQuery = { pageSize: 20 };
       if (args.search !== undefined) query.search = text(args.search, 'a busca');
       if (args.type !== undefined) query.type = transactionType(args.type);
@@ -222,6 +311,14 @@ export async function executeCustomerFinanceTool(
         query.page = args.page;
       }
       const result = await repo.listTransactions(query);
+      await rememberToolRead(userId, {
+        currency: 'BRL',
+        ...(query.type && query.type !== 'all' ? { type: query.type } : {}),
+        ...(query.status && query.status !== 'all' ? { status: query.status } : {}),
+        from: query.from,
+        to: query.to,
+        search: query.search,
+      });
       if (!result.transactions.length) return { success: true, result };
       const account = await customerAccountsRepo.getByDataUserId(userId);
       const timeZone = account?.timeZone ?? 'America/Campo_Grande';
@@ -237,9 +334,16 @@ export async function executeCustomerFinanceTool(
       return { success: true, result: { ...result, timeZone, transactions } };
     }
     if (toolName === 'financial_summary') {
+      await rejectUnknownReadFilters(userId, args, ['from', 'to']);
+      const summary = await repo.summary(text(args.from, 'o início'), text(args.to, 'o fim'));
+      await rememberToolRead(userId, {
+        currency: 'BRL',
+        from: text(args.from, 'o início'),
+        to: text(args.to, 'o fim'),
+      });
       return {
         success: true,
-        result: await repo.summary(text(args.from, 'o início'), text(args.to, 'o fim')),
+        result: summary,
       };
     }
     if (toolName === 'record_transaction') {
@@ -333,6 +437,15 @@ export async function executeCustomerFinanceTool(
       };
     }
     if (toolName === 'delete_transaction') {
+      const message = privateToolMessage();
+      const scope = message && financeSelectionScope(message, userId);
+      if (scope) {
+        const account = await customerAccountsRepo.getByDataUserId(userId);
+        if (await financeBulkSelectionRepo.hasPreview(scope, customerAccountBinding(account)))
+          throw new CustomerFinanceError(
+            'Há uma exclusão em lote aguardando confirmação. Confirme ou cancele esse pedido antes de remover um lançamento individual.'
+          );
+      }
       const id = text(args.transaction_id, 'o ID do lançamento');
       if (!(await repo.deleteTransaction(id)))
         throw new CustomerFinanceError('Lançamento não encontrado.', 404);

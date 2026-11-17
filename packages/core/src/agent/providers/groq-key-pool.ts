@@ -1,6 +1,7 @@
 /** Process-local transport health. Only hashes are retained; credentials stay in request scope. */
 import { createHash } from 'node:crypto';
 import { ignoreError } from '../../utils/ignore-error.js';
+import { groqPoolRequestFacts, reportGroqPoolFailure } from './groq-pool-telemetry.js';
 
 interface ModelHealth {
   inFlight: number;
@@ -183,10 +184,48 @@ export async function fetchGroqPool(input: {
   beforeFetch?: () => Promise<void>;
 }): Promise<GroqPoolResponse> {
   const { controller, keys, model } = input;
+  const began = Date.now();
+  const request = groqPoolRequestFacts(input.options.body);
+  // Opt-in operator budget: reject this payload without consuming any credential or model health.
+  const configuredLimit = process.env.GROQ_MAX_REQUEST_TOKENS;
+  const requestTokenLimit =
+    configuredLimit && /^\d+$/u.test(configuredLimit) ? Number(configuredLimit) : 0;
+  if (
+    Number.isSafeInteger(requestTokenLimit) &&
+    requestTokenLimit > 0 &&
+    request.requestTokensApprox + request.maxOutputTokens > requestTokenLimit
+  ) {
+    const errorText =
+      'request_too_large: groq_local_admission; estimated input plus reserved output exceeds configured request budget';
+    reportGroqPoolFailure({
+      model,
+      keys,
+      request,
+      status: 413,
+      attempt: 0,
+      cooldownMs: 0,
+      elapsedMs: Date.now() - began,
+      errorText,
+      requestTokenLimit,
+    });
+    return {
+      response: new Response(
+        JSON.stringify({ error: { code: 'request_too_large', message: errorText } }),
+        { status: 413 }
+      ),
+      errorText,
+      finish: () => undefined,
+      signal: controller.signal,
+    };
+  }
   const timeout = Number.isFinite(input.timeoutMs)
     ? Math.max(1, Math.min(300_000, input.timeoutMs))
     : 120_000;
-  const timer = setTimeout(() => controller.abort(), timeout);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeout);
   const attempted = new Set<string>();
   let lease: ModelHealth | undefined;
   let finished = false;
@@ -260,6 +299,15 @@ export async function fetchGroqPool(input: {
           lease.cooldownUntil,
           Date.now() + Math.min(30_000, 250 * 2 ** Math.min(lease.failures - 1, 7))
         );
+        reportGroqPoolFailure({
+          model,
+          keys,
+          request,
+          status: 'network_error',
+          attempt: attempted.size,
+          cooldownMs: lease.cooldownUntil - Date.now(),
+          elapsedMs: Date.now() - began,
+        });
         release();
         continue;
       }
@@ -276,6 +324,15 @@ export async function fetchGroqPool(input: {
               state.cooldownUntil,
               Date.now() + Math.min(30_000, 250 * 2 ** Math.min(state.failures - 1, 7))
             );
+            reportGroqPoolFailure({
+              model,
+              keys,
+              request,
+              status: 'body_error',
+              attempt: attempted.size,
+              cooldownMs: state.cooldownUntil - Date.now(),
+              elapsedMs: Date.now() - began,
+            });
           }),
           finish,
           signal: controller.signal,
@@ -308,6 +365,17 @@ export async function fetchGroqPool(input: {
           Date.now() + Math.min(30_000, 250 * 2 ** Math.min(lease.failures - 1, 7))
         );
       }
+      reportGroqPoolFailure({
+        model,
+        keys,
+        request,
+        status: response.status,
+        attempt: attempted.size,
+        cooldownMs: Math.max(lease.cooldownUntil, disabledKeys.get(selected.id) ?? 0) - Date.now(),
+        elapsedMs: Date.now() - began,
+        headers: response.headers,
+        errorText,
+      });
       release();
       if (!retry) break;
     }
@@ -323,6 +391,15 @@ export async function fetchGroqPool(input: {
     );
     const retryAfterSeconds = Math.max(1, Math.ceil((next - Date.now()) / 1_000));
     const errorText = `Groq keys temporarily unavailable. Please try again in ${retryAfterSeconds}s`;
+    reportGroqPoolFailure({
+      model,
+      keys,
+      request,
+      status: 'pool_cooldown',
+      attempt: attempted.size,
+      cooldownMs: next - Date.now(),
+      elapsedMs: Date.now() - began,
+    });
     finish();
     return {
       response: new Response(JSON.stringify({ error: { message: errorText } }), {
@@ -335,9 +412,19 @@ export async function fetchGroqPool(input: {
     };
   } catch (error) {
     finish();
-    if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError'))
+    if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      reportGroqPoolFailure({
+        model,
+        keys,
+        request,
+        status: timedOut ? 'timeout' : 'cancelled',
+        attempt: attempted.size,
+        cooldownMs: 0,
+        elapsedMs: Date.now() - began,
+      });
       throw abortError();
-    throw new Error('Groq transport failed');
+    }
+    throw new Error(networkFailed ? 'Groq network error' : 'Groq transport failed');
   }
 }
 

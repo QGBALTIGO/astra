@@ -177,6 +177,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   }
   let continuing = false;
   if (
+    args.action !== 'preview' &&
     !writeRequest(ctx.channelRequestText ?? '') &&
     prior &&
     prior.messageId !== ctx.channelMessageId &&

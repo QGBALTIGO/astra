@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   channelToolsForMessage,
   isConversationalOnlyChannelRequest,
+  isCulinaryChannelAdvice,
   recentChannelText,
   requiredChannelWeatherTool,
   requiredChannelRadarTool,
@@ -16,6 +17,44 @@ const financeTools = [
   'core.delete_transaction',
   'core.financial_summary',
 ];
+
+describe('current intent and cooking advice after financial conversations', () => {
+  it.each([
+    'Como faço um frango simples na frigideira? Quero uma receita rápida.',
+    'Como faço frango?',
+    'Tem dica para o feijão ficar macio?',
+    'Me passa uma receita de bolo.',
+  ])('keeps culinary advice tool-free: %s', (text) => {
+    expect(isCulinaryChannelAdvice(text)).toBe(true);
+    expect(isConversationalOnlyChannelRequest(text)).toBe(true);
+    expect(
+      channelToolsForMessage(text, 'Entrada registrada. Suas despesas e lembretes pendentes.')
+    ).toEqual([]);
+  });
+  it.each([
+    'Gastei 35 reais com frango.',
+    'Me dê uma receita de frango e registre o gasto de 35 reais.',
+    'Quero uma receita de bolo. Me lembre de comprar farinha amanhã às9h.',
+    'Qual receita de feijão fica barata e quanto gastei com alimentos?',
+  ])('preserves explicitly requested data operations: %s', (text) => {
+    expect(isCulinaryChannelAdvice(text)).toBe(false);
+    expect(channelToolsForMessage(text).length).toBeGreaterThan(0);
+  });
+  it('does not expose an old email domain during an explicit finance read', () => {
+    const selected = channelToolsForMessage(
+      'Quanto gastei este mês?',
+      'Seus e-mails do Gmail e calendário Google estão conectados.'
+    );
+    expect(selected).toContain('core.list_transactions');
+    expect(selected).not.toContain('core.run_connected_action');
+    expect(selected).not.toContain('core.schedule_channel_reminder');
+  });
+  it('retains previous subjects for an elliptical correction', () => {
+    expect(channelToolsForMessage('Corrige para 18,90', 'Gastei 20 reais com café.')).toContain(
+      'core.update_transaction'
+    );
+  });
+});
 it.each([
   'Qual é o próximo jogo do Flamengo?',
   'Quando o Palmeiras joga?',

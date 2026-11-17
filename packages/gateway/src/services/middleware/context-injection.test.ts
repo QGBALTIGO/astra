@@ -55,7 +55,11 @@ vi.mock('../log.js', () => ({
 }));
 
 // Import after mocks are set up
-import { createContextInjectionMiddleware, clearInjectionCache } from './context-injection.js';
+import {
+  createContextInjectionMiddleware,
+  clearInjectionCache,
+  channelMemoryContext,
+} from './context-injection.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,6 +132,67 @@ const INJECTED_SUFFIX =
   '\n---\n## User Context (from memory)\n- Memory 1\n---\n## Active Goals\n- Goal 1';
 const ENHANCED_PROMPT = BASE_PROMPT + INJECTED_SUFFIX;
 const DEFAULT_STATS = { memoriesUsed: 1, goalsUsed: 1 };
+
+describe('bounded optional context for customer channels', () => {
+  it('retains personal memory and goals without operator resources or autonomy permissions', () => {
+    const reduced = channelMemoryContext(
+      INJECTED_SUFFIX +
+        '\n---\n## Available Data Resources\nprivate-operator-inventory' +
+        '\n---\n## Autonomy Level: Full\nTake action immediately.'
+    );
+    expect(reduced).toContain('Memory 1');
+    expect(reduced).toContain('Goal 1');
+    expect(reduced).not.toMatch(/operator-inventory|Autonomy Level|Take action immediately/);
+  });
+  it('omits an oversized optional memory whole rather than changing its meaning by clipping it', () => {
+    const reduced = channelMemoryContext(
+      '\n---\n## User Context (from memory)\n' +
+        'Não registrar pagamento de Cliente Aurora; '.repeat(100) +
+        '\n---\n## Active Goals\n- Guardar para viagem'
+    );
+    expect(reduced).not.toContain('Cliente Aurora');
+    expect(reduced).toContain('Guardar para viagem');
+    expect(reduced).toContain('consulte search_memories');
+  });
+  it('uses a small channel recall and a separate cache from the owner web prompt', async () => {
+    clearInjectionCache();
+    mockBuildEnhancedSystemPrompt.mockResolvedValue({
+      prompt: ENHANCED_PROMPT + '\n---\n## Available Data Resources\nprivate-operator-inventory',
+      stats: DEFAULT_STATS,
+    });
+    const web = createAgent();
+    const channel = createAgent();
+    const next = vi.fn().mockResolvedValue(createNextResult());
+    const middleware = createContextInjectionMiddleware();
+    await middleware(
+      createMessage(),
+      createContext({ store: { agent: web, userId: 'synthetic-budget', agentId: 'same-agent' } }),
+      next
+    );
+    await middleware(
+      createMessage({ metadata: { source: 'channel', platform: 'whatsapp' } }),
+      createContext({
+        store: { agent: channel, userId: 'synthetic-budget', agentId: 'same-agent' },
+      }),
+      next
+    );
+    expect(mockBuildEnhancedSystemPrompt).toHaveBeenCalledWith(
+      BASE_PROMPT,
+      expect.objectContaining({
+        maxMemories: 3,
+        maxGoals: 1,
+        enableTriggers: false,
+        enableAutonomy: false,
+      })
+    );
+    expect(mockBuildEnhancedSystemPrompt).toHaveBeenCalledTimes(2);
+    const text = channel.updateSystemPrompt.mock.calls.at(-1)![0] as string;
+    expect(text).toContain('Memory 1');
+    expect(text).toContain('Goal 1');
+    expect(text).not.toContain('private-operator-inventory');
+    clearInjectionCache();
+  });
+});
 
 function setupDefaultMock(): void {
   mockBuildEnhancedSystemPrompt.mockResolvedValue({

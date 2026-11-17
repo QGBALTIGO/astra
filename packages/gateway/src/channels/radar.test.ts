@@ -11,6 +11,8 @@ const m = vi.hoisted(() => ({
   search: vi.fn(),
   remember: vi.fn(),
   scope: vi.fn(),
+  fetch: vi.fn(),
+  queueNews: vi.fn(),
 }));
 vi.mock('@ownpilot/core/channels', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@ownpilot/core/channels')>()),
@@ -24,7 +26,7 @@ vi.mock('../db/repositories/customer-accounts.js', () => ({
   customerAccountsRepo: { getById: m.account, getByDataUserId: m.account },
 }));
 vi.mock('../db/repositories/customer-radar.js', () => ({
-  radarRepo: { rememberChoices: m.remember },
+  radarRepo: { rememberChoices: m.remember, queueNewsPreview: m.queueNews },
   CustomerRadarRepository: class {
     constructor(userId: string) {
       m.scope(userId);
@@ -37,7 +39,7 @@ vi.mock('../db/repositories/customer-radar.js', () => ({
 }));
 vi.mock('../services/radar/providers.js', () => ({
   searchRadar: m.search,
-  fetchRadarResource: vi.fn(),
+  fetchRadarResource: m.fetch,
 }));
 import { tryRadarChannelReply } from './radar.js';
 import { processViaBus, processDirectAgent } from './channel-ai-routing.js';
@@ -86,6 +88,98 @@ beforeEach(() => {
   m.list.mockResolvedValue([{ label: 'USD', active: true }]);
   m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
   m.follow.mockResolvedValue({ keptPaused: 0 });
+  m.queueNews.mockResolvedValue('queued');
+  m.fetch.mockResolvedValue({
+    items: [
+      { id: 'public-fixture', title: 'Vasco × Bahia', text: '19/11/2026 · horário a confirmar' },
+    ],
+    observedAt: new Date().toISOString(),
+  });
+});
+describe('immediate Radar requests without a provider', () => {
+  it.each(['bus', 'direct'] as const)('reads a named football team with %s', async (path) => {
+    const model = vi.fn().mockRejectedValue(new Error('Synthetic provider outage'));
+    const msg = message('Quando o Vasco joga dnv?');
+    const result =
+      path === 'bus'
+        ? await processViaBus(
+            { process: model } as never,
+            msg,
+            { sessionId: 's', conversationId: null },
+            { ownpilotUserId: user },
+            {
+              sessionsRepo: {} as never,
+              getChannel: () => undefined,
+              isAccessAllowed: async () => true,
+            }
+          )
+        : await processDirectAgent(msg, user, async () => true);
+    expect(JSON.stringify(result)).toContain('Vasco × Bahia');
+    expect(m.fetch).toHaveBeenCalledTimes(1);
+    expect(m.follow).not.toHaveBeenCalled();
+    expect(m.save).not.toHaveBeenCalled();
+    expect(model).not.toHaveBeenCalled();
+  });
+  it('queues article buttons from a read without activating daily delivery', async () => {
+    m.search.mockResolvedValue([{ id: 'mundo', label: 'Mundo' }]);
+    m.fetch.mockResolvedValue({
+      items: [
+        {
+          id: 'news-fixture',
+          title: 'Uma matéria de teste',
+          url: 'https://pt.globalvoices.org/2026/11/17/fixture/',
+          text: '17/11/2026 · Global Voices · CC BY 3.0',
+        },
+      ],
+    });
+    const reply = await tryRadarChannelReply(
+      message('Quais as últimas notícias'),
+      user,
+      async () => true
+    );
+    expect(reply).toContain('Ler matéria');
+    expect(m.queueNews).toHaveBeenCalledTimes(1);
+    expect(m.follow).not.toHaveBeenCalled();
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it('never turns a news preview into an old pending follow request', async () => {
+    radarChatPending.set(JSON.stringify([user, 'channel.whatsapp', phone]), {
+      accountId: 'a',
+      messageId: 'previous-follow-question',
+      needs: 'subject',
+      expires: Date.now() + 60_000,
+      args: { action: 'follow', source: 'news', time: '09:00' },
+    });
+    m.search.mockResolvedValue([{ id: 'mundo', label: 'Mundo' }]);
+    m.fetch.mockResolvedValue({
+      items: [
+        {
+          id: 'news-fixture',
+          title: 'Uma matéria de teste',
+          url: 'https://pt.globalvoices.org/2026/11/17/fixture/',
+          text: '17/11/2026 · Global Voices · CC BY 3.0',
+        },
+      ],
+    });
+    const reply = await tryRadarChannelReply(message('notícias'), user, async () => true);
+    expect(reply).toContain('Ler matéria');
+    expect(m.queueNews).toHaveBeenCalledTimes(1);
+    expect(m.follow).not.toHaveBeenCalled();
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it('withholds a preview when access is revoked while the source responds', async () => {
+    let allowed = true;
+    m.fetch.mockImplementation(async () => {
+      allowed = false;
+      return { items: [{ id: 'x', title: 'private-preview' }] };
+    });
+    const reply = await tryRadarChannelReply(
+      message('Quando o Vasco joga dnv?'),
+      user,
+      async () => allowed
+    );
+    expect(reply).not.toContain('private-preview');
+  });
 });
 describe('WhatsApp Radar privacy and opt-out', () => {
   it.each(['bus', 'direct'] as const)(

@@ -13,6 +13,35 @@ export function canonicalFootballSubject(subject: string): string | undefined {
   return teams.length === 1 ? teams[0]![1] : undefined;
 }
 
+/** An immediate public lookup never authorizes a subscription or a saved preference. */
+export function radarPreviewRequest(
+  text: string
+): { action: 'preview'; source: 'football' | 'news'; subject: string } | undefined {
+  const input = fold(text)
+    .replace(/\s+/g, ' ')
+    .replace(/^(?:astra[,!]?\s+)?(?:por favor[,]?\s+)?/, '')
+    .replace(/[?!.]+$/, '')
+    .trim();
+  if (
+    /\b(?:e|depois|tambem)\s+(?:me\s+)?(?:avise|lembre|registre|anote|apague|exclua|remova|ative|acompanhe)\b/.test(
+      input
+    )
+  )
+    return undefined;
+  const nextGame =
+    /^(?:quando (?:o |a )?(.+?) joga(?: (?:de novo|dnv|novamente|hoje|amanha))?|(?:qual (?:e )?(?:o )?|quando (?:e |sera )?(?:o )?|(?:me diga|mostre|consulte) (?:o )?)(?:proximo jogo|proxima partida) (?:do|da|de) (.+))$/.exec(
+      input
+    );
+  const team = nextGame && canonicalFootballSubject(nextGame[1] ?? nextGame[2] ?? '');
+  if (team) return { action: 'preview', source: 'football', subject: team };
+  const news =
+    /^(?:(?:quais (?:sao )?(?:as )?|(?:me (?:mostre|mande|diga)|mostre|consulte|quero ver) (?:as )?))?(?:(?:ultimas|principais|novas) )?noticias(?: (?:de|do|da|sobre) (.{1,100}))?$/.exec(
+      input
+    );
+  if (news) return { action: 'preview', source: 'news', subject: news[1]?.trim() || 'mundo' };
+  return undefined;
+}
+
 /** These short clarifications carry a public topic, never recurring consent. */
 export function footballTimingReply(
   text: string

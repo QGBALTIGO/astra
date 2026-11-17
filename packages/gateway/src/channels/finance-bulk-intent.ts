@@ -1,0 +1,54 @@
+function normalized(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .trim()
+    .replace(/^(?:astra[,!:]?\s+)?(?:por favor[, ]*\s*)?/, '')
+    .replace(/[.!?]+$/u, '')
+    .replace(/\s+/gu, ' ');
+}
+/** A bulk request is never permission for repeated single-record tool calls. */
+export function financeBulkIntent(
+  text: string
+): 'global' | 'context' | 'confirm' | 'cancel' | null {
+  const input = normalized(text);
+  if (
+    /^(?:confirmo excluir os pendentes|confirmo remover os pendentes|sim|confirmo|pode (?:excluir|remover|apagar))$/u.test(
+      input
+    )
+  )
+    return 'confirm';
+  if (/^(?:nao|cancele a exclusao|cancelar exclusao|desisti)$/u.test(input)) return 'cancel';
+  if (
+    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:todos )?(?:os )?(?:meus )?(?:lancamentos|registros|transacoes)(?: financeiros)? (?:(?:que )?(?:estao|ficaram|estiverem) )?pendentes$/u.test(
+      input
+    )
+  )
+    return 'global';
+  if (
+    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:todos|todas|tudo)(?: (?:os|as))?(?: (?:(?:que )?(?:esta|estao|ficaram|estiver|estiverem) )?pendentes?)?$/u.test(
+      input
+    ) ||
+    /^(?:(?:quero|pode) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)) (?:os )?pendentes$/u.test(
+      input
+    )
+  )
+    return 'context';
+  return null;
+}
+export function isBulkFinanceDeletionRequest(text: string): boolean {
+  const intent = financeBulkIntent(text);
+  const input = normalized(text);
+  return (
+    intent === 'global' ||
+    intent === 'context' ||
+    intent === 'confirm' ||
+    // This deny guard deliberately accepts more language than the executable
+    // parser. An unclear bulk request must never become individual tool calls.
+    /\b(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?|limp[ae]r?|zer[ae]r?)\b[^\n]*\b(?:todos|todas|tudo|em lote)\b/u.test(
+      input
+    ) ||
+    /\b(?:delete|remove|erase|wipe)\b[^\n]*\b(?:all|every|in bulk)\b/u.test(input)
+  );
+}

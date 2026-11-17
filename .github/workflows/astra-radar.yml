@@ -51,6 +51,7 @@ jobs:
           src/routes/customer/radar.pg.test.ts
           src/db/repositories/customer-finance-sync.pg.test.ts
           src/db/repositories/customer-receivables.pg.test.ts
+          src/db/repositories/finance-bulk-selection.pg.test.ts
           src/db/repositories/channel-reminders-bulk.pg.test.ts
       - name: Synthetic evaluator scenarios without external APIs or WhatsApp
         env:

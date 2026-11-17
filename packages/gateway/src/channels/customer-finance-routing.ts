@@ -1,5 +1,6 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
 import { isFinanceReadOnlyRequest } from './finance-intent.js';
+import { rememberFinanceRead } from './finance-read-context.js';
 /** Explicit income/pending transactions and queries without an LLM call. */
 import { createHash } from 'node:crypto';
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
@@ -245,6 +246,23 @@ export async function tryCustomerFinancialChannelReply(
         from = `${to.slice(0, 7)}-01`;
       }
       const summary = await repo.summary(from, to);
+      await rememberFinanceRead(
+        message,
+        dataUserId,
+        {
+          currency: 'BRL',
+          from,
+          to,
+          ...(/quanto (?:recebi|entrou)/.test(normalized)
+            ? { type: 'income' as const, status: 'settled' as const }
+            : /a receber/.test(normalized)
+              ? { type: 'income' as const }
+              : /a pagar/.test(normalized)
+                ? { type: 'expense' as const }
+                : {}),
+        },
+        account
+      );
       const period = `${formatDay(summary.period.from)} a ${formatDay(summary.period.to)}`;
       if (/pendencias|a pagar|a receber/.test(normalized)) {
         return formatAstraMessage(

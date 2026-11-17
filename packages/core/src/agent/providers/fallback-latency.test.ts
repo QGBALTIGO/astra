@@ -64,6 +64,23 @@ function setup(extra: Record<string, unknown> = {}) {
   return { primary, backup, config, provider: new FallbackProvider(config) };
 }
 describe('opt-in channel fallback latency', () => {
+  it('falls back for a local oversized payload without disabling the primary for a later small request', async () => {
+    const { provider, config, primary, backup } = setup({ preferLastSuccessful: false });
+    primary.complete
+      .mockResolvedValueOnce(
+        err(
+          new InternalError(
+            'groq API error: 413 - request_too_large: groq_local_admission; payload exceeds budget'
+          )
+        )
+      )
+      .mockResolvedValue(ok({ content: 'Pequeno pedido atendido', finishReason: 'stop' }) as never);
+    expect((await provider.complete(request)).ok).toBe(true);
+    const second = await new FallbackProvider(config).complete(request);
+    expect(second.ok && second.value.content).toBe('Pequeno pedido atendido');
+    expect(primary.complete).toHaveBeenCalledTimes(2);
+    expect(backup.complete).toHaveBeenCalledTimes(1);
+  });
   it('preserves a provider moderation refusal without retrying it as an empty response', async () => {
     const { provider, primary, backup } = setup();
     primary.complete.mockResolvedValue(

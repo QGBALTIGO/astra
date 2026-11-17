@@ -8,6 +8,7 @@ import { customerLocalDay, validCalendarDay } from '../services/customer-date.js
 import { formatAstraMessage, formatTransactionConfirmation } from './response-presentation.js';
 import { isConversationalOnlyChannelRequest } from './tool-selection.js';
 import { isNonExecutableFinanceCorrection } from './finance-intent.js';
+import { rememberFinanceRead } from './finance-read-context.js';
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 type Plan = {
@@ -251,6 +252,13 @@ export async function tryQuickFinanceReply(
       (!plan.at || clock.format(new Date(t.createdAt)) === plan.at)
   );
   if (plan.latest) items = items.slice(0, 1);
+  if (plan.op === 'list')
+    await rememberFinanceRead(
+      message,
+      userId,
+      { type: 'expense', currency: 'BRL', ids: items.map((item) => item.id) },
+      account
+    );
   if (!items.length)
     return formatAstraMessage(
       '🔎 Nenhum gasto encontrado',

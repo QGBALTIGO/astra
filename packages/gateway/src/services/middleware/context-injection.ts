@@ -59,6 +59,29 @@ const RELEVANT_RECALL_MIN_CHARS = 8;
 /** Max query-relevant memories injected per message. */
 const RELEVANT_RECALL_LIMIT = 5;
 
+/** Optional recall only: never trim the user's turn, tool results or policy. */
+export function channelMemoryContext(suffix: string, maxChars = 2400): string {
+  const kept: string[] = [];
+  let size = 0;
+  let omitted = false;
+  for (const section of suffix.split(/\n---\n(?=## )/u)) {
+    const whole = section.replace(/\n---\s*$/u, '').trim();
+    if (!/^## (?:User Context \(from memory\)|Active Goals)(?:\r?\n|$)/u.test(whole)) continue;
+    if (size + whole.length > maxChars) {
+      omitted = true;
+      continue;
+    }
+    kept.push(whole);
+    size += whole.length;
+  }
+  return (
+    kept.map((section) => '\n\n---\n\n' + section).join('') +
+    (omitted
+      ? '\nMemória opcional parcial: consulte search_memories antes de concluir que uma informação não existe.'
+      : '')
+  );
+}
+
 /**
  * Build a DYNAMIC (uncached) section of memories relevant to the current user
  * message via hybrid (vector + FTS) search. Complements the static
@@ -70,7 +93,9 @@ const RELEVANT_RECALL_LIMIT = 5;
 async function buildRelevantMemorySection(
   userId: string,
   messageText: string,
-  alreadyInjected: string
+  alreadyInjected: string,
+  limit = RELEVANT_RECALL_LIMIT,
+  maxChars = Number.POSITIVE_INFINITY
 ): Promise<string> {
   const text = messageText.trim();
   if (text.length < RELEVANT_RECALL_MIN_CHARS) return '';
@@ -78,7 +103,7 @@ async function buildRelevantMemorySection(
 
   try {
     const hits = await getMemoryService().hybridSearch(userId, text, {
-      limit: RELEVANT_RECALL_LIMIT,
+      limit,
     });
     if (hits.length === 0) return '';
 
@@ -88,6 +113,8 @@ async function buildRelevantMemorySection(
       if (!content) continue;
       // Skip memories already present in the static importance block.
       if (alreadyInjected.includes(content)) continue;
+      // Keep each fact whole. A clipped negation or amount would change meaning.
+      if (lines.join('\n').length + content.length + 3 > maxChars) continue;
       lines.push(`- ${content}`);
     }
     if (lines.length === 0) return '';
@@ -118,7 +145,8 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
 
     const userId = ctx.get<string>('userId') ?? 'default';
     const agentId = ctx.get<string>('agentId') ?? 'chat';
-    const cacheKey = `${userId}|${agentId}`;
+    const channel = message.metadata.source === 'channel';
+    const cacheKey = `${userId}|${agentId}${channel ? '|channel' : ''}`;
 
     try {
       const customerAccount = userId.startsWith('whatsapp:')
@@ -133,10 +161,10 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
       const basePrompt = stripInjectedSections(currentSystemPrompt);
 
       // 2. Build extension sections based on routing (per-request)
-      const extensionSuffix = buildExtensionSections(ctx);
+      const extensionSuffix = channel ? '' : buildExtensionSections(ctx);
 
       // 2b. Build soul skills section (per-request, based on agent's soul skillAccess)
-      const skillsSuffix = await buildSoulSkillsSection(agentId);
+      const skillsSuffix = channel ? '' : await buildSoulSkillsSection(agentId);
 
       // 3. Build orchestrator sections (memories, goals, resources, autonomy) — cached
       let orchestratorSuffix: string;
@@ -153,16 +181,25 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
           {
             userId,
             agentId,
-            maxMemories: 10,
-            maxGoals: 5,
-            enableTriggers: true,
-            enableAutonomy: true,
+            maxMemories: channel ? 3 : 10,
+            maxGoals: channel ? 1 : 5,
+            enableTriggers: !channel,
+            enableAutonomy: !channel,
           }
         );
 
         // Extract the suffix that buildEnhancedSystemPrompt added
         orchestratorSuffix = enhancedPrompt.slice(basePrompt.length);
         stats = freshStats;
+        if (channel) {
+          orchestratorSuffix = channelMemoryContext(orchestratorSuffix);
+          stats = {
+            memoriesUsed: orchestratorSuffix.includes('## User Context (from memory)')
+              ? freshStats.memoriesUsed
+              : 0,
+            goalsUsed: orchestratorSuffix.includes('## Active Goals') ? freshStats.goalsUsed : 0,
+          };
+        }
 
         // Cache it (evict oldest before insert to enforce cap)
         if (injectionCache.size >= 50) {
@@ -186,17 +223,19 @@ export function createContextInjectionMiddleware(): MessageMiddleware {
       const relevantMemorySuffix = await buildRelevantMemorySection(
         userId,
         message.content ?? '',
-        orchestratorSuffix
+        orchestratorSuffix,
+        channel ? 2 : RELEVANT_RECALL_LIMIT,
+        channel ? 1600 : Number.POSITIVE_INFINITY
       );
 
       // 4. Build tool suggestion and data hint sections (per-request)
       const routing = ctx.get<RequestRouting>('routing');
-      const toolSuggestionSuffix = buildToolSuggestionSection(routing);
-      const dataHintSuffix = buildDataHintSection(routing);
+      const toolSuggestionSuffix = channel ? '' : buildToolSuggestionSection(routing);
+      const dataHintSuffix = channel ? '' : buildDataHintSection(routing);
 
       // 4b. Build page context section (per-request)
       const pageContext = ctx.get<PageContext>('pageContext');
-      const pageContextSuffix = buildPageContextSection(pageContext);
+      const pageContextSuffix = channel ? '' : buildPageContextSection(pageContext);
 
       // 5. Build request focus hint
       const focusSuffix = routing?.intentHint

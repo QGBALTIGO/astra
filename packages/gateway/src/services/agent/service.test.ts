@@ -1441,7 +1441,7 @@ describe('getOrCreateChatAgent', () => {
         fallbacks: expect.arrayContaining([
           expect.objectContaining({
             id: 'groq',
-            timeout: 4000,
+            timeout: 8000,
             defaultModel: { model: 'openai/gpt-oss-20b', maxTokens: 768 },
           }),
         ]),
@@ -1482,8 +1482,8 @@ describe('getOrCreateChatAgent', () => {
         const core = await import('@ownpilot/core/agent');
         expect(core.createFallbackProvider).toHaveBeenCalledWith(
           expect.objectContaining({
-            fallbacks: [expect.objectContaining({ id: 'openrouter', timeout: 4000 })],
-            completionTimeoutMs: 12000,
+            fallbacks: [expect.objectContaining({ id: 'openrouter', timeout: 8000 })],
+            completionTimeoutMs: 16000,
             preferLastSuccessful: true,
           })
         );
@@ -1595,7 +1595,7 @@ describe('getOrCreateChatAgent', () => {
           expect.objectContaining({
             primary: expect.objectContaining({ id: 'groq', timeout: 5000 }),
             fallbacks: [
-              expect.objectContaining({ id: 'openrouter', timeout: 4000 }),
+              expect.objectContaining({ id: 'openrouter', timeout: 8000 }),
               expect.objectContaining({
                 id: 'ollama-local',
                 timeout: 16000,

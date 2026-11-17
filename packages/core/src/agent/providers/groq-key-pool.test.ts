@@ -4,7 +4,7 @@ import type { ResolvedProviderConfig } from './configs/types.js';
 import { groqPoolKeys, groqPoolRead, groqRetryDelayMs } from './groq-key-pool.js';
 import { OpenAICompatibleProvider } from './openai-compatible.js';
 import { createProvider } from '../provider.js';
-import { providerCooldownMs } from './fallback.js';
+import { FallbackProvider, providerCooldownMs } from './fallback.js';
 
 vi.mock('../tools/dynamic-tool-permissions.js', () => ({ isPrivateUrlAsync: async () => false }));
 let round = 0;
@@ -46,6 +46,7 @@ beforeEach(() => {
   round++;
   keys = ['a', 'b', 'c', 'd', 'e'].map((suffix) => `synthetic-${round}-${suffix}`);
   vi.stubEnv('GROQ_API_KEY', keys[0]!);
+  vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '');
   for (let n = 2; n <= 11; n++)
     vi.stubEnv('GROQ_API_KEY_' + n, n <= keys.length ? keys[n - 1]! : '');
 });
@@ -129,6 +130,87 @@ describe('operator credential boundary and retry hints', () => {
 });
 
 describe('bounded Groq pool transport', () => {
+  it('rejects an oversized opt-in request before using quota and leaves a later small request healthy', async () => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
+    const fetch = vi.fn().mockImplementation(async () => success());
+    vi.stubGlobal('fetch', fetch);
+    const provider = new OpenAICompatibleProvider(config());
+    const large = {
+      ...request(),
+      messages: [{ role: 'user' as const, content: 'x'.repeat(40_000) }],
+    };
+    const response = await provider.complete(large);
+    expect(response.ok).toBe(false);
+    if (!response.ok)
+      expect(response.error.message).toContain('413 - request_too_large: groq_local_admission');
+    expect(fetch).not.toHaveBeenCalled();
+    expect((await provider.complete(request())).ok).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('includes the reserved output budget in the opt-in admission estimate', async () => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
+    const fetch = vi.fn().mockImplementation(async () => success());
+    vi.stubGlobal('fetch', fetch);
+    expect(
+      (
+        await new OpenAICompatibleProvider(config()).complete({
+          ...request(),
+          model: { model: 'model-a', maxTokens: 8_000 },
+        })
+      ).ok
+    ).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('leaves the default behavior and tenant-owned credentials outside the operator admission guard', async () => {
+    const fetch = vi.fn().mockImplementation(async () => success());
+    vi.stubGlobal('fetch', fetch);
+    const large = {
+      ...request(),
+      messages: [{ role: 'user' as const, content: 'x'.repeat(40_000) }],
+    };
+    expect((await new OpenAICompatibleProvider(config()).complete(large)).ok).toBe(true);
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '1');
+    expect(
+      (await new OpenAICompatibleProvider(config({ apiKey: 'tenant-owned-key' })).complete(large))
+        .ok
+    ).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it('passes an oversized original request intact to the real fallback without contacting Groq', async () => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
+    const originalText = 'x'.repeat(40_000);
+    const fetch = vi.fn().mockImplementation(async (url) => {
+      expect(String(url)).toBe('https://openrouter.ai/api/v1/chat/completions');
+      return success('Reserva atendeu');
+    });
+    vi.stubGlobal('fetch', fetch);
+    const provider = new FallbackProvider({
+      primary: { provider: 'groq', apiKey: keys[0], maxRetries: 0, timeout: 500 },
+      fallbacks: [
+        {
+          provider: 'openai-compatible',
+          id: 'openrouter',
+          apiKey: 'synthetic-router',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          maxRetries: 0,
+          timeout: 500,
+          defaultModel: { model: 'openrouter/free' },
+        },
+      ],
+      sharedCircuitBreaker: true,
+      preferLastSuccessful: false,
+    });
+    expect(
+      (
+        await provider.complete({
+          ...request(),
+          messages: [{ role: 'user', content: originalText }],
+        })
+      ).ok
+    ).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(body(fetch, 0).messages[0].content).toBe(originalText);
+  });
   it('observes a pending body rejection even if cancellation already happened', async () => {
     const controller = new AbortController();
     controller.abort();
