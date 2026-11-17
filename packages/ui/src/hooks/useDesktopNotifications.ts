@@ -46,7 +46,7 @@ export function useDesktopNotifications() {
       if (document.hasFocus()) return;
 
       const notification = new Notification(title, {
-        icon: '/favicon.ico',
+        icon: '/astra-icons/astra-192-v1.png',
         ...options,
       });
 

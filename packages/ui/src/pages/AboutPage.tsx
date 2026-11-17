@@ -20,7 +20,7 @@ export function AboutPage() {
           About
         </h2>
         <p className="text-sm text-text-muted dark:text-dark-text-muted">
-          About OwnPilot and the team behind it
+          Sobre o Astra e a tecnologia que faz parte dele
         </p>
       </header>
 
@@ -30,16 +30,16 @@ export function AboutPage() {
           {/* Hero */}
           <div className="flex flex-col items-center text-center space-y-4">
             <img
-              src="/ownpilot-logo.jpeg"
-              alt="OwnPilot Logo"
-              className="w-28 h-28 rounded-2xl shadow-lg object-cover"
+              src="/astra-icons/astra-192-v1.png"
+              alt="Astra"
+              className="w-28 h-28 rounded-2xl object-contain"
             />
             <div>
               <h1 className="text-3xl font-bold text-text-primary dark:text-dark-text-primary">
-                OwnPilot
+                Astra
               </h1>
               <p className="text-text-muted dark:text-dark-text-muted mt-1">
-                Privacy-first AI Assistant
+                Seu assistente pessoal
               </p>
               <span className="inline-block mt-2 px-2.5 py-0.5 text-xs font-medium rounded-full bg-primary/10 text-primary">
                 v{VERSION}
