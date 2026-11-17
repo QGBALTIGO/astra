@@ -1,7 +1,11 @@
 /** Private personal planning records. No automatic financial transactions are created. */
 import { createHash, randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
-import { customerMoneyCents, validateCustomerFinanceDate } from './customer-finance.js';
+import {
+  customerMoneyCents,
+  validateCustomerFinanceDate,
+  CustomerFinanceError,
+} from './customer-finance.js';
 
 export type PlanIcon = 'flag' | 'shield' | 'plane' | 'laptop' | 'home' | 'education';
 
@@ -219,10 +223,22 @@ export class CustomerPlanningRepository extends BaseRepository {
   async changeGoal(
     requestKey: string,
     change: CustomerGoalChange,
-    canWrite: () => Promise<boolean>
+    canWrite: () => Promise<boolean>,
+    channelRequestKey?: string
   ): Promise<CustomerGoalResult> {
     if (!requestKey || requestKey.length > 200) throw new Error('Pedido de meta inválido.');
+    if (channelRequestKey && !/^[a-f0-9]{64}$/.test(channelRequestKey))
+      throw new Error('Pedido de meta inválido.');
     const fingerprint = createHash('sha256').update(JSON.stringify(change)).digest('hex');
+    // The deterministic channel route and the AI fallback may handle the same
+    // provider message on different attempts. Share its receipt, while keeping
+    // the existing tool receipt for compatibility and its exact payload check.
+    const sharedFingerprint =
+      change.action === 'create'
+        ? createHash('sha256')
+            .update(JSON.stringify(validate({ ...change, kind: 'goal' })))
+            .digest('hex')
+        : fingerprint;
     return this.transaction(async () => {
       await this.lockPlans();
       // Access can expire while another message or a panel edit holds the lock.
@@ -235,6 +251,17 @@ export class CustomerPlanningRepository extends BaseRepository {
         if (previous.fingerprint !== fingerprint) return { status: 'conflict' };
         const current = previous.goal_id ? await this.get(previous.goal_id) : null;
         return { status: 'replay', plan: current?.kind === 'goal' ? current : null };
+      }
+      if (channelRequestKey) {
+        const shared = await this.queryOne<{ fingerprint: string; plan_id: string }>(
+          'SELECT fingerprint, plan_id FROM customer_planning_requests WHERE user_id = $1 AND request_key = $2',
+          [this.userId, channelRequestKey]
+        );
+        if (shared) {
+          if (shared.fingerprint !== sharedFingerprint) return { status: 'conflict' };
+          const current = await this.get(shared.plan_id);
+          return { status: 'replay', plan: current?.kind === 'goal' ? current : null };
+        }
       }
       let result: CustomerGoalResult;
       if (change.action === 'create') {
@@ -262,6 +289,12 @@ export class CustomerPlanningRepository extends BaseRepository {
         'INSERT INTO customer_goal_requests (user_id, request_key, fingerprint, goal_id) VALUES ($1,$2,$3,$4)',
         [this.userId, requestKey, fingerprint, 'plan' in result ? result.plan?.id : null]
       );
+      if (channelRequestKey && 'plan' in result) {
+        await this.execute(
+          'INSERT INTO customer_planning_requests (user_id, request_key, fingerprint, plan_id) VALUES ($1,$2,$3,$4)',
+          [this.userId, channelRequestKey, sharedFingerprint, result.plan.id]
+        );
+      }
       return result;
     });
   }
@@ -351,6 +384,46 @@ export class CustomerPlanningRepository extends BaseRepository {
       await this.lockPlans();
       if (await this.atLimit()) throw new Error('Limite de 80 planejamentos por conta.');
       return this.insert(value);
+    });
+  }
+
+  async createFromChannel(
+    input: CustomerPlanInput,
+    requestKey: string,
+    canWrite: () => Promise<boolean> = async () => true
+  ) {
+    if (!/^[a-f0-9]{64}$/.test(requestKey)) throw new CustomerFinanceError('Pedido inválido.');
+    const value = validate(input);
+    const fingerprint = createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    return this.transaction(async () => {
+      await this.lockPlans();
+      if (!(await canWrite()))
+        throw new CustomerFinanceError(
+          'Seu acesso está inativo. Renove para alterar seus planejamentos.'
+        );
+      const replay = await this.queryOne<{ fingerprint: string; plan_id: string }>(
+        'SELECT fingerprint,plan_id FROM customer_planning_requests WHERE user_id=$1 AND request_key=$2',
+        [this.userId, requestKey]
+      );
+      if (replay) {
+        if (replay.fingerprint !== fingerprint)
+          throw new CustomerFinanceError('Esse pedido já foi usado.', 409);
+        const plan = await this.get(replay.plan_id);
+        if (!plan)
+          throw new CustomerFinanceError(
+            'Esse planejamento foi excluído. Não recriei o registro por uma mensagem repetida.',
+            409
+          );
+        return { plan, duplicate: true };
+      }
+      if (await this.atLimit())
+        throw new CustomerFinanceError('Limite de 80 planejamentos por conta.');
+      const plan = await this.insert(value);
+      await this.execute(
+        'INSERT INTO customer_planning_requests(user_id,request_key,fingerprint,plan_id) VALUES ($1,$2,$3,$4)',
+        [this.userId, requestKey, fingerprint, plan.id]
+      );
+      return { plan, duplicate: false };
     });
   }
 

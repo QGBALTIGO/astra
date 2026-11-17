@@ -288,9 +288,11 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
       'create_customer_goal',
       'list_customer_goals',
       'update_customer_goal',
-      'delete_customer_goal'
+      'delete_customer_goal',
+      'list_customer_planning'
     );
   }
+  if (/\b(?:orcamentos?|parcelas?|planejamento)\b/.test(input)) add('list_customer_planning');
   if (/\b(?:tarefa|tarefas|afazer|afazeres)\b/.test(input)) add('add_task', 'list_tasks');
   if (/\b(?:consulta|dentista|reuniao|compromisso|calendario|agenda)\b/.test(input))
     add('add_calendar_event', 'list_calendar_events');

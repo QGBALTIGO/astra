@@ -107,6 +107,7 @@ export function CustomerPlanning({
   const [editing, setEditing] = useState<CustomerPlan | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [removing, setRemoving] = useState<CustomerPlan | null>(null);
+  const [paying, setPaying] = useState<{ plan: CustomerPlan; key: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -276,18 +277,15 @@ export function CustomerPlanning({
     setBusy(true);
     setMessage(null);
     try {
-      await customerApi.updatePlan(plan.id, {
-        kind: plan.kind,
-        title: plan.title,
-        amount: plan.amount,
-        progress: plan.progress,
-        categoryId: plan.categoryId,
-        installmentsTotal: plan.installmentsTotal,
-        installmentsPaid: (plan.installmentsPaid ?? 0) + 1,
-        nextDueDate: plan.nextDueDate,
-        notes: plan.notes,
-      });
-      onChanged('Parcela marcada como paga. Nenhuma transação foi criada.');
+      if (!paying || paying.plan.id !== plan.id) return;
+      await customerApi.payInstallment(
+        plan.id,
+        plan.installmentsPaid ?? 0,
+        paying.key,
+        plan.updatedAt
+      );
+      setPaying(null);
+      onChanged('Parcela paga e despesa registrada.');
     } catch (failure) {
       setMessage(
         failure instanceof Error ? failure.message : 'Não foi possível atualizar a parcela.'
@@ -545,7 +543,10 @@ export function CustomerPlanning({
                             busy ||
                             (plan.installmentsPaid ?? 0) >= (plan.installmentsTotal ?? 0)
                           }
-                          onClick={() => void markInstallmentPaid(plan)}
+                          onClick={() => {
+                            setMessage(null);
+                            setPaying({ plan, key: crypto.randomUUID() });
+                          }}
                         >
                           {(plan.installmentsPaid ?? 0) >= (plan.installmentsTotal ?? 0)
                             ? 'Concluído'
@@ -897,6 +898,47 @@ export function CustomerPlanning({
               </p>
             ) : null}
           </form>
+        </CustomerDialog>
+      ) : null}
+      {paying ? (
+        <CustomerDialog
+          title="Confirmar pagamento da parcela"
+          busy={busy}
+          onClose={() => {
+            if (!busy) setPaying(null);
+          }}
+          footer={
+            <>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={busy}
+                onClick={() => setPaying(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={busy || !canWrite}
+                onClick={() => void markInstallmentPaid(paying.plan)}
+              >
+                Confirmar pagamento
+              </button>
+            </>
+          }
+        >
+          <p>
+            Confirmar a parcela{' '}
+            {Math.min((paying.plan.installmentsPaid ?? 0) + 1, paying.plan.installmentsTotal ?? 0)}{' '}
+            de <strong>{paying.plan.title}</strong> e registrar uma despesa de{' '}
+            <strong>{money(paying.plan.amount, hidden)}</strong>?
+          </p>
+          {message ? (
+            <p className="ac-field-error" role="alert">
+              {message}
+            </p>
+          ) : null}
         </CustomerDialog>
       ) : null}
       {removing ? (

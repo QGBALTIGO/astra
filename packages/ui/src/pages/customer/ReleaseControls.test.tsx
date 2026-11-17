@@ -309,17 +309,17 @@ describe('production profile and planning sections', () => {
       />
     );
     await dom.click(dom.button('Parcelas'));
-    api.updatePlan.mockRejectedValueOnce(new Error('Resposta não confirmada'));
+    api.payInstallment.mockRejectedValueOnce(new Error('Resposta não confirmada'));
     await dom.click(dom.button('Marcar parcela paga'));
+    expect(api.payInstallment).not.toHaveBeenCalled();
+    await dom.click(dom.button('Confirmar pagamento'));
     expect(changed).not.toHaveBeenCalled();
     expect(dom.container.textContent).toContain('2 de 6 pagas');
-    await dom.click(dom.button('Marcar parcela paga'));
-    expect(api.updatePlan).toHaveBeenCalledTimes(2);
-    expect(api.updatePlan.mock.calls[0]?.[1]).toEqual(api.updatePlan.mock.calls[1]?.[1]);
-    expect(api.updatePlan.mock.calls[1]?.[1]).toMatchObject({
-      installmentsPaid: 3,
-      notes: 'Observação preservada',
-    });
+    await dom.click(dom.button('Confirmar pagamento'));
+    expect(api.payInstallment).toHaveBeenCalledTimes(2);
+    expect(api.payInstallment.mock.calls[0]).toEqual(api.payInstallment.mock.calls[1]);
+    expect(api.payInstallment.mock.calls[1]?.slice(0, 2)).toEqual(['installment-test', 2]);
+    expect(api.updatePlan).not.toHaveBeenCalled();
     expect(changed).toHaveBeenCalledTimes(1);
   });
 });

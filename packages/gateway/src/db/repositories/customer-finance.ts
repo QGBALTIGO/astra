@@ -42,7 +42,7 @@ export interface CustomerTransactionInput {
 }
 
 export interface CustomerTransactionQuery {
-  sort?: 'created';
+  sort?: 'activity' | 'created' | 'date';
   from?: string;
   to?: string;
   type?: CustomerTransactionType | 'all';
@@ -273,7 +273,12 @@ export class CustomerFinanceRepository extends BaseRepository {
           e.notes, e.source, e.deleted_at, e.created_at, e.updated_at) ORDER BY e.id)
          FROM expenses e WHERE e.user_id = $1),
         (SELECT jsonb_agg(jsonb_build_array(c.id, c.type, c.name, c.color, c.archived) ORDER BY c.id)
-         FROM customer_categories c WHERE c.user_id = $1)
+         FROM customer_categories c WHERE c.user_id = $1),
+        (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM customer_plans p WHERE p.user_id = $1),
+        (SELECT jsonb_agg(to_jsonb(o) ORDER BY o.id) FROM finance_obligations o WHERE o.user_id = $1),
+        (SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM tasks t WHERE t.user_id = $1),
+        (SELECT jsonb_agg(to_jsonb(v) ORDER BY v.id) FROM calendar_events v WHERE v.user_id = $1),
+        (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM channel_reminders r WHERE r.user_id = $1)
       )::text) AS revision`,
       [this.dataUserId]
     );
@@ -645,7 +650,7 @@ export class CustomerFinanceRepository extends BaseRepository {
         input.status !== previous.status
       ) {
         const linked = await this.queryOne<{ id: string }>(
-          'SELECT id FROM finance_obligation_payments WHERE user_id = $1 AND expense_id = $2',
+          'SELECT id FROM finance_obligation_payments WHERE user_id = $1 AND expense_id = $2 UNION ALL SELECT plan_id AS id FROM customer_planning_requests WHERE user_id = $1 AND transaction_id = $2 LIMIT 1',
           [this.dataUserId, id]
         );
         if (linked)
@@ -688,7 +693,7 @@ export class CustomerFinanceRepository extends BaseRepository {
       await this.lockLedger();
       if (!(await this.readTransaction(id, true))) return false;
       const linked = await this.queryOne<{ id: string }>(
-        'SELECT id FROM finance_obligation_payments WHERE user_id = $1 AND expense_id = $2',
+        'SELECT id FROM finance_obligation_payments WHERE user_id = $1 AND expense_id = $2 UNION ALL SELECT plan_id AS id FROM customer_planning_requests WHERE user_id = $1 AND transaction_id = $2 LIMIT 1',
         [this.dataUserId, id]
       );
       if (linked)
@@ -758,7 +763,7 @@ export class CustomerFinanceRepository extends BaseRepository {
       );
       const rows = await this.query<TransactionRow>(
         `${TRANSACTION_SELECT} WHERE ${where}
-        ORDER BY ${query.sort === 'created' ? 'e.created_at DESC, e.id DESC' : 'e.date DESC, e.created_at DESC, e.id DESC'} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        ORDER BY ${query.sort === 'activity' ? 'COALESCE(e.updated_at, e.created_at) DESC NULLS LAST, e.created_at DESC NULLS LAST, e.id DESC' : query.sort === 'created' ? 'e.created_at DESC NULLS LAST, e.id DESC' : 'e.date DESC, e.created_at DESC NULLS LAST, e.id DESC'} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
         [...params, pageSize, (page - 1) * pageSize]
       );
       return {
@@ -831,7 +836,9 @@ export class CustomerFinanceRepository extends BaseRepository {
         params
       );
       const recent = await this.query<TransactionRow>(
-        `${TRANSACTION_SELECT} WHERE ${base} ORDER BY e.date DESC, e.created_at DESC, e.id DESC LIMIT 8`,
+        // Recent activity means the latest recorded or settled movements, not
+        // the furthest future due dates of scheduled receivables.
+        `${TRANSACTION_SELECT} WHERE ${base} ORDER BY COALESCE(e.updated_at, e.created_at) DESC NULLS LAST, e.created_at DESC NULLS LAST, e.id DESC LIMIT 8`,
         params
       );
       const income = moneyFromCents(totals?.income ?? '0');

@@ -1,12 +1,19 @@
 /** Authenticated customer plans. Never trust a user ID from request JSON. */
 import { Hono } from 'hono';
+import { createHash } from 'node:crypto';
 import { z, ZodError } from 'zod';
 import type { CustomerSessionContext } from '../../middleware/customer-session.js';
 import {
   customerMoneyCents,
   validateCustomerFinanceDate,
+  CustomerFinanceError,
 } from '../../db/repositories/customer-finance.js';
 import { CustomerPlanningRepository } from '../../db/repositories/customer-planning.js';
+import { CustomerPlanActions } from '../../db/repositories/customer-plan-actions.js';
+import { customerAccountsRepo } from '../../db/repositories/customer-accounts.js';
+import { channelUsersRepo } from '../../db/repositories/channels/users.js';
+import { isChannelUserAccessActive } from '../../channels/channel-access-service.js';
+import { customerLocalDay } from '../../services/customer-date.js';
 import { apiError, apiResponse } from '../helpers.js';
 import { getLog } from '../../services/log.js';
 
@@ -103,6 +110,16 @@ customerPlanningRoutes.use('*', async (c, next) => {
 });
 
 customerPlanningRoutes.onError((error, c) => {
+  if (error instanceof CustomerFinanceError)
+    return apiError(
+      c,
+      {
+        code:
+          error.status === 409 ? 'CONFLICT' : error.status === 404 ? 'NOT_FOUND' : 'INVALID_INPUT',
+        message: error.message,
+      },
+      error.status
+    );
   if (error instanceof ZodError) {
     return apiError(
       c,
@@ -157,6 +174,39 @@ customerPlanningRoutes.post('/', async (c) => {
   customerMoneyCents(input.amount);
   const plan = await new CustomerPlanningRepository(c.get('customer').dataUserId).create(input);
   return apiResponse(c, { plan }, 201);
+});
+
+customerPlanningRoutes.post('/:id/pay', async (c) => {
+  const { expectedPaid, expectedUpdatedAt } = z
+    .object({
+      expectedPaid: z.number().int().min(0).max(359),
+      expectedUpdatedAt: z.string().datetime(),
+    })
+    .strict()
+    .parse(await c.req.json());
+  const key = z
+    .string()
+    .min(16)
+    .max(160)
+    .regex(/^[\w:-]+$/)
+    .parse(c.req.header('Idempotency-Key'));
+  const customer = c.get('customer');
+  const requestKey = createHash('sha256')
+    .update(JSON.stringify([customer.dataUserId, 'dashboard-plan-payment', key]))
+    .digest('hex');
+  const result = await new CustomerPlanActions(customer.dataUserId, async () => {
+    const account = await customerAccountsRepo.getByDataUserId(customer.dataUserId);
+    if (!account || account.id !== customer.accountId) return false;
+    const grant = await channelUsersRepo.getById(account.channelUserId);
+    return Boolean(grant && isChannelUserAccessActive(grant));
+  }).payInstallment(
+    c.req.param('id'),
+    customerLocalDay(new Date(), customer.timeZone),
+    requestKey,
+    expectedPaid,
+    expectedUpdatedAt
+  );
+  return apiResponse(c, result);
 });
 
 customerPlanningRoutes.patch('/:id', async (c) => {

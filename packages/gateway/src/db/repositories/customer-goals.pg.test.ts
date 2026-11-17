@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { runInExecContext } from '@ownpilot/core/agent';
+import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 import type { PostgresAdapter } from '../adapters/postgres-adapter.js';
 const db = vi.hoisted(() => ({ adapter: null as PostgresAdapter | null }));
 vi.mock('../adapters/index.js', () => ({ getAdapter: async () => db.adapter }));
@@ -8,10 +9,15 @@ import { radarTestDatabase, seedRadarAccounts } from './radar-pg-fixture.js';
 import { FINANCE_TABLES_SQL } from '../schema/finance.js';
 import { CUSTOMER_PORTAL_TABLES_SQL } from '../schema/customer-portal.js';
 import { AUTONOMOUS_TABLES_SQL } from '../schema/autonomous.js';
+import { PERSONAL_DATA_TABLES_SQL } from '../schema/personal-data.js';
 import { executeCustomerPlanningTool } from '../../tools/customer-planning-tools.js';
 import { customerPlanningRoutes } from '../../routes/customer/planning.js';
 import type { CustomerSessionContext } from '../../middleware/customer-session.js';
 import { CustomerPlanningRepository } from './customer-planning.js';
+import { CustomerReceivablesRepository } from './customer-receivables.js';
+import { tryCustomerPlanningChannelReply } from '../../channels/customer-planning-routing.js';
+import { channelUsersRepo } from './channels/users.js';
+import { isChannelUserAccessActive } from '../../channels/channel-access-service.js';
 
 describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
   'member monetary goals across channel and dashboard',
@@ -48,6 +54,21 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         },
         () => executeCustomerPlanningTool(name, args, users[index])
       );
+    const incoming = (id: string, text: string): ChannelIncomingMessage => ({
+      id,
+      text,
+      platform: 'whatsapp',
+      channelPluginId: 'channel.whatsapp',
+      platformChatId: phones[0]!,
+      sender: { platform: 'whatsapp', platformUserId: phones[0]! },
+      timestamp: new Date(),
+    });
+    const canWrite = async () => {
+      const grant = await channelUsersRepo.getById('channel-a');
+      return Boolean(grant && isChannelUserAccessActive(grant));
+    };
+    const shortcut = (id: string, text: string) =>
+      tryCustomerPlanningChannelReply(incoming(id, text), users[0]!, canWrite);
     const plans = async (index: number) =>
       (await (await api(index).request('/planning')).json()).data.plans as Array<{
         id: string;
@@ -60,7 +81,11 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       fixture = await radarTestDatabase();
       db.adapter = fixture.adapter;
       await fixture.adapter.exec(FINANCE_TABLES_SQL);
-      await fixture.adapter.exec('CREATE TABLE channel_reminders(id text PRIMARY KEY)');
+      const reminders = PERSONAL_DATA_TABLES_SQL.match(
+        /CREATE TABLE IF NOT EXISTS channel_reminders \([\s\S]*?\n\);/
+      )?.[0];
+      if (!reminders) throw new Error('Missing reminder schema');
+      await fixture.adapter.exec(reminders);
       await fixture.adapter.exec(CUSTOMER_PORTAL_TABLES_SQL);
       // Re-running the additive schema must preserve existing plans and receipts.
       await fixture.adapter.exec(CUSTOMER_PORTAL_TABLES_SQL);
@@ -249,29 +274,36 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       }
     });
 
-    it('rolls the goal back when its durable receipt cannot be saved, then safely retries', async () => {
-      const execute = fixture.adapter.execute.bind(fixture.adapter);
-      const fault = vi.spyOn(fixture.adapter, 'execute').mockImplementation(async (sql, params) => {
-        if (sql.startsWith('INSERT INTO customer_goal_requests'))
-          throw new Error('synthetic receipt failure');
-        return execute(sql, params);
-      });
-      try {
+    it.each(['customer_goal_requests', 'customer_planning_requests'])(
+      'rolls the goal back when %s cannot be saved, then safely retries',
+      async (table) => {
+        const title = 'Recuperação ' + table;
+        const messageId = 'db-failure-' + table;
+        const execute = fixture.adapter.execute.bind(fixture.adapter);
+        const fault = vi
+          .spyOn(fixture.adapter, 'execute')
+          .mockImplementation(async (sql, params) => {
+            if (sql.startsWith('INSERT INTO ' + table))
+              throw new Error('synthetic receipt failure');
+            return execute(sql, params);
+          });
+        try {
+          expect(
+            await turn(2, messageId, 'create_customer_goal', {
+              title,
+              amount: 99.9,
+            })
+          ).toMatchObject({ success: false });
+        } finally {
+          fault.mockRestore();
+        }
+        expect((await plans(2)).some((row) => row.title === title)).toBe(false);
         expect(
-          await turn(2, 'db-failure', 'create_customer_goal', {
-            title: 'Recuperação',
-            amount: 99.9,
-          })
-        ).toMatchObject({ success: false });
-      } finally {
-        fault.mockRestore();
+          await turn(2, messageId, 'create_customer_goal', { title, amount: 99.9 })
+        ).toMatchObject({ success: true });
+        expect((await plans(2)).filter((row) => row.title === title)).toHaveLength(1);
       }
-      expect((await plans(2)).some((row) => row.title === 'Recuperação')).toBe(false);
-      expect(
-        await turn(2, 'db-failure', 'create_customer_goal', { title: 'Recuperação', amount: 99.9 })
-      ).toMatchObject({ success: true });
-      expect((await plans(2)).filter((row) => row.title === 'Recuperação')).toHaveLength(1);
-    });
+    );
 
     it('refuses invalid values and does not convert a subscription through a goal ID', async () => {
       for (const args of [
@@ -302,6 +334,190 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         kind: 'subscription',
         progress: 0,
       });
+    });
+
+    it.each(['shortcut', 'tool'])(
+      'does not create twice when a message changes path from %s',
+      async (first) => {
+        const title = 'Ponte ' + first;
+        const id = 'bridge-create-' + first;
+        const actions = {
+          shortcut: () => shortcut(id, `Crie uma meta ${title} de R$ 100`),
+          tool: () => turn(0, id, 'create_customer_goal', { title, amount: 100 }),
+        };
+        await actions[first as keyof typeof actions]();
+        await actions[first === 'tool' ? 'shortcut' : 'tool']();
+        expect((await plans(0)).filter((plan) => plan.title === title)).toHaveLength(1);
+      }
+    );
+
+    it.each(['shortcut', 'tool'])(
+      'does not add savings twice when a message changes path from %s',
+      async (first) => {
+        const plan = await new CustomerPlanningRepository(users[0]!).create({
+          kind: 'goal',
+          title: 'Aporte ' + first,
+          amount: 100,
+          progress: 10,
+        });
+        const id = 'bridge-saving-' + first;
+        if (first === 'shortcut') {
+          await shortcut(id, `Guardei 20 reais na meta ${plan.title}`);
+          // A model replay could read the already increased total and add again.
+          await turn(0, id, 'update_customer_goal', { goal_id: plan.id, progress: 50 });
+        } else {
+          await turn(0, id, 'update_customer_goal', { goal_id: plan.id, progress: 30 });
+          await shortcut(id, `Guardei 20 reais na meta ${plan.title}`);
+        }
+        expect(await new CustomerPlanningRepository(users[0]!).get(plan.id)).toMatchObject({
+          progress: 30,
+        });
+      }
+    );
+
+    async function revokeWhileLocked<T>(action: () => Promise<T>): Promise<T> {
+      let release!: () => void;
+      let locked!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      const wait = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const holder = fixture.adapter.transaction(async () => {
+        await fixture.adapter.queryOne(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))',
+          ['customer-finance:' + users[0]]
+        );
+        locked();
+        await wait;
+      });
+      await ready;
+      const pending = action();
+      try {
+        await expect
+          .poll(
+            async () => {
+              const row = await fixture.adapter.queryOne<{ blocked: boolean }>(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock') AS blocked"
+              );
+              return row?.blocked;
+            },
+            { timeout: 2000, interval: 10 }
+          )
+          .toBe(true);
+        await fixture.adapter.execute(
+          "UPDATE channel_users SET access_expires_at=NOW()-INTERVAL '1 second' WHERE id='channel-a'"
+        );
+        release();
+        await holder;
+        return await pending;
+      } finally {
+        release();
+        await holder;
+        await pending.catch(() => undefined);
+        await fixture.adapter.execute(
+          "UPDATE channel_users SET access_expires_at=NOW()+INTERVAL '3 days' WHERE id='channel-a'"
+        );
+      }
+    }
+
+    it.each(['create', 'saving', 'payment'])(
+      'refuses channel %s after access expires while waiting on a real database lock',
+      async (kind) => {
+        const repo = new CustomerPlanningRepository(users[0]!);
+        const title = 'Espera ' + kind;
+        const plan =
+          kind === 'create'
+            ? null
+            : await repo.create({
+                kind: kind === 'saving' ? 'goal' : 'installment',
+                title,
+                amount: 100,
+                ...(kind === 'payment'
+                  ? { installmentsTotal: 3, installmentsPaid: 0 }
+                  : { progress: 0 }),
+              });
+        const request =
+          kind === 'create'
+            ? `Crie uma meta ${title} de R$ 100`
+            : kind === 'saving'
+              ? `Guardei 20 reais na meta ${title}`
+              : `Paguei uma parcela de ${title}`;
+        const reply = await revokeWhileLocked(() => shortcut('expired-lock-' + kind, request));
+        expect(reply).toMatch(/acesso|renove|inativ/i);
+        if (plan)
+          expect(await repo.get(plan.id)).toMatchObject({
+            progress: 0,
+            installmentsPaid: kind === 'payment' ? 0 : null,
+          });
+        else expect((await repo.list()).some((item) => item.title === title)).toBe(false);
+        expect(
+          await fixture.adapter.query("SELECT id FROM expenses WHERE description LIKE 'Espera %'")
+        ).toEqual([]);
+      }
+    );
+
+    it('refuses a dashboard payment after access expires while its transaction waits on a lock', async () => {
+      const repo = new CustomerPlanningRepository(users[0]!);
+      const plan = await repo.create({
+        kind: 'installment',
+        title: 'Espera painel',
+        amount: 19.9,
+        installmentsTotal: 2,
+        installmentsPaid: 0,
+      });
+      const response = await revokeWhileLocked(() =>
+        api(0).request('/planning/' + plan.id + '/pay', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': 'test-panel-expired-lock',
+          },
+          body: JSON.stringify({ expectedPaid: 0, expectedUpdatedAt: plan.updatedAt }),
+        })
+      );
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      expect(await response.text()).toMatch(/acesso|renove|inativ/i);
+      expect(await repo.get(plan.id)).toMatchObject({ installmentsPaid: 0 });
+      expect(
+        await fixture.adapter.query(
+          "SELECT id FROM expenses WHERE description LIKE 'Espera painel%'"
+        )
+      ).toEqual([]);
+    });
+
+    it('keeps a receivable pending after lock-time expiration, then settles one installment on an authorized retry', async () => {
+      const repo = new CustomerReceivablesRepository(users[0]!);
+      const [plan] = await repo.create(
+        [
+          {
+            borrower: 'Espera recebível',
+            principal: 100,
+            total: 100,
+            installments: 2,
+            startDate: '2026-12-01',
+            localTime: '18:00',
+            skipSunday: false,
+          },
+        ],
+        {
+          pluginId: 'channel.whatsapp',
+          chatId: phones[0]!,
+          timeZone: 'America/Campo_Grande',
+        }
+      );
+      const request = () =>
+        shortcut('receivable-expired-lock', 'Mais uma parcela de Espera recebível paga');
+      expect(await revokeWhileLocked(request)).toMatch(/acesso|renove|inativ/i);
+      const pending = (await repo.list()).find((item) => item.id === plan!.id)!;
+      expect(Number(pending.paid_cents)).toBe(0);
+      expect(Number(pending.remaining_cents)).toBe(10000);
+      expect(await request()).toContain('Parcela recebida');
+      expect(await request()).toContain('Parcela recebida');
+      const saved = (await repo.list()).find((item) => item.id === plan!.id)!;
+      expect(Number(saved.paid_cents)).toBe(5000);
+      expect(Number(saved.remaining_cents)).toBe(5000);
     });
   }
 );

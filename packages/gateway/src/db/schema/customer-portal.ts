@@ -46,6 +46,19 @@ CREATE TABLE IF NOT EXISTS customer_goal_requests (
   PRIMARY KEY (user_id, request_key)
 );
 
+-- Durable cross-device/channel operation receipts. Historical progress is
+-- never turned into expenses; only a newly confirmed payment writes a ledger
+-- row. Receipts survive plan deletion to prevent replaying an old request.
+CREATE TABLE IF NOT EXISTS customer_planning_requests (
+  user_id TEXT NOT NULL,
+  request_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  transaction_id TEXT REFERENCES expenses(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, request_key)
+);
+
 CREATE TABLE IF NOT EXISTS customer_agenda_links (
   user_id TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('event', 'task')),

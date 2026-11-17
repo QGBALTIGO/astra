@@ -574,6 +574,234 @@ test(
         ),
         0
       );
+
+      const subscriptionPhone = '5511999987234';
+      const subscriptionId = 'synthetic-recurring-subscription';
+      const transitionAt = (secondsAgo) => new Date(Date.now() - secondsAgo * 1000).toISOString();
+      const subscriptionOrder = {
+        id: 'subscription-state-order',
+        status: 'paid',
+        paidAt: transitionAt(20),
+        customer: { phone: subscriptionPhone },
+        subscription: { id: subscriptionId, status: 'active', updatedAt: transitionAt(20) },
+      };
+      assert.equal((await fetch(request('purchase_approved', subscriptionOrder))).status, 200);
+      const changeSubscription = async (event, status, updatedAt, overrides = {}) => {
+        const response = await fetch(
+          request(event, {
+            ...subscriptionOrder,
+            subscription: { id: subscriptionId, status, updatedAt },
+            ...overrides,
+          })
+        );
+        assert.equal(response.status, 200);
+        return response.json();
+      };
+      await changeSubscription('subscription_paused', 'paused', transitionAt(15));
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0].is_verified,
+        false
+      );
+      await changeSubscription('subscription_resumed', 'active', transitionAt(12));
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0].is_verified,
+        true
+      );
+
+      const secondPause = await changeSubscription(
+        'subscription_paused',
+        'paused',
+        transitionAt(10)
+      );
+      assert.deepEqual(secondPause.outcomes, ['revoked']);
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_subscriptions
+        WHERE subscription_id=${subscriptionId}`
+        )[0].status,
+        'paused'
+      );
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0].is_verified,
+        false
+      );
+
+      // Legacy event+order rows cannot suppress a later distinct transition.
+      // The paid event keeps its original key, so an upgrade cannot regrant it.
+      await db`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
+        VALUES('subscription_resumed:subscription-state-order',${subscriptionOrder.id},
+          'subscription_resumed','legacy-synthetic-digest','granted') ON CONFLICT DO NOTHING`;
+      const resumedAt = transitionAt(6);
+      const resumed = await changeSubscription('subscription_resumed', 'active', resumedAt);
+      assert.deepEqual(resumed.outcomes, ['granted']);
+      const [beforeReplay] = await db`SELECT access_granted_at,access_expires_at FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`;
+      const paidReplay = await fetch(request('purchase_approved', subscriptionOrder));
+      assert.deepEqual((await paidReplay.json()).outcomes, ['duplicate']);
+      assert.deepEqual(
+        (
+          await db`SELECT access_granted_at,access_expires_at FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0],
+        beforeReplay
+      );
+      assert.equal(
+        Number(
+          (
+            await db`SELECT count(*) AS n FROM astra_cakto_events
+        WHERE event_key='purchase_approved:subscription-state-order'`
+          )[0].n
+        ),
+        1
+      );
+
+      const delayedPause = await changeSubscription(
+        'subscription_paused',
+        'paused',
+        transitionAt(18),
+        { id: 'subscription-old-order' }
+      );
+      assert.deepEqual(delayedPause.outcomes, ['held_stale_subscription']);
+      const ambiguous = await changeSubscription('subscription_paused', 'paused', resumedAt);
+      assert.deepEqual(ambiguous.outcomes, ['held_ambiguous_subscription_order']);
+      const undated = await changeSubscription('subscription_paused', 'paused', undefined, {
+        id: 'subscription-undated-order',
+      });
+      assert.deepEqual(undated.outcomes, ['held_missing_subscription_date']);
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_subscriptions
+        WHERE subscription_id=${subscriptionId}`
+        )[0].status,
+        'active'
+      );
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0].is_verified,
+        true
+      );
+
+      // Distinct transitions within one millisecond retain their source
+      // precision in both event identity and PostgreSQL ordering.
+      const microsecondBase = transitionAt(3).replace(/\.\d{3}Z$/, '');
+      const firstMicroPause = microsecondBase + '.123001Z';
+      const microResume = microsecondBase + '.123002Z';
+      const lastMicroPause = microsecondBase + '.123003Z';
+      assert.deepEqual(
+        (await changeSubscription('subscription_paused', 'paused', firstMicroPause)).outcomes,
+        ['revoked']
+      );
+      assert.deepEqual(
+        (await changeSubscription('subscription_resumed', 'active', microResume)).outcomes,
+        ['granted']
+      );
+      assert.deepEqual(
+        (await changeSubscription('subscription_paused', 'paused', lastMicroPause)).outcomes,
+        ['revoked']
+      );
+      const staleResume = await changeSubscription('subscription_resumed', 'active', microResume, {
+        id: 'subscription-stale-resume-order',
+      });
+      assert.deepEqual(staleResume.outcomes, ['held_stale_subscription']);
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_subscriptions
+        WHERE subscription_id=${subscriptionId}`
+        )[0].status,
+        'paused'
+      );
+      const cancelledAt = transitionAt(1);
+      await changeSubscription('subscription_canceled', 'canceled', cancelledAt, {
+        canceledAt: cancelledAt,
+      });
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_subscriptions
+        WHERE subscription_id=${subscriptionId}`
+        )[0].status,
+        'canceled'
+      );
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0].is_verified,
+        false
+      );
+
+      const standaloneOrder = {
+        ...paid,
+        id: 'cancel-without-subscription-id',
+        customer: { phone: '5511999988234' },
+      };
+      await fetch(request('purchase_approved', standaloneOrder));
+      const cancelled = await fetch(
+        request('subscription_canceled', {
+          ...standaloneOrder,
+          canceledAt: new Date().toISOString(),
+        })
+      );
+      assert.deepEqual((await cancelled.json()).outcomes, ['revoked']);
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_orders
+        WHERE order_id=${standaloneOrder.id}`
+        )[0].status,
+        'canceled'
+      );
+
+      // Older releases dated pause/resume by receipt time. An event predating
+      // that legacy clock cannot safely be discarded or applied automatically.
+      const legacySubscription = {
+        ...paid,
+        id: 'legacy-subscription-order',
+        customer: { phone: '5511999989234' },
+        subscription: { id: 'legacy-subscription' },
+      };
+      await fetch(request('purchase_approved', legacySubscription));
+      const legacyReceivedAt = new Date().toISOString();
+      await db`UPDATE astra_cakto_subscriptions SET status='paused',event_at=${legacyReceivedAt}
+        WHERE subscription_id='legacy-subscription'`;
+      await db`UPDATE channel_users SET is_verified=false WHERE platform_user_id='5511999989234'`;
+      await db`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
+        VALUES('subscription_paused:legacy-subscription-order','legacy-subscription-order',
+          'subscription_paused','legacy-synthetic-digest','revoked')`;
+      const legacyResume = await fetch(
+        request('subscription_resumed', {
+          ...legacySubscription,
+          subscription: {
+            id: 'legacy-subscription',
+            status: 'active',
+            updatedAt: new Date(Date.parse(legacyReceivedAt) - 500).toISOString(),
+          },
+        })
+      );
+      assert.deepEqual((await legacyResume.json()).outcomes, ['held_stale_subscription']);
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_subscriptions
+        WHERE subscription_id='legacy-subscription'`
+        )[0].status,
+        'paused'
+      );
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id='5511999989234'`
+        )[0].is_verified,
+        false
+      );
     } finally {
       await Promise.allSettled(clients.map((client) => client.close()));
       await db.close();

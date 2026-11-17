@@ -6,6 +6,7 @@ import { CustomerAgendaRepository } from '../db/repositories/customer-agenda.js'
 import { TasksRepository } from '../db/repositories/tasks.js';
 import { PERSONAL_DATA_TABLES_SQL } from '../db/schema/personal-data.js';
 import { CUSTOMER_PORTAL_TABLES_SQL } from '../db/schema/customer-portal.js';
+import { FINANCE_TABLES_SQL } from '../db/schema/finance.js';
 import { processDirectAgent, processViaBus } from './channel-ai-routing.js';
 import { tryPersonalTaskReply } from './personal-tasks.js';
 
@@ -76,6 +77,7 @@ describe.skipIf(!port)('personal task commands against disposable PostgreSQL', (
     await db.initialize();
     await db.exec('CREATE SCHEMA ' + schema);
     await db.exec(PERSONAL_DATA_TABLES_SQL);
+    await db.exec(FINANCE_TABLES_SQL);
     await db.exec(CUSTOMER_PORTAL_TABLES_SQL);
   });
   afterAll(async () => {

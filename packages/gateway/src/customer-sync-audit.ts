@@ -36,7 +36,16 @@ WITH targets AS (
     (SELECT max(s.last_seen_at) FROM customer_sessions s WHERE s.account_id = t.account_id) AS last_portal_read,
     (SELECT jsonb_agg(jsonb_build_object('type', x.transaction_type, 'source', x.source,
        'status', x.status, 'deleted', x.deleted_at IS NOT NULL,
-       'created_at', x.created_at, 'visible_in_portal', x.user_id = t.data_user_id)
+       'created_at', x.created_at, 'visible_in_portal', x.user_id = t.data_user_id,
+       'position_by_record', 1 + (SELECT count(*) FROM expenses y WHERE y.user_id = t.data_user_id
+         AND y.currency='BRL' AND y.deleted_at IS NULL AND left(y.date,7)=left('${day}',7)
+         AND (y.created_at,y.id) > (x.created_at,x.id)),
+       'position_by_due_date', 1 + (SELECT count(*) FROM expenses y WHERE y.user_id = t.data_user_id
+         AND y.currency='BRL' AND y.deleted_at IS NULL AND left(y.date,7)=left('${day}',7)
+         AND (y.date,y.created_at,y.id) > (x.date,x.created_at,x.id)),
+       'position_in_activity', 1 + (SELECT count(*) FROM expenses y WHERE y.user_id = t.data_user_id
+         AND y.currency='BRL' AND y.deleted_at IS NULL AND left(y.date,7)=left('${day}',7)
+         AND (y.updated_at,y.created_at,y.id) > (x.updated_at,x.created_at,x.id)))
        ORDER BY x.created_at)
      FROM expenses x WHERE x.user_id IN (t.ownpilot_user_id, t.data_user_id)
        AND x.currency = 'BRL' AND x.date = '${day}' AND x.amount * 100 = ${cents}) AS matching_records

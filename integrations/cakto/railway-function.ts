@@ -35,6 +35,11 @@ const REVOKE_EVENTS = new Set([
   'subscription_paused',
 ]);
 const RESUME_EVENTS = new Set(['subscription_resumed']);
+const SUBSCRIPTION_STATE_EVENTS = new Set([
+  'subscription_canceled',
+  'subscription_paused',
+  'subscription_resumed',
+]);
 const PENDING_PIX_EVENTS = new Set(['pix_gerado']);
 const RELEVANT = new Set([
   ...GRANT_EVENTS,
@@ -185,12 +190,32 @@ function dateValue(value) {
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
+function subscriptionStateTimestamp(event, data) {
+  const subscription = asObject(data.subscription);
+  const candidates =
+    event === 'subscription_canceled'
+      ? [subscription?.canceledAt, data.canceledAt, subscription?.updatedAt]
+      : [subscription?.updatedAt];
+  for (const value of candidates) {
+    // Keep provider precision and timezone for PostgreSQL comparisons. The
+    // timestamp must come from the authenticated body, never receipt time.
+    if (
+      typeof value === 'string' &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/u.test(value) &&
+      dateValue(value)
+    )
+      return value;
+  }
+  return null;
+}
 function eventWhen(event, data) {
+  if (SUBSCRIPTION_STATE_EVENTS.has(event)) {
+    const timestamp = subscriptionStateTimestamp(event, data);
+    return timestamp ? dateValue(timestamp) : null;
+  }
   if (data.__eventAt) return dateValue(data.__eventAt) || new Date();
   if (event === 'refund') return dateValue(data.refundedAt) || new Date();
   if (event === 'chargeback') return dateValue(data.chargedbackAt) || new Date();
-  if (event === 'subscription_canceled') return dateValue(data.canceledAt) || new Date();
-  if (event === 'subscription_paused' || event === 'subscription_resumed') return new Date();
   return dateValue(data.paidAt) || new Date();
 }
 function productMatches(data) {
@@ -293,15 +318,31 @@ async function applyEvent(event, data, digest) {
   if (!orderId || !phone) return { outcome: 'held_invalid_identity' };
   const subscription = asObject(data.subscription);
   const subId = idString(subscription?.id);
+  const stateEvent = SUBSCRIPTION_STATE_EVENTS.has(event);
+  if (stateEvent && event !== 'subscription_canceled' && !subId)
+    return { outcome: 'held_invalid_subscription' };
   const when = eventWhen(event, data);
-  const whenISO = when.toISOString();
+  if (!when) return { outcome: 'held_missing_subscription_date' };
+  const whenISO = stateEvent ? subscriptionStateTimestamp(event, data) : when.toISOString();
+  const stateStatus =
+    event === 'subscription_paused'
+      ? 'paused'
+      : event === 'subscription_canceled'
+        ? 'canceled'
+        : 'active';
+  if (stateEvent && typeof subscription?.status === 'string' && subscription.status !== stateStatus)
+    return { outcome: 'held_subscription_state_conflict' };
   const productId = String(asObject(data.product)?.id ?? '');
   const name = typeof customer?.name === 'string' ? customer.name.trim().slice(0, 120) : '';
   if (GRANT_EVENTS.has(event) && data.status !== 'paid') return { outcome: 'held_unpaid' };
   const paymentDate = GRANT_EVENTS.has(event) ? dateValue(data.paidAt) : null;
   if (GRANT_EVENTS.has(event) && !paymentDate) return { outcome: 'held_missing_payment_date' };
   const paymentUntil = paymentDate ? new Date(paymentDate.getTime() + DAYS * 86_400_000) : null;
-  const key = event + ':' + orderId;
+  // Paid/reversal keys retain their historical contract. Mutable subscription
+  // transitions can occur more than once in one order and need their source time.
+  const key = stateEvent
+    ? `subscription-state-v2:${event}:${orderId}:${whenISO}`
+    : event + ':' + orderId;
 
   // PIX generated is not a payment confirmation. Record the interested buyer
   // without modifying channel_users, sessions, or any existing entitlement.
@@ -367,6 +408,8 @@ async function applyEvent(event, data, digest) {
     // Lock the order before the buyer everywhere: conflicting phone numbers
     // for one order must be checked after the first event has committed.
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`astra-cakto-order:${orderId}`},0))`;
+    if (subId)
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`astra-cakto-subscription:${subId}`},0))`;
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`astra-cakto:${phone}`},0))`;
     const inserted =
       await tx`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
@@ -388,6 +431,27 @@ async function applyEvent(event, data, digest) {
     if (GRANT_EVENTS.has(event) && ['refunded', 'chargedback'].includes(existingOrder[0]?.status)) {
       await tx`UPDATE astra_cakto_events SET outcome='ignored_reversed_order' WHERE event_key=${key}`;
       return { outcome: 'ignored_reversed_order' };
+    }
+
+    if (stateEvent && subId) {
+      const [current] = await tx`SELECT phone,status,
+        event_at > ${whenISO}::timestamptz AS newer,
+        event_at = ${whenISO}::timestamptz AS same_time
+        FROM astra_cakto_subscriptions WHERE subscription_id=${subId} FOR UPDATE`;
+      const outcome =
+        current?.phone && current.phone !== phone
+          ? 'held_subscription_conflict'
+          : current?.newer
+            ? 'held_stale_subscription'
+            : current?.same_time && current.status !== stateStatus
+              ? 'held_ambiguous_subscription_order'
+              : current?.same_time
+                ? 'duplicate'
+                : null;
+      if (outcome) {
+        await tx`UPDATE astra_cakto_events SET outcome=${outcome} WHERE event_key=${key}`;
+        return { outcome };
+      }
     }
 
     if (GRANT_EVENTS.has(event)) {
@@ -583,7 +647,15 @@ function minimalRecord(event, data) {
   };
   const subscription = asObject(data.subscription);
   record.subscription = subscription ? { id: idString(subscription.id) } : null;
-  record.__eventAt = eventWhen(event, data).toISOString();
+  if (subscription) {
+    for (const field of ['status', 'updatedAt', 'canceledAt']) {
+      if (typeof subscription[field] === 'string')
+        record.subscription[field] = subscription[field].slice(0, 120);
+    }
+  }
+  record.__eventAt = SUBSCRIPTION_STATE_EVENTS.has(event)
+    ? subscriptionStateTimestamp(event, data)
+    : eventWhen(event, data).toISOString();
   return record;
 }
 async function processStored(key) {

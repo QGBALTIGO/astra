@@ -44,6 +44,7 @@ export async function mockCustomerApi(
     largeValues?: boolean;
     empty?: boolean;
     seededPlans?: boolean;
+    futureDueDates?: boolean;
   } = {}
 ) {
   let authenticated = options.authenticated ?? false;
@@ -206,6 +207,23 @@ export async function mockCustomerApi(
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.routeWebSocket('**/ws*', () => {});
 
+  if (options.futureDueDates) {
+    transactions.push(
+      ...Array.from({ length: 12 }, (_, i) => ({
+        ...transaction('future-due-' + i, {
+          description: 'Recebimento agendado ' + i,
+          amount: 55,
+          type: 'income',
+          status: 'pending',
+          categoryId: 'synthetic-salary',
+          date: '2026-11-30',
+          notes: null,
+        }),
+        createdAt: '2026-11-01T12:00:00Z',
+        updatedAt: '2026-11-01T12:00:00Z',
+      }))
+    );
+  }
   function selectedTransactions(url: URL) {
     const from = url.searchParams.get('from') ?? '2026-11-01';
     const to = url.searchParams.get('to') ?? '2026-11-30';
@@ -273,7 +291,13 @@ export async function mockCustomerApi(
         })
         .filter((category) => category.total > 0)
         .sort((a, b) => b.total - a.total),
-      recent: [...entries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5),
+      recent: [...entries]
+        .sort((a, b) =>
+          options.futureDueDates
+            ? b.updatedAt.localeCompare(a.updatedAt)
+            : b.date.localeCompare(a.date)
+        )
+        .slice(0, 5),
     };
   }
 
@@ -453,6 +477,14 @@ export async function mockCustomerApi(
       data = summary(url);
     } else if (method === 'GET' && path === '/finance/transactions') {
       const entries = selectedTransactions(url);
+      if (options.futureDueDates)
+        entries.sort((a, b) =>
+          url.searchParams.get('sort') === 'activity'
+            ? b.updatedAt.localeCompare(a.updatedAt)
+            : url.searchParams.get('sort') === 'created'
+              ? b.createdAt.localeCompare(a.createdAt)
+              : b.date.localeCompare(a.date)
+        );
       const number = Number(url.searchParams.get('page') ?? 1);
       const pageSize = Number(url.searchParams.get('pageSize') ?? 20);
       data = {
@@ -549,8 +581,8 @@ export async function mockCustomerApi(
   return {
     receiveFromChannel(type: 'income' | 'expense', description: string, amount = 5) {
       externalRevision++;
-      transactions.unshift(
-        transaction('synthetic-channel-' + externalRevision, {
+      transactions.unshift({
+        ...transaction('synthetic-channel-' + externalRevision, {
           description,
           amount,
           type,
@@ -558,8 +590,10 @@ export async function mockCustomerApi(
           categoryId: type === 'income' ? 'synthetic-salary' : FOOD_CATEGORY,
           date: '2026-11-17',
           notes: null,
-        })
-      );
+        }),
+        createdAt: '2026-11-17T17:00:0' + externalRevision + 'Z',
+        updatedAt: '2026-11-17T17:00:0' + externalRevision + 'Z',
+      });
     },
     mutations,
     unexpectedRequests,

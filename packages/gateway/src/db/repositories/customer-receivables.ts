@@ -83,48 +83,92 @@ export class CustomerReceivablesRepository extends BaseRepository {
     const cents = customerMoneyCents(amount);
     if (!/^[a-f0-9]{64}$/i.test(sourceKey) || !validCalendarDay(date) || cents <= 0)
       throw new CustomerFinanceError('Confirme o valor recebido e a data.');
+    return this.transaction(() => this.receiveLocked(planId, cents, sourceKey, date));
+  }
+
+  private async receiveLocked(
+    planId: string,
+    cents: number,
+    sourceKey: string,
+    date: string
+  ): Promise<SavedPlan[]> {
+    await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [
+      'customer-finance:' + this.userId,
+    ]);
+    await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [this.userId]);
+    const replay = await this.queryOne<{ transaction_id: string }>(
+      'SELECT transaction_id FROM customer_finance_operations WHERE user_id=$1 AND source_key=$2',
+      [this.userId, sourceKey]
+    );
+    if (replay) return this.list();
+    const items = await this.query<{ id: string; amount: string; reminder_id: string }>(
+      `SELECT e.id,e.amount,i.reminder_id FROM customer_receivable_items i
+        JOIN customer_receivable_plans p ON p.id=i.plan_id JOIN expenses e ON e.id=i.transaction_id AND e.user_id=p.user_id
+        WHERE p.user_id=$1 AND p.id=$2 AND e.status='pending' AND e.deleted_at IS NULL AND e.transaction_type='income'
+        ORDER BY i.sequence FOR UPDATE OF e`,
+      [this.userId, planId]
+    );
+    const selected: typeof items = [];
+    let sum = 0;
+    for (const item of items) {
+      if (sum >= cents) break;
+      sum += customerMoneyCents(Number(item.amount));
+      selected.push(item);
+    }
+    if (!selected.length || sum !== cents)
+      throw new CustomerFinanceError(
+        'Esse valor não corresponde a parcelas completas pendentes. Me diga qual parcela e quanto foi recebido para eu conferir antes de dar baixa.'
+      );
+    for (const item of selected) {
+      await this.execute(
+        `UPDATE expenses SET status='settled',date=$3,updated_at=NOW() WHERE user_id=$1 AND id=$2`,
+        [this.userId, item.id, date]
+      );
+      await this.execute(
+        `UPDATE channel_reminders SET status='cancelled',updated_at=NOW() WHERE user_id=$1 AND id=$2 AND status='pending'`,
+        [this.userId, item.reminder_id]
+      );
+    }
+    await this.execute(
+      `INSERT INTO customer_finance_operations (user_id,source_key,transaction_id,kind) VALUES ($1,$2,$3,'settle')`,
+      [this.userId, sourceKey, selected[0]!.id]
+    );
+    return this.list();
+  }
+
+  /** Explicitly confirmed "one more instalment"; the amount comes from the
+   * next locked pending row. A redelivered message cannot settle the next one. */
+  async receiveNext(
+    planId: string,
+    sourceKey: string,
+    date: string,
+    canWrite: () => Promise<boolean> = async () => true
+  ): Promise<SavedPlan[]> {
+    if (!/^[a-f0-9]{64}$/.test(sourceKey) || !validCalendarDay(date))
+      throw new CustomerFinanceError('Confirme a parcela recebida e a data.');
     return this.transaction(async () => {
-      await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [
-        this.userId,
-      ]);
+      for (const scope of ['customer-finance:' + this.userId, this.userId])
+        await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [scope]);
+      if (!(await canWrite()))
+        throw new CustomerFinanceError(
+          'Seu acesso está inativo. Renove para alterar seus recebimentos.'
+        );
       const replay = await this.queryOne<{ transaction_id: string }>(
         'SELECT transaction_id FROM customer_finance_operations WHERE user_id=$1 AND source_key=$2',
         [this.userId, sourceKey]
       );
       if (replay) return this.list();
-      const items = await this.query<{ id: string; amount: string; reminder_id: string }>(
-        `SELECT e.id,e.amount,i.reminder_id FROM customer_receivable_items i
-        JOIN customer_receivable_plans p ON p.id=i.plan_id JOIN expenses e ON e.id=i.transaction_id AND e.user_id=p.user_id
-        WHERE p.user_id=$1 AND p.id=$2 AND e.status='pending' AND e.deleted_at IS NULL AND e.transaction_type='income'
-        ORDER BY i.sequence FOR UPDATE OF e`,
+      const next = await this.queryOne<{ amount: string }>(
+        `SELECT e.amount FROM customer_receivable_items i
+         JOIN customer_receivable_plans p ON p.id=i.plan_id
+         JOIN expenses e ON e.id=i.transaction_id AND e.user_id=p.user_id
+         WHERE p.user_id=$1 AND p.id=$2 AND e.status='pending' AND e.deleted_at IS NULL AND e.transaction_type='income'
+         ORDER BY i.sequence LIMIT 1 FOR UPDATE OF e`,
         [this.userId, planId]
       );
-      const selected: typeof items = [];
-      let sum = 0;
-      for (const item of items) {
-        if (sum >= cents) break;
-        sum += customerMoneyCents(Number(item.amount));
-        selected.push(item);
-      }
-      if (!selected.length || sum !== cents)
-        throw new CustomerFinanceError(
-          'Esse valor não corresponde a parcelas completas pendentes. Me diga qual parcela e quanto foi recebido para eu conferir antes de dar baixa.'
-        );
-      for (const item of selected) {
-        await this.execute(
-          `UPDATE expenses SET status='settled',date=$3,updated_at=NOW() WHERE user_id=$1 AND id=$2`,
-          [this.userId, item.id, date]
-        );
-        await this.execute(
-          `UPDATE channel_reminders SET status='cancelled',updated_at=NOW() WHERE user_id=$1 AND id=$2 AND status='pending'`,
-          [this.userId, item.reminder_id]
-        );
-      }
-      await this.execute(
-        `INSERT INTO customer_finance_operations (user_id,source_key,transaction_id,kind) VALUES ($1,$2,$3,'settle')`,
-        [this.userId, sourceKey, selected[0]!.id]
-      );
-      return this.list();
+      if (!next)
+        throw new CustomerFinanceError('Não há parcelas pendentes desse recebimento.', 409);
+      return this.receiveLocked(planId, customerMoneyCents(Number(next.amount)), sourceKey, date);
     });
   }
   async create(
@@ -160,9 +204,8 @@ export class CustomerReceivablesRepository extends BaseRepository {
     );
     if (!category) throw new CustomerFinanceError('Categoria de entradas indisponível.');
     return this.transaction(async () => {
-      await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [
-        this.userId,
-      ]);
+      for (const scope of ['customer-finance:' + this.userId, this.userId])
+        await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [scope]);
       for (const { plan, dates, fingerprint } of prepared) {
         const existing = await this.queryOne<{ id: string }>(
           'SELECT id FROM customer_receivable_plans WHERE user_id=$1 AND fingerprint=$2',

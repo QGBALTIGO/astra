@@ -46,8 +46,13 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ownpilot/core build
-      - name: Authentication, goals, finances and persisted delivery isolation
+      - run: pnpm build
+      - name: Install PostgreSQL 16 backup and restore clients
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          echo '/usr/lib/postgresql/16/bin' >> "$GITHUB_PATH"
+      - name: Full gateway coverage including real member persistence
         env:
           ASTRA_RADAR_TEST_PORT: '5432'
           ASTRA_REVIEW_PG_PORT: '5432'
@@ -55,14 +60,15 @@ jobs:
           ASTRA_REVIEW_PG_USER: astratest
           ASTRA_REVIEW_PG_PASSWORD: radar-local-tests-only
           ASTRA_REVIEW_PG_VECTOR: 'true'
-        run: >-
-          pnpm --filter @ownpilot/gateway exec vitest run --maxWorkers=2
-          src/db/repositories/customer-auth.pg.test.ts
-          src/db/repositories/customer-goals.pg.test.ts
-          src/db/repositories/customer-finance-sync.pg.test.ts
-          src/db/repositories/channel-reminders-delivery.pg.test.ts
-          src/db/repositories/channel-assets-integrity.pg.test.ts
-          src/db/repositories/memory-integrity.pg.test.ts
+        run: pnpm --filter @ownpilot/gateway exec vitest run --coverage --maxWorkers=2
+      - name: Preserve the coverage evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: astra-member-readiness-coverage
+          path: packages/gateway/coverage
+          retention-days: 14
+          if-no-files-found: error
       - name: Install the deployed Bun version outside the project
         run: npm install --prefix "$RUNNER_TEMP/astra-bun" --no-save --no-package-lock bun@1.4.4
       - name: Cakto signatures, duplicate and out-of-order events with real PostgreSQL
@@ -73,6 +79,44 @@ jobs:
           ASTRA_REVIEW_PG_PASSWORD: radar-local-tests-only
         run: '"$RUNNER_TEMP/astra-bun/node_modules/.bin/bun" test integrations/cakto/railway-function.test.mjs'
 
+  landing-screens:
+    name: Landing contracts, accessibility and responsive screens
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: landing
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build && npm test
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - name: Capture missing references for review and exercise the landing
+        run: |
+          if [ ! -f tests/browser/screenshots/trial-whatsapp/phone-320/hero.png ]; then
+            echo 'No committed trial-layout references: these captures require visual review and do not establish historical pixel equivalence.'
+            npm run test:browser -- --grep 'visual regression' --update-snapshots
+          fi
+          npm run test:browser
+      - name: Preserve landing browser evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: astra-member-readiness-landing
+          path: |
+            landing/artifacts
+            landing/playwright-report
+            landing/test-results
+            landing/tests/browser/screenshots/trial-whatsapp
+          retention-days: 14
+          if-no-files-found: error
   customer-visuals:
     name: Customer screens at 320, 390, 768 and 1440 pixels
     runs-on: ubuntu-24.04

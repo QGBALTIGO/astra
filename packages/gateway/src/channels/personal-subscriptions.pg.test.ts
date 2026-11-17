@@ -76,11 +76,7 @@ describe.skipIf(!port)(
       await db.initialize();
       await db.exec('CREATE SCHEMA ' + schema);
       await db.exec('CREATE TABLE channel_reminders(id text PRIMARY KEY)');
-      const categories = FINANCE_TABLES_SQL.match(
-        /CREATE TABLE IF NOT EXISTS customer_categories \([\s\S]*?\n\);/
-      )?.[0];
-      if (!categories) throw new Error('Missing customer category schema');
-      await db.exec(categories);
+      await db.exec(FINANCE_TABLES_SQL);
       await db.exec(CUSTOMER_PORTAL_TABLES_SQL);
       await db.exec(CUSTOMER_PORTAL_TABLES_SQL);
     });

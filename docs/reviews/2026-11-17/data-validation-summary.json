@@ -280,6 +280,99 @@
           ]
         }
       ]
+    },
+    "postMerge": {
+      "success": true,
+      "passed": 562,
+      "failed": 0,
+      "skipped": 0,
+      "phase": "after PR141 merge plus lock-time access and cross-path receipt corrections; overlaps previous runs",
+      "files": [
+        {
+          "file": "packages/gateway/src/channels/astra-lab-regression.test.ts",
+          "status": "passed",
+          "passed": 14,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/channel-ai-routing-access.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/channel-failure.test.ts",
+          "status": "passed",
+          "passed": 68,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/customer-planning-routing.test.ts",
+          "status": "passed",
+          "passed": 11,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/receipt-state.test.ts",
+          "status": "passed",
+          "passed": 38,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/response-safety.test.ts",
+          "status": "passed",
+          "passed": 47,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/tool-selection.test.ts",
+          "status": "passed",
+          "passed": 88,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/verified-facts.test.ts",
+          "status": "passed",
+          "passed": 20,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/customer-planning-tools.test.ts",
+          "status": "passed",
+          "passed": 14,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-finance-sync.pg.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-goals.pg.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/planning-concurrency.pg.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/planning-integrity.pg.test.ts",
+          "status": "passed",
+          "passed": 12,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/agent/service.test.ts",
+          "status": "passed",
+          "passed": 181,
+          "skipped": []
+        }
+      ]
     }
   },
   "radarComponentBenchmark": {
@@ -297,5 +390,13 @@
     },
     "nodeHeapMb": 64,
     "note": "local PostgreSQL/evaluator only; no API/WhatsApp/production capacity claim"
+  },
+  "integratedMainCommit": "6d939b28b97129de58087a1742d5c343b99e2156",
+  "fullCoverageAttempt": {
+    "status": "inconclusive",
+    "reportCreated": false,
+    "scope": "pre-PR141 gateway with opt-in PostgreSQL; release-backup.pg.test.ts explicitly excluded locally because pg_dump absent",
+    "environmentProblem": "generic POSTGRES_* exposed to unit tests triggered full initializeSchema without vector extension",
+    "nextRun": "only ASTRA_* opt-in variables; complete CI gate uses pgvector and PostgreSQL client; thresholds unchanged"
   }
 }

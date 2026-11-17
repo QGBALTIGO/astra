@@ -1,0 +1,19 @@
+{
+  "observedAt": "2026-11-17T19:10:53.501294+00:00",
+  "method": "GET",
+  "path": "/api/v1/health/live",
+  "bodyRead": false,
+  "redirectsFollowed": false,
+  "results": [
+    {
+      "case": "no_credentials",
+      "status": 401,
+      "contentType": "application/json"
+    },
+    {
+      "case": "invalid_synthetic_api_key",
+      "status": 401,
+      "contentType": "application/json"
+    }
+  ]
+}

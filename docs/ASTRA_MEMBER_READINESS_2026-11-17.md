@@ -14,7 +14,7 @@ Repositório: `QGBALTIGO/astra`. Branch da revisão:
 `7915ecdd9933b55183b511f5718030b1d34e5304`, merge do PR #140.
 
 Foi criado um checkout isolado para as correções e um worktree da base para
-comparação. Os checkouts anteriores, inclusive alterações de landing sem commit,
+comparação. Durante a revisão, a principal avançou para `6d939b28b97129de58087a1742d5c343b99e2156` (PR #141). Essa atualização foi incorporada preservando o novo planejamento, pagamento de parcelas e sincronização, e recebeu regressões adicionais de acesso e idempotência. Os checkouts anteriores, inclusive alterações de landing sem commit,
 foram preservados. Não foram feitas cobranças, envios para contatos reais,
 alterações de assinaturas, restaurações de produção ou publicações.
 
@@ -33,6 +33,8 @@ A consulta somente leitura ao Railway identificou:
 O endpoint público `/api/v1/auth/status` informou senha configurada e sessão não
 autenticada. `/api/v1/customer/auth/me` recusou acesso sem sessão (401).
 `/health/ready` respondeu `ready`; `/health` respondeu `degraded` com HTTP 200.
+Em uma verificação posterior, em 17/11 às 15:10 no fuso do usuário, `GET /api/v1/health/live` retornou 401 tanto sem credenciais como com uma chave sintética inválida acima do limite aceito. Nenhum corpo foi lido e nenhum redirect foi seguido. O padrão de bypass HTTP não foi observado nesse endpoint; isso não identifica toda a configuração nem certifica WebSocket. A evidência está em [production-admin-health-probe.json](reviews/2026-11-17/production-admin-health-probe.json).
+
 O health agregado pode incluir dependências opcionais, como Docker, mas a causa
 exata da degradação não foi demonstrada. Não se deve tratá-lo como prova de saúde
 integral. Os logs consultados registraram erros de processamento de mensagens;
@@ -99,9 +101,12 @@ Os inventários detalhados e limites de cada frente estão nos documentos vincul
 | Família/compartilhamento         | Não identificado como fluxo operacional do cliente                              | Não apresentado como recurso liberado                                                                                                         |
 | Landing/dashboard                | Implementados                                                                   | Landing consultada e contratos revisados; matriz visual da candidata em execução no CI                                                        |
 
+A integração do PR #141 acrescenta confirmação de parcela paga no painel e no canal: somente o pagamento novo confirmado gera despesa, com versão esperada e recibo. Atualizar um contador histórico não cria despesas retroativas. O modelo de obrigações com saldo continua distinto e não foi convertido arbitrariamente.
+
 Detalhes: [autenticação e interface](reviews/2026-11-17/auth-ui.md),
 [WhatsApp e Cakto](reviews/2026-11-17/whatsapp-cakto.md),
-[dados, mídia e integrações](reviews/2026-11-17/data-media-integrations.md).
+[dados, mídia e integrações](reviews/2026-11-17/data-media-integrations.md),
+[infraestrutura](reviews/2026-11-17/infrastructure.md).
 
 ## 4. Diagnóstico e correções
 
@@ -127,6 +132,14 @@ não implica cifra de campo em `memories.content`. O repositório atual armazena
 conteúdo em TEXT. Controles de proprietário foram testados; criptografia de volume
 e cópia externa de backup precisam de confirmação operacional. Isso não constitui
 um vazamento demonstrado.
+
+### Achados adicionais na integração da principal
+
+- **PAY-04 — P1:** a segunda pausa de uma assinatura após retomada era ignorada como duplicata. A candidata identifica transições pelo timestamp original do corpo autenticado, preserva microssegundos e retém eventos sem data, contraditórios ou anteriores ao estado conhecido. Chaves históricas de pagamentos e prazos não mudaram. A recuperação do backlog legado exige conciliação.
+- **SYNC-01 — P1:** a mesma mensagem, ao alternar entre o novo atalho e a ferramenta de metas, podia criar duas metas ou somar um aporte novamente. Os dois caminhos agora compartilham um recibo canônico na mesma transação, preservando também os recibos anteriores.
+- **ACCESS-01 — P1:** criação/progresso/pagamento que aguardavam locks podiam gravar após expiração. A permissão de servidor agora é reconsultada dentro da transação, após a espera e antes da escrita, incluindo parcela no painel e recebíveis no canal.
+
+Oito cenários novos reproduziram as duas falhas de integração antes da correção. A bateria final teve **14 arquivos e 562 testes aprovados**, incluindo 18 casos PostgreSQL de metas e oito de sincronização financeira.
 
 Os dados antigos de metas não foram arbitrariamente atribuídos ou migrados entre
 proprietários. Escritas legadas administrativas são preservadas; o caminho do membro
@@ -199,7 +212,7 @@ separada de execução contra a aplicação.
 ## 7. Configuração, implantação e retorno
 
 A versão candidata exige migrações aditivas: tabela `customer_goal_requests` e
-índice parcial para a limpeza de OTP expirado. O smoke de migração inclui a nova
+índice parcial para a limpeza de OTP expirado. A atualização incorporada da principal também inclui `customer_planning_requests`, agora usado como recibo comum dos caminhos de planejamento. O smoke de migração inclui a nova
 tabela. Não há migração destrutiva nem reatribuição de registros legados.
 
 Antes de publicar:
