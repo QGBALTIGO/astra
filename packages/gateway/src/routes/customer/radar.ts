@@ -8,6 +8,7 @@ import {
   radarPreferencesSchema,
   normalizeRadarTarget,
   sourceAvailable,
+  footballKickoffConfigured,
 } from '../../services/radar/contracts.js';
 import { searchRadar } from '../../services/radar/providers.js';
 import { RadarSourceError } from '../../services/radar/http.js';
@@ -93,6 +94,9 @@ customerRadarRoutes.get('/', async (c) => {
     catalog: RADAR_CATALOG.map((s) => ({
       ...s,
       available: sourceAvailable(s.id),
+      supportsBefore:
+        sourceAvailable(s.id) &&
+        (s.id === 'series' || (s.id === 'football' && footballKickoffConfigured())),
       ...(!sourceAvailable(s.id)
         ? {
             disabledReason:

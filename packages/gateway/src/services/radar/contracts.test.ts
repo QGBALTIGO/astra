@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   radarInputSchema,
   radarPreferencesSchema,
@@ -10,6 +10,8 @@ import {
   publicLink,
   cleanText,
   resourceId,
+  footballKickoffConfigured,
+  RADAR_CATALOG,
 } from './contracts.js';
 import {
   dailyWindow,
@@ -20,6 +22,8 @@ import {
 } from './rules.js';
 import type { RadarInterestRow, RadarDeliveryRow } from '../../db/repositories/customer-radar.js';
 const now = new Date('2026-11-16T11:00:00Z');
+beforeEach(() => vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', ''));
+afterEach(() => vi.unstubAllEnvs());
 it('shares public topic identity regardless of capitalization without changing user labels', () => {
   expect(resourceId('news', 'Tecnologia')).toBe(resourceId('news', 'tecnologia'));
 });
@@ -56,6 +60,41 @@ function interest(input: Record<string, unknown> = {}): RadarInterestRow {
   } as RadarInterestRow;
 }
 describe('Radar typed inputs and privacy boundaries', () => {
+  it('publishes the active football provider and license at request time without exposing the key', () => {
+    const football = RADAR_CATALOG.find((source) => source.id === 'football')!;
+    expect(football).toMatchObject({
+      provider: 'openfootball',
+      url: 'https://github.com/openfootball/south-america',
+      license: 'CC0 1.0 · domínio público',
+      description:
+        'Calendário e resultados comunitários do Brasileirão. Datas podem mudar; sem placar ao vivo.',
+    });
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    expect(football).toMatchObject({
+      provider: 'API Dados Futebol',
+      url: 'https://www.apidadosfutebol.com/api-futebol-brasileiro',
+      license: 'Uso comercial conforme plano e termos',
+    });
+    expect(football.description).toContain('Série A');
+    expect(football.description).toContain('horários divulgados');
+    const serialized = JSON.stringify(football);
+    expect(serialized).not.toMatch(/synthetic-test-key|CC0|openfootball/);
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', '');
+    expect(football.provider).toBe('openfootball');
+    expect(football.license).toBe('CC0 1.0 · domínio público');
+  });
+  it('requires configured football kickoff capability but accepts TBA subscriptions without a fixture', () => {
+    const input = { source: 'football', target: 'br:cr-vasco-da-gama', delivery: 'before' };
+    expect(footballKickoffConfigured()).toBe(false);
+    expect(radarInputSchema.safeParse(input).success).toBe(false);
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    expect(footballKickoffConfigured()).toBe(true);
+    expect(radarInputSchema.parse(input)).toMatchObject({ delivery: 'before', leadMinutes: 60 });
+    expect(radarInputSchema.safeParse({ ...input, leadMinutes: 14 }).success).toBe(false);
+    expect(radarInputSchema.safeParse({ ...input, leadMinutes: 15 }).success).toBe(true);
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', '   ');
+    expect(footballKickoffConfigured()).toBe(false);
+  });
   it.each(['default', '', '   '])('resource keys never need private identity: %s', (user) => {
     expect(resourceId('currency', 'USD')).toBe(resourceId('currency', 'USD'));
     expect(resourceId('currency', 'USD')).not.toContain(user || 'whatsapp');
@@ -261,7 +300,7 @@ describe('Radar rule variations', () => {
   });
   it('schedules by UTC instant, with presentation in account timezone', () => {
     const i = interest({
-      input: { source: 'football', target: '1783', delivery: 'before', leadMinutes: 60 },
+      input: { source: 'series', target: '1783', delivery: 'before', leadMinutes: 60 },
     });
     i.snapshot!.items = [
       { id: 'match', title: 'Flamengo × Palmeiras', at: '2026-11-16T12:00:00Z' },

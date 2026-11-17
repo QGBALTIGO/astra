@@ -32,7 +32,7 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 describe('Radar thread runtime', () => {
-  it('passes only public collector configuration and the database, never operator provider credentials', () => {
+  it('passes the dedicated football read credential and database, never operator provider credentials', () => {
     const env = radarWorkerEnvironment({
       DATABASE_URL: 'synthetic-db',
       POSTGRES_POOL_SIZE: '99',
@@ -41,12 +41,14 @@ describe('Radar thread runtime', () => {
       CUSTOMER_AUTH_SECRET: 'private',
       ASTRA_RADAR_GITHUB_TOKEN: 'private',
       ASTRA_RADAR_FOOTBALL_KEY: 'public-data-key',
+      ASTRA_FOOTBALL_DATA_KEY: 'dedicated-football-read-key',
       ASTRA_RADAR_ENABLED: 'true',
     });
     expect(env).toEqual({
       DATABASE_URL: 'synthetic-db',
       POSTGRES_POOL_SIZE: '2',
       ASTRA_RADAR_ENABLED: 'true',
+      ASTRA_FOOTBALL_DATA_KEY: 'dedicated-football-read-key',
     });
   });
   it('starts once and stops gracefully without replay or restart', async () => {

@@ -137,6 +137,122 @@ const chooseFootball = async () => {
   await dom.click(dom.container.querySelector<HTMLInputElement>('input[type="radio"]')!);
 };
 describe('native customer Radar opt-in and navigation', () => {
+  it('offers a pregame alert only with the public football capability and keeps the chosen lead', async () => {
+    data.catalog.find((s) => s.id === 'football')!.supportsBefore = true;
+    await chooseFootball();
+    const delivery = dom.field('Como quer receber?') as HTMLSelectElement;
+    expect(Array.from(delivery.options, (o) => o.value)).toEqual(['matchday', 'digest', 'before']);
+    await dom.fill(delivery, 'before');
+    expect((dom.field('Antecedência') as HTMLSelectElement).value).toBe('60');
+    expect(dom.container.querySelector('input[type="time"]')).toBeNull();
+    expect(dom.container.textContent).toContain(
+      'Jogos sem horário confirmado aguardam atualização'
+    );
+    await dom.fill(dom.field('Antecedência'), '30');
+    await submitInterest();
+    expect(create).toHaveBeenCalledWith(customerFixture.accountId, {
+      source: 'football',
+      target: 'br:vasco-da-gama',
+      delivery: 'before',
+      leadMinutes: 30,
+    });
+    expect(prefs).not.toHaveBeenCalled();
+  });
+  it('does not offer a pregame operation when the public capability is absent', async () => {
+    await chooseFootball();
+    const delivery = dom.field('Como quer receber?') as HTMLSelectElement;
+    expect(Array.from(delivery.options, (o) => o.value)).toEqual(['matchday', 'digest']);
+    expect(dom.container.textContent).not.toMatch(/ASTRA_|supportsBefore|footballKickoff/);
+  });
+  it('shows and edits the individual pregame lead without a daily summary or technical identifiers', async () => {
+    enableFootball();
+    data.catalog.find((s) => s.id === 'football')!.supportsBefore = true;
+    data.interests = [
+      {
+        ...interest(),
+        id: 'internal-pregame-id',
+        source: 'football',
+        target: 'br:cr-vasco-da-gama',
+        label: 'Vasco',
+        delivery: 'before',
+        leadMinutes: 90,
+      },
+    ];
+    await mount();
+    const card = dom.container.querySelector('article[aria-label="Vasco"]')!;
+    expect(card.textContent).toContain('Aviso 90 minutos antes do jogo');
+    expect(card.textContent).not.toMatch(/No resumo diário|br:cr-|internal-pregame/);
+    expect(dom.button('Pausar Vasco').disabled).toBe(false);
+    await dom.click(dom.button('Editar Vasco'));
+    expect((dom.field('Como quer receber?') as HTMLSelectElement).value).toBe('before');
+    expect((dom.field('Antecedência') as HTMLSelectElement).value).toBe('90');
+    await dom.fill(dom.field('Antecedência'), '120');
+    await submitInterest();
+    expect(change).toHaveBeenCalledWith(customerFixture.accountId, 'internal-pregame-id', {
+      delivery: 'before',
+      leadMinutes: 120,
+    });
+    expect(prefs).not.toHaveBeenCalled();
+  });
+  it('lets an unavailable pregame follow be paused or changed without pretending it can be saved', async () => {
+    enableFootball();
+    data.interests = [
+      {
+        ...interest(),
+        source: 'football',
+        target: 'br:cr-vasco-da-gama',
+        label: 'Vasco',
+        delivery: 'before',
+      },
+    ];
+    await mount();
+    expect(dom.button('Pausar Vasco').disabled).toBe(false);
+    expect(dom.container.textContent).toContain('Os avisos antes dos jogos estão indisponíveis');
+    await dom.click(dom.button('Editar Vasco'));
+    expect((dom.field('Como quer receber?') as HTMLSelectElement).value).toBe('before');
+    expect(dom.button('Salvar alterações').disabled).toBe(true);
+    await submitInterest();
+    expect(change).not.toHaveBeenCalled();
+    await dom.fill(dom.field('Como quer receber?'), 'matchday');
+    await dom.fill(dom.field('Horário do aviso no dia do jogo'), '09:00');
+    expect(dom.button('Salvar alterações').disabled).toBe(false);
+    await submitInterest();
+    expect(change).toHaveBeenCalledWith(customerFixture.accountId, 'own-interest', {
+      delivery: 'matchday',
+      notifyTime: '09:00',
+      leadMinutes: 60,
+    });
+  });
+  it('does not reactivate an unavailable pregame follow', async () => {
+    enableFootball();
+    data.interests = [
+      { ...interest(), source: 'football', label: 'Vasco', delivery: 'before', active: false },
+    ];
+    await mount();
+    expect(dom.button('Ativar Vasco').disabled).toBe(true);
+    expect(dom.button('Editar Vasco').disabled).toBe(false);
+    expect(dom.button('Excluir Vasco').disabled).toBe(false);
+    expect(change).not.toHaveBeenCalled();
+  });
+  it('preserves pre-event alerts for series independently of the football capability', async () => {
+    data.catalog.push({
+      id: 'series',
+      name: 'Séries',
+      description: 'Novos episódios.',
+      provider: 'TVmaze',
+      url: 'https://www.tvmaze.com/',
+      license: 'CC BY-SA',
+      hint: 'Série',
+      needsSearch: true,
+      available: true,
+    });
+    await mount();
+    await dom.click(dom.button('Adicionar assunto'));
+    await dom.click(source('Séries'));
+    expect(
+      Array.from((dom.field('Como quer receber?') as HTMLSelectElement).options, (o) => o.value)
+    ).toEqual(['digest', 'before']);
+  });
   it('shows game-day follows with their chosen time rather than as daily summaries', async () => {
     enableFootball();
     data.preferences.enabled = true;

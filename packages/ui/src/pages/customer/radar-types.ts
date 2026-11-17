@@ -65,6 +65,7 @@ export interface RadarCatalogItem {
   hint: string;
   needsSearch: boolean;
   available: boolean;
+  supportsBefore?: boolean;
   disabledReason?: string;
 }
 export interface CustomerRadarData {

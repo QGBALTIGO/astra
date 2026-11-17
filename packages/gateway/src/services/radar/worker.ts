@@ -155,7 +155,10 @@ export async function evaluateRadar(now = new Date()): Promise<number> {
   }
   return queued;
 }
-export async function dispatchRadar(now = new Date()): Promise<number> {
+export async function dispatchRadar(
+  now = new Date(),
+  currentTime: () => Date = () => new Date()
+): Promise<number> {
   if (sending) return 0;
   sending = true;
   let delivered = 0;
@@ -212,6 +215,8 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
         const interest = row.interest_id
           ? interests.find((i) => i.id === row.interest_id)
           : undefined;
+        const footballBefore =
+          interest?.input.source === 'football' && interest.input.delivery === 'before';
         if (
           row.interest_id &&
           (!interest ||
@@ -349,7 +354,9 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
               channelUsersRepo.getById(account.channelUserId),
               resolveCustomerPhone(account.phoneNumber),
               radarRepo.sendingDeliveryCurrent(row),
-              part.topics?.length ? radarRepo.rawInterests(row.user_id) : Promise.resolve([]),
+              part.topics?.length || footballBefore
+                ? radarRepo.rawInterests(row.user_id)
+                : Promise.resolve([]),
             ]);
           if (
             !authorized ||
@@ -361,6 +368,13 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
             freshUser.ownpilotUserId !== 'whatsapp:' + account.phoneNumber ||
             freshAlias?.accountId !== account.id ||
             freshAlias.retired ||
+            (footballBefore &&
+              !currentTopics.some(
+                (topic) =>
+                  topic.id === row.interest_id &&
+                  sourceAvailable(topic.input.source) &&
+                  stillMatchesDelivery(topic, row, currentTime(), account.timeZone)
+              )) ||
             part.topics?.some(
               (topic) =>
                 !currentTopics.some(
@@ -371,11 +385,28 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
             interrupted = true;
             break;
           }
+          const kickoffSnapshot = footballBefore
+            ? currentTopics.find((topic) => topic.id === row.interest_id)?.snapshot
+            : null;
+          const sendBefore = new Date(
+            kickoffSnapshot
+              ? Math.min(
+                  new Date(row.expires_at).getTime(),
+                  Date.parse(row.payload.at!),
+                  Date.parse(kickoffSnapshot.expiresAt),
+                  Date.parse(kickoffSnapshot.observedAt) + 30 * 60000
+                )
+              : new Date(row.expires_at).getTime()
+          );
+          if (footballBefore && sendBefore.getTime() <= currentTime().getTime()) {
+            interrupted = true;
+            break;
+          }
           receipt = await channels.send(descriptor.pluginId, {
             platformChatId: account.phoneNumber,
             text: part.text,
             urlButton: part.urlButton,
-            sendBefore: new Date(row.expires_at),
+            sendBefore,
           });
           if (typeof receipt !== 'string' || !receipt.trim())
             throw new Error('Radar receipt unavailable');

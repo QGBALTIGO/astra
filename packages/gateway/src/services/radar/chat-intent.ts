@@ -2,6 +2,34 @@ import { BRAZIL_TEAMS } from './football.js';
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 
+/** Only the customer's own stated interval can override the 60-minute default. */
+export function footballLeadMinutes(text: string): number | undefined {
+  const input = fold(text);
+  const amount = '(\\d{1,4}|um|uma|dois|duas)';
+  const unit = '(min(?:utos?)?|h(?:oras?)?)(?!\\p{L})';
+  const start = '(?<![\\p{L}\\p{N}.,-])';
+  const atom = start + amount + '\\s*' + unit;
+  const matches = [
+    ...input.matchAll(
+      new RegExp(
+        atom + '(?:\\s*(?:e\\s*)?' + amount + '\\s*' + unit + ')?\\s*(?:antes|de antecedencia)\\b',
+        'gu'
+      )
+    ),
+  ];
+  if (matches.length !== 1 || /\b(?:ou|entre)\b/.test(input)) return undefined;
+  const [, value, firstUnit, secondValue, secondUnit] = matches[0]!;
+  const atoms = [...input.matchAll(new RegExp(amount + '\\s*' + unit, 'gu'))];
+  if (atoms.length !== (secondValue ? 2 : 1)) return undefined;
+  if (secondValue && firstUnit!.startsWith('h') === secondUnit!.startsWith('h')) return undefined;
+  const valueOf = (v: string) =>
+    /^(?:um|uma)$/.test(v) ? 1 : /^(?:dois|duas)$/.test(v) ? 2 : Number(v);
+  const duration = (v: string, u: string) => valueOf(v) * (u.startsWith('h') ? 60 : 1);
+  const minutes =
+    duration(value!, firstUnit!) + (secondValue ? duration(secondValue, secondUnit!) : 0);
+  return Number.isInteger(minutes) && minutes >= 15 && minutes <= 1440 ? minutes : undefined;
+}
+
 export function canonicalFootballSubject(subject: string): string | undefined {
   const query = fold(subject).replace(/\s+/g, ' ');
   if (query.length < 3) return undefined;
@@ -22,7 +50,14 @@ export function footballTimingReply(
     .replace(/[.!?]+$/, '')
     .trim();
   if (
-    /^(?:(?:uma?|duas?|\d{1,3}) (?:horas?|minutos?) )?antes(?: (?:do|da) (?:jogo|partida)(?: (?:comecar|iniciar))?| do inicio(?: (?:do|da) (?:jogo|partida))?| de (?:comecar|iniciar)(?: (?:o|a) (?:jogo|partida))?)?$/.test(
+    /^(?:(?:um|uma|dois|duas|\d{1,4})\s*(?:h(?:oras?)?|min(?:utos?)?)\s*)?antes(?: (?:do|da) (?:jogo|partida)(?: (?:comecar|iniciar))?| do inicio(?: (?:do|da) (?:jogo|partida))?| de (?:comecar|iniciar)(?: (?:o|a) (?:jogo|partida))?)?$/.test(
+      input
+    )
+  )
+    return { kind: 'before' };
+  if (
+    footballLeadMinutes(input) !== undefined &&
+    /^(?:(?:um|uma|dois|duas|\d{1,4})\s*(?:h(?:oras?)?|min(?:utos?)?)\s*(?:e\s*)?){1,2}antes(?: (?:do|da) (?:jogo|partida)(?: (?:comecar|iniciar))?)?$/.test(
       input
     )
   )
@@ -48,7 +83,7 @@ export function gameAlertRequest(s: string): boolean {
       text
     ) &&
     /\b(?:jogos?|jogar|partidas?)\b/.test(text) &&
-    /\b(?:sempre|quando|cada|toda vez|todos os jogos|todas as partidas|nos dias de jogo)\b/.test(
+    /\b(?:sempre|quando|cada|toda vez|todos os jogos|todas as partidas|nos dias de jogo|dos jogos|das partidas)\b/.test(
       text
     ) &&
     (!/\b(?:hoje|amanha|essa partida|esse jogo|nesta partida|neste jogo|dia \d)\b/.test(text) ||

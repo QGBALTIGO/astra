@@ -25,7 +25,9 @@ export interface RadarItem {
   url?: string;
   at?: string;
   date?: string;
-  status?: 'scheduled' | 'finished';
+  status?: 'scheduled' | 'live' | 'finished' | 'cancelled' | 'unknown';
+  provider?: 'football-data';
+  providerMatchId?: string;
   value?: string;
 }
 export interface RadarSnapshot {
@@ -77,11 +79,24 @@ export const RADAR_CATALOG = [
   {
     id: 'football',
     name: 'Futebol',
-    description:
-      'Calendário e resultados comunitários do Brasileirão. Datas podem mudar; sem placar ao vivo.',
-    provider: 'openfootball',
-    url: 'https://github.com/openfootball/south-america',
-    license: 'CC0 1.0 · domínio público',
+    get description() {
+      return footballKickoffConfigured()
+        ? 'Calendário do Brasileirão Série A com os horários divulgados. Datas podem mudar; os avisos dependem da atualização da fonte e da disponibilidade de envio.'
+        : 'Calendário e resultados comunitários do Brasileirão. Datas podem mudar; sem placar ao vivo.';
+    },
+    get provider() {
+      return footballKickoffConfigured() ? 'API Dados Futebol' : 'openfootball';
+    },
+    get url() {
+      return footballKickoffConfigured()
+        ? 'https://www.apidadosfutebol.com/api-futebol-brasileiro'
+        : 'https://github.com/openfootball/south-america';
+    },
+    get license() {
+      return footballKickoffConfigured()
+        ? 'Uso comercial conforme plano e termos'
+        : 'CC0 1.0 · domínio público';
+    },
     hint: 'Time do Brasileirão',
     needsSearch: true,
   },
@@ -192,7 +207,7 @@ export const radarInputSchema = z
       });
     if (v.notifyTime !== undefined && v.delivery !== 'matchday')
       c.addIssue({ code: 'custom', message: 'O horário do aviso só vale para o dia do jogo.' });
-    if (v.source === 'football' && v.delivery === 'before')
+    if (v.source === 'football' && v.delivery === 'before' && !footballKickoffConfigured())
       c.addIssue({
         code: 'custom',
         message:
@@ -222,6 +237,9 @@ export interface RadarInterest extends RadarInput {
 }
 export function sourceAvailable(source: RadarSourceId): boolean {
   return RADAR_SOURCE_IDS.includes(source) && process.env.ASTRA_RADAR_ENABLED !== 'false';
+}
+export function footballKickoffConfigured(): boolean {
+  return Boolean(process.env.ASTRA_FOOTBALL_DATA_KEY?.trim());
 }
 export function normalizeRadarTarget(source: RadarSourceId, input: string): string {
   const s = input.normalize('NFC').trim().replace(/\s+/g, ' ');

@@ -10,6 +10,7 @@ import {
   normalizeRadarTarget,
   cleanText,
   sourceAvailable,
+  footballKickoffConfigured,
   type RadarSourceId,
 } from './contracts.js';
 import { searchRadar, fetchRadarResource } from './providers.js';
@@ -25,6 +26,7 @@ import {
   explicitRadarTime,
   canonicalFootballSubject,
   footballTimingReply,
+  footballLeadMinutes,
 } from './chat-intent.js';
 export { clearRadarChatPending } from './chat-pending.js';
 
@@ -109,7 +111,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       );
   };
   const key = JSON.stringify([ownerId, ctx.channelPluginId, ctx.platformChatId]);
-  for (const [k, v] of pending) if (v.expires < Date.now()) pending.delete(k);
+  for (const [k, v] of pending) if (v.expires <= Date.now()) pending.delete(k);
   for (const [k, v] of radarChatContext) if (v.expires <= Date.now()) radarChatContext.delete(k);
   const prior = pending.get(key);
   const context = radarChatContext.get(key);
@@ -138,8 +140,9 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
         'Tudo bem, deixei esse pedido de lado. Seus outros acompanhamentos continuam como estavam.',
     };
   }
-  // These fragments explain a public football topic. They never restore an
-  // expired operation or treat an unsupported pregame request as a day clock.
+  let continuing = false;
+  // A relative answer can complete only a still-valid explicit request.
+  // The longer-lived public topic never restores expired write consent.
   const timing = footballTimingReply(ctx.channelRequestText ?? '');
   if (timing) {
     if (ctx.externalContentGuard?.seen)
@@ -153,32 +156,111 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
         : undefined;
     const subject = timing.kind === 'all-team' ? timing.subject : previousSubject;
     pending.delete(key);
+    const canCompleteBefore =
+      footballKickoffConfigured() &&
+      prior?.accountId === account!.id &&
+      prior.messageId !== ctx.channelMessageId &&
+      prior.expires > Date.now() &&
+      prior.args.action === 'follow' &&
+      prior.args.source === 'football' &&
+      ((timing.kind === 'before' && prior.needs === 'time' && prior.args.delivery === 'matchday') ||
+        (timing.kind === 'all-team' &&
+          prior.needs === 'subject' &&
+          prior.args.delivery === 'before'));
     if (
       subject &&
       timing.kind === 'all-team' &&
       (context?.accountId !== account!.id || context.subject !== subject)
     )
       rememberFootball(subject);
-    return {
-      kind: 'radar',
-      changed: false,
-      reply: subject
-        ? (timing.kind === 'all-team'
-            ? '⚽ *Todos os jogos do ' + subject + '*'
-            : '⚽ *Jogos do ' + subject + '*') +
-          '\n\nTenho as datas previstas, mas ainda faltam horários de início confirmados. Por isso, não consigo garantir um aviso antes da partida.' +
-          '\n\nPosso avisar *no dia de jogo*, em um horário fixo que você escolher. Para pedir, envie por exemplo: _Me avise sempre que tiver jogo do ' +
-          subject +
-          ' às 9h._'
-        : '⚽ *Avisos de jogos*' +
-          '\n\nAinda faltam horários de início confirmados. Por isso, não consigo garantir um aviso antes da partida.' +
-          '\n\nDe qual time você está falando? Posso avisar *no dia de jogo*, em um horário fixo que você escolher.',
-    };
+    if (canCompleteBefore) {
+      const lead = footballLeadMinutes(ctx.channelRequestText ?? '');
+      if (
+        timing.kind === 'before' &&
+        /\d|\b(?:um|uma|dois|duas)\b/i.test(ctx.channelRequestText ?? '') &&
+        lead === undefined
+      )
+        return {
+          kind: 'radar',
+          changed: false,
+          reply:
+            '⚽ Me diga uma única antecedência entre *15 minutos e 24 horas*, por exemplo: _Me avise 30 minutos antes de todos os jogos do Vasco._',
+        };
+      args = {
+        ...prior!.args,
+        action: 'follow',
+        source: 'football',
+        subject: subject ?? prior!.args.subject,
+        delivery: 'before',
+        leadMinutes:
+          lead ?? (prior!.args.delivery === 'before' ? prior!.args.leadMinutes : undefined) ?? 60,
+      };
+      delete args.time;
+      continuing = true;
+    } else if (footballKickoffConfigured()) {
+      if (subject && timing.kind === 'all-team') {
+        const currentRepo = new CustomerRadarRepository(ownerId);
+        const [currentInterests, currentPreferences] = await Promise.all([
+          currentRepo.list(),
+          currentRepo.preferences(),
+        ]);
+        const current = currentInterests.find(
+          (i) =>
+            i.source === 'football' &&
+            canonicalFootballSubject(i.label) === subject &&
+            i.delivery === 'before'
+        );
+        if (current)
+          return {
+            kind: 'radar',
+            changed: false,
+            reply:
+              '⚽ *Todos os jogos do ' +
+              subject +
+              '*\n\n' +
+              'O acompanhamento do Brasileirão Série A está salvo com *' +
+              current.leadMinutes +
+              ' minutos de antecedência*.' +
+              (current.active && currentPreferences.preferences.enabled
+                ? '\n\nVou avisar quando o calendário informar o horário das partidas.'
+                : '\n\nOs envios desse acompanhamento estão pausados. Para ativar, me peça para avisar antes dos jogos do ' +
+                  subject +
+                  '.'),
+          };
+      }
+      return {
+        kind: 'radar',
+        changed: false,
+        reply: subject
+          ? '⚽ *Jogos do ' +
+            subject +
+            '*\n\nPosso avisar antes dos jogos do *Brasileirão Série A*, assim que o calendário informar o horário.\n\nPara ativar, me diga: _Me avise 1 hora antes de todos os jogos do ' +
+            subject +
+            '._'
+          : '⚽ *Avisos antes do jogo*\n\nDe qual time do Brasileirão Série A você quer receber os avisos? Para ativar, me diga o time e quanto tempo antes quer ser avisado.',
+      };
+    } else
+      return {
+        kind: 'radar',
+        changed: false,
+        reply: subject
+          ? (timing.kind === 'all-team'
+              ? '⚽ *Todos os jogos do ' + subject + '*'
+              : '⚽ *Jogos do ' + subject + '*') +
+            '\n\nTenho as datas previstas, mas ainda faltam horários de início confirmados. Por isso, não consigo garantir um aviso antes da partida.' +
+            '\n\nPosso avisar *no dia de jogo*, em um horário fixo que você escolher. Para pedir, envie por exemplo: _Me avise sempre que tiver jogo do ' +
+            subject +
+            ' às 9h._'
+          : '⚽ *Avisos de jogos*' +
+            '\n\nAinda faltam horários de início confirmados. Por isso, não consigo garantir um aviso antes da partida.' +
+            '\n\nDe qual time você está falando? Posso avisar *no dia de jogo*, em um horário fixo que você escolher.',
+      };
   }
-  let continuing = false;
   if (
+    !continuing &&
     !writeRequest(ctx.channelRequestText ?? '') &&
     prior &&
+    prior.expires > Date.now() &&
     prior.messageId !== ctx.channelMessageId &&
     prior.accountId === account!.id
   ) {
@@ -259,7 +341,8 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     writeRequest(requestText) &&
     /\b(?:me avise|me avisar|me lembre|avisa)\b/.test(requestText) &&
     /\b(?:jogos?|jogar|partidas?)\b/.test(requestText) &&
-    /\b(?:antes|antecedencia)\b/.test(requestText)
+    /\b(?:antes|antecedencia)\b/.test(requestText) &&
+    !footballKickoffConfigured()
   ) {
     pending.delete(key);
     return reply(
@@ -273,13 +356,19 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       throw new Error(
         'Envie seu pedido de aviso em uma nova mensagem, fora do conteúdo consultado.'
       );
-    if (/\b(?:antes|antecedencia)\b/.test(requestText)) {
+    const wantsBefore = /\b(?:antes|antecedencia)\b/.test(requestText);
+    if (wantsBefore && !footballKickoffConfigured()) {
       pending.delete(key);
       return reply(
         '⚽ Ainda não tenho o horário confirmado das partidas para garantir um aviso antes do início. Posso te avisar *só nos dias de jogo*, no horário que você escolher. Se quiser, me diga o time e o horário do dia para esse aviso.'
       );
     }
     const teams = namedFootballTeams(requestText);
+    const lead = footballLeadMinutes(ctx.channelRequestText ?? '');
+    if (wantsBefore && /\d|\b(?:um|uma|dois|duas)\b/.test(requestText) && lead === undefined)
+      return reply(
+        '⚽ Me diga uma única antecedência entre *15 minutos e 24 horas*, por exemplo: _Me avise 30 minutos antes de todos os jogos do Vasco._'
+      );
     const supplied =
       typeof args.subject === 'string' && requestText.includes(fold(args.subject))
         ? args.subject
@@ -288,12 +377,13 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       ...args,
       action: 'follow',
       source: 'football',
-      delivery: 'matchday',
+      delivery: wantsBefore ? 'before' : 'matchday',
+      ...(wantsBefore ? { leadMinutes: lead ?? 60 } : {}),
       subject: teams.length === 1 ? teams[0]![1] : teams.length > 1 ? undefined : supplied,
       choiceId: undefined,
     };
     const statedClock = explicitRadarTime(ctx.channelRequestText ?? '');
-    if (statedClock) args.time = statedClock;
+    if (statedClock && !wantsBefore) args.time = statedClock;
     else delete args.time;
     action = 'follow';
   }
@@ -350,7 +440,11 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
                   icons[i.source] +
                   ' ' +
                   i.label +
-                  (i.delivery === 'matchday' ? ' · só nos dias de jogo, às ' + i.notifyTime : '') +
+                  (i.delivery === 'matchday'
+                    ? ' · só nos dias de jogo, às ' + i.notifyTime
+                    : i.delivery === 'before'
+                      ? ' · ' + i.leadMinutes + ' min antes do jogo'
+                      : '') +
                   (i.active ? '' : ' · pausado')
               )
               .join('\n')
@@ -384,10 +478,12 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     if (
       pref.preferences.enabled &&
       interests.some((i) => i.active) &&
-      interests.filter((i) => i.active).every((i) => i.delivery === 'matchday')
+      interests.filter((i) => i.active).every((i) => ['matchday', 'before'].includes(i.delivery))
     )
       return reply(
-        '⚽ Seus acompanhamentos estão configurados *só para os dias de jogo*, nos horários escolhidos. Para consultar agora, me peça os próximos jogos do seu time.'
+        interests.some((i) => i.active && i.delivery === 'before')
+          ? '⚽ Seus acompanhamentos estão configurados *para os jogos*, conforme os avisos escolhidos. Para consultar agora, me peça os próximos jogos do seu time.'
+          : '⚽ Seus acompanhamentos estão configurados *só para os dias de jogo*, nos horários escolhidos. Para consultar agora, me peça os próximos jogos do seu time.'
       );
     if (
       optOutRequest(requestText) ||
@@ -423,8 +519,25 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       { queued: true }
     );
   }
-  let time =
-    typeof args.time === 'string'
+  const footballBefore = args.source === 'football' && args.delivery === 'before';
+  if (footballBefore) {
+    if (!footballKickoffConfigured())
+      throw new Error(
+        'O calendário com horários está indisponível agora. Seus avisos continuam como estavam.'
+      );
+    if (!continuing && (!wantsGameAlerts || !/\b(?:antes|antecedencia)\b/.test(requestText)))
+      throw new Error('Me diga se quer receber um aviso antes dos jogos e com qual antecedência.');
+    const statedLead = footballLeadMinutes(ctx.channelRequestText ?? '');
+    if (!continuing && /\d|\b(?:um|uma|dois|duas)\b/.test(requestText) && statedLead === undefined)
+      return reply(
+        '⚽ Me diga uma única antecedência entre *15 minutos e 24 horas*, por exemplo: _Me avise 30 minutos antes de todos os jogos do Vasco._'
+      );
+    args.leadMinutes = continuing ? (args.leadMinutes ?? 60) : (statedLead ?? 60);
+    delete args.time;
+  }
+  let time = footballBefore
+    ? pref.preferences.time
+    : typeof args.time === 'string'
       ? args.time
       : args.delivery !== 'matchday' && pref.preferences.enabled
         ? pref.preferences.time
@@ -436,6 +549,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
         '📡 Consigo organizar isso no seu Radar. Em qual horário você quer receber o resumo diário?'
       );
     if (
+      !footballBefore &&
       args.time !== undefined &&
       (typeof args.time !== 'string' ||
         !/^\d{2}:\d{2}$/.test(args.time) ||
@@ -516,11 +630,15 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
         (saved.active ? ' voltou ao seu Radar*' : ' pausado*') +
         '\n\n' +
         (saved.active
-          ? saved.delivery === 'matchday'
-            ? 'Vou te avisar só nos dias de jogo, às *' +
-              saved.notifyTime +
-              '* no seu horário local.'
-            : 'Ele entra no resumo diário das ' + pref.preferences.time + '.'
+          ? saved.delivery === 'before'
+            ? 'Vou acompanhar os jogos do Brasileirão Série A e avisar *' +
+              saved.leadMinutes +
+              ' minutos antes*, quando o horário estiver informado no calendário.'
+            : saved.delivery === 'matchday'
+              ? 'Vou te avisar só nos dias de jogo, às *' +
+                saved.notifyTime +
+                '* no seu horário local.'
+              : 'Ele entra no resumo diário das ' + pref.preferences.time + '.'
           : 'Os outros assuntos continuam como estavam. Você pode pedir para retomar quando quiser.'),
       true
     );
@@ -550,7 +668,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
             : '📰 Sobre qual assunto você quer receber notícias no Radar?'
           : '📡 Qual ' + source.hint.toLowerCase() + ' você quer acompanhar no Radar?'
     );
-  if (action === 'follow' && !time)
+  if (action === 'follow' && !time && !footballBefore)
     return ask(
       'time',
       args.delivery === 'matchday'
@@ -622,7 +740,13 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
                   [
                     source.id === 'news'
                       ? i.text?.replace(' · Global Voices · CC BY 3.0', '')
-                      : i.text,
+                      : source.id === 'football' && i.at && Number.isFinite(Date.parse(i.at))
+                        ? new Intl.DateTimeFormat('pt-BR', {
+                            dateStyle: 'short',
+                            timeStyle: 'short',
+                            timeZone: identity.account.timeZone,
+                          }).format(new Date(i.at)) + (i.text ? ' · ' + i.text : '')
+                        : i.text,
                     source.id === 'football' ? undefined : i.url,
                   ]
                     .filter(Boolean)
@@ -654,7 +778,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   });
   // A per-topic request cannot silently move the existing combined daily digest.
   if (
-    input.delivery !== 'matchday' &&
+    !['matchday', 'before'].includes(input.delivery) &&
     pref.preferences.enabled &&
     time !== pref.preferences.time &&
     interests.some((i) => i.active)
@@ -667,10 +791,34 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
         '. Depois posso incluir esse assunto no mesmo resumo.',
       false
     );
+  if (source.id === 'football' && input.delivery === 'before') {
+    // A configured key alone is not proof that the fixture service works.
+    // Validate a live/cache-backed provider read before confirming the follow.
+    await fetchRadarResource({ id: 'qualification', source: 'football', target, label });
+  }
   await revalidate();
   const saved = await repo.followFromChat(input, label, time!);
   pending.delete(key);
   if (source.id === 'football') rememberFootball(label);
+  if (source.id === 'football' && input.delivery === 'before')
+    return reply(
+      '⚽ *' +
+        label +
+        ' · avisos antes do jogo*\n\n' +
+        '⏰ *Antecedência:* ' +
+        input.leadMinutes +
+        ' minutos\n' +
+        '🏆 *Competição:* Brasileirão Série A\n\n' +
+        'Vou acompanhar o calendário e avisar antes das partidas com horário informado, no seu fuso. Se o jogo mudar ou ficar sem horário, o aviso acompanha a atualização.\n\n' +
+        'Para mudar a antecedência ou pausar, é só me pedir por aqui.',
+      true,
+      {
+        interest: saved.interest,
+        enabled: true,
+        leadMinutes: input.leadMinutes,
+        timeZone: identity.account.timeZone,
+      }
+    );
   return reply(
     icons[source.id] +
       ' *' +

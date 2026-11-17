@@ -1,7 +1,36 @@
 import { describe, expect, it } from 'vitest';
-import { explicitRadarTime, gameAlertRequest, footballTimingReply } from './chat-intent.js';
+import {
+  explicitRadarTime,
+  gameAlertRequest,
+  footballTimingReply,
+  footballLeadMinutes,
+} from './chat-intent.js';
 
 describe('explicit recurring football consent without a model', () => {
+  it.each([
+    ['30 minutos antes', 30],
+    ['1h antes', 60],
+    ['duas horas antes', 120],
+    ['24 horas de antecedência', 1440],
+    ['15min antes', 15],
+    ['1 hora e 30 minutos antes', 90],
+    ['1h30min antes', 90],
+    ['30min e 1h antes', 90],
+  ] as const)('reads the stated interval %s', (text, expected) =>
+    expect(footballLeadMinutes(text)).toBe(expected)
+  );
+  it.each([
+    'antes do jogo',
+    '5 minutos antes',
+    '25 horas antes',
+    '15 ou 30 minutos antes',
+    '1,5 horas antes',
+    '-30 minutos antes',
+    '2 horas antes ou 30 minutos antes',
+    '30 minutos e 15 minutos antes',
+  ])('does not invent an interval for %s', (text) =>
+    expect(footballLeadMinutes(text)).toBeUndefined()
+  );
   it.each([
     'Antes do jogo começar',
     'Antes do início da partida',
@@ -41,6 +70,7 @@ describe('explicit recurring football consent without a model', () => {
     'Astra, me notifique quando tiver partida do Santos às 09:00',
     'Me avise quando tiver jogo do Vasco, mas não todo dia',
     'Quero ser avisado nos dias de jogo do Palmeiras',
+    'Me avise antes dos jogos do Vasco',
   ])('recognizes the customer request: %s', (text) => expect(gameAlertRequest(text)).toBe(true));
   it.each([
     'Qual o próximo jogo do Vasco?',

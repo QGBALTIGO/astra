@@ -3,10 +3,35 @@ import {
   inQuietHours,
   thresholdMatches,
   sourceAvailable,
+  footballKickoffConfigured,
+  type RadarItem,
   type RadarSnapshot,
 } from './contracts.js';
 import type { RadarInterestRow, RadarDeliveryRow } from '../../db/repositories/customer-radar.js';
 import { snapshotFingerprint } from './providers.js';
+
+function scheduledFootballKickoff(
+  item: RadarItem,
+  snapshot: RadarSnapshot,
+  now: Date
+): string | null {
+  if (
+    !footballKickoffConfigured() ||
+    !sourceAvailable('football') ||
+    item.provider !== 'football-data' ||
+    !item.providerMatchId ||
+    !/^[A-Za-z0-9_:.-]{1,160}$/.test(item.providerMatchId) ||
+    item.status !== 'scheduled' ||
+    !item.at ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(item.at) ||
+    !Number.isFinite(Date.parse(item.at)) ||
+    Date.parse(item.at) <= now.getTime() ||
+    now.getTime() - Date.parse(snapshot.observedAt) > 30 * 60000
+  )
+    return null;
+  const at = new Date(item.at).toISOString();
+  return at.slice(0, 19) === item.at.slice(0, 19) ? at : null;
+}
 export function freshSnapshot(s: RadarSnapshot | null, now: Date): s is RadarSnapshot {
   return (
     !!s &&
@@ -132,7 +157,7 @@ export function interestDecisions(
       .filter(
         (item) =>
           item.date === window.day &&
-          item.status !== 'finished' &&
+          !['live', 'finished', 'cancelled', 'unknown'].includes(item.status ?? '') &&
           (!item.at || Date.parse(item.at) > now.getTime())
       )
       .map((item) => ({
@@ -174,6 +199,7 @@ export function interestDecisions(
     ];
   }
   if (interest.input.delivery === 'before') {
+    const football = interest.input.source === 'football';
     const formatter = new Intl.DateTimeFormat('pt-BR', {
       timeZone,
       dateStyle: 'short',
@@ -182,19 +208,29 @@ export function interestDecisions(
     return s.items
       .filter(
         (i) =>
+          (!football || scheduledFootballKickoff(i, s, now)) &&
           i.at &&
           Date.parse(i.at) > now.getTime() &&
           Date.parse(i.at) - now.getTime() <= interest.input.leadMinutes * 60000
       )
       .map((i) => ({
-        key: interest.id + ':before:' + i.id + ':' + i.at,
+        key: football
+          ? interest.id +
+            ':before:football-data:' +
+            i.providerMatchId +
+            ':' +
+            new Date(i.at!).toISOString() +
+            ':' +
+            interest.input.leadMinutes
+          : interest.id + ':before:' + i.id + ':' + i.at,
         payload: {
           title: i.title,
           text: 'Horário informado: ' + formatter.format(new Date(i.at!)) + '.',
           source: s.sourceLabel,
           url: s.sourceUrl,
           itemId: i.id,
-          at: i.at,
+          at: football ? new Date(i.at!).toISOString() : i.at,
+          ...(football && { provider: i.provider, providerMatchId: i.providerMatchId }),
         },
         expiresAt: new Date(i.at!),
       }));
@@ -221,7 +257,7 @@ export function stillMatchesDelivery(
       !interest.input.notifyTime ||
       !item.date ||
       item.date !== row.payload.matchDate ||
-      item.status === 'finished' ||
+      ['live', 'finished', 'cancelled', 'unknown'].includes(item.status ?? '') ||
       (item.at && !(Date.parse(item.at) > now.getTime())) ||
       !(new Date(row.expires_at).getTime() > now.getTime())
     )
@@ -229,8 +265,19 @@ export function stillMatchesDelivery(
     const window = dailyWindow(now, timeZone, interest.input.notifyTime);
     return window.eligible && window.day === item.date;
   }
-  if (interest.input.delivery === 'before')
+  if (interest.input.delivery === 'before') {
+    if (interest.input.source === 'football') {
+      const at = scheduledFootballKickoff(item, interest.snapshot, now);
+      return (
+        !!at &&
+        at === row.payload.at &&
+        row.payload.provider === item.provider &&
+        row.payload.providerMatchId === item.providerMatchId &&
+        new Date(row.expires_at).getTime() > now.getTime()
+      );
+    }
     return item.at === row.payload.at && !!item.at && Date.parse(item.at) > now.getTime();
+  }
   return (
     interest.input.delivery === 'threshold' &&
     !!item.value &&

@@ -9,6 +9,7 @@ import {
   type RadarResource,
   type RadarSnapshot,
   type RadarItem,
+  footballKickoffConfigured,
 } from './contracts.js';
 import { radarJson, radarText, RadarSourceError, type RadarFetchMetadata } from './http.js';
 import { searchWeatherCities, forecastWeatherCity } from '../customer-weather.js';
@@ -18,6 +19,7 @@ import {
   parseBrazilSchedule,
   brazilMatchItems,
 } from './football.js';
+import { fetchBrazilFootballData } from './football-data.js';
 import { newsQueryUrl, globalVoicesItems } from './news.js';
 
 type Obj = Record<string, unknown>;
@@ -69,7 +71,9 @@ export const RADAR_POLL_SECONDS: Record<RadarSourceId, number> = {
   weather: 3600,
   ptax: 1800,
   currency: 21600,
-  football: 21600,
+  get football() {
+    return footballKickoffConfigured() ? 1200 : 21600;
+  },
   news: 3600,
   series: 3600,
   gazettes: 14400,
@@ -305,6 +309,7 @@ export async function fetchRadarResource(
     ];
     notice = 'Taxa combinada de referência do Frankfurter; não é cotação de negociação ao vivo.';
   } else if (resource.source === 'football') {
+    if (footballKickoffConfigured()) return fetchBrazilFootballData(target, now, client.json);
     const year = Number(brazilDay(now).slice(0, 4));
     const text = await client.text(brazilScheduleUrl(year), { json: false, meta: metadata });
     items = brazilMatchItems(parseBrazilSchedule(text, year), target, now);

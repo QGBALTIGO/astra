@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 const m = vi.hoisted(() => ({ json: vi.fn(), text: vi.fn(), weather: vi.fn(), cities: vi.fn() }));
 vi.mock('./http.js', () => ({
   radarJson: m.json,
@@ -13,8 +13,9 @@ vi.mock('../customer-weather.js', () => ({
   forecastWeatherCity: m.weather,
   searchWeatherCities: m.cities,
 }));
-import { fetchRadarResource, parseRadarCsv, searchRadar } from './providers.js';
+import { fetchRadarResource, parseRadarCsv, searchRadar, RADAR_POLL_SECONDS } from './providers.js';
 import type { RadarSourceId } from './contracts.js';
+import { BRAZIL_TEAMS } from './football.js';
 const now = new Date('2026-11-16T11:00:00Z');
 const fetchSource = (source: RadarSourceId, target: string, query?: string) =>
   fetchRadarResource({ id: 'resource', source, target, label: 'Minha escolha', query }, now);
@@ -33,7 +34,17 @@ function forecast() {
   };
 }
 beforeEach(() => vi.resetAllMocks());
+afterEach(() => vi.unstubAllEnvs());
 describe('free Radar provider contracts', () => {
+  it('uses the live football capability for the collector cadence after the module was loaded', () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', '');
+    expect(RADAR_POLL_SECONDS.football).toBe(21600);
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-dedicated-football-key');
+    expect(RADAR_POLL_SECONDS.football).toBe(1200);
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', '');
+    expect(RADAR_POLL_SECONDS.football).toBe(21600);
+    expect(RADAR_POLL_SECONDS.news).toBe(3600);
+  });
   it('returns a real normalized currency observation', async () => {
     m.json.mockResolvedValue([{ date: '2026-11-16', base: 'USD', quote: 'BRL', rate: 5.651 }]);
     const s = await fetchSource('currency', 'USD');
@@ -161,6 +172,65 @@ describe('free Radar provider contracts', () => {
     expect(s.sourceLabel).toBe('openfootball');
     expect(m.text.mock.calls[0]?.[0]).toContain('/brazil/2026_br1.txt');
     expect(m.json).not.toHaveBeenCalled();
+  });
+  it('uses the configured commercial football adapter without a legacy date-only fallback', async () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-dedicated-football-key');
+    const id = (i: number) => 'tm_' + String(i + 1).padStart(12, '0');
+    const teams = BRAZIL_TEAMS.map((t, i) => ({ id: id(i), name: t[1], short_name: t[1] }));
+    m.json.mockImplementation(
+      async (
+        raw: string,
+        _ttl: number,
+        meta?: (value: { fetchedAt: string; expiresAt: string }) => void
+      ) => {
+        if (raw.endsWith('/competitions'))
+          return {
+            data: [
+              {
+                id: 'cp_000000000001',
+                name: 'Brasileirão Série A',
+                country_code: 'BRA',
+                current_season: '2026',
+              },
+            ],
+            paging: null,
+          };
+        if (new URL(raw).pathname.endsWith('/teams')) return { data: teams, paging: null };
+        meta?.({ fetchedAt: now.toISOString(), expiresAt: '2026-11-16T11:20:00Z' });
+        return {
+          data: [
+            {
+              id: 'mt_000000000001',
+              competition: { id: 'cp_000000000001' },
+              season: '2026',
+              round: '35',
+              status: 'scheduled',
+              kickoff_at: '2026-11-18T23:00:00Z',
+              home_team: teams[9],
+              away_team: teams[14],
+            },
+          ],
+          paging: null,
+        };
+      }
+    );
+    const result = await fetchSource('football', 'br:cr-flamengo');
+    expect(result.sourceLabel).toBe('API Dados Futebol');
+    expect(result.items[0]).toMatchObject({
+      provider: 'football-data',
+      providerMatchId: 'mt_000000000001',
+      at: '2026-11-18T23:00:00.000Z',
+    });
+    expect(result.observedAt).toBe(now.toISOString());
+    expect(result.expiresAt).toBe('2026-11-16T11:20:00.000Z');
+    expect(m.text).not.toHaveBeenCalled();
+  });
+  it('does not replace an authenticated provider failure with an apparently scheduled legacy event', async () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-dedicated-football-key');
+    m.json.mockRejectedValue(new Error('Synthetic provider unavailable'));
+    m.text.mockResolvedValue(schedule);
+    await expect(fetchSource('football', 'br:cr-flamengo')).rejects.toThrow();
+    expect(m.text).not.toHaveBeenCalled();
   });
   it('does not render an unreported score as a goalless draw', async () => {
     m.text.mockResolvedValue(schedule);
