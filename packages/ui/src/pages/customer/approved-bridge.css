@@ -225,3 +225,8 @@ html[data-astra-input='keyboard']
   white-space: normal;
   justify-content: center;
 }
+
+/* Keep the approved amber status legible at its small label size in light mode. */
+#astra-approved-dashboard[data-theme='light'] .transaction-value > .pending-label {
+  color: #926110;
+}

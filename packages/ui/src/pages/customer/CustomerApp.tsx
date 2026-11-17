@@ -416,7 +416,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
             <ChevronDown size={14} />
           </button>
           <div className="nav-label">SEU DIA A DIA</div>
-          <nav aria-label="Navegação do cliente" className="ac-navigation">
+          <nav aria-label="Navegação do cliente" className="navigation">
             {NAVIGATION.filter((item) =>
               ['inicio', 'transacoes', 'categorias', 'agenda', 'planejamento'].includes(item.id)
             ).map((item) => (

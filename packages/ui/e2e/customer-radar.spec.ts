@@ -98,7 +98,11 @@ for (const theme of ['light', 'dark'] as const)
       await expect(page.getByRole('heading', { name: 'Últimas atualizações' })).toBeVisible();
       await expect(page.getByLabel('Receber todos os envios do Radar')).toHaveCount(0);
       await expect(
-        page.locator(width <= 767 ? '.mobile-nav a:visible' : '.ac-navigation a:visible')
+        page
+          .getByRole('navigation', {
+            name: width <= 767 ? 'Navegação móvel' : 'Navegação do cliente',
+          })
+          .getByRole('link')
       ).toHaveCount(width <= 767 ? 4 : 9);
       if (width <= 767)
         await expect(page.getByRole('button', { name: 'Mais áreas', exact: true })).toBeVisible();

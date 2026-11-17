@@ -645,6 +645,106 @@ async function financeDialogs(theme) {
   }
 }
 
+async function headerRaces() {
+  const completed = [];
+  for (const order of [
+    ['hideAmounts', 'theme'],
+    ['theme', 'hideAmounts'],
+  ]) {
+    const c = await opened({ width: 390, theme: 'light' }),
+      pending = new Map();
+    try {
+      const session = c.page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith('/auth/session') && response.status() === 200
+      );
+      await visit(c, '');
+      const original = (await (await session).json()).data.customer;
+      await c.page.route('**/api/v1/customer/profile', async (route) => {
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        const body = route.request().postDataJSON(),
+          field = Object.hasOwn(body, 'theme') ? 'theme' : 'hideAmounts';
+        await new Promise((resolve) =>
+          pending.set(field, { resolve, profile: { ...original, ...body } })
+        );
+        return route.fulfill({
+          json: { success: true, data: { profile: pending.get(field).profile } },
+        });
+      });
+      await c.page.getByRole('button', { name: 'Ativar tema escuro', exact: true }).click();
+      await expect.poll(() => pending.has('theme')).toBe(true);
+      await c.page.getByRole('button', { name: 'Ocultar valores', exact: true }).click();
+      await expect.poll(() => pending.has('hideAmounts')).toBe(true);
+      pending.get(order[0]).resolve();
+      if (order[0] === 'hideAmounts')
+        await expect(
+          c.page.getByRole('button', { name: 'Mostrar valores', exact: true })
+        ).toBeVisible();
+      else
+        await expect(c.page.locator('#astra-approved-dashboard')).toHaveAttribute(
+          'data-theme',
+          'dark'
+        );
+      pending.get(order[1]).resolve();
+      await expect(
+        c.page.getByRole('button', { name: 'Mostrar valores', exact: true })
+      ).toBeVisible();
+      await expect(c.page.locator('#astra-approved-dashboard')).toHaveAttribute(
+        'data-theme',
+        'dark'
+      );
+      await expect(c.page.locator('.home-summary-balance > strong')).not.toContainText(/[0-9]/);
+      await clean(c);
+      completed.push(order.join(' -> '));
+    } finally {
+      for (const value of pending.values()) value.resolve();
+      await c.context.close();
+    }
+  }
+  const c = await opened({ width: 390, theme: 'light' }),
+    requests = [];
+  try {
+    c.page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/finance/summary'))
+        requests.push(request.url());
+    });
+    await visit(c, '');
+    const period = c.page.locator('.home-summary-period'),
+      original = await period.innerText();
+    await period.click();
+    let dialog = c.page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'Mês anterior', exact: true }).click();
+    await expect(period).toHaveText(original);
+    await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(period).toHaveText(original);
+    await period.click();
+    dialog = c.page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'Mês anterior', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Concluir', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(period).not.toHaveText(original);
+    const previousEnd = new Date(new URL(requests[0]).searchParams.get('from') + 'T12:00:00Z');
+    previousEnd.setUTCDate(0);
+    const expectedTo = previousEnd.toISOString().slice(0, 10),
+      expectedFrom = expectedTo.slice(0, 8) + '01';
+    await expect
+      .poll(() =>
+        requests.some(
+          (value) =>
+            new URL(value).searchParams.get('from') === expectedFrom &&
+            new URL(value).searchParams.get('to') === expectedTo
+        )
+      )
+      .toBe(true);
+    await clean(c);
+    await shot(c, 'approved-home-private-period-final-390-light');
+    return { responseOrders: completed, periodCancelPreserved: true, periodApplyConfirmed: true };
+  } finally {
+    await c.context.close();
+  }
+}
+
 try {
   if (phase === 'all' || phase === 'matrix') {
     const cases = [];
@@ -681,6 +781,9 @@ try {
   if (phase === 'all' || phase === 'dialogs') {
     for (const theme of ['light', 'dark'])
       await run(`finance mobile dialogs ${theme}`, () => financeDialogs(theme));
+  }
+  if (phase === 'all' || phase === 'header') {
+    await run('header parallel theme/privacy responses and Home period cancel/apply', headerRaces);
   }
   if (phase === 'all' || phase === 'functional') {
     await run(

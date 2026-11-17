@@ -159,7 +159,9 @@ describe('customer financial workspace', () => {
       expect.objectContaining({ search: 'almoço', type: 'expense', page: 1 }),
       expect.any(AbortSignal)
     );
-    expect(dom.container.querySelectorAll('.ac-navigation a')).toHaveLength(9);
+    expect(dom.container.querySelectorAll('nav[aria-label="Navegação do cliente"] a')).toHaveLength(
+      9
+    );
     expect(dom.container.querySelectorAll('.ac-release-mobile-nav a')).toHaveLength(4);
     expect(dom.container.querySelector('nav a[href="/cliente/radar"]')).toBeTruthy();
   });

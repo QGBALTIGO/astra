@@ -340,22 +340,20 @@ export async function mockReleaseDashboard(page, options = {}) {
       };
     else if (path.endsWith('/quotes'))
       data = {
-        results: (url.searchParams.get('symbols') || '')
-          .split(',')
-          .map((symbol) => ({
-            requestedSymbol: symbol,
+        results: (url.searchParams.get('symbols') || '').split(',').map((symbol) => ({
+          requestedSymbol: symbol,
+          symbol,
+          changed: false,
+          data: {
             symbol,
-            changed: false,
-            data: {
-              symbol,
-              currency: 'BRL',
-              regularMarketPrice: options.mode === 'negative' ? '25.00' : '33.00',
-              regularMarketChange: options.mode === 'negative' ? '-1.00' : '0.50',
-              regularMarketChangePercent: options.mode === 'negative' ? '-3.85' : '1.54',
-              regularMarketTime: now,
-              logoUrl: `https://icons.brapi.dev/icons/${symbol}.svg`,
-            },
-          })),
+            currency: 'BRL',
+            regularMarketPrice: options.mode === 'negative' ? '25.00' : '33.00',
+            regularMarketChange: options.mode === 'negative' ? '-1.00' : '0.50',
+            regularMarketChangePercent: options.mode === 'negative' ? '-3.85' : '1.54',
+            regularMarketTime: now,
+            logoUrl: `https://icons.brapi.dev/icons/${symbol}.svg`,
+          },
+        })),
         meta: { fetchedAt: now },
       };
     else if (path.endsWith('/history')) {
@@ -384,14 +382,12 @@ export async function mockReleaseDashboard(page, options = {}) {
         );
       data = {
         ...(url.searchParams.get('basis') === 'adjusted' ? { basis: 'adjusted' } : {}),
-        results: (url.searchParams.get('symbols') || '')
-          .split(',')
-          .map((symbol) => ({
-            requestedSymbol: symbol,
-            symbol,
-            changed: false,
-            data: { symbol, currency: 'BRL', usedInterval: '1d', historicalDataPrice: prices },
-          })),
+        results: (url.searchParams.get('symbols') || '').split(',').map((symbol) => ({
+          requestedSymbol: symbol,
+          symbol,
+          changed: false,
+          data: { symbol, currency: 'BRL', usedInterval: '1d', historicalDataPrice: prices },
+        })),
         meta: { fetchedAt: now },
       };
     } else throw new Error('Unexpected investment endpoint ' + path);

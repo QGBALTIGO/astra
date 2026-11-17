@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { mockCustomerApi, navigateCustomer } from './customer-fixtures';
+import { customerNavigationPath, mockCustomerApi, navigateCustomer } from './customer-fixtures';
 
 const screens = [
   { width: 320, height: 740 },
@@ -146,14 +146,20 @@ for (const theme of ['light', 'dark'] as const) {
       });
       for (const name of ['Transações', 'Categorias', 'Agenda', 'Início']) {
         await navigateCustomer(page, name);
+        const path = customerNavigationPath(name);
         const destination =
           screen.width < 768 && name === 'Categorias'
             ? nav.getByRole('button', { name: 'Mais áreas', exact: true })
-            : nav.getByRole('link', {
-                name: name === 'Início' && screen.width >= 768 ? 'Visão geral' : name,
-                exact: true,
-              });
+            : nav.locator(`a[href="${path}"]`);
+        await expect(page).toHaveURL(new RegExp(path === '/cliente' ? '/cliente$' : path + '$'));
+        await expect(destination).toBeVisible();
         await expect(destination).toBeInViewport({ ratio: 1 });
+        if (name !== 'Categorias' || screen.width >= 768) {
+          await expect(destination).toHaveAttribute('aria-current', 'page');
+          await expect(destination).toHaveAccessibleName(
+            name === 'Início' ? /^(Início|Visão geral)$/ : name
+          );
+        }
         await expect(active.getByRole('heading', { level: 1 })).toBeVisible();
         await geometry(page);
         await image(page, info, `${prefix}-${name}`, false);
@@ -216,13 +222,12 @@ test('preserves loading, retry, empty data, privacy and keyboard access', async 
   await image(page, info, 'error-mobile', false);
   api.allowSummary();
   await page.getByRole('button', { name: 'Tentar novamente' }).first().click();
-  await expect(page.getByRole('heading', { name: 'Tudo começa com um registro' })).toBeVisible();
-  await expect(
-    page.getByRole('heading', { name: 'Sem compromissos nos próximos dias' })
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Um novo mês começa aqui' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Agenda em dia' })).toBeVisible();
   await page.getByRole('button', { name: 'Ocultar valores', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Mostrar valores', exact: true })).toBeVisible();
-  await expect(page.locator('.ac-stat-value').first()).toContainText('••••');
+  await expect(page.locator('.home-summary-balance strong')).toContainText('••••');
+  await expect(page.locator('.bar-chart, .donut-wrap')).toHaveCount(0);
   await page.keyboard.press('Tab');
   const focused = page.locator(':focus');
   await expect(focused).toHaveCSS('outline-style', 'solid');
