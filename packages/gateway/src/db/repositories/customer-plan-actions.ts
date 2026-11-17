@@ -20,9 +20,19 @@ export function planningNameKey(value: string): string {
 }
 
 export class CustomerPlanActions extends BaseRepository {
-  constructor(private readonly userId: string) {
+  constructor(
+    private readonly userId: string,
+    private readonly canWrite: () => Promise<boolean> = async () => true
+  ) {
     super();
     if (!userId?.trim()) throw new CustomerFinanceError('Entre na sua conta para continuar.');
+  }
+
+  private async assertCanWrite(): Promise<void> {
+    if (!(await this.canWrite()))
+      throw new CustomerFinanceError(
+        'Seu acesso está inativo. Renove para alterar seus planejamentos.'
+      );
   }
 
   async findInstallments(name: string) {
@@ -49,6 +59,7 @@ export class CustomerPlanActions extends BaseRepository {
         await this.queryOne('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [
           scope + this.userId,
         ]);
+      await this.assertCanWrite();
       const replay = await this.queryOne<{ fingerprint: string; plan_id: string }>(
         'SELECT fingerprint, plan_id FROM customer_planning_requests WHERE user_id = $1 AND request_key = $2',
         [this.userId, requestKey]
@@ -79,7 +90,11 @@ export class CustomerPlanActions extends BaseRepository {
   }
 
   async createPlan(input: CustomerPlanInput, requestKey: string) {
-    return new CustomerPlanningRepository(this.userId).createFromChannel(input, requestKey);
+    return new CustomerPlanningRepository(this.userId).createFromChannel(
+      input,
+      requestKey,
+      this.canWrite
+    );
   }
 
   async payInstallment(
@@ -122,6 +137,7 @@ export class CustomerPlanActions extends BaseRepository {
         [this.userId, requestKey]
       );
       if (replay) {
+        await this.assertCanWrite();
         if (replay.fingerprint !== fingerprint)
           throw new CustomerFinanceError('Esse pedido já foi usado para outra alteração.', 409);
         const plan = await plans.get(replay.plan_id);
@@ -139,6 +155,7 @@ export class CustomerPlanActions extends BaseRepository {
       );
       const plan = locked ? await plans.get(id) : null;
       if (!plan) throw new CustomerFinanceError('Parcela não encontrada na sua conta.', 404);
+      await this.assertCanWrite();
       const paid = plan.installmentsPaid ?? 0;
       if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== plan.updatedAt)
         throw new CustomerFinanceError(

@@ -404,7 +404,9 @@ function tryAuthorizedChannelShortcut(
       )) ??
       (await tryCustomerTimezoneChannelReply(message, userId)) ??
       (await tryClockChannelReply(message.text, userId)) ??
-      (await tryCustomerPlanningChannelReply(message, userId)) ??
+      (await tryCustomerPlanningChannelReply(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
       (await tryReceivableChannelReply(message, userId, () =>
         canProcessChannelMessage(message, isAccessAllowed)
       )) ??
@@ -665,10 +667,10 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
         channelMessageTimestamp: message.timestamp?.getTime(),
-        channelRequestText: message.text,
+        channelRequestText: [message.text, interpreted.userSpeech].filter(Boolean).join('\n'),
         channelIsPrivate: integrationPrivateChat(message),
         channelConversationOnly: isConversationalOnlyChannelRequest(message.text),
-        externalContentGuard: { seen: false },
+        externalContentGuard: { seen: interpreted.hasUntrustedContent === true },
       },
       () =>
         bus.process(normalized, {
@@ -860,11 +862,11 @@ async function processDirectAgentInSession(
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
         channelMessageTimestamp: message.timestamp?.getTime(),
-        channelRequestText: interpreted.text,
+        channelRequestText: [message.text, interpreted.userSpeech].filter(Boolean).join('\n'),
         onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
         channelIsPrivate: integrationPrivateChat(message),
         channelConversationOnly: conversationOnly,
-        externalContentGuard: { seen: false },
+        externalContentGuard: { seen: interpreted.hasUntrustedContent === true },
       },
       () =>
         conversationOnly

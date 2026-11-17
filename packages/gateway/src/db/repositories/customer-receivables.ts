@@ -138,12 +138,21 @@ export class CustomerReceivablesRepository extends BaseRepository {
 
   /** Explicitly confirmed "one more instalment"; the amount comes from the
    * next locked pending row. A redelivered message cannot settle the next one. */
-  async receiveNext(planId: string, sourceKey: string, date: string): Promise<SavedPlan[]> {
+  async receiveNext(
+    planId: string,
+    sourceKey: string,
+    date: string,
+    canWrite: () => Promise<boolean> = async () => true
+  ): Promise<SavedPlan[]> {
     if (!/^[a-f0-9]{64}$/.test(sourceKey) || !validCalendarDay(date))
       throw new CustomerFinanceError('Confirme a parcela recebida e a data.');
     return this.transaction(async () => {
       for (const scope of ['customer-finance:' + this.userId, this.userId])
         await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [scope]);
+      if (!(await canWrite()))
+        throw new CustomerFinanceError(
+          'Seu acesso está inativo. Renove para alterar seus recebimentos.'
+        );
       const replay = await this.queryOne<{ transaction_id: string }>(
         'SELECT transaction_id FROM customer_finance_operations WHERE user_id=$1 AND source_key=$2',
         [this.userId, sourceKey]

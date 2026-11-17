@@ -121,7 +121,7 @@ describe('UI Session Middleware', () => {
       expect(json.session).toBe(true);
     });
 
-    it('passes through /mcp/serve with Authorization header', async () => {
+    it('rejects /mcp/serve with an arbitrary Authorization header when API auth is disabled', async () => {
       mockIsPasswordConfigured.mockReturnValue(true);
       const app = createApp();
 
@@ -129,7 +129,7 @@ describe('UI Session Middleware', () => {
         method: 'POST',
         headers: { Authorization: 'Bearer some-key' },
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(401);
     });
   });
 
@@ -283,6 +283,29 @@ describe('UI Session Middleware', () => {
   // ── Password configured, no session ────────────────────────────
 
   describe('password configured, no session', () => {
+    it.each<[string, Record<string, string>]>([
+      ['/api/v1/test', { Authorization: 'Bearer invented-key' }],
+      ['/api/v1/test', { 'X-API-Key': 'invented-key' }],
+      ['/api/v2/test', { Authorization: 'Bearer invented-key' }],
+      [
+        '/api/v2/test',
+        { Cookie: 'astra_customer_session=customer-token', Authorization: 'Bearer invented-key' },
+      ],
+    ])(
+      'rejects invented credentials on %s when API authentication is disabled',
+      async (path, headers) => {
+        mockIsPasswordConfigured.mockReturnValue(true);
+        const app = new Hono();
+        app.use('/api/*', createUiSessionMiddleware());
+        app.get(path, (c) => c.json({ administrativeData: true }));
+
+        const response = await app.request(path, { headers });
+
+        expect(response.status).toBe(401);
+        expect(await response.json()).not.toHaveProperty('administrativeData');
+      }
+    );
+
     it('returns 401 when password is set and no auth headers', async () => {
       mockIsPasswordConfigured.mockReturnValue(true);
       const app = createApp();
@@ -291,25 +314,51 @@ describe('UI Session Middleware', () => {
       expect(res.status).toBe(401);
     });
 
-    it('passes through when Authorization header is present', async () => {
+    it('rejects an arbitrary Authorization header without downstream API authentication', async () => {
       mockIsPasswordConfigured.mockReturnValue(true);
       const app = createApp();
 
       const res = await app.request('/api/v1/test', {
         headers: { Authorization: 'Bearer some-key' },
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(401);
     });
 
-    it('passes through when X-API-Key header is present', async () => {
+    it('rejects an arbitrary X-API-Key header without downstream API authentication', async () => {
       mockIsPasswordConfigured.mockReturnValue(true);
       const app = createApp();
 
       const res = await app.request('/api/v1/test', {
         headers: { 'X-API-Key': 'some-key' },
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(401);
     });
+
+    it.each(['Authorization', 'X-API-Key'])(
+      'delegates %s to the configured API guard and requires a valid key',
+      async (header) => {
+        mockIsPasswordConfigured.mockReturnValue(true);
+        const app = new Hono();
+        app.use('/api/*', createUiSessionMiddleware({ apiAuthEnabled: true }));
+        app.use('/api/*', createAuthMiddleware({ type: 'api-key', apiKeys: ['real-owner-key'] }));
+        app.get('/api/v1/test', (c) => c.json({ ok: true }));
+        const credential = (value: string) =>
+          header === 'Authorization' ? 'Bearer ' + value : value;
+
+        expect((await app.request('/api/v1/test')).status).toBe(401);
+        expect(
+          (await app.request('/api/v1/test', { headers: { [header]: credential('invented-key') } }))
+            .status
+        ).toBe(403);
+        expect(
+          (
+            await app.request('/api/v1/test', {
+              headers: { [header]: credential('real-owner-key') },
+            })
+          ).status
+        ).toBe(200);
+      }
+    );
 
     it('returns 401 with invalid session token and no API auth', async () => {
       mockIsPasswordConfigured.mockReturnValue(true);

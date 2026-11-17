@@ -2,6 +2,7 @@ import type { ChannelToolReceipt } from './response-safety.js';
 import { formatAstraMessage } from './response-presentation.js';
 import { integrationItems } from '../services/customer-integration-data.js';
 import { requiredChannelWeatherTool } from './tool-selection.js';
+import { channelOperations, isFailedChannelReceipt } from './receipt-state.js';
 
 const plain = (value: unknown) =>
   typeof value === 'string' ? value.replace(/[\r\n*_`<>]/g, ' ').trim() : '';
@@ -13,6 +14,18 @@ function result(receipt: ChannelToolReceipt): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+const customerGoalTool =
+  /^(?:core[._])?(?:list_customer_goals|(?:create|update|delete)_customer_goal)$/;
+export function isCustomerGoalReceipt(receipt: ChannelToolReceipt): boolean {
+  return customerGoalTool.test(receipt.name.replace(/__/g, '.'));
+}
+/** A goal acknowledgement is authored from the committed portal record. */
+export function verifiedCustomerGoalReply(receipt: ChannelToolReceipt): string | null {
+  if (!isCustomerGoalReceipt(receipt) || isFailedChannelReceipt(receipt)) return null;
+  const saved = result(receipt);
+  return saved?.kind === 'customer_goal' && typeof saved.reply === 'string' ? saved.reply : null;
 }
 /** Keep a short AI greeting; numerical and operational facts come only from receipts. */
 function opening(text: string): string {
@@ -88,6 +101,19 @@ export function verifiedChannelFacts(
   receipts: ChannelToolReceipt[],
   context: { timeZone?: string; requestText?: string } = {}
 ): string | undefined {
+  const goalOperations = channelOperations(receipts);
+  if (goalOperations.length && goalOperations.every(isCustomerGoalReceipt)) {
+    const changes = goalOperations.filter(
+      (receipt) => !receipt.name.endsWith('list_customer_goals')
+    );
+    return (changes.length ? changes : goalOperations.slice(-1))
+      .map(
+        (receipt) =>
+          verifiedCustomerGoalReply(receipt) ??
+          'Não consegui confirmar essa operação de meta agora. Confira o painel antes de tentar novamente.'
+      )
+      .join('\n\n');
+  }
   const radar = receipts.findLast((r) =>
     /^(?:core[._])?manage_radar$/.test(r.name.replace(/__/g, '.'))
   );

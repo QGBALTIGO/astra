@@ -40,6 +40,15 @@ export async function executeExpenseTool(
 ): Promise<ToolExecutionResult> {
   if (
     ['add_expense', 'batch_add_expenses', 'update_expense', 'delete_expense'].includes(toolName) &&
+    getExecContext()?.externalContentGuard?.seen
+  )
+    return {
+      success: false,
+      error:
+        'Envie uma nova mensagem com a alteração desejada depois de conferir os dados do arquivo ou conteúdo externo.',
+    };
+  if (
+    ['add_expense', 'batch_add_expenses', 'update_expense', 'delete_expense'].includes(toolName) &&
     isFinanceReadOnlyRequest(getExecContext()?.channelRequestText ?? '')
   )
     return {

@@ -5,7 +5,13 @@ import { resolve, join } from 'node:path';
 const [logPath, outDir] = process.argv.slice(2);
 if (!logPath || !outDir) throw new Error('Usage: summarize-smoke log.txt output-directory');
 const logs = await readFile(resolve(logPath), 'utf8');
-const passLines = logs.split(/\r?\n/u).filter((line) => line.startsWith('PASS '));
+// The smoke runner's final PASS summary is not an additional scenario.
+const passLines = logs
+  .split(/\r?\n/u)
+  .filter(
+    (line) =>
+      line.startsWith('PASS ') && !/^PASS \d+ PostgreSQL screenshot scenarios(?:;|$)/u.test(line)
+  );
 const requiredFinancingChecks = [
   'financing narrative saves independent balances, not an opening expense',
   'a financing query sees only the authenticated account balance',

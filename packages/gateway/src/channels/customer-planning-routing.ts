@@ -87,7 +87,8 @@ export function parseCustomerPlanningIntent(text: string) {
 
 export async function tryCustomerPlanningChannelReply(
   message: ChannelIncomingMessage,
-  userId: string
+  userId: string,
+  canWrite: () => Promise<boolean> = async () => false
 ): Promise<string | null> {
   if (
     message.attachments?.length ||
@@ -110,6 +111,8 @@ export async function tryCustomerPlanningChannelReply(
     .update(JSON.stringify([userId, message.channelPluginId, message.platformChatId, message.id]))
     .digest('hex');
   try {
+    if (!(await canWrite()))
+      return 'Seu acesso está inativo. Renove para alterar seus planejamentos.';
     if (intent.kind === 'create') {
       const categories =
         intent.planKind === 'budget'
@@ -123,7 +126,7 @@ export async function tryCustomerPlanningChannelReply(
       );
       if (intent.planKind === 'budget' && matching.length !== 1)
         return 'Informe o nome exato de uma categoria de despesa do painel para definir o orçamento.';
-      const saved = await new CustomerPlanActions(userId).createPlan(
+      const saved = await new CustomerPlanActions(userId, canWrite).createPlan(
         {
           kind: intent.planKind,
           title: intent.name,
@@ -198,7 +201,7 @@ export async function tryCustomerPlanningChannelReply(
       );
       if (matching.length !== 1)
         return 'Informe o nome exato de uma única meta do painel e o valor guardado. Nenhuma meta foi alterada.';
-      const saved = await new CustomerPlanActions(userId).addGoalSavings(
+      const saved = await new CustomerPlanActions(userId, canWrite).addGoalSavings(
         matching[0]!.id,
         intent.amount,
         key
@@ -230,7 +233,8 @@ export async function tryCustomerPlanningChannelReply(
         const saved = await new CustomerReceivablesRepository(userId).receiveNext(
           receivable.id,
           key,
-          customerLocalDay(message.timestamp, account?.timeZone ?? 'America/Campo_Grande')
+          customerLocalDay(message.timestamp, account?.timeZone ?? 'America/Campo_Grande'),
+          canWrite
         );
         receivable = saved.find((p) => p.id === receivable.id)!;
       }
@@ -261,7 +265,7 @@ export async function tryCustomerPlanningChannelReply(
         },
       ]);
     const account = await customerAccountsRepo.getByDataUserId(userId);
-    const saved = await new CustomerPlanActions(userId).payInstallment(
+    const saved = await new CustomerPlanActions(userId, canWrite).payInstallment(
       plan.id,
       customerLocalDay(message.timestamp, account?.timeZone ?? 'America/Campo_Grande'),
       key,

@@ -1,0 +1,80 @@
+{
+  "observedAt": "2026-11-17T19:18:06.347Z",
+  "windowHours": 24,
+  "sampleRateSeconds": 300,
+  "scope": "Read-only Railway metrics; observed production traffic, not a controlled load test. CPU values retain the provider measurement name; no capacity extrapolation.",
+  "services": [
+    {
+      "service": {
+        "id": "ace0b745-7a1b-4a4b-9279-85fa1f8ad0ea",
+        "name": "astra-gateway"
+      },
+      "environment": {
+        "id": "96a29635-81c6-4eef-aee2-11575514ff2a",
+        "name": "production"
+      },
+      "metrics": [
+        {
+          "measurement": "CPU_USAGE",
+          "current": 0.0024044733333333334,
+          "average": 0.004150615247981546,
+          "min": 0.0019261666666666667,
+          "max": 0.02779135,
+          "sampleCount": 289
+        },
+        {
+          "measurement": "MEMORY_USAGE_GB",
+          "current": 0.2066784256,
+          "average": 0.1834223255431867,
+          "min": 0.147213312,
+          "max": 0.3952879908571429,
+          "sampleCount": 289
+        },
+        {
+          "measurement": "DISK_USAGE_GB",
+          "current": 0.117153792,
+          "average": 0.07807611974471353,
+          "min": 0.07400197688888889,
+          "max": 0.117153792,
+          "sampleCount": 289
+        }
+      ]
+    },
+    {
+      "service": {
+        "id": "dfe29bd1-ec22-483a-8c92-438e152e9605",
+        "name": "astra-postgres"
+      },
+      "environment": {
+        "id": "96a29635-81c6-4eef-aee2-11575514ff2a",
+        "name": "production"
+      },
+      "metrics": [
+        {
+          "measurement": "CPU_USAGE",
+          "current": 0.0033054533333333335,
+          "average": 0.005724159100346023,
+          "min": 0.0024416433333333334,
+          "max": 0.008536146666666668,
+          "sampleCount": 289
+        },
+        {
+          "measurement": "MEMORY_USAGE_GB",
+          "current": 0.07385169920000001,
+          "average": 0.07399280854844845,
+          "min": 0.0653824,
+          "max": 0.090774528,
+          "sampleCount": 289
+        },
+        {
+          "measurement": "DISK_USAGE_GB",
+          "current": 0.131596288,
+          "average": 0.1308537379460649,
+          "min": 0.130228224,
+          "max": 0.131596288,
+          "sampleCount": 289
+        }
+      ]
+    }
+  ]
+}

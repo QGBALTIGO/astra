@@ -10,6 +10,14 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// These RSS fixtures never use the network. Keep the real URL guard while
+// making its DNS input deterministic, including the malicious-host scenario.
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(async (hostname: string) => [
+    { address: hostname === 'bad-url.example.com' ? '10.0.0.5' : '93.184.216.34', family: 4 },
+  ]),
+}));
+
 // =============================================================================
 // Hoisted mock values
 // =============================================================================

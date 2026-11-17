@@ -459,6 +459,7 @@ describe('createApp', () => {
       vi.clearAllMocks();
       createApp({ host: '0.0.0.0', auth: { type: 'api-key', apiKeys: ['secret'] } });
       expect(mockCreateUiSessionMiddleware).toHaveBeenCalledWith({
+        apiAuthEnabled: true,
         allowImplicitOwnerWithoutPassword: false,
       });
     });
@@ -467,6 +468,16 @@ describe('createApp', () => {
       vi.clearAllMocks();
       createApp({ host: '127.0.0.1', auth: { type: 'api-key', apiKeys: ['secret'] } });
       expect(mockCreateUiSessionMiddleware).toHaveBeenCalledWith({
+        apiAuthEnabled: true,
+        allowImplicitOwnerWithoutPassword: true,
+      });
+    });
+
+    it('never delegates credential validation when API authentication is disabled', () => {
+      vi.clearAllMocks();
+      createApp({ host: '0.0.0.0', auth: { type: 'none' } });
+      expect(mockCreateUiSessionMiddleware).toHaveBeenCalledWith({
+        apiAuthEnabled: false,
         allowImplicitOwnerWithoutPassword: true,
       });
     });

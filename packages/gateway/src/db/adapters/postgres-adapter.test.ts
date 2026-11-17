@@ -407,46 +407,51 @@ describe('PostgresAdapter', () => {
       );
     });
   });
-  // runQuery retry on transient connection errors
-  describe('transient connection retry', () => {
+  // A connection failure is not proof that a statement was rolled back.
+  describe('connection failure safety', () => {
     function connErr(message: string, code?: string) {
       const e = new Error(message) as Error & { code?: string };
       if (code) e.code = code;
       return e;
     }
 
-    it('retries once on "Connection terminated unexpectedly" and succeeds', async () => {
+    it.each(['execute', 'query'] as const)(
+      'does not replay a committed mutation after an uncertain %s result',
+      async (method) => {
+        const adapter = await makeInitializedAdapter();
+        let persistedTotal = 0;
+        mockPool.query.mockImplementation(async () => {
+          persistedTotal += 1990;
+          if (persistedTotal === 1990) throw connErr('socket hang up', 'ECONNRESET');
+          return { rows: [{ total: persistedTotal }], rowCount: 1 };
+        });
+        await expect(
+          adapter[method]('UPDATE totals SET total = total + $1 RETURNING total', [1990])
+        ).rejects.toThrow('socket hang up');
+        expect(persistedTotal).toBe(1990);
+        expect(mockPool.query).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('surfaces a connection failure without replaying the statement', async () => {
       const adapter = await makeInitializedAdapter();
-      mockPool.query
-        .mockRejectedValueOnce(connErr('Connection terminated unexpectedly'))
-        .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1 });
-      const result = await adapter.query('SELECT 1');
-      expect(result).toEqual([{ id: 1 }]);
-      expect(mockPool.query).toHaveBeenCalledTimes(2);
-      expect(mockLog.warn).toHaveBeenCalledWith(
-        expect.stringContaining('retrying once'),
-        'Connection terminated unexpectedly'
-      );
+      mockPool.query.mockRejectedValueOnce(connErr('Connection terminated unexpectedly'));
+      await expect(adapter.query('SELECT 1')).rejects.toThrow('Connection terminated');
+      expect(mockPool.query).toHaveBeenCalledTimes(1);
     });
 
-    it('retries once on a connection-exception SQLSTATE (08006)', async () => {
+    it('does not replay a mutation after connection-exception SQLSTATE 08006', async () => {
       const adapter = await makeInitializedAdapter();
-      mockPool.query
-        .mockRejectedValueOnce(connErr('terminating', '08006'))
-        .mockResolvedValueOnce({ rows: [], rowCount: 2 });
-      const result = await adapter.execute('DELETE FROM foo');
-      expect(result.changes).toBe(2);
-      expect(mockPool.query).toHaveBeenCalledTimes(2);
+      mockPool.query.mockRejectedValueOnce(connErr('terminating', '08006'));
+      await expect(adapter.execute('DELETE FROM foo')).rejects.toThrow('terminating');
+      expect(mockPool.query).toHaveBeenCalledTimes(1);
     });
 
-    it('retries once on an ECONNRESET socket error', async () => {
+    it('does not replay a query after an ECONNRESET socket error', async () => {
       const adapter = await makeInitializedAdapter();
-      mockPool.query
-        .mockRejectedValueOnce(connErr('socket hang up', 'ECONNRESET'))
-        .mockResolvedValueOnce({ rows: [{ ok: true }], rowCount: 1 });
-      const result = await adapter.query('SELECT 1');
-      expect(result).toEqual([{ ok: true }]);
-      expect(mockPool.query).toHaveBeenCalledTimes(2);
+      mockPool.query.mockRejectedValueOnce(connErr('socket hang up', 'ECONNRESET'));
+      await expect(adapter.query('SELECT 1')).rejects.toThrow('socket hang up');
+      expect(mockPool.query).toHaveBeenCalledTimes(1);
     });
 
     it('does NOT retry a non-transient (query-level) error', async () => {
@@ -458,12 +463,14 @@ describe('PostgresAdapter', () => {
       expect(mockPool.query).toHaveBeenCalledTimes(1);
     });
 
-    it('surfaces the error if the single retry also fails', async () => {
+    it('allows a later independent request to use the recovered pool', async () => {
       const adapter = await makeInitializedAdapter();
       mockPool.query
         .mockRejectedValueOnce(connErr('Connection terminated unexpectedly'))
-        .mockRejectedValueOnce(connErr('Connection terminated unexpectedly'));
+        .mockResolvedValueOnce({ rows: [{ ok: true }], rowCount: 1 });
       await expect(adapter.query('SELECT 1')).rejects.toThrow('Connection terminated');
+      expect(mockPool.query).toHaveBeenCalledTimes(1);
+      expect(await adapter.query('SELECT 1')).toEqual([{ ok: true }]);
       expect(mockPool.query).toHaveBeenCalledTimes(2);
     });
 

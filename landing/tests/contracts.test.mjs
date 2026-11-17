@@ -249,6 +249,32 @@ test('the ten scenarios are distinct and map to supported dashboard areas', () =
   for (const scenario of scenarios)
     assert.ok(['inicio', 'transacoes', 'categorias', 'agenda', 'perfil'].includes(scenario.tab));
 });
+test('public pages do not promise arbitrary recurring reminders', () => {
+  // Member reminders deliver one scheduled occurrence. Daily greetings and Radar
+  // are separate routines, not a generic daily/weekly reminder capability.
+  const unsupportedPromise =
+    /lembretes?\s+(?:recorrentes?|di[áa]rios?|semanais?)|estudo de todo dia/i;
+  for (const [file, html] of Object.entries(bundle).filter(([file]) => file.endsWith('.html')))
+    assert.equal(unsupportedPromise.test(html), false, `${file} promises recurring reminders`);
+});
+test('reminder demonstrations request and confirm a dated occurrence without repetition', () => {
+  const repetition =
+    /todo(?:s)?\s+(?:o\s+)?dia(?:s)?|toda\s+semana|repete|di[áa]ri[oa]|semanal|recorrente|a partir de/i;
+  for (const scenario of scenarios.filter((scenario) => scenario.kind === 'reminder')) {
+    assert.equal(
+      repetition.test(
+        [scenario.user, scenario.reply, scenario.detail, scenario.note, scenario.cta].join(' ')
+      ),
+      false,
+      `${scenario.id} implies an unsupported repeat schedule`
+    );
+    assert.match(
+      scenario.reply,
+      /\b\d{1,2}\/\d{1,2}\b/,
+      `${scenario.id} must confirm the scheduled date`
+    );
+  }
+});
 for (const scenario of scenarios)
   test(`coherent money and category totals: ${scenario.label}`, () => {
     const state = scenarioState(scenario);

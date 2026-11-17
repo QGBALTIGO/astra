@@ -15,6 +15,7 @@ function fixture() {
     queries: [],
     dbDown: false,
     storageDown: false,
+    heldStorageDown: false,
     s3Options: null,
   };
   class SQL {
@@ -39,7 +40,8 @@ function fixture() {
     file(key) {
       return {
         write: async (bytes) => {
-          if (state.storageDown) throw new Error('storage unavailable');
+          if (state.storageDown || (state.heldStorageDown && key.startsWith('held/')))
+            throw new Error('storage unavailable');
           state.objects.set(key, Buffer.from(bytes));
         },
         arrayBuffer: async () => Uint8Array.from(state.objects.get(key)).buffer,
@@ -169,6 +171,49 @@ test('rejects unsigned delivery before storage or database access', async () => 
   assert.equal(state.objects.size, 0);
   assert.equal(state.queries.length, 0);
 });
+for (const mutation of [
+  'tampered body',
+  'expired timestamp',
+  'future timestamp',
+  'wrong signature',
+  'wrong body secret',
+]) {
+  test(`rejects ${mutation} without accessing storage or the database`, async () => {
+    const { state, boot } = fixture();
+    const original = request('purchase_approved', {
+      status: 'paid',
+      paidAt: new Date().toISOString(),
+    });
+    let raw = await original.text();
+    const headers = new Headers(original.headers);
+    if (mutation === 'tampered body') raw = raw.replace('5511999991234', '5511999999876');
+    else {
+      if (mutation === 'expired timestamp' || mutation === 'future timestamp') {
+        headers.set(
+          'x-cakto-timestamp',
+          String(Math.floor(Date.now() / 1000) + (mutation === 'expired timestamp' ? -600 : 600))
+        );
+      }
+      if (mutation === 'wrong body secret')
+        raw = JSON.stringify({ ...JSON.parse(raw), secret: 'wrong' });
+      const signingSecret = mutation === 'wrong signature' ? 'another-synthetic-secret' : secret;
+      headers.set(
+        'x-cakto-signature',
+        'v1=' +
+          crypto
+            .createHmac('sha256', signingSecret)
+            .update(headers.get('x-cakto-timestamp') + '.' + raw)
+            .digest('hex')
+      );
+    }
+    const response = await (
+      await boot()
+    )(new Request(original.url, { method: 'POST', headers, body: raw }));
+    assert.equal(response.status, 401);
+    assert.equal(state.objects.size, 0);
+    assert.equal(state.queries.length, 0);
+  });
+}
 test('keeps a failed worker item for the next run', async () => {
   const { state, boot } = fixture();
   state.dbDown = true;
@@ -198,6 +243,49 @@ test('ignores other products without queueing or granting access', async () => {
   );
   assert.equal(state.objects.size, 0);
   assert.equal(state.queries.length, 0);
+});
+
+test('retains an authenticated paid event that cannot be associated with a customer', async () => {
+  const { state, boot } = fixture();
+  const response = await (
+    await boot()
+  )(
+    request('purchase_approved', {
+      status: 'paid',
+      paidAt: new Date().toISOString(),
+      customer: { name: 'Synthetic unassociated buyer', phone: '', email: 'review@example.com' },
+    })
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).outcomes, ['held_invalid_identity']);
+  assert.equal(state.objects.size, 1);
+  assert.match([...state.objects.keys()][0], /^held\/v1\//);
+  const retained = [...state.objects.values()][0].toString('utf8');
+  for (const privateValue of ['review@example.com', 'Synthetic unassociated buyer', secret])
+    assert.ok(!retained.includes(privateValue));
+  const queryCount = state.queries.length;
+  await boot('worker');
+  assert.equal(state.objects.size, 1, 'a worker restart must preserve manual-review evidence');
+  assert.equal(state.queries.length, queryCount, 'held entries must not be automatically granted');
+  assert.ok(
+    !state.queries.some((q) => /INSERT INTO channel_users|UPDATE channel_users/.test(q.text))
+  );
+});
+
+test('a failed move to manual review retains the original durable event for recovery', async () => {
+  const { state, boot } = fixture();
+  state.heldStorageDown = true;
+  const response = await (
+    await boot()
+  )(request('purchase_approved', { status: 'paid', paidAt: null }));
+  assert.equal(response.status, 202);
+  assert.equal((await response.json()).queued, true);
+  assert.equal(state.objects.size, 1);
+  assert.match([...state.objects.keys()][0], /^pending\/v1\//);
+  state.heldStorageDown = false;
+  await boot('worker');
+  assert.equal(state.objects.size, 1);
+  assert.match([...state.objects.keys()][0], /^held\/v1\//);
 });
 
 test('constructs the bucket hostname for Bun virtual-host addressing', async () => {
@@ -344,6 +432,376 @@ test(
       assert.equal((await db`SELECT is_verified FROM channel_users`)[0].is_verified, false);
       assert.equal((await db`SELECT is_active FROM channel_sessions`)[0].is_active, false);
       assert.equal(state.objects.size, 0);
+
+      // A delayed approval cannot revive a refunded payment. Providers may
+      // emit sub-millisecond timestamps which JavaScript reduces to one ms.
+      const reversedAt = new Date(Date.now() - 500).toISOString();
+      for (const [event, status, reversedPhone] of [
+        ['refund', 'refunded', '5511999982234'],
+        ['chargeback', 'chargedback', '5511999983234'],
+      ]) {
+        const reversed = {
+          id: event + '-before-approval',
+          customer: { phone: reversedPhone, name: 'Synthetic reversed buyer' },
+          paidAt: reversedAt,
+          refundedAt: reversedAt,
+          chargedbackAt: reversedAt,
+        };
+        assert.equal((await fetch(request('pix_gerado', reversed))).status, 200);
+        assert.equal((await fetch(request(event, { ...reversed, status }))).status, 200);
+        for (const [grantEvent, paidAt] of [
+          ['purchase_approved', reversedAt],
+          ['subscription_renewed', new Date().toISOString()],
+          ['subscription_late_recovered', new Date().toISOString()],
+        ]) {
+          const response = await fetch(
+            request(grantEvent, { ...reversed, status: 'paid', paidAt })
+          );
+          assert.equal(response.status, 200);
+          assert.deepEqual((await response.json()).outcomes, ['ignored_reversed_order']);
+        }
+        assert.equal(
+          (await db`SELECT status FROM astra_cakto_orders WHERE order_id=${reversed.id}`)[0].status,
+          status
+        );
+        assert.equal(
+          (await db`SELECT status FROM astra_cakto_pending_pix WHERE order_id=${reversed.id}`)[0]
+            .status,
+          status
+        );
+        assert.equal(
+          Number(
+            (
+              await db`SELECT count(*) AS n FROM channel_users
+            WHERE platform_user_id=${reversedPhone} AND is_verified`
+            )[0].n
+          ),
+          0
+        );
+        assert.equal(
+          Number(
+            (
+              await db`SELECT count(*) AS n FROM channel_access_notifications
+            WHERE platform_user_id=${reversedPhone}`
+            )[0].n
+          ),
+          0
+        );
+        // A legitimate new order still grants access to the same customer.
+        const replacement = await fetch(
+          request('purchase_approved', {
+            ...reversed,
+            ...paid,
+            id: event + '-new-order',
+          })
+        );
+        assert.equal(replacement.status, 200);
+        assert.deepEqual((await replacement.json()).outcomes, ['granted']);
+      }
+
+      // Distinct authenticated event types may arrive concurrently with
+      // conflicting buyer details. Neither may overwrite the other's order.
+      await db.unsafe(`CREATE FUNCTION delay_conflicting_order() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.order_id='conflicting-concurrent-order' THEN PERFORM pg_sleep(0.15); END IF;
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER delay_conflicting_order BEFORE INSERT ON astra_cakto_orders
+          FOR EACH ROW EXECUTE FUNCTION delay_conflicting_order();`);
+      const concurrent = await Promise.all([
+        fetch(
+          request('purchase_approved', {
+            ...paid,
+            id: 'conflicting-concurrent-order',
+            customer: { phone: '5511999984234' },
+          })
+        ),
+        fetch(
+          request('subscription_renewed', {
+            ...paid,
+            id: 'conflicting-concurrent-order',
+            customer: { phone: '5511999985234' },
+          })
+        ),
+      ]);
+      const concurrentOutcomes = (await Promise.all(concurrent.map((response) => response.json())))
+        .flatMap((body) => body.outcomes)
+        .sort();
+      assert.deepEqual(concurrentOutcomes, ['granted', 'held_order_conflict']);
+      assert.equal(
+        Number(
+          (
+            await db`SELECT count(*) AS n FROM channel_users
+        WHERE platform_user_id IN ('5511999984234','5511999985234') AND is_verified`
+          )[0].n
+        ),
+        1
+      );
+
+      // A conflict is committed before its encrypted reconciliation object.
+      // Losing only that storage write must survive event-key dedup on restart.
+      const heldBefore = [...state.objects.keys()].filter((key) => key.startsWith('held/')).length;
+      state.heldStorageDown = true;
+      const interruptedHold = await fetch(
+        request('subscription_late_recovered', {
+          ...paid,
+          customer: { phone: '5511999986234' },
+        })
+      );
+      assert.equal(interruptedHold.status, 202);
+      assert.equal(
+        (
+          await db`SELECT outcome FROM astra_cakto_events
+        WHERE event_key='subscription_late_recovered:test-order'`
+        )[0].outcome,
+        'held_order_conflict'
+      );
+      assert.equal([...state.objects.keys()].filter((key) => key.startsWith('pending/')).length, 1);
+      state.heldStorageDown = false;
+      await boot('worker', {}, ReviewSQL);
+      assert.equal([...state.objects.keys()].filter((key) => key.startsWith('pending/')).length, 0);
+      assert.equal(
+        [...state.objects.keys()].filter((key) => key.startsWith('held/')).length,
+        heldBefore + 1
+      );
+      assert.equal(
+        Number(
+          (
+            await db`SELECT count(*) AS n FROM channel_users
+        WHERE platform_user_id='5511999986234'`
+          )[0].n
+        ),
+        0
+      );
+
+      const subscriptionPhone = '5511999987234';
+      const subscriptionId = 'synthetic-recurring-subscription';
+      const transitionAt = (secondsAgo) => new Date(Date.now() - secondsAgo * 1000).toISOString();
+      const subscriptionOrder = {
+        id: 'subscription-state-order',
+        status: 'paid',
+        paidAt: transitionAt(20),
+        customer: { phone: subscriptionPhone },
+        subscription: { id: subscriptionId, status: 'active', updatedAt: transitionAt(20) },
+      };
+      assert.equal((await fetch(request('purchase_approved', subscriptionOrder))).status, 200);
+      const changeSubscription = async (event, status, updatedAt, overrides = {}) => {
+        const response = await fetch(
+          request(event, {
+            ...subscriptionOrder,
+            subscription: { id: subscriptionId, status, updatedAt },
+            ...overrides,
+          })
+        );
+        assert.equal(response.status, 200);
+        return response.json();
+      };
+      await changeSubscription('subscription_paused', 'paused', transitionAt(15));
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0].is_verified,
+        false
+      );
+      await changeSubscription('subscription_resumed', 'active', transitionAt(12));
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0].is_verified,
+        true
+      );
+
+      const secondPause = await changeSubscription(
+        'subscription_paused',
+        'paused',
+        transitionAt(10)
+      );
+      assert.deepEqual(secondPause.outcomes, ['revoked']);
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_subscriptions
+        WHERE subscription_id=${subscriptionId}`
+        )[0].status,
+        'paused'
+      );
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0].is_verified,
+        false
+      );
+
+      // Legacy event+order rows cannot suppress a later distinct transition.
+      // The paid event keeps its original key, so an upgrade cannot regrant it.
+      await db`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
+        VALUES('subscription_resumed:subscription-state-order',${subscriptionOrder.id},
+          'subscription_resumed','legacy-synthetic-digest','granted') ON CONFLICT DO NOTHING`;
+      const resumedAt = transitionAt(6);
+      const resumed = await changeSubscription('subscription_resumed', 'active', resumedAt);
+      assert.deepEqual(resumed.outcomes, ['granted']);
+      const [beforeReplay] = await db`SELECT access_granted_at,access_expires_at FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`;
+      const paidReplay = await fetch(request('purchase_approved', subscriptionOrder));
+      assert.deepEqual((await paidReplay.json()).outcomes, ['duplicate']);
+      assert.deepEqual(
+        (
+          await db`SELECT access_granted_at,access_expires_at FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0],
+        beforeReplay
+      );
+      assert.equal(
+        Number(
+          (
+            await db`SELECT count(*) AS n FROM astra_cakto_events
+        WHERE event_key='purchase_approved:subscription-state-order'`
+          )[0].n
+        ),
+        1
+      );
+
+      const delayedPause = await changeSubscription(
+        'subscription_paused',
+        'paused',
+        transitionAt(18),
+        { id: 'subscription-old-order' }
+      );
+      assert.deepEqual(delayedPause.outcomes, ['held_stale_subscription']);
+      const ambiguous = await changeSubscription('subscription_paused', 'paused', resumedAt);
+      assert.deepEqual(ambiguous.outcomes, ['held_ambiguous_subscription_order']);
+      const undated = await changeSubscription('subscription_paused', 'paused', undefined, {
+        id: 'subscription-undated-order',
+      });
+      assert.deepEqual(undated.outcomes, ['held_missing_subscription_date']);
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_subscriptions
+        WHERE subscription_id=${subscriptionId}`
+        )[0].status,
+        'active'
+      );
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0].is_verified,
+        true
+      );
+
+      // Distinct transitions within one millisecond retain their source
+      // precision in both event identity and PostgreSQL ordering.
+      const microsecondBase = transitionAt(3).replace(/\.\d{3}Z$/, '');
+      const firstMicroPause = microsecondBase + '.123001Z';
+      const microResume = microsecondBase + '.123002Z';
+      const lastMicroPause = microsecondBase + '.123003Z';
+      assert.deepEqual(
+        (await changeSubscription('subscription_paused', 'paused', firstMicroPause)).outcomes,
+        ['revoked']
+      );
+      assert.deepEqual(
+        (await changeSubscription('subscription_resumed', 'active', microResume)).outcomes,
+        ['granted']
+      );
+      assert.deepEqual(
+        (await changeSubscription('subscription_paused', 'paused', lastMicroPause)).outcomes,
+        ['revoked']
+      );
+      const staleResume = await changeSubscription('subscription_resumed', 'active', microResume, {
+        id: 'subscription-stale-resume-order',
+      });
+      assert.deepEqual(staleResume.outcomes, ['held_stale_subscription']);
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_subscriptions
+        WHERE subscription_id=${subscriptionId}`
+        )[0].status,
+        'paused'
+      );
+      const cancelledAt = transitionAt(1);
+      await changeSubscription('subscription_canceled', 'canceled', cancelledAt, {
+        canceledAt: cancelledAt,
+      });
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_subscriptions
+        WHERE subscription_id=${subscriptionId}`
+        )[0].status,
+        'canceled'
+      );
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id=${subscriptionPhone}`
+        )[0].is_verified,
+        false
+      );
+
+      const standaloneOrder = {
+        ...paid,
+        id: 'cancel-without-subscription-id',
+        customer: { phone: '5511999988234' },
+      };
+      await fetch(request('purchase_approved', standaloneOrder));
+      const cancelled = await fetch(
+        request('subscription_canceled', {
+          ...standaloneOrder,
+          canceledAt: new Date().toISOString(),
+        })
+      );
+      assert.deepEqual((await cancelled.json()).outcomes, ['revoked']);
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_orders
+        WHERE order_id=${standaloneOrder.id}`
+        )[0].status,
+        'canceled'
+      );
+
+      // Older releases dated pause/resume by receipt time. An event predating
+      // that legacy clock cannot safely be discarded or applied automatically.
+      const legacySubscription = {
+        ...paid,
+        id: 'legacy-subscription-order',
+        customer: { phone: '5511999989234' },
+        subscription: { id: 'legacy-subscription' },
+      };
+      await fetch(request('purchase_approved', legacySubscription));
+      const legacyReceivedAt = new Date().toISOString();
+      await db`UPDATE astra_cakto_subscriptions SET status='paused',event_at=${legacyReceivedAt}
+        WHERE subscription_id='legacy-subscription'`;
+      await db`UPDATE channel_users SET is_verified=false WHERE platform_user_id='5511999989234'`;
+      await db`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
+        VALUES('subscription_paused:legacy-subscription-order','legacy-subscription-order',
+          'subscription_paused','legacy-synthetic-digest','revoked')`;
+      const legacyResume = await fetch(
+        request('subscription_resumed', {
+          ...legacySubscription,
+          subscription: {
+            id: 'legacy-subscription',
+            status: 'active',
+            updatedAt: new Date(Date.parse(legacyReceivedAt) - 500).toISOString(),
+          },
+        })
+      );
+      assert.deepEqual((await legacyResume.json()).outcomes, ['held_stale_subscription']);
+      assert.equal(
+        (
+          await db`SELECT status FROM astra_cakto_subscriptions
+        WHERE subscription_id='legacy-subscription'`
+        )[0].status,
+        'paused'
+      );
+      assert.equal(
+        (
+          await db`SELECT is_verified FROM channel_users
+        WHERE platform_user_id='5511999989234'`
+        )[0].is_verified,
+        false
+      );
     } finally {
       await Promise.allSettled(clients.map((client) => client.close()));
       await db.close();

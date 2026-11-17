@@ -13,7 +13,12 @@ const filterWidth = process.argv.find((value) => value.startsWith('--width='))?.
 const filterTheme = process.argv.find((value) => value.startsWith('--theme='))?.slice(8);
 const only = process.argv.find((value) => value.startsWith('--only='))?.slice(7);
 const phase = process.argv.find((value) => value.startsWith('--phase='))?.slice(8) || 'all';
-const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const browser = await chromium.launch({
+  ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+    ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
+    : { channel: 'chrome' }),
+  headless: true,
+});
 const report = {
   baseURL: BASE,
   scope:

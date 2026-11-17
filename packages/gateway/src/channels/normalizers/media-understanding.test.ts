@@ -4,6 +4,7 @@ import {
   formatImageFinding,
   inspectWhatsAppImage,
   parseImageFinding,
+  readWhatsAppPdf,
   transcribeWhatsAppAudio,
   type ImageFinding,
 } from './media-understanding.js';
@@ -17,8 +18,49 @@ const payment: ImageFinding = {
   payer: 'Cliente Teste',
   reference: 'ABCDE1234567890123',
 };
-const photo = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0]);
-const voice = new Uint8Array([79, 103, 103, 83, 0, 0]);
+const photo = Buffer.from(
+  '/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AKpAB//Z',
+  'base64'
+);
+const png = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWP4//8/AAX+Av5Y8msOAAAAAElFTkSuQmCC',
+  'base64'
+);
+// Synthetic Ogg page containing the Opus identification packet. Transport tests
+// simulate transcription; codec decoding is a provider integration check.
+const voice = Buffer.concat([
+  Buffer.from('OggS'),
+  Buffer.alloc(22),
+  Buffer.from([1, 19]),
+  Buffer.from('OpusHead'),
+  Buffer.from([1, 1, 0, 0, 0x80, 0xbb, 0, 0, 0, 0, 0]),
+]);
+
+function textPdf(text: string): Uint8Array {
+  const content = `BT /F1 12 Tf 72 720 Td (${text}) Tj ET`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((body, index) => {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${offsets.length}\n0000000000 65535 f \n`;
+  pdf += offsets
+    .slice(1)
+    .map((offset) => String(offset).padStart(10, '0') + ' 00000 n \n')
+    .join('');
+  return Buffer.from(
+    pdf + `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  );
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -26,17 +68,56 @@ afterEach(() => {
 });
 
 describe('OCR WhatsApp do Astra', () => {
+  it('extracts a valid synthetic PDF with the real local parser', async () => {
+    const data = textPdf('Synthetic receipt total R$ 19,90');
+    expect(await readWhatsAppPdf(data)).toContain('Synthetic receipt total R$ 19,90');
+    const normalized = await enrichWhatsAppMedia(
+      {
+        platform: 'whatsapp',
+        attachments: [{ type: 'file', mimeType: 'application/pdf', data }],
+      } as never,
+      { text: 'Resuma' }
+    );
+    expect(normalized.hasUntrustedContent).toBe(true);
+    expect(normalized.userSpeech).toBeUndefined();
+  });
+  it('never invents text for a corrupt PDF or sends an oversized PDF to extraction', async () => {
+    const corrupt = await enrichWhatsAppMedia(
+      {
+        platform: 'whatsapp',
+        attachments: [
+          { type: 'file', mimeType: 'application/pdf', data: Buffer.from('%PDF-broken') },
+        ],
+      } as never,
+      { text: 'Resuma' }
+    );
+    expect(corrupt.failureReply).toContain('não consegui ler');
+    expect(corrupt.hasUntrustedContent).toBeUndefined();
+    const readPdf = vi.fn();
+    const large = await enrichWhatsAppMedia(
+      {
+        platform: 'whatsapp',
+        attachments: [
+          { type: 'file', mimeType: 'application/pdf', data: new Uint8Array(8 * 1024 * 1024 + 1) },
+        ],
+      } as never,
+      { text: 'Resuma' },
+      { readPdf }
+    );
+    expect(readPdf).not.toHaveBeenCalled();
+    expect(large.failureReply).toBeTruthy();
+  });
   it('transcribes audio sent as a document instead of exposing its base64 to the text model', async () => {
     const transcribe = vi.fn().mockResolvedValue('Quero organizar meus lembretes.');
     const result = await enrichWhatsAppMedia(
       {
         platform: 'whatsapp',
-        attachments: [{ type: 'file', mimeType: 'audio/wav', data: voice }],
+        attachments: [{ type: 'file', mimeType: 'audio/ogg', data: voice }],
       } as never,
       {
         text: '[Attachment]',
         attachments: [
-          { type: 'file', mimeType: 'audio/wav', data: 'data:audio/wav;base64,PRIVATE' },
+          { type: 'file', mimeType: 'audio/ogg', data: 'data:audio/ogg;base64,PRIVATE' },
         ],
       },
       { transcribe }
@@ -142,7 +223,7 @@ describe('WhatsApp media normalization', () => {
       {
         platform: 'whatsapp',
         attachments: [
-          { type: 'file', mimeType: 'image/png', data: photo },
+          { type: 'file', mimeType: 'image/png', data: png },
           { type: 'file', mimeType: 'application/pdf', data: new Uint8Array([1]) },
         ],
       } as never,
@@ -188,6 +269,65 @@ describe('WhatsApp media normalization', () => {
     expect(result.text).toContain('até 8 MB');
   });
 
+  it.each([
+    ['image/png', photo, 'image'],
+    ['image/jpeg', Buffer.from('<html>not an image</html>'), 'image'],
+    ['audio/wav', voice, 'audio'],
+    ['audio/ogg', new Uint8Array(), 'audio'],
+  ] as const)(
+    'rejects mismatched or empty %s bytes before provider access',
+    async (mimeType, data, type) => {
+      const inspect = vi.fn().mockResolvedValue(payment);
+      const transcribe = vi.fn().mockResolvedValue('Gastei 35 reais');
+      const result = await enrichWhatsAppMedia(
+        { platform: 'whatsapp', attachments: [{ type, mimeType, data }] } as never,
+        { text: '[Attachment]' },
+        { inspect, transcribe }
+      );
+      expect(inspect).not.toHaveBeenCalled();
+      expect(transcribe).not.toHaveBeenCalled();
+      expect(result.failureReply).toBeTruthy();
+      expect(result.userSpeech).toBeUndefined();
+    }
+  );
+
+  it('reports unsupported documents without implying they were read', async () => {
+    const incoming = {
+      text: 'Registre o valor do anexo',
+      attachments: [{ type: 'file' as const, mimeType: 'application/zip', data: 'PRIVATE' }],
+    };
+    const result = await enrichWhatsAppMedia(
+      {
+        platform: 'whatsapp',
+        attachments: [{ type: 'file', mimeType: 'application/zip', data: Buffer.from('PK') }],
+      } as never,
+      incoming
+    );
+    expect(result.failureReply).toMatch(/formato/i);
+    expect(result.attachments).toBeUndefined();
+    expect(result.userSpeech).toBeUndefined();
+  });
+
+  it('contains provider exceptions and allows another customer to proceed independently', async () => {
+    const inspect = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('synthetic timeout'))
+      .mockResolvedValueOnce(payment);
+    const request = () =>
+      enrichWhatsAppMedia(
+        {
+          platform: 'whatsapp',
+          attachments: [{ type: 'image', mimeType: 'image/jpeg', data: photo }],
+        } as never,
+        { text: '[Attachment]' },
+        { inspect }
+      );
+    const [failed, successful] = await Promise.all([request(), request()]);
+    expect(failed.failureReply).toBeTruthy();
+    expect(successful.text).toContain('R$ 85,90');
+    expect(successful.failureReply).toBeUndefined();
+  });
+
   it('leaves text-only WhatsApp and other channels unchanged', async () => {
     const incoming = { text: 'olá', attachments: undefined };
     expect(await enrichWhatsAppMedia({ platform: 'whatsapp' } as never, incoming)).toBe(incoming);
@@ -201,6 +341,14 @@ describe('WhatsApp media normalization', () => {
 });
 
 describe('API transport', () => {
+  it('never uploads unsupported or mismatched media even when called directly', async () => {
+    vi.stubEnv('GROQ_API_KEY', 'test-key');
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    expect(await inspectWhatsAppImage(photo, 'image/png', '')).toBeNull();
+    expect(await transcribeWhatsAppAudio(voice, 'audio/wav')).toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it('posts real multipart audio with the Groq Whisper model', async () => {
     vi.stubEnv('GROQ_API_KEY', 'test-key');
     const fetcher = vi

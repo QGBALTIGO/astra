@@ -267,6 +267,20 @@ jobs:
     # Main pushes produce a downloadable report artifact instead.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: radar-local-tests-only
+          POSTGRES_DB: astratest_radar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astratest -d astratest_radar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -281,8 +295,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install PostgreSQL 16 preservation qualification client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          echo '/usr/lib/postgresql/16/bin' >> "$GITHUB_PATH"
+
+      - name: Build packages before coverage
+        run: pnpm build
+
       - name: Test with coverage
-        run: TURBO_FORCE=true pnpm test:coverage
+        env:
+          ASTRA_RADAR_TEST_PORT: '5432'
+          ASTRA_REVIEW_PG_PORT: '5432'
+          ASTRA_REVIEW_PG_DATABASE: astratest_radar
+          ASTRA_REVIEW_PG_USER: astratest
+          ASTRA_REVIEW_PG_PASSWORD: radar-local-tests-only
+          ASTRA_REVIEW_PG_VECTOR: 'true'
+        # Invoke Vitest directly so Turbo's strict environment filtering cannot
+        # silently remove the opt-in PostgreSQL qualification variables.
+        run: |
+          for astra_package in core gateway ui cli; do
+            pnpm --filter "@ownpilot/$astra_package" exec vitest run --coverage --maxWorkers=2
+          done
 
       - name: Upload coverage reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

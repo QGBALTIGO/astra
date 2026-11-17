@@ -1,0 +1,51 @@
+{
+  "sourceCommit": "43118c019e3d08bc3adea9f4887481c09fe4ee48",
+  "observedAt": "2026-11-17T19:54:28.826Z",
+  "passed": true,
+  "scope": "Actual compiled gateway HTTP app on a loopback listener with compiled UI and synthetic config; external-bind auth policy; no DB initialization or provider connection",
+  "fixtureCorrections": [
+    "First probe wrongly expected rejection in the documented implicit-owner loopback/no-password mode",
+    "Second probe expected 401 for an invalid API key; source contract uses 403. Neither required a product change."
+  ],
+  "results": [
+    {
+      "path": "/astra-icons/astra-icon-v1.svg",
+      "status": 200,
+      "mime": "image/svg+xml; charset=utf-8",
+      "cache": "no-cache, max-age=0, must-revalidate"
+    },
+    {
+      "path": "/astra-icons/astra-192-v1.png",
+      "status": 200,
+      "mime": "image/png",
+      "cache": "no-cache, max-age=0, must-revalidate"
+    },
+    {
+      "path": "/manifest.webmanifest",
+      "status": 200,
+      "mime": "application/manifest+json",
+      "cache": "no-cache, max-age=0, must-revalidate"
+    },
+    {
+      "path": "/assets/index-thnoZZO9.js",
+      "status": 200,
+      "mime": "text/javascript; charset=utf-8",
+      "cache": "public, immutable, max-age=31536000"
+    },
+    {
+      "path": "/api/v1/health/live",
+      "status": 401,
+      "syntheticCredential": "absent"
+    },
+    {
+      "path": "/api/v1/health/live",
+      "status": 403,
+      "syntheticCredential": "invalid"
+    },
+    {
+      "path": "/api/v1/health/live",
+      "status": 200,
+      "syntheticCredential": "valid"
+    }
+  ]
+}

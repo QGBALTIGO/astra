@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { safeChannelResponse, type ChannelToolReceipt } from './response-safety.js';
 import { verifiedChannelFacts, verifiedRadarToolReply } from './verified-facts.js';
+import { channelFailureReply } from './channel-failure.js';
 const receipt = (name: string, result: unknown): ChannelToolReceipt => ({
   name: 'core.' + name,
   content: JSON.stringify({ success: true, result }),
@@ -8,6 +9,76 @@ const receipt = (name: string, result: unknown): ChannelToolReceipt => ({
   isError: false,
 });
 describe('verified weather and calendar presentation', () => {
+  const savedGoal = () =>
+    receipt('create_customer_goal', {
+      kind: 'customer_goal',
+      goal: { id: 'goal-saved', amount: 500, progress: 35 },
+      reply: 'Meta salva: R$ 35,00 guardados de R$ 500,00.',
+    });
+  const weather = () =>
+    receipt('get_local_weather', {
+      kind: 'model_estimate',
+      city: 'Campo Grande',
+      region: 'MS',
+      temperatureC: 28,
+    });
+  it('keeps a committed goal confirmation when model finalization fails', () => {
+    expect(channelFailureReply('Salve minha meta', 'agent_error', [savedGoal()])).toBe(
+      'Meta salva: R$ 35,00 guardados de R$ 500,00.'
+    );
+  });
+  it('keeps the goal and weather facts in a mixed reply without model amounts', () => {
+    const text = safeChannelResponse('Meta salva com R$ 9.999. Faz 45 graus.', [
+      savedGoal(),
+      weather(),
+    ]);
+    expect(text).toContain('Meta salva: R$ 35,00 guardados de R$ 500,00.');
+    expect(text).toContain('28 °C');
+    expect(text).not.toMatch(/9\.999|45 graus/);
+  });
+  it('does not let another lookup admit an invented goal amount', () => {
+    const text = safeChannelResponse('Sua meta agora tem R$ 9.999 guardados.', [
+      savedGoal(),
+      receipt('financial_summary', { balance: 25 }),
+    ]);
+    expect(text).toContain('Meta salva: R$ 35,00 guardados de R$ 500,00.');
+    expect(text).not.toContain('9.999');
+    expect(text).toContain('outra consulta');
+  });
+  it('preserves a failed goal notice beside the verified weather', () => {
+    const failed = { ...savedGoal(), isError: true };
+    const text = safeChannelResponse('Tudo salvo. Faz 45 graus.', [failed, weather()]);
+    expect(text).toContain('Não consegui confirmar');
+    expect(text).toContain('28 °C');
+    expect(text).not.toContain('Meta salva');
+  });
+  it('keeps every confirmed operation when a goal, task and weather share a reply', () => {
+    const text = safeChannelResponse('Tudo certo.', [
+      savedGoal(),
+      receipt('add_task', { task: { id: 'task-saved', title: 'Comprar café' } }),
+      weather(),
+    ]);
+    expect(text).toContain('Meta salva: R$ 35,00 guardados de R$ 500,00.');
+    expect(text).toContain('Comprar café');
+    expect(text).toContain('28 °C');
+  });
+  it('uses the final saved monetary goal, without repeating a stale lookup or model amount', () => {
+    const text = safeChannelResponse('Pronto, guardei R$ 9.999.', [
+      receipt('list_customer_goals', { kind: 'customer_goal', reply: 'Guardado R$ 10,00' }),
+      receipt('update_customer_goal', {
+        kind: 'customer_goal',
+        goal: { id: 'goal-a' },
+        reply: 'Meta atualizada: R$ 35,00 guardados de R$ 500,00.',
+      }),
+    ]);
+    expect(text).toBe('Meta atualizada: R$ 35,00 guardados de R$ 500,00.');
+  });
+  it('never turns a failed monetary goal write into a saved confirmation', () => {
+    const failed = { ...receipt('create_customer_goal', {}), isError: true };
+    const text = safeChannelResponse('Meta salva no painel!', [failed]);
+    expect(text).toContain('Não consegui confirmar');
+    expect(text).not.toContain('Meta salva');
+  });
   it.each([{ needsTime: true }, { needsSubject: true }, { changed: true }])(
     'finishes a verified explicit Radar request corrected from model status: %j',
     (outcome) => {

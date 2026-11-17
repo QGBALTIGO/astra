@@ -1,0 +1,1076 @@
+{
+  "baseCommit": "7915ecdd9933b55183b511f5718030b1d34e5304",
+  "branch": "audit/member-readiness-20261117",
+  "environment": "isolated local PostgreSQL 16.4; fictional fixtures; no external transport/provider or production access",
+  "runs": {
+    "unit": {
+      "success": true,
+      "passed": 1939,
+      "failed": 0,
+      "skipped": 0,
+      "files": [
+        {
+          "file": "packages/gateway/src/channels/astra-lab-regression.test.ts",
+          "status": "passed",
+          "passed": 14,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/channel-ai-routing-access.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/channel-ai-routing-concurrency.test.ts",
+          "status": "passed",
+          "passed": 16,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/tool-selection.test.ts",
+          "status": "passed",
+          "passed": 88,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/agent-tool-registry.test.ts",
+          "status": "passed",
+          "passed": 112,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/channel-reminder-tools.test.ts",
+          "status": "passed",
+          "passed": 1052,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/customer-finance-tools.test.ts",
+          "status": "passed",
+          "passed": 31,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/customer-integration-tools.test.ts",
+          "status": "passed",
+          "passed": 29,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/customer-planning-tools.test.ts",
+          "status": "passed",
+          "passed": 14,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/expense-tools.test.ts",
+          "status": "passed",
+          "passed": 26,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/channel-asset-store.test.ts",
+          "status": "passed",
+          "passed": 13,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/channel-reminder-worker.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/customer-integration-data.test.ts",
+          "status": "passed",
+          "passed": 16,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/customer-integration-policy.test.ts",
+          "status": "passed",
+          "passed": 29,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/customer-integrations.test.ts",
+          "status": "passed",
+          "passed": 31,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/channel-reminders-reliability.test.ts",
+          "status": "passed",
+          "passed": 4,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-agenda.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-finance.test.ts",
+          "status": "passed",
+          "passed": 37,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-planning.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/normalizers/media-understanding.test.ts",
+          "status": "passed",
+          "passed": 26,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/routes/customer/agenda.test.ts",
+          "status": "passed",
+          "passed": 29,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/routes/customer/connected-apps.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/routes/customer/finance.test.ts",
+          "status": "passed",
+          "passed": 34,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/agent/prompt.test.ts",
+          "status": "passed",
+          "passed": 59,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/agent/service.test.ts",
+          "status": "passed",
+          "passed": 181,
+          "skipped": []
+        }
+      ]
+    },
+    "postgres": {
+      "success": true,
+      "passed": 1182,
+      "failed": 0,
+      "skipped": 3,
+      "files": [
+        {
+          "file": "packages/gateway/src/channels/calendar-mutation.pg.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/personal-subscriptions.pg.test.ts",
+          "status": "passed",
+          "passed": 511,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/personal-tasks.pg.test.ts",
+          "status": "passed",
+          "passed": 506,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/channel-assets-integrity.pg.test.ts",
+          "status": "passed",
+          "passed": 4,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/channel-reminders-delivery.pg.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/channel-reminders-range.pg.test.ts",
+          "status": "passed",
+          "passed": 1,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-finance-sync.pg.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-goals.pg.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-investments.pg.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-radar.pg.test.ts",
+          "status": "passed",
+          "passed": 55,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-referrals.pg.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/memory-integrity.pg.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/planning-concurrency.pg.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/planning-integrity.pg.test.ts",
+          "status": "passed",
+          "passed": 12,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/reminder-selection.pg.test.ts",
+          "status": "passed",
+          "passed": 1,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/routes/customer/radar.pg.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/radar/http.pg.test.ts",
+          "status": "passed",
+          "passed": 16,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/radar/startup.pg.test.ts",
+          "status": "passed",
+          "passed": 0,
+          "skipped": [
+            "dedicated Radar worker with actual pgvector schema boots in standalone mode and stops cleanly without starting another channel gateway",
+            "dedicated Radar worker with actual pgvector schema boots in thread mode and stops cleanly without starting another channel gateway",
+            "dedicated Radar worker with actual pgvector schema boots in compiled-thread mode and stops cleanly without starting another channel gateway"
+          ]
+        }
+      ]
+    },
+    "postMerge": {
+      "success": true,
+      "passed": 562,
+      "failed": 0,
+      "skipped": 0,
+      "phase": "after PR141 merge plus lock-time access and cross-path receipt corrections; overlaps previous runs",
+      "files": [
+        {
+          "file": "packages/gateway/src/channels/astra-lab-regression.test.ts",
+          "status": "passed",
+          "passed": 14,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/channel-ai-routing-access.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/channel-failure.test.ts",
+          "status": "passed",
+          "passed": 68,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/customer-planning-routing.test.ts",
+          "status": "passed",
+          "passed": 11,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/receipt-state.test.ts",
+          "status": "passed",
+          "passed": 38,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/response-safety.test.ts",
+          "status": "passed",
+          "passed": 47,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/tool-selection.test.ts",
+          "status": "passed",
+          "passed": 88,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/verified-facts.test.ts",
+          "status": "passed",
+          "passed": 20,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/customer-planning-tools.test.ts",
+          "status": "passed",
+          "passed": 14,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-finance-sync.pg.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-goals.pg.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/planning-concurrency.pg.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/planning-integrity.pg.test.ts",
+          "status": "passed",
+          "passed": 12,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/agent/service.test.ts",
+          "status": "passed",
+          "passed": 181,
+          "skipped": []
+        }
+      ]
+    }
+  },
+  "radarComponentBenchmark": {
+    "accounts": 500,
+    "follows": 1500,
+    "resources": 3,
+    "queued": 500,
+    "errorCount": 0,
+    "elapsedMs": 814,
+    "accountsPerSecond": 615,
+    "batch100": {
+      "p50Ms": 116.96,
+      "p95Ms": 332.44,
+      "p99Ms": 332.44
+    },
+    "nodeHeapMb": 64,
+    "note": "local PostgreSQL/evaluator only; no API/WhatsApp/production capacity claim"
+  },
+  "integratedMainCommit": "6d939b28b97129de58087a1742d5c343b99e2156",
+  "fullCoverageAttempt": {
+    "status": "inconclusive",
+    "reportCreated": false,
+    "scope": "pre-PR141 gateway with opt-in PostgreSQL; release-backup.pg.test.ts explicitly excluded locally because pg_dump absent",
+    "environmentProblem": "generic POSTGRES_* exposed to unit tests triggered full initializeSchema without vector extension",
+    "nextRun": "only ASTRA_* opt-in variables; complete CI gate uses pgvector and PostgreSQL client; thresholds unchanged"
+  },
+  "finalGatewayCoverage": {
+    "sourceCommit": "3e50657ffbc4bbef13c6239b9242471937af1c4b",
+    "success": true,
+    "exitCode": 0,
+    "filesPassed": 628,
+    "filesSkipped": 2,
+    "testsPassed": 24772,
+    "testsFailed": 0,
+    "testsSkipped": 7,
+    "durationSeconds": 162.46,
+    "coverage": {
+      "statements": {
+        "percent": 85.58,
+        "covered": 46660,
+        "total": 54519,
+        "threshold": 83
+      },
+      "branches": {
+        "percent": 78.1,
+        "covered": 31407,
+        "total": 40213,
+        "threshold": 75
+      },
+      "functions": {
+        "percent": 86.05,
+        "covered": 6916,
+        "total": 8037,
+        "threshold": 84
+      },
+      "lines": {
+        "percent": 86.9,
+        "covered": 43958,
+        "total": 50583,
+        "threshold": 84
+      }
+    },
+    "nativeVector": false,
+    "explicitLocalExclusions": [
+      {
+        "file": "packages/gateway/src/release-backup.pg.test.ts",
+        "reason": "pg_dump/restore clients absent locally; complete CI gate required"
+      }
+    ],
+    "skipped": [
+      {
+        "file": "packages/gateway/src/services/radar/load.pg.test.ts",
+        "case": "Radar isolated database/evaluator capacity scenarios evaluates 500 synthetic accounts sharing 3 public resources"
+      },
+      {
+        "file": "packages/gateway/src/services/radar/load.pg.test.ts",
+        "case": "Radar isolated database/evaluator capacity scenarios evaluates 2000 synthetic accounts sharing 3 public resources"
+      },
+      {
+        "file": "packages/gateway/src/services/radar/load.pg.test.ts",
+        "case": "Radar isolated database/evaluator capacity scenarios evaluates 5000 synthetic accounts sharing 3 public resources"
+      },
+      {
+        "file": "packages/gateway/src/services/radar/load.pg.test.ts",
+        "case": "Radar isolated database/evaluator capacity scenarios evaluates 10000 synthetic accounts sharing 3 public resources"
+      },
+      {
+        "file": "packages/gateway/src/services/radar/startup.pg.test.ts",
+        "case": "dedicated Radar worker with actual pgvector schema boots in standalone mode and stops cleanly without starting another channel gateway"
+      },
+      {
+        "file": "packages/gateway/src/services/radar/startup.pg.test.ts",
+        "case": "dedicated Radar worker with actual pgvector schema boots in thread mode and stops cleanly without starting another channel gateway"
+      },
+      {
+        "file": "packages/gateway/src/services/radar/startup.pg.test.ts",
+        "case": "dedicated Radar worker with actual pgvector schema boots in compiled-thread mode and stops cleanly without starting another channel gateway"
+      }
+    ],
+    "log": "astra-gateway-merged-pg-coverage.log",
+    "json": "astra-gateway-merged-pg-coverage.json",
+    "v8Report": "packages/gateway/coverage/coverage-final.json",
+    "environment": "isolated PostgreSQL 16.4; generic POSTGRES_* removed from child; ASTRA_REVIEW_PG_VECTOR=false; external provider/transports remain simulated"
+  },
+  "nativeCiFollowup": {
+    "retrievedAtUTC": "2026-11-17 19:32:34 UTC",
+    "source": {
+      "headCommit": "3e50657ffbc4bbef13c6239b9242471937af1c4b",
+      "baseCommit": "6d939b28b97129de58087a1742d5c343b99e2156",
+      "checkedOutMergeCommit": "90a6d78b74a7eb30e17a5a110a35b794066b7c8c",
+      "headTree": "110af807ce183a2801dafcd43f770b0338482583",
+      "mergeTree": "110af807ce183a2801dafcd43f770b0338482583",
+      "treesEqual": true,
+      "gitDiffEmpty": true,
+      "apiCompareFiles": []
+    },
+    "radar": {
+      "run": {
+        "id": 44158009427,
+        "url": "https://github.com/QGBALTIGO/astra/actions/runs/44158009427",
+        "name": "Astra Radar verification",
+        "conclusion": "success",
+        "jobId": 134303873335
+      },
+      "environment": {
+        "postgresVersion": "16.16",
+        "postgresImage": "pgvector/pgvector:pg16",
+        "imageDigest": "sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f",
+        "pgvectorExtensionVersion": null,
+        "pgvectorExtensionVersionNote": "Not logged; no version inferred from the container tag."
+      },
+      "tests": {
+        "filesPassed": 16,
+        "passed": 476,
+        "failed": 0,
+        "skipped": 0
+      },
+      "workerModes": [
+        {
+          "mode": "standalone",
+          "passed": true,
+          "durationMs": 901
+        },
+        {
+          "mode": "thread",
+          "passed": true,
+          "durationMs": 959
+        },
+        {
+          "mode": "compiled-thread",
+          "passed": true,
+          "durationMs": 795
+        }
+      ],
+      "benchmarks": [
+        {
+          "observedAt": "2026-11-17T19:24:37.9518383Z",
+          "accounts": 500,
+          "follows": 1500,
+          "resources": 3,
+          "queued": 500,
+          "errorCount": 0,
+          "elapsedMs": 546,
+          "accountsPerSecond": 915,
+          "batch100": {
+            "p50Ms": 102.28,
+            "p95Ms": 116.31,
+            "p99Ms": 116.31
+          },
+          "nodeHeapMb": 54,
+          "note": "local PostgreSQL/evaluator only; no API/WhatsApp/production capacity claim"
+        },
+        {
+          "observedAt": "2026-11-17T19:24:42.1778405Z",
+          "accounts": 2000,
+          "follows": 6000,
+          "resources": 3,
+          "queued": 2000,
+          "errorCount": 0,
+          "elapsedMs": 2259,
+          "accountsPerSecond": 885,
+          "batch100": {
+            "p50Ms": 110.44,
+            "p95Ms": 123.54,
+            "p99Ms": 139
+          },
+          "nodeHeapMb": 53,
+          "note": "local PostgreSQL/evaluator only; no API/WhatsApp/production capacity claim"
+        },
+        {
+          "observedAt": "2026-11-17T19:24:55.7361046Z",
+          "accounts": 5000,
+          "follows": 15000,
+          "resources": 3,
+          "queued": 5000,
+          "errorCount": 0,
+          "elapsedMs": 6492,
+          "accountsPerSecond": 770,
+          "batch100": {
+            "p50Ms": 127.53,
+            "p95Ms": 158.83,
+            "p99Ms": 175.01
+          },
+          "nodeHeapMb": 49,
+          "note": "local PostgreSQL/evaluator only; no API/WhatsApp/production capacity claim"
+        },
+        {
+          "observedAt": "2026-11-17T19:25:20.5472693Z",
+          "accounts": 10000,
+          "follows": 30000,
+          "resources": 3,
+          "queued": 10000,
+          "errorCount": 0,
+          "elapsedMs": 12260,
+          "accountsPerSecond": 816,
+          "batch100": {
+            "p50Ms": 94.13,
+            "p95Ms": 219.62,
+            "p99Ms": 256.86
+          },
+          "nodeHeapMb": 53,
+          "note": "local PostgreSQL/evaluator only; no API/WhatsApp/production capacity claim"
+        }
+      ],
+      "publishedArtifacts": []
+    },
+    "memoryAndBackup": {
+      "runId": 44158009331,
+      "jobId": 134303872569,
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44158009331",
+      "conclusion": "success",
+      "nativeVectorFlag": true,
+      "suite": "src/db/repositories/memory-integrity.pg.test.ts",
+      "passed": 10,
+      "evidenceLines": [
+        "2026-11-17T19:24:45.5187640Z   ASTRA_REVIEW_PG_VECTOR: true",
+        "2026-11-17T19:26:42.5858649Z  ✓ src/db/repositories/memory-integrity.pg.test.ts (10 tests) 170ms",
+        "2026-11-17T19:26:45.8193893Z  ✓ src/release-backup.pg.test.ts (1 test) 380ms"
+      ],
+      "scope": "Actual vector(1536) storage and casts; embedding invalidation/version fencing; tenant ownership; transactional consolidation. This suite does not exercise SQL vector-distance queries, HNSW performance or provider semantic quality.",
+      "backup": {
+        "suite": "src/release-backup.pg.test.ts",
+        "passed": 1
+      },
+      "gatewayCoverage": {
+        "filesPassed": 622,
+        "filesSkipped": 9,
+        "testsPassed": 23728,
+        "testsSkipped": 1052,
+        "testsFailed": 0,
+        "statements": 85.07,
+        "branches": 77.32,
+        "functions": 85.62,
+        "lines": 86.42,
+        "skipped": [
+          {
+            "file": "src/channels/calendar-mutation.pg.test.ts",
+            "skipped": 15
+          },
+          {
+            "file": "src/channels/personal-subscriptions.pg.test.ts",
+            "skipped": 511
+          },
+          {
+            "file": "src/channels/auth/verification-postgres.test.ts",
+            "skipped": 7
+          },
+          {
+            "file": "src/channels/personal-tasks.pg.test.ts",
+            "skipped": 506
+          },
+          {
+            "file": "src/db/repositories/whatsapp-contact-discovery.pg.test.ts",
+            "skipped": 4
+          },
+          {
+            "file": "src/services/radar/load.pg.test.ts",
+            "skipped": 4
+          },
+          {
+            "file": "src/db/repositories/channel-reminders-range.pg.test.ts",
+            "skipped": 1
+          },
+          {
+            "file": "src/services/radar/startup.pg.test.ts",
+            "skipped": 3
+          },
+          {
+            "file": "src/db/repositories/reminder-selection.pg.test.ts",
+            "skipped": 1
+          }
+        ]
+      },
+      "cakto": {
+        "passed": 16,
+        "failed": 0,
+        "mode": "Bun with isolated PostgreSQL; no external real checkout/payment"
+      }
+    },
+    "evidenceSummary": "astra-ci-evidence/radar-run-44158009427-summary.json",
+    "limits": [
+      "Radar load uses three preseeded public-resource snapshots, evaluator and database only; no live sources, IA, WhatsApp transport or HTTP load.",
+      "Percentiles are per batch of up to 100 accounts, including the final empty batch, not per-user response latency.",
+      "Load checks actual outbox count equals expected count and an explicit re-evaluation queues zero new records; no delivery was exercised.",
+      "Worker tests assert the full schema exists, startup readiness, clean SIGTERM exit and absence of WhatsApp/HTTP bootstrap log markers.",
+      "Native vector storage/schema is confirmed; semantic retrieval accuracy, vector distance query behavior and HNSW capacity are not established by these tests.",
+      "The native gateway job skipped legacy opt-in suites missing separate flags; those ran in the local full PostgreSQL job. Radar load/startup ran separately here."
+    ],
+    "finalHeadValidation": {
+      "retrievedAtUTC": "2026-11-17 19:39:52 UTC",
+      "source": {
+        "headCommit": "f1c8b1302ce511102fa0e74ee6a36bcadb9df3d2",
+        "checkedOutMergeCommit": "6db49f5970b2424f6ceb7ff6d1336e84754ced4f",
+        "headTree": "5739dfee3cf1ab219d7c33785bb5dcc1430755ce",
+        "mergeTree": "5739dfee3cf1ab219d7c33785bb5dcc1430755ce",
+        "treesEqual": true,
+        "gitDiffEmpty": true,
+        "apiCompareFiles": [],
+        "changedSincePriorValidatedHead": [
+          "packages/ui/src/pages/customer/Radar.tsx",
+          "scripts/astra-simulation-lab/summarize-smoke.mjs"
+        ],
+        "gatewaySourceChanged": false
+      },
+      "radar": {
+        "runId": 44159910857,
+        "jobId": 134310614856,
+        "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910857",
+        "conclusion": "success",
+        "filesPassed": 16,
+        "testsPassed": 476,
+        "failed": 0,
+        "skipped": 0,
+        "nativeWorkerModes": ["standalone", "thread", "compiled-thread"],
+        "loadSizes": [500, 2000, 5000, 10000]
+      },
+      "readinessBackend": {
+        "runId": 44159910660,
+        "jobId": 134310615142,
+        "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910660/job/134310615142",
+        "conclusion": "success",
+        "filesPassed": 622,
+        "filesSkipped": 9,
+        "testsPassed": 23728,
+        "testsSkipped": 1052,
+        "testsFailed": 0,
+        "coverage": {
+          "statements": 85.07,
+          "branches": 77.32,
+          "functions": 85.62,
+          "lines": 86.42
+        },
+        "nativeVectorFlag": true,
+        "nativeMemoryTestsPassed": 10,
+        "backupPostgresTestsPassed": 1,
+        "caktoTestsPassed": 16,
+        "caktoTestsFailed": 0,
+        "workflowNote": "This records the backend job result. The separate landing job was still running at retrieval; no whole-workflow success is inferred."
+      },
+      "countComparison": "Radar, native gateway, memory, backup and Cakto counts equal the earlier validated runs.",
+      "limits": "Same limits as earlier native evidence: no external provider/WhatsApp production validation; Radar load measures seeded evaluator/database only; native memory tests cover lifecycle and scope, not semantic quality or HNSW performance."
+    },
+    "finalHeadEvidence": "astra-ci-evidence/native-ci-final-head-f1c8b13.json",
+    "integratedFinalHeadValidation": {
+      "retrievedAtUTC": "2026-11-17 20:00:17 UTC",
+      "sourceHead": "43118c019e3d08bc3adea9f4887481c09fe4ee48",
+      "sourceTree": "3947f33a813cc38514b0a6f27013811e48549289",
+      "ciCheckout": "f435e18e18e94462a3dc80c9f960516d084e2957",
+      "ciCheckoutTree": "3947f33a813cc38514b0a6f27013811e48549289",
+      "treeEquivalent": true,
+      "treeEvidence": "git show of both commits returned the same tree; git diff was empty; GitHub compare returned files: []",
+      "collection": "Read-only GitHub Actions API and final job summary extraction; only status, counts and artifacts saved for this pass",
+      "runs": [
+        {
+          "id": 44163054793,
+          "name": "Astra Radar verification",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054793",
+          "jobs": [
+            {
+              "id": 134321712035,
+              "name": "postgres",
+              "status": "completed",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 44163054983,
+          "name": "Astra member readiness regressions",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054983",
+          "jobs": [
+            {
+              "id": 134321713193,
+              "name": "Three-member persistence and Cakto recovery",
+              "status": "completed",
+              "conclusion": "success"
+            },
+            {
+              "id": 134321713722,
+              "name": "Customer screens at 320, 390, 768 and 1440 pixels",
+              "status": "completed",
+              "conclusion": "success"
+            },
+            {
+              "id": 134321713754,
+              "name": "Landing contracts, accessibility and responsive screens",
+              "status": "completed",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 44163054881,
+          "name": "Astra landing verification",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054881",
+          "jobs": [
+            {
+              "id": 134321742560,
+              "name": "verify",
+              "status": "completed",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ],
+      "readiness": {
+        "gateway": {
+          "testsPassed": 23728,
+          "testsSkipped": 1052,
+          "testsTotal": 24780,
+          "testsFailed": 0,
+          "filesPassed": 622,
+          "filesSkipped": 9,
+          "filesTotal": 631,
+          "coverage": {
+            "statements": 85.07,
+            "branches": 77.32,
+            "functions": 85.62,
+            "lines": 86.42
+          },
+          "thresholdsUnchanged": true,
+          "skipped": [
+            {
+              "file": "src/channels/calendar-mutation.pg.test.ts",
+              "tests": 15,
+              "skipped": 15
+            },
+            {
+              "file": "src/channels/personal-subscriptions.pg.test.ts",
+              "tests": 511,
+              "skipped": 511
+            },
+            {
+              "file": "src/channels/auth/verification-postgres.test.ts",
+              "tests": 7,
+              "skipped": 7
+            },
+            {
+              "file": "src/channels/personal-tasks.pg.test.ts",
+              "tests": 506,
+              "skipped": 506
+            },
+            {
+              "file": "src/db/repositories/whatsapp-contact-discovery.pg.test.ts",
+              "tests": 4,
+              "skipped": 4
+            },
+            {
+              "file": "src/services/radar/load.pg.test.ts",
+              "tests": 4,
+              "skipped": 4
+            },
+            {
+              "file": "src/db/repositories/channel-reminders-range.pg.test.ts",
+              "tests": 1,
+              "skipped": 1
+            },
+            {
+              "file": "src/services/radar/startup.pg.test.ts",
+              "tests": 3,
+              "skipped": 3
+            },
+            {
+              "file": "src/db/repositories/reminder-selection.pg.test.ts",
+              "tests": 1,
+              "skipped": 1
+            }
+          ]
+        },
+        "nativeVector": true,
+        "memoryLifecycleTestsPassed": 10,
+        "backupRestoreTestsPassed": 1,
+        "cakto": {
+          "testsPassed": 16,
+          "testsFailed": 0,
+          "database": "PostgreSQL",
+          "providerEvents": "synthetic",
+          "objectStorage": "simulated"
+        },
+        "customerVisuals": {
+          "pass": true,
+          "scenarioCount": 23,
+          "screenshotCount": 51,
+          "apiResponses": "synthetic intercepted APIs"
+        },
+        "landing": {
+          "contractsPassed": 35,
+          "contractsFailed": 0,
+          "contractsSkipped": 0,
+          "referenceCaptureTestsPassed": 36,
+          "playwrightTestsPassed": 171,
+          "build": {
+            "release": "trial-whatsapp-20261115",
+            "sha256": "ea72c7f6dd37c41ac1b522b17ba4ceda658bace93ab7f3bb253796a224f3397d",
+            "files": 43,
+            "htmlBytes": 49790,
+            "htmlGzipBytes": 9154,
+            "functionBytes": 98068
+          },
+          "referenceLimit": "References generated in this run; these are not historical pixel-equivalence assertions. Capture tests overlap the full browser suite."
+        },
+        "artifacts": [
+          {
+            "id": 14365835063,
+            "name": "astra-member-readiness-landing",
+            "sizeBytes": 54025761,
+            "digest": "sha256:2cd1132ebd0061354c0e12cd1e68450c12550aeab47a0b8659b3d505084ac297",
+            "expired": false,
+            "expiresAt": "2026-12-01T19:58:31Z",
+            "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054983/artifacts/14365835063",
+            "headSha": "43118c019e3d08bc3adea9f4887481c09fe4ee48"
+          },
+          {
+            "id": 14364726489,
+            "name": "astra-member-readiness-coverage",
+            "sizeBytes": 6790703,
+            "digest": "sha256:88ba06f3815fe0de85bec270ad528360c91ebbf0851d2cb035fdcb5530ca8952",
+            "expired": false,
+            "expiresAt": "2026-12-01T19:54:55Z",
+            "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054983/artifacts/14364726489",
+            "headSha": "43118c019e3d08bc3adea9f4887481c09fe4ee48"
+          },
+          {
+            "id": 14364087218,
+            "name": "astra-member-readiness-visuals",
+            "sizeBytes": 2910428,
+            "digest": "sha256:feb4c6194e9c7db4759179d5afb24bc71176333bfa3f1258fdac88a60d189f09",
+            "expired": false,
+            "expiresAt": "2026-12-01T19:53:47Z",
+            "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054983/artifacts/14364087218",
+            "headSha": "43118c019e3d08bc3adea9f4887481c09fe4ee48"
+          }
+        ]
+      },
+      "radar": {
+        "testsPassed": 476,
+        "testsFailed": 0,
+        "testsSkipped": 0,
+        "filesPassed": 16,
+        "testGroups": {
+          "unit": 381,
+          "postgres": 88,
+          "load": 4,
+          "nativeWorkerBoot": 3
+        },
+        "loadCounts": [
+          {
+            "accounts": 500,
+            "follows": 1500,
+            "resources": 3,
+            "queued": 500,
+            "errorCount": 0
+          },
+          {
+            "accounts": 2000,
+            "follows": 6000,
+            "resources": 3,
+            "queued": 2000,
+            "errorCount": 0
+          },
+          {
+            "accounts": 5000,
+            "follows": 15000,
+            "resources": 3,
+            "queued": 5000,
+            "errorCount": 0
+          },
+          {
+            "accounts": 10000,
+            "follows": 30000,
+            "resources": 3,
+            "queued": 10000,
+            "errorCount": 0
+          }
+        ],
+        "artifacts": []
+      },
+      "landing": {
+        "contractsPassed": 35,
+        "contractsFailed": 0,
+        "contractsSkipped": 0,
+        "referenceCaptureTestsPassed": 36,
+        "playwrightTestsPassed": 171,
+        "build": {
+          "release": "trial-whatsapp-20261115",
+          "sha256": "ea72c7f6dd37c41ac1b522b17ba4ceda658bace93ab7f3bb253796a224f3397d",
+          "files": 43,
+          "htmlBytes": 49790,
+          "htmlGzipBytes": 9154,
+          "functionBytes": 98068
+        },
+        "referenceLimit": "References generated in this run; these are not historical pixel-equivalence assertions. Capture tests overlap the full browser suite.",
+        "performanceStep": "success",
+        "artifacts": [
+          {
+            "id": 14364637205,
+            "name": "astra-landing-evidence",
+            "sizeBytes": 61652966,
+            "digest": "sha256:9cb73933da5fd3cf4a9841725f5f5b0f80679be5d5f6ccc2994ed27cd57795a8",
+            "expired": false,
+            "expiresAt": "2026-12-01T19:59:09Z",
+            "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054881/artifacts/14364637205",
+            "headSha": "43118c019e3d08bc3adea9f4887481c09fe4ee48"
+          }
+        ]
+      },
+      "limits": [
+        "No production deployment, provider delivery or real-user payment was performed.",
+        "Native vector storage and lifecycle tests do not establish semantic quality, SQL distance-query or HNSW performance.",
+        "Radar synthetic evaluator tests preseed three shared resources and exclude external APIs, AI, WhatsApp transport and outbound delivery.",
+        "Gateway skipped tests are listed explicitly; do not count them as executed in this job.",
+        "Readiness and independent landing jobs repeat the same contracts/browser scenarios; do not sum them as distinct coverage.",
+        "Parent owns inspection of the generated screenshots; this agent verified results and artifact inventory only."
+      ]
+    },
+    "integratedFinalHeadEvidence": "/workspace/scratch/79eb9d8781db/astra-ci-evidence/final-integrated-head-43118c0.json"
+  },
+  "landingReminderPromise": {
+    "finding": "LAND-01",
+    "severity": "P2",
+    "sourceBase": "f1c8b1302ce511102fa0e74ee6a36bcadb9df3d2",
+    "status": "corrected; local build/contracts and final integrated CI browser checks passed; screenshot inspection tracked in main report",
+    "scope": "public copy and fictional example only; backend unchanged; no generic recurring reminder added",
+    "evidence": [
+      "channel reminders accept one scheduled instant; worker marks delivered without advancing a series",
+      "strict member agenda API has no recurrence field; personal-data tools do not create a recurrence",
+      "legacy calendar recurrence field and operator scheduler do not provide a member recurring-reminder path",
+      "daily greetings and Radar are separate fixed-purpose routines"
+    ],
+    "baseline": {
+      "command": "cd landing && npm run build && npm test",
+      "buildExitCode": 0,
+      "testsPassed": 33
+    },
+    "reproduction": {
+      "command": "cd landing && node --test --test-name-pattern 'public pages do not promise|reminder demonstrations' tests/contracts.test.mjs",
+      "exitCode": 1,
+      "testsFailed": 2
+    },
+    "final": {
+      "command": "cd landing && npm run build && npm test",
+      "exitCode": 0,
+      "testsPassed": 35,
+      "testsFailed": 0,
+      "testsSkipped": 0,
+      "buildFiles": 43,
+      "bundleSha256": "ea72c7f6dd37c41ac1b522b17ba4ceda658bace93ab7f3bb253796a224f3397d"
+    },
+    "formatAndDiffCheck": "passed",
+    "logs": [
+      "landing-recurring-baseline-build.log",
+      "landing-recurring-baseline-test.log",
+      "landing-recurring-repro.log",
+      "landing-recurring-final-build.log",
+      "landing-recurring-final-test.log"
+    ],
+    "limits": [
+      "contract runtime uses SQL double",
+      "no provider delivery or production validation performed",
+      "new references generated in CI do not establish historical pixel equivalence; parent inspects screenshots"
+    ],
+    "finalCi": {
+      "sourceHead": "43118c019e3d08bc3adea9f4887481c09fe4ee48",
+      "readinessRunId": 44163054983,
+      "landingRunId": 44163054881,
+      "contractsPassed": 35,
+      "referenceCaptureTestsPassed": 36,
+      "playwrightTestsPassed": 171,
+      "failures": 0,
+      "bundleSha256": "ea72c7f6dd37c41ac1b522b17ba4ceda658bace93ab7f3bb253796a224f3397d"
+    }
+  },
+  "currentCodeCandidate": "43118c019e3d08bc3adea9f4887481c09fe4ee48",
+  "currentCodeTree": "3947f33a813cc38514b0a6f27013811e48549289"
+}

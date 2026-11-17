@@ -12,6 +12,8 @@ export interface NormalizedIncoming {
   failureReply?: string;
   /** Transcribed speech from the authenticated sender, distinct from document text. */
   userSpeech?: string;
+  /** Extracted image/document data may be read, but must not authorize tool writes. */
+  hasUntrustedContent?: boolean;
   /** Cleaned text content */
   text: string;
   /** Normalized attachments (base64-encoded data URIs) */

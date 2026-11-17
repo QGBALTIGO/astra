@@ -77,6 +77,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       'Não foi possível conectar ao Astra. Confira sua conexão e tente novamente.'
     );
   }
+  if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
   let envelope: {
     success?: boolean;
     data?: T;
@@ -84,13 +85,18 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   };
   try {
     envelope = await response.json();
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error;
+    if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
     throw new CustomerApiError(
       response.status,
       'INVALID_RESPONSE',
       'O Astra está temporariamente indisponível. Tente novamente.'
     );
   }
+  // A response from a cancelled identity/read cannot return stale data or log
+  // the current account out after its body has already been buffered.
+  if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
   if (response.ok && envelope.success === true && envelope.data !== undefined) return envelope.data;
   const invalidCode =
     path === '/auth/verify-code' || path.startsWith('/profile/phone-change/confirm-');

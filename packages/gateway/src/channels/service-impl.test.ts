@@ -16,6 +16,8 @@ vi.mock('./short-channel-reply.js', () => ({ writeShortChannelReply: vi.fn() }))
 import type { Message } from '@ownpilot/core/agent';
 import { inboundAccessCycle } from '../db/repositories/channel-access-inbound-notices.js';
 import type { ChannelUserEntity } from '../db/repositories/channels/users.js';
+import { customerIntegrationsRepo } from '../db/repositories/customer-integrations.js';
+import { integrationProposalMessage } from '../services/customer-integrations.js';
 
 // ============================================================================
 // Hoisted mocks
@@ -3270,6 +3272,72 @@ describe('ChannelServiceImpl', () => {
         mockGetOrCreateChatAgent.mockResolvedValue(createMockAgent());
       });
 
+      it('keeps one delivered proposal when recording its confirmation boundary fails', async () => {
+        const previousFlag = process.env.ASTRA_CUSTOMER_OAUTH_ENABLED;
+        process.env.ASTRA_CUSTOMER_OAUTH_ENABLED = 'true';
+        const proposal = {
+          id: 'synthetic-proposal',
+          user_id: 'op-user-1',
+          app: 'todoist' as const,
+          connection_id: 'synthetic-connection',
+          action_slug: 'TODOIST_CREATE_TASK',
+          arguments: { content: 'Comprar material de teste' },
+          summary: 'Criar uma tarefa de teste',
+          confirmation_token: 'ABC123',
+          channel_plugin_id: message.channelPluginId,
+          platform_chat_id: message.sender.platformUserId,
+          request_key: 'synthetic-key',
+          action_hash: 'synthetic-hash',
+          schema_hash: 'synthetic-schema',
+          request_message_id: message.id,
+          prompt_sent_at: null,
+          state: 'pending' as const,
+          expires_at: new Date(Date.now() + 60_000),
+          result: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        };
+        const pending = vi.spyOn(customerIntegrationsRepo, 'latestPending').mockResolvedValue(null);
+        const lookup = vi.spyOn(customerIntegrationsRepo, 'forMessage').mockResolvedValue(proposal);
+        const mark = vi
+          .spyOn(customerIntegrationsRepo, 'markPromptSent')
+          .mockRejectedValue(new Error('Synthetic bookkeeping outage'));
+        try {
+          await service.processIncomingMessage({
+            ...message,
+            platformChatId: message.sender.platformUserId,
+          });
+
+          expect(mark).toHaveBeenCalledWith(
+            proposal.id,
+            'op-user-1',
+            message.channelPluginId,
+            message.sender.platformUserId
+          );
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledTimes(1);
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+              text: integrationProposalMessage(proposal),
+            })
+          );
+          expect(mockMessagesRepo.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+              direction: 'outbound',
+              content: integrationProposalMessage(proposal),
+            })
+          );
+          // No confirmation boundary was persisted. Confirmation stays closed;
+          // the failure must not produce a second reply after transport success.
+          expect(proposal.prompt_sent_at).toBeNull();
+        } finally {
+          pending.mockRestore();
+          lookup.mockRestore();
+          mark.mockRestore();
+          if (previousFlag === undefined) delete process.env.ASTRA_CUSTOMER_OAUTH_ENABLED;
+          else process.env.ASTRA_CUSTOMER_OAUTH_ENABLED = previousFlag;
+        }
+      });
+
       it('replaces a pending progress placeholder with the error on failure', async () => {
         // Channel exposes a progress manager (e.g. Telegram "Thinking..."). When
         // the pipeline throws after the placeholder is shown, the catch must
@@ -3931,6 +3999,115 @@ describe('ChannelServiceImpl', () => {
   // ==========================================================================
   // dispose
   // ==========================================================================
+
+  describe('shutdown()', () => {
+    function deferred<T>() {
+      let resolve!: (value: T) => void;
+      let reject!: (reason: Error) => void;
+      const promise = new Promise<T>((done, fail) => {
+        resolve = done;
+        reject = fail;
+      });
+      return { promise, resolve, reject };
+    }
+
+    beforeEach(() => {
+      mockUsersRepo.findOrCreate.mockResolvedValue(createChannelUser());
+      mockUsersRepo.findByPlatform.mockResolvedValue(createChannelUser());
+      mockMessagesRepo.createIfNew.mockResolvedValue(true);
+      mockSessionsRepo.findActive.mockResolvedValue({ id: 'session-1', conversationId: 'conv-1' });
+      mockSessionsRepo.touchLastMessage.mockResolvedValue(undefined);
+      mockHasServiceRegistry.mockReturnValue(false);
+      mockIsDemoMode.mockResolvedValue(false);
+    });
+
+    it('finishes accepted replies before disconnect and includes turns received during the drain', async () => {
+      const answer = deferred<{ ok: true; value: { content: string } }>();
+      const chat = vi
+        .fn()
+        .mockResolvedValue({ ok: true, value: { content: 'Resposta concluída' } })
+        .mockReturnValueOnce(answer.promise);
+      mockGetOrCreateChatAgent.mockResolvedValue(createMockAgent({ chat }));
+      const first = service.processIncomingMessage(createIncomingMessage({ id: 'drain-first' }));
+      await vi.waitFor(() => expect(chat).toHaveBeenCalledOnce());
+
+      const stopping = service.shutdown();
+      const second = service.processIncomingMessage(
+        createIncomingMessage({ id: 'drain-second', text: 'Outra pergunta' })
+      );
+      expect(channelPlugin.api.disconnect).not.toHaveBeenCalled();
+      answer.resolve({ ok: true, value: { content: 'Primeira resposta concluída' } });
+      await Promise.all([first, second]);
+      await expect(stopping).resolves.toEqual({ pendingMessages: 0, disconnected: true });
+
+      expect(chat).toHaveBeenCalledTimes(2);
+      expect(mockMessagesRepo.create).toHaveBeenCalledTimes(2);
+      expect(channelPlugin.api.sendMessage).toHaveBeenCalledTimes(2);
+      expect(channelPlugin.api.sendMessage.mock.invocationCallOrder.at(-1)!).toBeLessThan(
+        channelPlugin.api.disconnect.mock.invocationCallOrder[0]!
+      );
+      await service.processIncomingMessage(createIncomingMessage({ id: 'after-shutdown' }));
+      expect(chat).toHaveBeenCalledTimes(2);
+    });
+
+    it('awaits transport credential flushing and disconnects only once', async () => {
+      const flushed = deferred<void>();
+      channelPlugin.api.disconnect.mockReturnValue(flushed.promise);
+      let completed = false;
+      const stopping = service.shutdown();
+      void stopping.then(() => {
+        completed = true;
+      });
+      await vi.waitFor(() => expect(channelPlugin.api.disconnect).toHaveBeenCalledOnce());
+      expect(completed).toBe(false);
+      expect(service.shutdown()).toBe(stopping);
+      await service.processIncomingMessage(createIncomingMessage({ id: 'during-flush' }));
+      expect(mockUsersRepo.findOrCreate).not.toHaveBeenCalled();
+      flushed.resolve(undefined);
+      await expect(stopping).resolves.toEqual({ pendingMessages: 0, disconnected: true });
+      expect(channelPlugin.api.disconnect).toHaveBeenCalledOnce();
+    });
+
+    it('bounds a stuck turn and reports it as uncertain without replaying it', async () => {
+      const pendingSession = deferred<never>();
+      mockSessionsRepo.findActive.mockReturnValueOnce(pendingSession.promise);
+      const accepted = service.processIncomingMessage(createIncomingMessage());
+      await vi.waitFor(() => expect(mockSessionsRepo.findActive).toHaveBeenCalledOnce());
+
+      await expect(service.shutdown(5, 20)).resolves.toEqual({
+        pendingMessages: 1,
+        disconnected: true,
+      });
+      expect(channelPlugin.api.disconnect).toHaveBeenCalledOnce();
+      expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+      pendingSession.reject(new Error('Synthetic interrupted lookup'));
+      await accepted;
+      expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+    });
+
+    it('disconnects the remaining channel when one adapter rejects', async () => {
+      const other = createChannelPlugin({ id: 'other-channel' });
+      registry.getAll.mockReturnValue([channelPlugin, other]);
+      channelPlugin.api.disconnect.mockImplementationOnce(() => {
+        throw new Error('Synthetic transport failure');
+      });
+      await expect(service.shutdown()).resolves.toEqual({
+        pendingMessages: 0,
+        disconnected: false,
+      });
+      expect(other.api.disconnect).toHaveBeenCalledOnce();
+    });
+
+    it('bounds an unresponsive credential writer without claiming a completed disconnect', async () => {
+      const pendingFlush = deferred<void>();
+      channelPlugin.api.disconnect.mockReturnValueOnce(pendingFlush.promise);
+      await expect(service.shutdown(20, 5)).resolves.toEqual({
+        pendingMessages: 0,
+        disconnected: false,
+      });
+      pendingFlush.resolve(undefined);
+    });
+  });
 
   describe('dispose()', () => {
     it('should call all unsubscribe functions', () => {

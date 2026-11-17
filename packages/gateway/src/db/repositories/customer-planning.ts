@@ -46,6 +46,19 @@ export type SubscriptionResult =
   | { status: 'ambiguous'; plans: CustomerPlan[] }
   | { status: 'missing' | 'replay' | 'conflict' | 'limit' | 'inactive' };
 
+type GoalFields = Pick<
+  CustomerPlanInput,
+  'title' | 'amount' | 'progress' | 'nextDueDate' | 'notes'
+>;
+export type CustomerGoalChange =
+  | ({ action: 'create' } & GoalFields)
+  | ({ action: 'update'; id: string } & Partial<GoalFields>)
+  | { action: 'remove'; id: string };
+export type CustomerGoalResult =
+  | { status: 'created' | 'updated' | 'removed'; plan: CustomerPlan }
+  | { status: 'replay'; plan: CustomerPlan | null }
+  | { status: 'missing' | 'conflict' | 'limit' | 'inactive' };
+
 export function subscriptionTitleKey(value: string): string {
   return value
     .normalize('NFD')
@@ -198,6 +211,94 @@ export class CustomerPlanningRepository extends BaseRepository {
     return rows.map(map);
   }
 
+  async goals(): Promise<CustomerPlan[]> {
+    const rows = await this.query<PlanRow>(
+      `SELECT ${PLAN_FIELDS} FROM customer_plans WHERE user_id = $1 AND kind = 'goal' ORDER BY updated_at DESC, id LIMIT 80`,
+      [this.userId]
+    );
+    return rows.map(map);
+  }
+
+  /** Same monetary goals as the portal; legacy percentage goals are untouched. */
+  async changeGoal(
+    requestKey: string,
+    change: CustomerGoalChange,
+    canWrite: () => Promise<boolean>,
+    channelRequestKey?: string
+  ): Promise<CustomerGoalResult> {
+    if (!requestKey || requestKey.length > 200) throw new Error('Pedido de meta inválido.');
+    if (channelRequestKey && !/^[a-f0-9]{64}$/.test(channelRequestKey))
+      throw new Error('Pedido de meta inválido.');
+    const fingerprint = createHash('sha256').update(JSON.stringify(change)).digest('hex');
+    // The deterministic channel route and the AI fallback may handle the same
+    // provider message on different attempts. Share its receipt, while keeping
+    // the existing tool receipt for compatibility and its exact payload check.
+    const sharedFingerprint =
+      change.action === 'create'
+        ? createHash('sha256')
+            .update(JSON.stringify(validate({ ...change, kind: 'goal' })))
+            .digest('hex')
+        : fingerprint;
+    return this.transaction(async () => {
+      await this.lockPlans();
+      // Access can expire while another message or a panel edit holds the lock.
+      if (!(await canWrite())) return { status: 'inactive' };
+      const previous = await this.queryOne<{ fingerprint: string; goal_id: string | null }>(
+        'SELECT fingerprint, goal_id FROM customer_goal_requests WHERE user_id = $1 AND request_key = $2',
+        [this.userId, requestKey]
+      );
+      if (previous) {
+        if (previous.fingerprint !== fingerprint) return { status: 'conflict' };
+        const current = previous.goal_id ? await this.get(previous.goal_id) : null;
+        return { status: 'replay', plan: current?.kind === 'goal' ? current : null };
+      }
+      if (channelRequestKey) {
+        const shared = await this.queryOne<{ fingerprint: string; plan_id: string }>(
+          'SELECT fingerprint, plan_id FROM customer_planning_requests WHERE user_id = $1 AND request_key = $2',
+          [this.userId, channelRequestKey]
+        );
+        if (shared) {
+          if (shared.fingerprint !== sharedFingerprint) return { status: 'conflict' };
+          const current = await this.get(shared.plan_id);
+          return { status: 'replay', plan: current?.kind === 'goal' ? current : null };
+        }
+      }
+      let result: CustomerGoalResult;
+      if (change.action === 'create') {
+        if (await this.atLimit()) return { status: 'limit' };
+        result = {
+          status: 'created',
+          plan: await this.insert(validate({ ...change, kind: 'goal' })),
+        };
+      } else {
+        const current = await this.get(change.id);
+        if (!current || current.kind !== 'goal') result = { status: 'missing' };
+        else if (change.action === 'remove') {
+          result = (await this.delete(current.id))
+            ? { status: 'removed', plan: current }
+            : { status: 'missing' };
+        } else {
+          const plan = await this.updateLocked(
+            current.id,
+            validate({ ...current, ...change, kind: 'goal' })
+          );
+          result = plan ? { status: 'updated', plan } : { status: 'missing' };
+        }
+      }
+      await this.execute(
+        'INSERT INTO customer_goal_requests (user_id, request_key, fingerprint, goal_id) VALUES ($1,$2,$3,$4)',
+        [this.userId, requestKey, fingerprint, 'plan' in result ? result.plan?.id : null]
+      );
+      if (channelRequestKey && 'plan' in result) {
+        await this.execute(
+          'INSERT INTO customer_planning_requests (user_id, request_key, fingerprint, plan_id) VALUES ($1,$2,$3,$4)',
+          [this.userId, channelRequestKey, sharedFingerprint, result.plan.id]
+        );
+      }
+      return result;
+    });
+  }
+
   async changeSubscription(
     requestKey: string,
     change: SubscriptionChange,
@@ -286,12 +387,20 @@ export class CustomerPlanningRepository extends BaseRepository {
     });
   }
 
-  async createFromChannel(input: CustomerPlanInput, requestKey: string) {
+  async createFromChannel(
+    input: CustomerPlanInput,
+    requestKey: string,
+    canWrite: () => Promise<boolean> = async () => true
+  ) {
     if (!/^[a-f0-9]{64}$/.test(requestKey)) throw new CustomerFinanceError('Pedido inválido.');
     const value = validate(input);
     const fingerprint = createHash('sha256').update(JSON.stringify(value)).digest('hex');
     return this.transaction(async () => {
       await this.lockPlans();
+      if (!(await canWrite()))
+        throw new CustomerFinanceError(
+          'Seu acesso está inativo. Renove para alterar seus planejamentos.'
+        );
       const replay = await this.queryOne<{ fingerprint: string; plan_id: string }>(
         'SELECT fingerprint,plan_id FROM customer_planning_requests WHERE user_id=$1 AND request_key=$2',
         [this.userId, requestKey]

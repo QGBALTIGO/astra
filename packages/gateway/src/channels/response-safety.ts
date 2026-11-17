@@ -1,7 +1,11 @@
 /** Final channel boundary: model text is not proof of a database write. */
 import { stripInternalTags } from './normalizers/base.js';
 import { isFinanceReadOnlyRequest } from './finance-intent.js';
-import { verifiedChannelFacts } from './verified-facts.js';
+import {
+  isCustomerGoalReceipt,
+  verifiedChannelFacts,
+  verifiedCustomerGoalReply,
+} from './verified-facts.js';
 import {
   formatAstraMessage,
   formatReminderConfirmation,
@@ -292,6 +296,11 @@ export function verifiedWriteDetails(receipts: ChannelToolReceipt[], timeZone?: 
   const details: string[] = [];
   for (const receipt of channelOperations(receipts)) {
     if (isFailedChannelReceipt(receipt)) continue;
+    if (/^(?:create|update|delete)_customer_goal$/.test(normalizeName(receipt.name))) {
+      const goal = verifiedCustomerGoalReply(receipt);
+      if (goal) details.push(goal);
+      continue;
+    }
     const envelope = object(json(receipt.content));
     const result = object(envelope?.result) ?? envelope;
     const saved =
@@ -348,6 +357,27 @@ export function safeChannelResponse(
   receipts: ChannelToolReceipt[],
   context: { timeZone?: string; requestText?: string } = {}
 ): string {
+  const allOperations = channelOperations(receipts);
+  const goalOperations = allOperations.filter(isCustomerGoalReceipt);
+  if (goalOperations.length && goalOperations.length < allOperations.length) {
+    // A formatter for another domain must not hide a saved goal or its failure.
+    // Do not reuse mixed model prose: even a valid lookup does not verify a
+    // numerical claim about the goal. Present each remaining receipt through
+    // its existing formatter, and disclose any part without display evidence.
+    const goalReply = verifiedChannelFacts('', goalOperations, context);
+    const remaining = allOperations.filter((receipt) => !isCustomerGoalReceipt(receipt));
+    const otherReplies = remaining.map((receipt) => {
+      const reply = safeChannelResponse('', [receipt], context);
+      return reply === CHANNEL_UNVERIFIED_REPLY
+        ? /^(?:list_|get_|search_|financial_summary|expense_summary)/.test(
+            normalizeName(receipt.name)
+          )
+          ? 'Ainda não consegui apresentar os detalhes confirmados da outra consulta.'
+          : 'Sobre a outra parte do pedido, ainda não tenho confirmação.'
+        : reply;
+    });
+    return [goalReply, ...otherReplies].filter(Boolean).join('\n\n');
+  }
   // A saved row returned by a lookup is evidence of an existing item, never a
   // new registration. Keep the model's prose and details but label it clearly.
   if (
@@ -581,7 +611,8 @@ export function safeChannelResponse(
       calendar.get(receipt) ??
       transactionConfirmation(receipt, ids) ??
       reminderConfirmation([receipt]) ??
-      taskConfirmation(receipt, ids)
+      taskConfirmation(receipt, ids) ??
+      verifiedCustomerGoalReply(receipt)
   );
   // A lookup used to find the record is supporting context for a correction.
   // It must not make the final receipt fall back to the model's unstructured text.
@@ -758,6 +789,9 @@ export function safeChannelResponse(
       update_transaction: 'a correção do lançamento',
       delete_transaction: 'a exclusão do lançamento',
       create_memory: 'o salvamento da informação',
+      create_customer_goal: 'o registro da meta',
+      update_customer_goal: 'a atualização da meta',
+      delete_customer_goal: 'a exclusão da meta',
     };
     const pending = [
       ...new Set(

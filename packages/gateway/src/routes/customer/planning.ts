@@ -10,6 +10,9 @@ import {
 } from '../../db/repositories/customer-finance.js';
 import { CustomerPlanningRepository } from '../../db/repositories/customer-planning.js';
 import { CustomerPlanActions } from '../../db/repositories/customer-plan-actions.js';
+import { customerAccountsRepo } from '../../db/repositories/customer-accounts.js';
+import { channelUsersRepo } from '../../db/repositories/channels/users.js';
+import { isChannelUserAccessActive } from '../../channels/channel-access-service.js';
 import { customerLocalDay } from '../../services/customer-date.js';
 import { apiError, apiResponse } from '../helpers.js';
 import { getLog } from '../../services/log.js';
@@ -191,7 +194,12 @@ customerPlanningRoutes.post('/:id/pay', async (c) => {
   const requestKey = createHash('sha256')
     .update(JSON.stringify([customer.dataUserId, 'dashboard-plan-payment', key]))
     .digest('hex');
-  const result = await new CustomerPlanActions(customer.dataUserId).payInstallment(
+  const result = await new CustomerPlanActions(customer.dataUserId, async () => {
+    const account = await customerAccountsRepo.getByDataUserId(customer.dataUserId);
+    if (!account || account.id !== customer.accountId) return false;
+    const grant = await channelUsersRepo.getById(account.channelUserId);
+    return Boolean(grant && isChannelUserAccessActive(grant));
+  }).payInstallment(
     c.req.param('id'),
     customerLocalDay(new Date(), customer.timeZone),
     requestKey,

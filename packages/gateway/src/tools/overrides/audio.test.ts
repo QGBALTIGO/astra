@@ -9,6 +9,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// HTTP is mocked below; DNS must be controlled too so offline runners still
+// exercise transcription and the real URL guard with public fixture addresses.
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+}));
+
 // ---------------------------------------------------------------------------
 // Hoisted mocks
 // ---------------------------------------------------------------------------

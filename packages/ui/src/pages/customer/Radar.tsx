@@ -273,7 +273,10 @@ export function CustomerRadar({
             SEU HORÁRIO PREFERIDO
           </div>
           <strong>{preferredTime}</strong>
-          <span>{loaded.interests.length} assuntos selecionados</span>
+          <span>
+            {loaded.interests.length}{' '}
+            {loaded.interests.length === 1 ? 'assunto selecionado' : 'assuntos selecionados'}
+          </span>
           <p>
             {timingLabel}
             <br />

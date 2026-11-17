@@ -55,6 +55,9 @@ interface EntityRule {
 }
 
 const ENTITY_RULES: Readonly<Record<string, EntityRule>> = {
+  create_customer_goal: { kind: 'customer_goal', resultKeys: ['goal'] },
+  update_customer_goal: { kind: 'customer_goal', resultKeys: ['goal'], targetKeys: ['goal_id'] },
+  delete_customer_goal: { kind: 'customer_goal', resultKeys: ['goal'], targetKeys: ['goal_id'] },
   record_transaction: { kind: 'transaction', resultKeys: ['transaction', 'expense'] },
   add_expense: { kind: 'transaction', resultKeys: ['expense', 'transaction'] },
   update_transaction: {
