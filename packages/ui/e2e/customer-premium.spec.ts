@@ -105,11 +105,17 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(page.getByRole('heading', { name: 'Entre no seu Astra' })).toBeVisible();
       await expect(page.locator('.ac-login-story')).toBeVisible();
       await expect(page.locator('.ac-login-card h1')).toHaveCSS('font-family', /Poppins/);
+      await page.evaluate(() => document.fonts.ready);
       if (screen.width <= 900) {
-        const header = await page.locator('.ac-login-story').boundingBox();
-        const contentWidth = await page.evaluate(() => document.documentElement.clientWidth);
-        expect(header?.x).toBe(0);
-        expect(header?.width).toBe(contentWidth);
+        const header = await page.locator('.ac-login-story').evaluate((element) => ({
+          x: element.getBoundingClientRect().x,
+          width: element.getBoundingClientRect().width,
+          contentWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+        }));
+        expect(header.x).toBe(0);
+        expect(header.width).toBe(header.contentWidth);
+        expect(header.scrollWidth).toBe(header.contentWidth);
       }
       await geometry(page);
       await image(page, info, `${prefix}-login`, reference);
