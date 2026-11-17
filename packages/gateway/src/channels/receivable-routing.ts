@@ -6,10 +6,11 @@ import {
   type ReceivablePlan,
 } from '../db/repositories/customer-receivables.js';
 import { CustomerFinanceError } from '../db/repositories/customer-finance.js';
-import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDay, addCalendarDays } from '../services/customer-date.js';
 import { formatAstraMessage } from './response-presentation.js';
 import { isGeneralReceivableQuery } from './finance-intent.js';
+import { receivableBalanceFields } from './receivable-presentation.js';
+import { customerChannelAccess } from './customer-channel-access.js';
 const fold = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 const money = (cents: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100);
@@ -138,22 +139,37 @@ export async function tryReceivableChannelReply(
   if (!userId?.trim() || !message.id || !message.channelPluginId || !message.platformChatId)
     return 'Não consegui confirmar sua conversa para consultar os valores.';
   const repo = new CustomerReceivablesRepository(userId);
+  const denied =
+    'Seu acesso a esta conversa mudou. Não consegui concluir a consulta dos recebimentos.';
   const summary = (plans: Awaited<ReturnType<typeof repo.list>>, title: string) =>
     plans
+      .slice(0, 5)
       .map((p) =>
-        formatAstraMessage(title + ' · ' + p.borrower, [
-          { label: 'Emprestado', value: money(Number(p.principal_cents)) },
-          { label: 'Total combinado', value: money(Number(p.total_cents)) },
-          { label: 'Recebido', value: money(Number(p.paid_cents)) },
-          { label: 'A receber', value: money(Number(p.remaining_cents)) },
-          { label: 'Parcelas', value: String(p.installments) },
-          { label: 'Horário', value: p.local_time + ' · ' + p.time_zone },
-        ])
+        formatAstraMessage(
+          title + ' · ' + p.borrower,
+          [
+            { label: 'Emprestado', value: money(Number(p.principal_cents)) },
+            { label: 'Total combinado originalmente', value: money(Number(p.total_cents)) },
+            ...receivableBalanceFields(p),
+            { label: 'Parcelas', value: String(p.installments) },
+            { label: 'Horário', value: p.local_time + ' · ' + p.time_zone },
+          ],
+          (p.currency_balances?.length ?? 0) > 1
+            ? 'Moedas apresentadas separadamente, sem conversão.'
+            : undefined
+        )
       )
-      .join('\n\n');
+      .join('\n\n') +
+    (plans.length > 5
+      ? `\n\nExibindo 5 de ${plans.length} recebimentos. Diga o nome completo da pessoa para conferir um deles.`
+      : '');
   try {
+    const access = await customerChannelAccess(userId, canWrite);
+    if (!access) return denied;
+    const { account, stillAllowed } = access;
     if (generalQuery) {
       const totals = await repo.pendingTotals();
+      if (!(await stillAllowed())) return denied;
       if (!totals.length)
         return formatAstraMessage(
           '📒 Valores pendentes registrados',
@@ -179,7 +195,6 @@ export async function tryReceivableChannelReply(
           (totals.length > 1 ? '\nMoedas apresentadas separadamente, sem conversão.' : '')
       );
     }
-    const account = await customerAccountsRepo.getByDataUserId(userId);
     const timeZone = account?.timeZone ?? 'America/Sao_Paulo',
       today = customerLocalDay(message.timestamp, timeZone);
     if (creation) {
@@ -197,12 +212,13 @@ export async function tryReceivableChannelReply(
       const plans = raw ? parseReceivablePlans(raw, message.text, today, timeZone) : null;
       if (!plans)
         return 'Quero conferir os dados antes de registrar. Para cada pessoa, me envie nome, valor emprestado, total a receber, quantidade de parcelas, primeiro dia e horário dos avisos.';
-      if (!(await canWrite())) return null;
+      if (!(await stillAllowed())) return denied;
       const saved = await repo.create(plans, {
         pluginId: message.channelPluginId,
         chatId: message.platformChatId,
         timeZone,
       });
+      if (!(await stillAllowed())) return denied;
       const names = new Set(plans.map((p) => p.borrower));
       return (
         summary(
@@ -213,19 +229,24 @@ export async function tryReceivableChannelReply(
       );
     }
     const plans = await repo.list();
+    if (!(await stillAllowed())) return denied;
     const matching = plans.filter((p) => input.includes(fold(p.borrower)));
     if (payment) {
       if (!matching.length) return null;
+      if (/(?:us\$|€|£|\b(?:usd|eur|gbp|dolares?|euros?|libras?)\b)/u.test(input))
+        return 'Esse recebimento menciona outra moeda. Confira a moeda e o valor antes de confirmar; ainda não dei baixa em nenhuma parcela.';
       if (matching.length !== 1)
         return 'Me diga o nome completo da pessoa e o valor recebido para eu identificar o recebimento certo.';
       const amount = numbers(input)[0];
-      if (!amount || !(await canWrite())) return null;
+      if (!amount) return null;
+      if (!(await stillAllowed())) return denied;
       const key = createHash('sha256')
         .update(
           JSON.stringify([userId, message.channelPluginId, message.platformChatId, message.id])
         )
         .digest('hex');
       const saved = await repo.receive(matching[0]!.id, amount, key, today);
+      if (!(await stillAllowed())) return denied;
       return summary(
         saved.filter((p) => p.id === matching[0]!.id),
         '✅ Recebimento confirmado'

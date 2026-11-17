@@ -408,7 +408,9 @@ function tryAuthorizedChannelShortcut(
       )) ??
       (await tryCustomerTimezoneChannelReply(message, userId)) ??
       (await tryClockChannelReply(message.text, userId)) ??
-      (await tryCustomerPlanningChannelReply(message, userId)) ??
+      (await tryCustomerPlanningChannelReply(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
       (await tryReceivableChannelReply(message, userId, () =>
         canProcessChannelMessage(message, isAccessAllowed)
       )) ??

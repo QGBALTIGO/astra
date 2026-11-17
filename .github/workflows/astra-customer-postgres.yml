@@ -65,7 +65,7 @@ jobs:
       POSTGRES_DB: astra_auth_verification_lab
       PGPASSWORD: astra_customer_pg_ci_only
       ASTRA_AUTH_TEST_PORT: '5432'
-      OWNPILOT_DATA_DIR: ${{ runner.temp }}/astra-customer-pg-data
+      OWNPILOT_DATA_DIR: /tmp/astra-customer-pg-data
       LOG_LEVEL: error
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10

@@ -10,6 +10,7 @@ vi.mock('../adapters/index.js', () => ({ getAdapter: async () => db.adapter }));
 import { radarTestDatabase, seedRadarAccounts } from './radar-pg-fixture.js';
 import { FINANCE_TABLES_SQL, FINANCE_INDEXES_SQL } from '../schema/finance.js';
 import { PERSONAL_DATA_TABLES_SQL } from '../schema/personal-data.js';
+import { CUSTOMER_PORTAL_TABLES_SQL } from '../schema/customer-portal.js';
 import { CustomerFinanceRepository } from './customer-finance.js';
 import { CustomerReceivablesRepository } from './customer-receivables.js';
 import { tryReceivableChannelReply } from '../../channels/receivable-routing.js';
@@ -30,11 +31,17 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       )?.[0];
       if (!reminders) throw new Error('Actual channel reminder schema missing');
       await fixture.adapter.exec(FINANCE_TABLES_SQL + FINANCE_INDEXES_SQL + reminders);
+      await fixture.adapter.exec(CUSTOMER_PORTAL_TABLES_SQL);
       await seedRadarAccounts(fixture.adapter);
     });
     beforeEach(async () => {
       // Only the randomly named test database created by radarTestDatabase is reachable here.
       for (const table of [
+        'customer_planning_requests',
+        'customer_agenda_links',
+        'customer_agenda_requests',
+        'customer_subscription_requests',
+        'customer_plans',
         'customer_finance_operations',
         'customer_receivable_items',
         'customer_receivable_plans',
@@ -133,6 +140,21 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       };
       const saved = await receivables.create([plan], channel);
       expect(saved).toHaveLength(1);
+      async function expectPlanBalance(pending: number, paid: number) {
+        const current = (await receivables.list()).find((entry) => entry.id === saved[0]!.id)!;
+        expect(Number(current.principal_cents)).toBe(100000);
+        expect(Number(current.total_cents)).toBe(120000);
+        expect(Number(current.remaining_cents)).toBe(pending);
+        expect(Number(current.paid_cents)).toBe(paid);
+        expect(
+          current.currency_balances?.map((balance) => ({
+            currency: balance.currency,
+            pending: Number(balance.pending_cents),
+            paid: Number(balance.paid_cents),
+          }))
+        ).toEqual([{ currency: 'BRL', pending, paid }]);
+      }
+      await expectPlanBalance(120000, 0);
       expect(await receivables.pendingTotals()).toEqual([
         { currency: 'BRL', amountCents: 120000, count: 120 },
       ]);
@@ -157,6 +179,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       );
       expect(linked).toHaveLength(120);
       await finance.updateTransaction(linked[0]!.transaction_id, { amount: 12.34 });
+      await expectPlanBalance(120234, 0);
       expect(await receivables.pendingTotals()).toEqual([
         { currency: 'BRL', amountCents: 133976, count: 121 },
       ]);
@@ -166,20 +189,24 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         receivables.receive(saved[0]!.id, 12.34, settlement, '2027-01-01'),
         repo().receive(saved[0]!.id, 12.34, settlement, '2027-01-01'),
       ]);
+      await expectPlanBalance(119000, 1234);
       expect(await receivables.pendingTotals()).toEqual([
         { currency: 'BRL', amountCents: 132742, count: 120 },
       ]);
       expect(await finance.deleteTransaction(linked[1]!.transaction_id)).toBe(true);
       expect(await finance.deleteTransaction(linked[1]!.transaction_id)).toBe(false);
+      await expectPlanBalance(118000, 1234);
       await finance.updateTransaction(linked[2]!.transaction_id, {
         type: 'expense',
         categoryId: expense.id,
       });
+      await expectPlanBalance(117000, 1234);
       await finance.updateTransaction(standalone.id, { amount: 145.67 });
       expect(await receivables.pendingTotals()).toEqual([
         { currency: 'BRL', amountCents: 131567, count: 118 },
       ]);
       await finance.updateTransaction(standalone.id, { status: 'settled' });
+      await expectPlanBalance(117000, 1234);
       expect(await receivables.pendingTotals()).toEqual([
         { currency: 'BRL', amountCents: 117000, count: 117 },
       ]);
@@ -205,6 +232,150 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(await repo(other).pendingTotals()).toEqual([]);
     });
 
+    it('keeps all owned plans beyond 100 and never merges another customer with the same borrower', async () => {
+      const receivables = repo();
+      const channel = {
+        pluginId: 'channel.whatsapp.synthetic',
+        chatId: '5567999991111',
+        timeZone: 'America/Cuiaba',
+      };
+      const plans = Array.from({ length: 110 }, (_, index) => ({
+        borrower: `Cliente sintético ${String(index).padStart(3, '0')}`,
+        principal: 1,
+        total: 1,
+        installments: 1,
+        startDate: '2027-01-01',
+        localTime: '18:00',
+        skipSunday: false,
+      }));
+      for (let offset = 0; offset < plans.length; offset += 10)
+        await receivables.create(plans.slice(offset, offset + 10), channel);
+      await repo(other).create([{ ...plans[0]!, principal: 2, total: 2 }], {
+        ...channel,
+        chatId: '5567999992222',
+      });
+      const listed = await receivables.list();
+      expect(listed).toHaveLength(110);
+      expect(new Set(listed.map((plan) => plan.id)).size).toBe(110);
+      expect(new Set(listed.map((plan) => plan.borrower))).toEqual(
+        new Set(plans.map((plan) => plan.borrower))
+      );
+      expect(listed.every((plan) => Number(plan.remaining_cents) === 100)).toBe(true);
+      expect(await receivables.pendingTotals()).toEqual([
+        { currency: 'BRL', amountCents: 11000, count: 110 },
+      ]);
+      expect(await repo(other).pendingTotals()).toEqual([
+        { currency: 'BRL', amountCents: 200, count: 1 },
+      ]);
+    });
+
+    it('keeps mixed-currency plan balances separate and refuses ambiguous settlement without writes', async () => {
+      const receivables = repo();
+      const saved = await receivables.create(
+        [
+          {
+            borrower: 'Cliente Aurora internacional',
+            principal: 60,
+            total: 80,
+            installments: 4,
+            startDate: '2027-02-01',
+            localTime: '18:00',
+            skipSunday: false,
+          },
+        ],
+        {
+          pluginId: 'channel.whatsapp.synthetic',
+          chatId: '5567999991111',
+          timeZone: 'America/Cuiaba',
+        }
+      );
+      const linked = await fixture.adapter.query<{ transaction_id: string }>(
+        'SELECT transaction_id FROM customer_receivable_items WHERE plan_id=$1 ORDER BY sequence',
+        [saved[0]!.id]
+      );
+      // Simulate existing imported ledger currencies, which the BRL-only portal cannot edit.
+      await fixture.adapter.execute("UPDATE expenses SET currency='USD' WHERE id=$1", [
+        linked[0]!.transaction_id,
+      ]);
+      await fixture.adapter.execute(
+        "UPDATE expenses SET currency='USD',amount=7.50,status='settled' WHERE id=$1",
+        [linked[1]!.transaction_id]
+      );
+      // A malformed legacy link must not disclose or count the other owner's money.
+      await fixture.adapter.execute('UPDATE expenses SET user_id=$2,amount=999.00 WHERE id=$1', [
+        linked[2]!.transaction_id,
+        other,
+      ]);
+      const balances = async () => {
+        const current = (await receivables.list())[0]!;
+        expect(Number(current.total_cents)).toBe(8000);
+        return current.currency_balances?.map((balance) => ({
+          currency: balance.currency,
+          pending: Number(balance.pending_cents),
+          paid: Number(balance.paid_cents),
+        }));
+      };
+      expect(await balances()).toEqual([
+        { currency: 'BRL', pending: 2000, paid: 0 },
+        { currency: 'USD', pending: 2000, paid: 750 },
+      ]);
+      expect(await repo(other).list()).toEqual([]);
+      const snapshot = async () => ({
+        ledger: await fixture.adapter.query(
+          'SELECT id,user_id,currency,amount,status,updated_at FROM expenses ORDER BY id'
+        ),
+        reminders: await fixture.adapter.query(
+          'SELECT id,status,updated_at FROM channel_reminders ORDER BY id'
+        ),
+        operations: await fixture.adapter.query('SELECT * FROM customer_finance_operations'),
+      });
+      const before = await snapshot();
+      await expect(
+        receivables.receive(
+          saved[0]!.id,
+          20,
+          createHash('sha256').update('synthetic-mixed-receive').digest('hex'),
+          '2027-02-01'
+        )
+      ).rejects.toThrow(/outra moeda/iu);
+      await expect(
+        receivables.receiveNext(
+          saved[0]!.id,
+          createHash('sha256').update('synthetic-mixed-next').digest('hex'),
+          '2027-02-01'
+        )
+      ).rejects.toThrow(/outra moeda/iu);
+      expect(await snapshot()).toEqual(before);
+
+      await new CustomerFinanceRepository(user).updateTransaction(linked[3]!.transaction_id, {
+        status: 'settled',
+      });
+      expect(await balances()).toEqual([
+        { currency: 'BRL', pending: 0, paid: 2000 },
+        { currency: 'USD', pending: 2000, paid: 750 },
+      ]);
+      expect(await receivables.pendingTotals()).toEqual([
+        { currency: 'USD', amountCents: 2000, count: 1 },
+      ]);
+      const reply = await tryReceivableChannelReply(
+        {
+          id: 'synthetic-foreign-balance-read',
+          channelPluginId: 'channel.whatsapp.synthetic',
+          platform: 'whatsapp',
+          platformChatId: '5567999991111',
+          sender: { platformUserId: '5567999991111', platform: 'whatsapp' },
+          text: 'Quanto Cliente Aurora internacional está devendo?',
+          timestamp: new Date('2026-11-17T20:00:00.000Z'),
+          metadata: { isGroup: false },
+        },
+        user,
+        async () => true
+      );
+      expect(reply).toContain('USD');
+      expect(reply).toContain('20,00');
+      expect(reply).not.toMatch(/quitad|não há|nenhum|999,00/iu);
+    });
+
     it.each(['whatsapp', 'telegram'] as const)(
       'answers the general receivable question through %s without using a model or changing the ledger',
       async (platform) => {
@@ -212,7 +383,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         await seedLedger('chat-usd-', 31, '2.00', 'USD', { date: '2099-12-31' });
         await seedLedger('chat-foreign-', 1, '999.00', 'BRL', { owner: other });
         const before = await repo().pendingTotals();
-        const canWrite = vi.fn().mockResolvedValue(false);
+        const accessAllowed = vi.fn().mockResolvedValue(true);
         const incoming: ChannelIncomingMessage = {
           id: `synthetic-general-receivables-${platform}`,
           channelPluginId: `channel.${platform}.synthetic`,
@@ -223,14 +394,14 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
           timestamp: new Date('2026-11-17T23:59:59.000Z'),
           metadata: { isGroup: false, chatType: 'private' },
         };
-        const reply = await tryReceivableChannelReply(incoming, user, canWrite);
+        const reply = await tryReceivableChannelReply(incoming, user, accessAllowed);
         expect(reply).toContain('101,00');
         expect(reply).toContain('62,00');
         expect(reply).toContain('132');
         expect(reply).toMatch(/BRL|R\$/u);
         expect(reply).toContain('USD');
         expect(reply).not.toMatch(/999,00|não consegui|parcial|zero/iu);
-        expect(canWrite).not.toHaveBeenCalled();
+        expect(accessAllowed).toHaveBeenCalled();
         expect(await repo().pendingTotals()).toEqual(before);
       }
     );

@@ -85,8 +85,8 @@ describe('complete registered receivable balance', () => {
     ]);
   });
   it('does not revive a removed pending installment using the plan original total', async () => {
-    // list() still derives remaining from original plan total minus settled rows.
-    // This balance deliberately reads only the current ledger, not that historical formula.
+    // Both plan balances and the general balance use current income rows;
+    // an original agreement never restores an explicitly removed installment.
     ledger = [entry({ deleted: true, plan: 'unchanged-original-plan' })];
     expect(await new CustomerReceivablesRepository(user).pendingTotals()).toEqual([]);
   });
@@ -100,5 +100,72 @@ describe('complete registered receivable balance', () => {
   });
   it('requires an authenticated repository identity', () => {
     expect(() => new CustomerReceivablesRepository('')).toThrow('autenticada');
+  });
+});
+
+describe('current per-plan ledger balances', () => {
+  const plan = {
+    id: 'fixture-plan',
+    borrower: 'Pessoa Sintética',
+    principal_cents: '50000',
+    total_cents: '70000',
+    installments: 10,
+    local_time: '18:00',
+    time_zone: 'America/Cuiaba',
+    remaining_cents: '12000',
+    paid_cents: '7000',
+    currency_balances: [
+      { currency: 'BRL', pending_cents: '12000', paid_cents: '7000' },
+      { currency: 'USD', pending_cents: '2000', paid_cents: '1000' },
+    ],
+  };
+  it('reads current income rows by plan and currency without the former100-plan cutoff or nominal subtraction', async () => {
+    adapter.query.mockResolvedValue(
+      Array.from({ length: 125 }, (_, index) => ({ ...plan, id: `fixture-${index}` }))
+    );
+    const results = await new CustomerReceivablesRepository(user).list();
+    expect(results).toHaveLength(125);
+    expect(results[0]?.currency_balances).toEqual(plan.currency_balances);
+    expect(results[0]?.total_cents).toBe('70000');
+    const [sql, params] = adapter.query.mock.calls[0]!;
+    expect(sql).toContain('owner.user_id=$1');
+    expect(sql).toContain('e.user_id=owner.user_id');
+    expect(sql).toContain("e.transaction_type='income'");
+    expect(sql).toContain('e.deleted_at IS NULL');
+    expect(sql).toContain('GROUP BY i.plan_id,e.currency');
+    expect(sql).not.toMatch(/LIMIT|GREATEST|p\.total_cents\s*-/iu);
+    expect(params).toEqual([user]);
+  });
+  it('refuses a malformed currency balance instead of presenting a false zero', async () => {
+    adapter.query.mockResolvedValue([
+      { ...plan, currency_balances: [{ currency: 'USD', pending_cents: 'NaN', paid_cents: '0' }] },
+    ]);
+    await expect(new CustomerReceivablesRepository(user).list()).rejects.toThrow('conferir');
+  });
+  it('does not settle an unspecified foreign-currency installment as if it were BRL', async () => {
+    adapter.transaction.mockImplementation(async (fn: () => Promise<unknown>) => fn());
+    adapter.queryOne.mockResolvedValue(null);
+    adapter.query.mockResolvedValue([{ currency: 'USD' }]);
+    await expect(
+      new CustomerReceivablesRepository(user).receiveNext(
+        'fixture-plan',
+        'a'.repeat(64),
+        '2026-11-17'
+      )
+    ).rejects.toThrow('outra moeda');
+    expect(
+      adapter.execute.mock.calls.some(([sql]) => /^(?:UPDATE|INSERT|DELETE)/iu.test(String(sql)))
+    ).toBe(false);
+    await expect(
+      new CustomerReceivablesRepository(user).receive(
+        'fixture-plan',
+        50,
+        'b'.repeat(64),
+        '2026-11-17'
+      )
+    ).rejects.toThrow('outra moeda');
+    expect(
+      adapter.execute.mock.calls.some(([sql]) => /^(?:UPDATE|INSERT|DELETE)/iu.test(String(sql)))
+    ).toBe(false);
   });
 });

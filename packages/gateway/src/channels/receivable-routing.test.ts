@@ -52,6 +52,16 @@ const third: ReceivablePlan = {
 };
 const request =
   'Emprestei e quero que registre. Cliente Alfa pegou 500 e paga 700 em 10 parcelas de 70, todo dia menos domingo, às 18h, começando amanhã. Cliente Beta pegou 800 e paga 1.120 em 10 parcelas de 112, todo dia menos domingo, às 14h30, começando amanhã. Cliente Gama pegou 1.250 e paga 1.750 em 10 parcelas de 175, todo dia menos domingo, às 20h, começando amanhã.';
+beforeEach(() => {
+  mocks.account.mockImplementation(async (dataUserId: string) => ({
+    id: 'fixture-account',
+    dataUserId,
+    phoneNumber: 'fixture-chat',
+    channelUserId: 'fixture-channel-user',
+    authVersion: 1,
+    timeZone: 'America/Cuiaba',
+  }));
+});
 
 describe('general receivable balance before the monthly finance route or provider', () => {
   const incoming = (text: string) =>
@@ -77,7 +87,7 @@ describe('general receivable balance before the monthly finance route or provide
     'Mostre meus recebíveis',
     'Meus valores a receber',
   ])('reads the complete real ledger with no month restriction: %s', async (text) => {
-    const canWrite = vi.fn();
+    const canWrite = vi.fn().mockResolvedValue(true);
     const answer = await tryReceivableChannelReply(incoming(text), 'fixture-user-a', canWrite);
     expect(answer).toContain('Valores pendentes registrados');
     expect(answer).toContain('R$ 770,00');
@@ -86,8 +96,8 @@ describe('general receivable balance before the monthly finance route or provide
     expect(mocks.scope).toHaveBeenCalledWith('fixture-user-a');
     expect(mocks.list).not.toHaveBeenCalled();
     expect(mocks.writer).not.toHaveBeenCalled();
-    expect(mocks.account).not.toHaveBeenCalled();
-    expect(canWrite).not.toHaveBeenCalled();
+    expect(mocks.account).toHaveBeenCalled();
+    expect(canWrite).toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.receive).not.toHaveBeenCalled();
   });
@@ -97,7 +107,7 @@ describe('general receivable balance before the monthly finance route or provide
       await tryReceivableChannelReply(
         incoming('Quanto eu tenho a receber?'),
         'fixture-user',
-        vi.fn()
+        vi.fn().mockResolvedValue(true)
       )
     ).toContain('não tem valores pendentes a receber registrados');
   });
@@ -109,7 +119,7 @@ describe('general receivable balance before the monthly finance route or provide
     const answer = await tryReceivableChannelReply(
       incoming('Quanto eu tenho a receber?'),
       'fixture-user',
-      vi.fn()
+      vi.fn().mockResolvedValue(true)
     );
     expect(answer).toContain('A receber em BRL');
     expect(answer).toContain('A receber em USD');
@@ -119,7 +129,7 @@ describe('general receivable balance before the monthly finance route or provide
     const failure = await tryReceivableChannelReply(
       incoming('Quanto eu tenho a receber?'),
       'fixture-user',
-      vi.fn()
+      vi.fn().mockResolvedValue(true)
     );
     expect(failure).toContain('Não consegui consultar');
     expect(failure).not.toMatch(/private|password|não tem valores|R\$/);
@@ -142,14 +152,14 @@ describe('general receivable balance before the monthly finance route or provide
       await tryReceivableChannelReply(
         { ...incoming(text), metadata: { isGroup: true } } as never,
         'fixture-user',
-        vi.fn()
+        vi.fn().mockResolvedValue(true)
       )
     ).toBeNull();
     expect(
       await tryReceivableChannelReply(
         { ...incoming(text), platformChatId: 'fixture@g.us' },
         'fixture-user',
-        vi.fn()
+        vi.fn().mockResolvedValue(true)
       )
     ).toBeNull();
     expect(
@@ -161,14 +171,14 @@ describe('general receivable balance before the monthly finance route or provide
           sender: { platformUserId: 'another-sender', platform: 'telegram' },
         },
         'fixture-user',
-        vi.fn()
+        vi.fn().mockResolvedValue(true)
       )
     ).toBeNull();
     expect(
       await tryReceivableChannelReply(
         { ...incoming(text), attachments: [{ type: 'image', url: 'fixture' }] },
         'fixture-user',
-        vi.fn()
+        vi.fn().mockResolvedValue(true)
       )
     ).toBeNull();
     expect(mocks.totals).not.toHaveBeenCalled();
@@ -272,5 +282,117 @@ describe('installment receivable requests', () => {
       )
     ).toBeNull();
     expect(() => receivableDates({ ...first, total: 700.01 }, 'America/Cuiaba')).toThrow();
+  });
+});
+
+describe('named plan queries and receipt confirmations use the current ledger', () => {
+  const saved = {
+    id: 'fixture-plan',
+    borrower: 'Cliente Aurora',
+    principal_cents: '10000',
+    total_cents: '20000',
+    installments: 4,
+    local_time: '18:00',
+    time_zone: 'America/Cuiaba',
+    remaining_cents: '5000',
+    paid_cents: '2500',
+    currency_balances: [{ currency: 'BRL', pending_cents: '5000', paid_cents: '2500' }],
+  };
+  const incoming = (text: string) =>
+    ({
+      id: 'fixture-plan-inbound',
+      text,
+      platform: 'whatsapp',
+      channelPluginId: 'channel.whatsapp',
+      platformChatId: 'fixture-private-chat',
+      timestamp: new Date('2026-11-17T16:00:00Z'),
+      metadata: {},
+      attachments: [],
+    }) as ChannelIncomingMessage;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.list.mockResolvedValue([saved]);
+  });
+  it('distinguishes the original agreement from the current edited balance', async () => {
+    const reply = await tryReceivableChannelReply(
+      incoming('Quanto Cliente Aurora me deve?'),
+      'fixture-user-a',
+      vi.fn().mockResolvedValue(true)
+    );
+    expect(reply).toContain('Total combinado originalmente:* R$ 200,00');
+    expect(reply).toContain('A receber:* R$ 50,00');
+    expect(reply).not.toContain('A receber:* R$ 175,00');
+    expect(mocks.scope).toHaveBeenCalledWith('fixture-user-a');
+  });
+  it('finds the named person beyond the former100-plan limit', async () => {
+    mocks.list.mockResolvedValue([
+      ...Array.from({ length: 125 }, (_, index) => ({
+        ...saved,
+        id: `other-${index}`,
+        borrower: `Pessoa ${index}`,
+      })),
+      saved,
+    ]);
+    const reply = await tryReceivableChannelReply(
+      incoming('Quanto Cliente Aurora me deve?'),
+      'fixture-user-a',
+      vi.fn().mockResolvedValue(true)
+    );
+    expect(reply).toContain('Cliente Aurora');
+    expect(reply).toContain('A receber:* R$ 50,00');
+    expect(reply).not.toContain('Pessoa 0');
+  });
+  it('does not hide pending foreign currency behind a BRL zero', async () => {
+    mocks.list.mockResolvedValue([
+      {
+        ...saved,
+        remaining_cents: '0',
+        currency_balances: [{ currency: 'USD', pending_cents: '3500', paid_cents: '0' }],
+      },
+    ]);
+    const reply = await tryReceivableChannelReply(
+      incoming('Quanto Cliente Aurora me deve?'),
+      'fixture-user-a',
+      vi.fn().mockResolvedValue(true)
+    );
+    expect(reply).toMatch(/A receber:\* US\$\s*35,00/);
+    expect(reply).not.toMatch(/A receber:\* R\$ 0,00|quitad|tudo pago/);
+  });
+  it('shows the freshly persisted balance after receiving, rather than subtracting from nominal total', async () => {
+    mocks.receive.mockResolvedValue([
+      {
+        ...saved,
+        remaining_cents: '0',
+        paid_cents: '7500',
+        currency_balances: [{ currency: 'BRL', pending_cents: '0', paid_cents: '7500' }],
+      },
+    ]);
+    const canWrite = vi.fn().mockResolvedValue(true);
+    const reply = await tryReceivableChannelReply(
+      incoming('Recebi 50 de Cliente Aurora'),
+      'fixture-user-a',
+      canWrite
+    );
+    expect(reply).toContain('Recebimento confirmado');
+    expect(reply).toContain('Recebido:* R$ 75,00');
+    expect(reply).toContain('A receber:* R$ 0,00');
+    expect(mocks.receive).toHaveBeenCalledWith(
+      'fixture-plan',
+      50,
+      expect.stringMatching(/^[a-f0-9]{64}$/),
+      '2026-11-17'
+    );
+    expect(mocks.writer).not.toHaveBeenCalled();
+  });
+  it('does not reinterpret a foreign-currency receipt as BRL', async () => {
+    const canWrite = vi.fn().mockResolvedValue(true);
+    const reply = await tryReceivableChannelReply(
+      incoming('Recebi 50 dólares de Cliente Aurora'),
+      'fixture-user-a',
+      canWrite
+    );
+    expect(reply).toContain('outra moeda');
+    expect(mocks.receive).not.toHaveBeenCalled();
+    expect(canWrite).toHaveBeenCalled();
   });
 });

@@ -151,16 +151,17 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       });
       const query = await tryCustomerPlanningChannelReply(
         message('query-car', 'Quanto resta da parcela do meu carro?') as never,
-        user
+        user,
+        async () => true
       );
       expect(query).toContain('66.030,00');
       const payment = message('pay-car', 'Mais uma parcela do carro paga');
-      const reply = await tryCustomerPlanningChannelReply(payment as never, user);
+      const reply = await tryCustomerPlanningChannelReply(payment as never, user, async () => true);
       expect(reply).toContain('Parcela paga e despesa registrada');
       expect((await plans.get(plan.id))?.installmentsPaid).toBe(2);
-      expect(await tryCustomerPlanningChannelReply(payment as never, user)).toContain(
-        'já registrada'
-      );
+      expect(
+        await tryCustomerPlanningChannelReply(payment as never, user, async () => true)
+      ).toContain('já registrada');
       expect((await plans.get(plan.id))?.installmentsPaid).toBe(2);
       const finance = new CustomerFinanceRepository(user);
       const expense = await finance.listTransactions({ search: 'Parcela do carro' });
@@ -187,11 +188,15 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         progress: 100,
       });
       const saving = message('save-once', 'Guardei 100 reais na meta Viagem');
-      await tryCustomerPlanningChannelReply(saving as never, user);
-      await tryCustomerPlanningChannelReply(saving as never, user);
+      await tryCustomerPlanningChannelReply(saving as never, user, async () => true);
+      await tryCustomerPlanningChannelReply(saving as never, user, async () => true);
       expect((await plans.get(goal.id))?.progress).toBe(200);
       expect(
-        await tryCustomerPlanningChannelReply(message('goals-list', 'Minhas metas') as never, user)
+        await tryCustomerPlanningChannelReply(
+          message('goals-list', 'Minhas metas') as never,
+          user,
+          async () => true
+        )
       ).toContain('200,00');
       expect(
         await executeCustomerPlanningTool(
@@ -317,12 +322,12 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         }
       );
       const incoming = message('receive-next-once', 'Mais uma parcela de Cliente recebível paga');
-      expect(await tryCustomerPlanningChannelReply(incoming as never, user)).toContain(
-        'Parcela recebida'
-      );
-      expect(await tryCustomerPlanningChannelReply(incoming as never, user)).toContain(
-        'Parcela recebida'
-      );
+      expect(
+        await tryCustomerPlanningChannelReply(incoming as never, user, async () => true)
+      ).toContain('Parcela recebida');
+      expect(
+        await tryCustomerPlanningChannelReply(incoming as never, user, async () => true)
+      ).toContain('Parcela recebida');
       const balance = (await repo.list()).find((p) => p.id === plan!.id)!;
       expect(Number(balance.paid_cents)).toBe(5500);
       expect(Number(balance.remaining_cents)).toBe(11000);
@@ -349,7 +354,8 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(
         await tryCustomerPlanningChannelReply(
           message('ambiguous-next', incoming.text) as never,
-          user
+          user,
+          async () => true
         )
       ).toContain('mais de um controle');
       expect((await new CustomerPlanningRepository(user).get(matching.id))?.installmentsPaid).toBe(
@@ -364,12 +370,12 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         'create-goal-once',
         'Crie uma meta Notebook de R$ 8000 com R$ 100 guardados'
       );
-      expect(await tryCustomerPlanningChannelReply(input as never, user)).toContain(
-        'Planejamento registrado'
-      );
-      expect(await tryCustomerPlanningChannelReply(input as never, user)).toContain(
-        'já registrado'
-      );
+      expect(
+        await tryCustomerPlanningChannelReply(input as never, user, async () => true)
+      ).toContain('Planejamento registrado');
+      expect(
+        await tryCustomerPlanningChannelReply(input as never, user, async () => true)
+      ).toContain('já registrado');
       const plans = new CustomerPlanningRepository(user);
       const goal = (await plans.list()).filter((p) => p.title === 'Notebook');
       expect(goal).toHaveLength(1);
@@ -377,7 +383,8 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(
         await tryCustomerPlanningChannelReply(
           message('create-budget', 'Defina um orçamento de Alimentação de R$ 500') as never,
-          user
+          user,
+          async () => true
         )
       ).toContain('Planejamento registrado');
       expect(
@@ -386,7 +393,8 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
             'create-purchase',
             'Cadastre compra Computador em 12 parcelas de R$ 300, com 2 pagas'
           ) as never,
-          user
+          user,
+          async () => true
         )
       ).toContain('Planejamento registrado');
       expect((await plans.list()).find((p) => p.title === 'Computador')).toMatchObject({
@@ -396,7 +404,9 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       });
       expect((await finance.listTransactions()).total).toBe(totalBefore);
       await plans.delete(goal[0]!.id);
-      expect(await tryCustomerPlanningChannelReply(input as never, user)).toContain('foi excluído');
+      expect(
+        await tryCustomerPlanningChannelReply(input as never, user, async () => true)
+      ).toContain('foi excluído');
       expect((await plans.list()).some((p) => p.title === 'Notebook')).toBe(false);
     });
     it('keeps the audit scoped and read-only and detects a foreign suffix without disclosing it', async () => {
