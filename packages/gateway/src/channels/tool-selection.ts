@@ -285,7 +285,9 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     /\bguardar\s+(?:r\$|\d|dinheiro)\b/.test(input)
   ) {
     add('create_goal', 'list_goals', 'update_goal', 'get_goal_details', 'get_goal_stats');
+    add('list_customer_planning');
   }
+  if (/\b(?:orcamentos?|parcelas?|planejamento)\b/.test(input)) add('list_customer_planning');
   if (/\b(?:tarefa|tarefas|afazer|afazeres)\b/.test(input)) add('add_task', 'list_tasks');
   if (/\b(?:consulta|dentista|reuniao|compromisso|calendario|agenda)\b/.test(input))
     add('add_calendar_event', 'list_calendar_events');

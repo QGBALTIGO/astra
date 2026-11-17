@@ -11,12 +11,18 @@ on:
       - 'packages/gateway/src/customer-sync-audit*'
       - 'packages/gateway/src/channels/short-channel-reply*'
       - 'packages/gateway/src/channels/confirmed-reply-personality*'
+      - 'packages/gateway/src/channels/customer-planning-routing*'
+      - 'packages/gateway/src/channels/channel-ai-routing*'
+      - 'packages/gateway/src/channels/tool-selection*'
+      - 'packages/gateway/src/tools/customer-planning-tools*'
       - 'scripts/railway-entrypoint.sh'
       - 'Dockerfile'
       - 'packages/gateway/src/routes/customer/**'
       - 'packages/gateway/src/routes/referrals-admin*'
       - 'packages/gateway/src/middleware/customer-*'
       - 'packages/gateway/src/db/repositories/customer-planning*'
+      - 'packages/gateway/src/db/repositories/customer-plan-actions*'
+      - 'packages/gateway/src/db/repositories/customer-receivables*'
       - 'packages/gateway/src/db/repositories/customer-finance*'
       - 'packages/gateway/src/db/repositories/planning-integrity.pg.test.ts'
       - 'packages/gateway/src/db/repositories/customer-investments*'
@@ -91,6 +97,7 @@ jobs:
           src/channels/short-channel-reply.test.ts
           src/channels/confirmed-reply-personality.test.ts
           src/channels/customer-finance-routing.test.ts
+          src/channels/customer-planning-routing.test.ts
           src/db/repositories/customer-finance.test.ts
           src/routes/customer/finance.test.ts
       - name: Optional encrypted pre-start preservation safety contracts

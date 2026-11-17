@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { readFile, access } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mockCustomerApi } from './customer-fixtures';
+import { mockCustomerApi, navigateCustomer } from './customer-fixtures';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const oldDist = process.env.ASTRA_OLD_UI_DIST;
@@ -196,5 +196,41 @@ test('receives external financial changes without reloading or discarding an ope
   await expect(page.getByText('Entrada recebida pelo WhatsApp', { exact: true })).toBeVisible();
   await expect(page.getByText('Despesa recebida pelo WhatsApp', { exact: true })).toBeVisible();
   expect(api.mutations.filter((item) => item.path === '/finance/transactions')).toEqual([]);
+  expect(api.pageErrors).toEqual([]);
+});
+
+test('shows channel entries in home activity and transactions despite a full page of future receivables', async ({
+  page,
+}) => {
+  phase = 1;
+  await page.clock.install({ time: new Date('2026-11-17T17:00:00Z') });
+  const api = await mockCustomerApi(page, { authenticated: true, futureDueDates: true });
+  await page.goto(origin + '/cliente');
+  await expect(page.locator('.home-summary-balance')).toBeVisible();
+  api.receiveFromChannel('income', 'Nova entrada confirmada no WhatsApp');
+  api.receiveFromChannel('expense', 'Nova despesa confirmada no WhatsApp');
+  await page.clock.runFor(16_000);
+  const activity = page.locator('.transactions-panel');
+  await expect(
+    activity.getByText('Nova entrada confirmada no WhatsApp', { exact: true })
+  ).toBeVisible();
+  await expect(
+    activity.getByText('Nova despesa confirmada no WhatsApp', { exact: true })
+  ).toBeVisible();
+  await navigateCustomer(page, 'Transações');
+  await expect(
+    page.getByText('Nova entrada confirmada no WhatsApp', { exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByText('Nova despesa confirmada no WhatsApp', { exact: true })
+  ).toBeVisible();
+  await navigateCustomer(page, 'Início');
+  api.receiveFromChannel('income', 'Entrada enquanto a aba está fechada');
+  await page.clock.runFor(16_000);
+  await navigateCustomer(page, 'Transações');
+  await expect(
+    page.getByText('Entrada enquanto a aba está fechada', { exact: true })
+  ).toBeVisible();
+  expect(api.mutations).toEqual([]);
   expect(api.pageErrors).toEqual([]);
 });
