@@ -1,4 +1,38 @@
+import { BRAZIL_TEAMS } from './football.js';
+
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+
+export function canonicalFootballSubject(subject: string): string | undefined {
+  const query = fold(subject).replace(/\s+/g, ' ');
+  if (query.length < 3) return undefined;
+  const teams = BRAZIL_TEAMS.filter(
+    (team) =>
+      [team[1], team[2]].some((name) => fold(name) === query) ||
+      (' ' + fold(team[3]) + ' ').includes(' ' + query + ' ')
+  );
+  return teams.length === 1 ? teams[0]![1] : undefined;
+}
+
+/** These short clarifications carry a public topic, never recurring consent. */
+export function footballTimingReply(
+  text: string
+): { kind: 'before' } | { kind: 'all-team'; subject: string } | undefined {
+  const input = fold(text)
+    .replace(/\s+/g, ' ')
+    .replace(/[.!?]+$/, '')
+    .trim();
+  if (
+    /^(?:(?:uma?|duas?|\d{1,3}) (?:horas?|minutos?) )?antes(?: (?:do|da) (?:jogo|partida)(?: (?:comecar|iniciar))?| do inicio(?: (?:do|da) (?:jogo|partida))?| de (?:comecar|iniciar)(?: (?:o|a) (?:jogo|partida))?)?$/.test(
+      input
+    )
+  )
+    return { kind: 'before' };
+  const all = /^tod(?:os|as)\s*(?:(?:os\s*)?jogos|(?:as\s*)?partidas)?\s*(?:do|da|de)\s*(.+)$/.exec(
+    input
+  );
+  const subject = all?.[1] ? canonicalFootballSubject(all[1]) : undefined;
+  return subject ? { kind: 'all-team', subject } : undefined;
+}
 
 /** Only the customer's own explicit recurring game request authorizes a follow. */
 export function gameAlertRequest(s: string): boolean {

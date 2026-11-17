@@ -8,9 +8,14 @@ import { integrationPrivateChat } from './customer-integrations.js';
 import {
   clearRadarChatPending,
   isPendingRadarReply,
+  radarChatContext,
   radarChatPending,
 } from '../services/radar/chat-pending.js';
-import { gameAlertRequest, explicitRadarTime } from '../services/radar/chat-intent.js';
+import {
+  gameAlertRequest,
+  explicitRadarTime,
+  footballTimingReply,
+} from '../services/radar/chat-intent.js';
 import { isConversationalOnlyChannelRequest } from './tool-selection.js';
 
 /** Narrow, zero-inference intents. Ordinary reminders and unrelated messages are untouched. */
@@ -38,6 +43,10 @@ export async function tryRadarChannelReply(
   const gameAlert = gameAlertRequest(message.text);
   const conversationOnly = isConversationalOnlyChannelRequest(message.text);
   if (!stop && !list && conversationOnly) return null;
+  const footballTiming = footballTimingReply(message.text);
+  const footballFollowUp =
+    footballTiming?.kind === 'all-team' ||
+    (footballTiming?.kind === 'before' && /\b(?:jogo|partida)\b/.test(text));
   const cancelText = /^(?:nao|cancelar|cancela|deixa pra la)$/.test(text);
   // This is only a cheap chat/channel preflight. Resolve the account before
   // selecting its exact private pending key: callers can carry a phone alias.
@@ -50,7 +59,17 @@ export async function tryRadarChannelReply(
       (cancelText || isPendingRadarReply(owner!, channel, chat, message.text))
     );
   });
-  if (!stop && !list && !gameAlert && !pendingCandidate) return null;
+  const contextCandidate = [...radarChatContext].some(([key, value]) => {
+    const [, channel, chat] = JSON.parse(key) as string[];
+    return (
+      channel === message.channelPluginId &&
+      chat === message.platformChatId &&
+      value.expires > Date.now() &&
+      (cancelText || !!footballTiming)
+    );
+  });
+  if (!stop && !list && !gameAlert && !footballFollowUp && !pendingCandidate && !contextCandidate)
+    return null;
   if (
     !stop &&
     !list &&
@@ -69,10 +88,25 @@ export async function tryRadarChannelReply(
       ![account.dataUserId, 'whatsapp:' + account.phoneNumber].includes(userId)
     )
       return null;
-    const pending = radarChatPending.get(
-      JSON.stringify([account.dataUserId, message.channelPluginId, message.platformChatId])
-    );
-    const pendingCancel = !!pending && cancelText;
+    const key = JSON.stringify([
+      account.dataUserId,
+      message.channelPluginId,
+      message.platformChatId,
+    ]);
+    const pending = radarChatPending.get(key);
+    const context = radarChatContext.get(key);
+    const validContext =
+      !!context &&
+      context.accountId === account.id &&
+      context.expires > Date.now() &&
+      context.messageId !== message.id;
+    const contextualReply = validContext && (cancelText || !!footballTiming);
+    const validPending =
+      !!pending &&
+      pending.accountId === account.id &&
+      pending.expires > Date.now() &&
+      pending.messageId !== message.id;
+    const pendingCancel = (validPending || validContext) && cancelText;
     const pendingReply =
       pendingCancel ||
       isPendingRadarReply(
@@ -81,12 +115,15 @@ export async function tryRadarChannelReply(
         message.platformChatId,
         message.text
       );
-    const validPending =
-      !!pending &&
-      pending.accountId === account.id &&
-      pending.expires > Date.now() &&
-      pending.messageId !== message.id;
-    if (!stop && !list && !gameAlert && (!validPending || !pendingReply)) return null;
+    if (
+      !stop &&
+      !list &&
+      !gameAlert &&
+      !footballFollowUp &&
+      !contextualReply &&
+      (!validPending || !pendingReply)
+    )
+      return null;
     const repo = new CustomerRadarRepository(account.dataUserId);
     if (stop) {
       clearRadarChatPending(account.dataUserId);
@@ -104,7 +141,7 @@ export async function tryRadarChannelReply(
         ASTRA_CUSTOMER_ORIGIN +
         '/cliente/radar'
       );
-    if (gameAlert || (pendingReply && validPending)) {
+    if (gameAlert || footballFollowUp || contextualReply || (pendingReply && validPending)) {
       if (!message.id || !message.channelPluginId || message.metadata?.fromMe !== false)
         return null;
       const current = await resolveCustomerPhone(message.sender.platformUserId);

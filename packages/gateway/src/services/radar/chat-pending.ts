@@ -1,3 +1,5 @@
+import { footballTimingReply } from './chat-intent.js';
+
 /** Conversation-local continuity without importing the AI execution graph. */
 export const radarChatPending = new Map<
   string,
@@ -13,6 +15,19 @@ export const radarChatPending = new Map<
 export function clearRadarChatPending(userId: string) {
   for (const key of radarChatPending.keys())
     if (JSON.parse(key)[0] === userId) radarChatPending.delete(key);
+  for (const key of radarChatContext.keys())
+    if (JSON.parse(key)[0] === userId) radarChatContext.delete(key);
+}
+
+export function isContextualRadarReply(
+  userId: string,
+  channelId: string | undefined,
+  chatId: string | undefined,
+  text: string
+): boolean {
+  if (!channelId || !chatId || !footballTimingReply(text)) return false;
+  const context = radarChatContext.get(JSON.stringify([userId, channelId, chatId]));
+  return !!context && context.expires > Date.now();
 }
 
 export function isPendingRadarReply(
@@ -35,4 +50,21 @@ export function isPendingRadarReply(
       input
     )
   );
+}
+export interface RadarChatContext {
+  accountId: string;
+  subject: string;
+  expires: number;
+  messageId: string;
+}
+
+/** Public topic continuity only. This map never stores an operation or a clock. */
+export const radarChatContext = new Map<string, RadarChatContext>();
+
+export function rememberRadarChatContext(key: string, value: Omit<RadarChatContext, 'expires'>) {
+  for (const [entryKey, entry] of radarChatContext)
+    if (entry.expires <= Date.now()) radarChatContext.delete(entryKey);
+  if (radarChatContext.size >= 5000 && !radarChatContext.has(key))
+    radarChatContext.delete(radarChatContext.keys().next().value!);
+  radarChatContext.set(key, { ...value, expires: Date.now() + 24 * 60 * 60000 });
 }
