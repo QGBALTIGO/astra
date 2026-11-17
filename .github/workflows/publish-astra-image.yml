@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/publish-astra-image.yml'
       - '.github/workflows/astra-onboarding-release.yml'
+      - '.github/workflows/astra-customer-premium.yml'
+      - '.github/workflows/astra-dashboard-release.yml'
       - 'Dockerfile'
       - 'package.json'
       - 'pnpm-lock.yaml'
