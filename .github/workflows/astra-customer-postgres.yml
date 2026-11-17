@@ -1,0 +1,118 @@
+name: Astra customer channel PostgreSQL
+
+on:
+  pull_request:
+    paths:
+      - 'packages/gateway/**'
+      - 'packages/core/**'
+      - '.github/workflows/astra-customer-postgres.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/gateway/**'
+      - 'packages/core/**'
+      - '.github/workflows/astra-customer-postgres.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: astra-customer-pg-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  channel-postgres:
+    name: PostgreSQL — ${{ matrix.area }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - area: subscriptions
+            suite: src/channels/personal-subscriptions.pg.test.ts
+          - area: tasks
+            suite: src/channels/personal-tasks.pg.test.ts
+          - area: calendar
+            suite: src/channels/calendar-mutation.pg.test.ts
+          - area: account-verification
+            suite: src/channels/auth/verification-postgres.test.ts
+    # Each matrix job owns a fresh service. Each fixture additionally creates
+    # its own random schema and only connects to these fixed loopback targets.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: astra_auth_lab
+          POSTGRES_PASSWORD: astra_customer_pg_ci_only
+          POSTGRES_DB: astra_auth_verification_lab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra_auth_lab -d astra_auth_verification_lab"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      TZ: Asia/Tokyo
+      DATABASE_URL: ''
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: '5432'
+      POSTGRES_USER: astra_auth_lab
+      POSTGRES_PASSWORD: astra_customer_pg_ci_only
+      POSTGRES_DB: astra_auth_verification_lab
+      PGPASSWORD: astra_customer_pg_ci_only
+      ASTRA_AUTH_TEST_PORT: '5432'
+      OWNPILOT_DATA_DIR: ${{ runner.temp }}/astra-customer-pg-data
+      LOG_LEVEL: error
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ownpilot/core build
+      - name: Verify the disposable database identity
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U astra_auth_lab -d astra_auth_verification_lab <<'SQL'
+          DO $$ BEGIN
+            IF current_database() <> 'astra_auth_verification_lab' OR current_user <> 'astra_auth_lab' THEN
+              RAISE EXCEPTION 'Refusing non-laboratory database';
+            END IF;
+          END $$;
+          SQL
+      - name: Run actual channel entry points with PostgreSQL and synthetic customers
+        env:
+          TEST_SUITE: ${{ matrix.suite }}
+        run: >-
+          pnpm --filter @ownpilot/gateway exec vitest run "$TEST_SUITE"
+          --maxWorkers=1 --reporter=json
+          --outputFile="${RUNNER_TEMP}/astra-channel-postgres.json"
+      - name: Reject skipped or empty qualification
+        env:
+          TEST_REPORT: ${{ runner.temp }}/astra-channel-postgres.json
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const report = JSON.parse(readFileSync(process.env.TEST_REPORT, 'utf8'));
+          assert.equal(report.success, true, 'The PostgreSQL suite must pass');
+          assert.equal(report.numFailedTests, 0, 'Failed tests do not qualify');
+          assert.equal(report.numPendingTests, 0, 'Skipped tests do not qualify');
+          assert.ok(report.numPassedTests > 0, 'At least one real test must execute');
+          assert.equal(report.numPassedTests, report.numTotalTests, 'Every collected test must execute');
+          console.log(JSON.stringify({ passed: report.numPassedTests, skipped: 0 }));
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: astra-customer-pg-${{ matrix.area }}
+          path: ${{ runner.temp }}/astra-channel-postgres.json
+          retention-days: 7
+          if-no-files-found: error

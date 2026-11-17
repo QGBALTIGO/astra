@@ -1,7 +1,7 @@
 /** Final channel boundary: model text is not proof of a database write. */
 import { stripInternalTags } from './normalizers/base.js';
 import { isFinanceReadOnlyRequest } from './finance-intent.js';
-import { verifiedChannelFacts } from './verified-facts.js';
+import { verifiedChannelFacts, verifiedReadChannelFacts } from './verified-facts.js';
 import {
   formatAstraMessage,
   formatReminderConfirmation,
@@ -769,6 +769,8 @@ export function safeChannelResponse(
       : '';
     return [...details, summary, notice].filter(Boolean).join('\n\n');
   }
+  const read = verifiedReadChannelFacts(receipts, context);
+  if (read) return read;
   return failures.length
     ? 'Essa alteração ainda não está confirmada. Confira seus registros antes de pedir novamente, para evitar duplicidade.'
     : CHANNEL_UNVERIFIED_REPLY;

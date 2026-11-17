@@ -13,7 +13,23 @@ export function isNonExecutableFinanceCorrection(text: string): boolean {
 }
 
 /** A financial lookup must never become a ledger mutation, regardless of the model. */
+export function isGeneralReceivableQuery(text: string): boolean {
+  const input = text
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .trim()
+    .replace(/^(?:astra[,!:]?\s+)?(?:por favor[, ]*\s*)?/, '')
+    .replace(/[?!.,]+$/u, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  return /^(?:quanto (?:eu )?(?:ainda )?tenho (?:a|para|pra) receber(?: no total)?|o que (?:eu )?tenho a receber|qual (?:e )?(?:o )?(?:meu )?saldo (?:total )?a receber|(?:mostre|liste|consulte|me diga|quero ver) (?:(?:os|meus|os meus) )?(?:recebiveis|valores (?:pendentes )?a receber|contas a receber)|meus (?:recebiveis|valores a receber)|minhas contas a receber)$/u.test(
+    input
+  );
+}
+
 export function isFinanceReadOnlyRequest(text: string): boolean {
+  if (isGeneralReceivableQuery(text)) return true;
   const input = text
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
@@ -21,14 +37,14 @@ export function isFinanceReadOnlyRequest(text: string): boolean {
     .trim()
     .replace(/^(?:astra[,!:]?\s+)?(?:por favor[, ]*\s*)?(?:me\s+)?/, '');
   const reading =
-    /^(?:(?:pode|poderia|consegue)\s+)?(?:mostr[ae]|mostrar|list[ae]|listar|consult[ae]|consultar|veja|ver|quero ver|qual|quais|quanto|resum[aoe]|resumir|extrato|meus? gastos?|minhas? despesas?|tenho algum|o que tenho a)\b/.test(
+    /^(?:(?:pode|poderia|consegue)\s+)?(?:mostr[ae]|mostrar|list[ae]|listar|consult[ae]|consultar|veja|ver|quero ver|qual|quais|quanto|resum[aoe]|resumir|extrato|meus? (?:gastos?|recebiveis|valores)|minhas? (?:despesas?|pendencias|contas)|tenho algum|o que (?:eu )?tenho a)\b/.test(
       input
     );
   const financial =
-    /\b(?:gastos?|despesas?|lancamentos?|financeiro|financas|extrato|saldo|transacoes|entradas|saidas|pendencias)\b/.test(
+    /\b(?:gastos?|despesas?|lancamentos?|financeiro|financas|extrato|saldo|transacoes|entradas|saidas|pendencias|recebiveis|contas a (?:pagar|receber)|valores a (?:pagar|receber))\b/.test(
       input
     ) ||
-    /^(?:quanto\s+(?:eu\s+)?(?:gastei|paguei|recebi|entrou|ganhei)|o que tenho a (?:pagar|receber))\b/.test(
+    /^(?:quanto\s+(?:eu\s+)?(?:(?:ainda\s+)?tenho\s+(?:a|para|pra)\s+(?:pagar|receber)|gastei|paguei|recebi|entrou|ganhei)|o que (?:eu )?tenho a (?:pagar|receber))\b/.test(
       input
     );
   if (!reading || !financial) return false;

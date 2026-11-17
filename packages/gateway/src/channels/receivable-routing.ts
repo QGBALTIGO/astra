@@ -9,6 +9,7 @@ import { CustomerFinanceError } from '../db/repositories/customer-finance.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDay, addCalendarDays } from '../services/customer-date.js';
 import { formatAstraMessage } from './response-presentation.js';
+import { isGeneralReceivableQuery } from './finance-intent.js';
 const fold = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 const money = (cents: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100);
@@ -109,6 +110,20 @@ export async function tryReceivableChannelReply(
   )
     return null;
   const input = fold(message.text);
+  if (
+    /^(?:nao|nunca|jamais)\b/u.test(input.trim()) ||
+    /\b(?:exemplo|ficticio|hipotetico|simulacao)\b/u.test(input)
+  )
+    return null;
+  const generalQuery = isGeneralReceivableQuery(message.text);
+  if (
+    generalQuery &&
+    (message.platform === 'whatsapp'
+      ? message.platformChatId.endsWith('@g.us')
+      : message.metadata?.chatType !== 'private' &&
+        message.platformChatId !== message.sender?.platformUserId)
+  )
+    return null;
   const creation =
     /\bemprestei\b/.test(input) &&
     /\bparcelas?\b/.test(input) &&
@@ -119,10 +134,9 @@ export async function tryReceivableChannelReply(
   const query =
     /\b(?:quanto|saldo|lista|liste|consulte)\b/.test(input) &&
     /\b(?:deve|devendo|emprestimos?|recebiveis)\b/.test(input);
-  if (!creation && !payment && !query) return null;
-  const account = await customerAccountsRepo.getByDataUserId(userId);
-  const timeZone = account?.timeZone ?? 'America/Sao_Paulo',
-    today = customerLocalDay(message.timestamp, timeZone);
+  if (!creation && !payment && !query && !generalQuery) return null;
+  if (!userId?.trim() || !message.id || !message.channelPluginId || !message.platformChatId)
+    return 'Não consegui confirmar sua conversa para consultar os valores.';
   const repo = new CustomerReceivablesRepository(userId);
   const summary = (plans: Awaited<ReturnType<typeof repo.list>>, title: string) =>
     plans
@@ -138,6 +152,36 @@ export async function tryReceivableChannelReply(
       )
       .join('\n\n');
   try {
+    if (generalQuery) {
+      const totals = await repo.pendingTotals();
+      if (!totals.length)
+        return formatAstraMessage(
+          '📒 Valores pendentes registrados',
+          [],
+          'Você não tem valores pendentes a receber registrados.'
+        );
+      const entries = totals.reduce((sum, item) => sum + item.count, 0);
+      if (!Number.isSafeInteger(entries))
+        throw new CustomerFinanceError('Não consegui conferir os valores pendentes agora.');
+      return formatAstraMessage(
+        '📒 Valores pendentes registrados',
+        [
+          ...totals.map((item) => ({
+            label: totals.length === 1 ? 'A receber' : 'A receber em ' + item.currency,
+            value: new Intl.NumberFormat('pt-BR', {
+              style: 'currency',
+              currency: item.currency,
+            }).format(item.amountCents / 100),
+          })),
+          { label: 'Lançamentos pendentes', value: String(entries) },
+        ],
+        'Todos os períodos · Apenas entradas ainda não recebidas.' +
+          (totals.length > 1 ? '\nMoedas apresentadas separadamente, sem conversão.' : '')
+      );
+    }
+    const account = await customerAccountsRepo.getByDataUserId(userId);
+    const timeZone = account?.timeZone ?? 'America/Sao_Paulo',
+      today = customerLocalDay(message.timestamp, timeZone);
     if (creation) {
       const { writeShortChannelReply } = await import('./short-channel-reply.js');
       const raw = await writeShortChannelReply(
@@ -192,6 +236,8 @@ export async function tryReceivableChannelReply(
       : null;
   } catch (error) {
     if (error instanceof CustomerFinanceError) return error.message;
+    if (generalQuery)
+      return 'Não consegui consultar seus valores pendentes agora. Pode tentar de novo em instantes?';
     return 'Não consegui confirmar esse controle agora. Vou precisar conferir o que ficou salvo antes de repetir o registro.';
   }
 }

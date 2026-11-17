@@ -1,5 +1,58 @@
 import { describe, it, expect } from 'vitest';
 import { channelFailureKind, channelFailureReply, presentChannelReply } from './channel-failure.js';
+
+describe('financial reads survive a later provider rate limit', () => {
+  const read = {
+    name: 'core.list_transactions',
+    arguments: '{}',
+    isError: false,
+    content: JSON.stringify({
+      success: true,
+      result: {
+        transactions: [
+          {
+            id: 'private-id',
+            description: 'Parcela do pedido',
+            amount: 70,
+            currency: 'BRL',
+            type: 'income',
+            status: 'pending',
+            date: '2026-12-01',
+            userId: 'private-user',
+            notes: 'private-note',
+          },
+        ],
+        total: 35,
+        page: 1,
+        pageSize: 20,
+      },
+    }),
+  };
+  it('shows the real result rather than reporting a failed lookup or inventing a total', () => {
+    const reply = channelFailureReply('Quanto eu tenho a receber?', 'rate_limited', [read]);
+    expect(reply).toContain('R$ 70,00');
+    expect(reply).toContain('Exibindo 1 de 35');
+    expect(reply).toContain('não representam um saldo total');
+    expect(reply).not.toMatch(/private|não consegui|tente de novo|35,00/);
+  });
+  it('does not display failed, malformed or unrelated lookup data', () => {
+    for (const invalid of [
+      { ...read, isError: true },
+      { ...read, content: '{"success":false}' },
+      { ...read, content: 'not JSON' },
+      { ...read, name: 'core.get_unrelated_private_information' },
+    ]) {
+      const reply = channelFailureReply('Quanto eu tenho a receber?', 'rate_limited', [invalid]);
+      expect(reply).not.toMatch(/R\$|Parcela do pedido|private|Nenhum lançamento/);
+    }
+  });
+  it.each(['Quanto eu tenho a receber?', 'Quanto eu tenho a pagar?', 'Minhas pendências'])(
+    'keeps a financial question within its domain when no read succeeded: %s',
+    (request) => {
+      expect(channelFailureReply(request, 'rate_limited')).toContain('Transações');
+    }
+  );
+});
 import { CHANNEL_UNVERIFIED_REPLY, type ChannelToolReceipt } from './response-safety.js';
 import { isConversationalOnlyChannelRequest } from './tool-selection.js';
 import { tryAstraAccessReply } from './astra-access.js';

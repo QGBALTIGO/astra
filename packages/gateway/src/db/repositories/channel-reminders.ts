@@ -2,7 +2,7 @@
  * Durable one-shot reminders bound to the exact Telegram/WhatsApp conversation.
  * A task's dueDate is not a notification; only a queued channel_reminder is.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
 
 export interface ChannelReminder {
@@ -16,6 +16,19 @@ export interface ChannelReminder {
   attempts: number;
   deliveryId?: string;
   leaseToken?: string;
+}
+
+export interface ChannelReminderPage {
+  items: ChannelReminder[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+export interface ReminderCancellationReceipt {
+  cancelled: number;
+  alreadySending: number;
 }
 
 interface ReminderRow {
@@ -103,6 +116,132 @@ export class ChannelRemindersRepository extends BaseRepository {
       [userId, channelPluginId, platformChatId]
     );
     return rows.map(mapReminder);
+  }
+
+  /** One snapshot supplies both the page and its total; never silently truncate at 30. */
+  async listForChatPage(
+    userId: string,
+    channelPluginId: string,
+    platformChatId: string,
+    options: { page?: number; pageSize?: number; status?: 'pending' | 'all'; before: Date }
+  ): Promise<ChannelReminderPage> {
+    const page = options.page ?? 1;
+    const pageSize = options.pageSize ?? 20;
+    if (
+      !Number.isSafeInteger(page) ||
+      page < 1 ||
+      page > 100_000 ||
+      !Number.isSafeInteger(pageSize) ||
+      pageSize < 1 ||
+      pageSize > 50 ||
+      !Number.isFinite(options.before.getTime()) ||
+      (options.status !== undefined && !['pending', 'all'].includes(options.status))
+    )
+      throw new Error('Página de lembretes inválida.');
+    const row = await this.queryOne<{ total: number; items: ReminderRow[] }>(
+      `WITH eligible AS (
+         SELECT * FROM channel_reminders
+         WHERE user_id=$1 AND channel_plugin_id=$2 AND platform_chat_id=$3
+           AND created_at <= $4 AND ($5::boolean OR status='pending')
+       ), selected AS (
+         SELECT * FROM eligible ORDER BY remind_at ASC,id ASC OFFSET $6 LIMIT $7
+       )
+       SELECT (SELECT count(*)::int FROM eligible) AS total,
+              COALESCE(jsonb_agg(to_jsonb(selected) ORDER BY remind_at ASC,id ASC), '[]'::jsonb) AS items
+       FROM selected`,
+      [
+        userId,
+        channelPluginId,
+        platformChatId,
+        options.before,
+        options.status === 'all',
+        (page - 1) * pageSize,
+        pageSize,
+      ]
+    );
+    const total = Number(row?.total ?? 0);
+    return {
+      items: (row?.items ?? []).map(mapReminder),
+      total,
+      page,
+      pageSize,
+      hasMore: page * pageSize < total,
+    };
+  }
+
+  /** A durable receipt fences retries. Only pending rows existing at receipt are eligible. */
+  async cancelPendingForChatBefore(
+    userId: string,
+    channelPluginId: string,
+    platformChatId: string,
+    messageId: string,
+    receivedAt: Date,
+    allowed: () => Promise<boolean>
+  ): Promise<ReminderCancellationReceipt | null> {
+    if (
+      !userId ||
+      !channelPluginId ||
+      !platformChatId ||
+      !messageId ||
+      !Number.isFinite(receivedAt.getTime()) ||
+      receivedAt.getTime() > Date.now()
+    ) {
+      throw new Error('Pedido de cancelamento inválido.');
+    }
+    const scope = JSON.stringify([userId, channelPluginId, platformChatId]);
+    const scopeHash = createHash('sha256').update(scope).digest('hex');
+    const key =
+      'channel_reminder_cancel_all:' +
+      createHash('sha256')
+        .update(JSON.stringify([scope, messageId]))
+        .digest('hex');
+    return this.transaction(async () => {
+      // Serialize same-conversation cancellations, including first insert of a receipt.
+      await this.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [scopeHash]);
+      if (!(await allowed())) return null;
+      const previous = await this.queryOne<{ value: string }>(
+        'SELECT value FROM system_settings WHERE key=$1',
+        [key]
+      );
+      if (previous) {
+        const receipt = JSON.parse(previous.value) as ReminderCancellationReceipt;
+        if (
+          !Number.isSafeInteger(receipt.cancelled) ||
+          receipt.cancelled < 0 ||
+          !Number.isSafeInteger(receipt.alreadySending) ||
+          receipt.alreadySending < 0
+        )
+          throw new Error('Recibo de cancelamento inválido.');
+        return receipt;
+      }
+      const candidates = await this.query<{ id: string }>(
+        `SELECT id FROM channel_reminders
+         WHERE user_id=$1 AND channel_plugin_id=$2 AND platform_chat_id=$3
+           AND status='pending' AND created_at <= $4
+         ORDER BY id FOR UPDATE`,
+        [userId, channelPluginId, platformChatId, receivedAt]
+      );
+      // Revalidate after any wait for a worker/another writer to release its row locks.
+      if (!(await allowed())) return null;
+      const cancelled = await this.query<{ id: string }>(
+        `UPDATE channel_reminders SET status='cancelled',updated_at=NOW()
+         WHERE user_id=$1 AND channel_plugin_id=$2 AND platform_chat_id=$3
+           AND status='pending' AND created_at <= $4 AND id=ANY($5::text[]) RETURNING id`,
+        [userId, channelPluginId, platformChatId, receivedAt, candidates.map((row) => row.id)]
+      );
+      const sending = await this.queryOne<{ total: number }>(
+        `SELECT count(*)::int AS total FROM channel_reminders
+         WHERE user_id=$1 AND channel_plugin_id=$2 AND platform_chat_id=$3
+           AND status='sending' AND created_at <= $4`,
+        [userId, channelPluginId, platformChatId, receivedAt]
+      );
+      const receipt = { cancelled: cancelled.length, alreadySending: Number(sending?.total ?? 0) };
+      await this.execute('INSERT INTO system_settings(key,value) VALUES($1,$2)', [
+        key,
+        JSON.stringify(receipt),
+      ]);
+      return receipt;
+    });
   }
 
   async listForChatInRange(

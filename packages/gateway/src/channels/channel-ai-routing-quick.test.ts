@@ -2,6 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSchedule = vi.hoisted(() => vi.fn());
 const mockExpense = vi.hoisted(() => vi.fn());
+const receivables = vi.hoisted(() => ({ totals: vi.fn(), scope: vi.fn(), list: vi.fn() }));
+vi.mock('../db/repositories/customer-receivables.js', async (original) => ({
+  ...(await original<typeof import('../db/repositories/customer-receivables.js')>()),
+  CustomerReceivablesRepository: class {
+    constructor(userId: string) {
+      receivables.scope(userId);
+    }
+    pendingTotals = receivables.totals;
+    list = receivables.list;
+  },
+}));
 vi.mock('../tools/channel-reminder-tools.js', () => ({
   executeChannelReminderTool: mockSchedule,
 }));
@@ -17,6 +28,90 @@ import {
   tryExpenseSummaryChannelReply,
   tryScheduleRelativeChannelReminder,
 } from './channel-ai-routing.js';
+
+describe('complete receivable balance through both authenticated channel entry points', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    receivables.totals.mockResolvedValue([{ currency: 'BRL', amountCents: 77000, count: 125 }]);
+    receivables.list.mockResolvedValue([]);
+  });
+  it.each(
+    ['whatsapp', 'telegram'].flatMap((platform) =>
+      ['bus', 'direct'].map((route) => ({ platform, route }))
+    )
+  )(
+    'reads all pending entries for only the current user before the provider: $platform/$route',
+    async ({ platform, route }) => {
+      const userId = `fixture-receivable-${platform}`;
+      const input = {
+        id: `fixture-${route}-${platform}`,
+        channelPluginId: `channel.${platform}`,
+        platform,
+        platformChatId: 'fixture-private-chat',
+        text: 'Quanto eu tenho a receber?',
+        timestamp: new Date('2026-11-17T16:00:00Z'),
+        metadata: { chatType: 'private' },
+        attachments: [],
+        sender: { platformUserId: 'fixture-private-chat', platform, displayName: 'Pessoa Exemplo' },
+      };
+      const bus = { process: vi.fn() };
+      const answer =
+        route === 'bus'
+          ? await processViaBus(
+              bus as never,
+              input as never,
+              { sessionId: 'fixture-session', conversationId: null },
+              { ownpilotUserId: userId },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : await processDirectAgent(input as never, userId, async () => true);
+      expect(answer).toContain('R$ 770,00');
+      expect(answer).toContain('Todos os períodos');
+      expect(answer).toContain('125');
+      expect(receivables.scope).toHaveBeenCalledWith(userId);
+      expect(receivables.totals).toHaveBeenCalledTimes(1);
+      expect(receivables.list).not.toHaveBeenCalled();
+      expect(bus.process).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['bus', 'direct'])(
+    'does not read the ledger without the access gate: %s',
+    async (route) => {
+      const input = {
+        id: 'fixture-denied',
+        channelPluginId: 'channel.whatsapp',
+        platform: 'whatsapp',
+        platformChatId: 'fixture-private-chat',
+        text: 'Quanto eu tenho a receber?',
+        timestamp: new Date('2026-11-17T16:00:00Z'),
+        metadata: {},
+        attachments: [],
+      };
+      const bus = { process: vi.fn() };
+      const answer =
+        route === 'bus'
+          ? await processViaBus(
+              bus as never,
+              input as never,
+              { sessionId: 'fixture-session', conversationId: null },
+              { ownpilotUserId: 'fixture-denied-user' },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => false,
+              }
+            )
+          : await processDirectAgent(input as never, 'fixture-denied-user', async () => false);
+      expect(answer).toMatch(/acesso/i);
+      expect(receivables.totals).not.toHaveBeenCalled();
+      expect(bus.process).not.toHaveBeenCalled();
+    }
+  );
+});
 
 describe('Astra respostas gratuitas e instantâneas', () => {
   it.each([

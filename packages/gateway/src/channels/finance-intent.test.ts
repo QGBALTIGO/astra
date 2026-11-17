@@ -9,6 +9,14 @@ describe('financial read intent', () => {
     'Mostre como registrar um gasto',
     'Mostre meus gastos e não altere nada.',
     'Quero ver meus lançamentos',
+    'Quanto eu tenho a receber?',
+    'Quanto tenho a receber?',
+    'Quanto eu ainda tenho para receber?',
+    'Quanto eu tenho a pagar?',
+    'O que eu tenho a receber?',
+    'Minhas pendências',
+    'Meus recebíveis',
+    'Mostre minhas contas a receber',
   ])('keeps a lookup read-only: %s', (text) => {
     expect(isFinanceReadOnlyRequest(text)).toBe(true);
     expect(requiredFinanceReadTool(text)).toBe('core.list_transactions');
@@ -20,6 +28,7 @@ describe('financial read intent', () => {
     'Quanto gastei? Depois remova o lançamento do pão.',
     'Quero registrar uma despesa',
     'Qual a temperatura agora?',
+    'Quanto eu tenho a receber? Depois registre 100 reais de salário.',
   ])('does not prevent an explicit mutation or misroute another domain: %s', (text) =>
     expect(isFinanceReadOnlyRequest(text)).toBe(false)
   );

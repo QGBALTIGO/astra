@@ -1,11 +1,137 @@
 import { describe, expect, it } from 'vitest';
 import { safeChannelResponse, type ChannelToolReceipt } from './response-safety.js';
-import { verifiedChannelFacts, verifiedRadarToolReply } from './verified-facts.js';
+import {
+  verifiedChannelFacts,
+  verifiedRadarToolReply,
+  verifiedReadChannelFacts,
+} from './verified-facts.js';
 const receipt = (name: string, result: unknown): ChannelToolReceipt => ({
   name: 'core.' + name,
   content: JSON.stringify({ success: true, result }),
   arguments: '',
   isError: false,
+});
+
+describe('recovering verified reads without another provider turn', () => {
+  const financial = () =>
+    receipt('financial_summary', {
+      currency: 'BRL',
+      period: { from: '2026-11-01', to: '2026-11-30' },
+      income: 200,
+      expenses: 50,
+      result: 150,
+      pendingIncome: 770,
+      pendingExpenses: 35,
+      apiKey: 'private-key',
+      userId: 'other-private-id',
+    });
+  const transaction = (changes = {}) => ({
+    id: 'private-row-id',
+    userId: 'private-user-id',
+    description: 'Pedido do café',
+    amount: 70,
+    currency: 'BRL',
+    type: 'income',
+    status: 'pending',
+    date: '2026-12-01',
+    notes: 'private-notes',
+    ...changes,
+  });
+  const page = (transactions: unknown[], changes = {}) =>
+    receipt('list_transactions', {
+      transactions,
+      total: transactions.length,
+      page: 1,
+      pageSize: 20,
+      ...changes,
+    });
+  it('keeps received and pending amounts separate and limits output to public fields', () => {
+    const answer = verifiedReadChannelFacts([financial()]);
+    expect(answer).toContain('• *A receber:* R$ 770,00');
+    expect(answer).toContain('• *Entradas recebidas:* R$ 200,00');
+    expect(answer).toContain('01/11/2026 a 30/11/2026');
+    expect(answer).not.toMatch(/private|apiKey|userId/);
+  });
+  it('never presents a paginated list or mixed currencies as the total receivable balance', () => {
+    const answer = verifiedReadChannelFacts([
+      page(
+        [
+          transaction(),
+          transaction({ description: 'Serviço externo', amount: 10, currency: 'USD' }),
+        ],
+        { total: 45, page: 2 }
+      ),
+    ]);
+    expect(answer).toContain('R$ 70,00');
+    expect(answer).toMatch(/US\$\s*10,00/);
+    expect(answer).toContain('Exibindo 2 de 45 lançamentos encontrados · página 2');
+    expect(answer).toContain('não representam um saldo total');
+    expect(answer).not.toMatch(/80,00|private|notes|userId/);
+  });
+  it('only reports an empty list after a complete successful read and retains verified zero totals', () => {
+    expect(verifiedReadChannelFacts([page([])])).toContain(
+      'Nenhum lançamento encontrado nesta consulta'
+    );
+    const zero = financial();
+    zero.content = zero.content.replace('"pendingIncome":770', '"pendingIncome":0');
+    expect(verifiedReadChannelFacts([zero])).toContain('• *A receber:* R$ 0,00');
+    expect(verifiedReadChannelFacts([page([], { total: 45, page: 5 })])).toContain(
+      'Nenhum lançamento nesta página'
+    );
+  });
+  it.each([
+    { isError: true },
+    { content: '{"success":false,"result":{"transactions":[],"total":0,"page":1,"pageSize":20}}' },
+    { content: '{"success":true,"result":{"success":false,"error":"private-error"}}' },
+    { content: 'not JSON' },
+    { content: '{"transactions":[],"total":"0","page":1,"pageSize":20}' },
+    { content: '{"transactions":[],"page":1,"pageSize":20}' },
+  ])('does not turn an error or malformed payload into an invented empty result %j', (changes) => {
+    expect(verifiedReadChannelFacts([{ ...page([]), ...changes }])).toBeUndefined();
+  });
+  it('does not use an older success to hide a later failure or a write', () => {
+    expect(
+      verifiedReadChannelFacts([financial(), { ...financial(), isError: true }])
+    ).toBeUndefined();
+    expect(
+      verifiedReadChannelFacts([financial(), receipt('record_transaction', { saved: true })])
+    ).toBeUndefined();
+    expect(verifiedReadChannelFacts([receipt('search_tools', {}), financial()])).toContain(
+      '770,00'
+    );
+  });
+  it('preserves the useful part of two reads and identifies the unavailable part', () => {
+    const answer = verifiedReadChannelFacts([financial(), { ...page([]), isError: true }]);
+    expect(answer).toContain('R$ 770,00');
+    expect(answer).toContain('Uma parte da consulta não ficou disponível');
+    expect(answer).not.toContain('Nenhum lançamento');
+  });
+  it('renders legacy and paginated reminders using the customer timezone, not raw local text', () => {
+    const items = [
+      {
+        id: 'private-reminder-id',
+        title: 'Revisar pedido',
+        quando: '2026-11-17T19:00:00.000Z',
+        horarioLocal: 'wrong-time',
+        timeZone: 'America/Sao_Paulo',
+        status: 'pending',
+        secret: 'private-secret',
+      },
+    ];
+    for (const payload of [items, { items, total: 32, page: 2, pageSize: 20, hasMore: true }]) {
+      const answer = verifiedReadChannelFacts([receipt('list_channel_reminders', payload)], {
+        timeZone: 'America/Cuiaba',
+      });
+      expect(answer).toContain('15:00');
+      expect(answer).toContain('Pendente');
+      expect(answer).not.toMatch(/16:00|wrong-time|private|secret/);
+    }
+  });
+  it('recovers an empty or unsafe model reply from the actual read payload', () => {
+    const answer = safeChannelResponse('', [financial()], { requestText: 'Resumo financeiro' });
+    expect(answer).toContain('R$ 770,00');
+    expect(answer).not.toMatch(/não tenho uma alteração confirmada/);
+  });
 });
 describe('verified weather and calendar presentation', () => {
   it.each([{ needsTime: true }, { needsSubject: true }, { changed: true }])(

@@ -63,6 +63,29 @@ export class CustomerReceivablesRepository extends BaseRepository {
     super();
     if (!userId?.trim()) throw new CustomerFinanceError('Conversa autenticada necessária.');
   }
+  /** The current ledger is canonical, including edited/deleted plan installments and standalone income. */
+  async pendingTotals(): Promise<Array<{ currency: string; amountCents: number; count: number }>> {
+    const rows = await this.query<{ currency: string; pending_cents: string; count: string }>(
+      `SELECT currency, SUM(amount * 100)::text AS pending_cents, COUNT(*)::text AS count
+       FROM expenses
+       WHERE user_id=$1 AND transaction_type='income' AND status='pending' AND deleted_at IS NULL
+       GROUP BY currency ORDER BY currency`,
+      [this.userId]
+    );
+    return rows.map((row) => {
+      const amountCents = Number(row.pending_cents),
+        count = Number(row.count);
+      if (
+        !/^[A-Z]{3}$/u.test(row.currency) ||
+        !Number.isSafeInteger(amountCents) ||
+        amountCents < 0 ||
+        !Number.isSafeInteger(count) ||
+        count < 1
+      )
+        throw new CustomerFinanceError('Não consegui conferir os valores pendentes agora.');
+      return { currency: row.currency, amountCents, count };
+    });
+  }
   async list(): Promise<SavedPlan[]> {
     return this.query<SavedPlan>(
       `

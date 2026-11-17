@@ -9,7 +9,7 @@ const fixtures = vi.hoisted(() => ({
   },
   schedule: vi.fn(),
   getByDedupeKeyForChat: vi.fn(),
-  listForChat: vi.fn(),
+  listForChatPage: vi.fn(),
   cancel: vi.fn(),
   reschedule: vi.fn(),
 }));
@@ -21,7 +21,7 @@ vi.mock('../db/repositories/channel-reminders.js', () => ({
   channelRemindersRepo: {
     schedule: fixtures.schedule,
     getByDedupeKeyForChat: fixtures.getByDedupeKeyForChat,
-    listForChat: fixtures.listForChat,
+    listForChatPage: fixtures.listForChatPage,
     cancel: fixtures.cancel,
     reschedule: fixtures.reschedule,
   },
@@ -47,7 +47,13 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
       status: 'pending',
       ...input,
     }));
-    fixtures.listForChat.mockResolvedValue([]);
+    fixtures.listForChatPage.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+    });
     fixtures.getByDedupeKeyForChat.mockResolvedValue(null);
     fixtures.cancel.mockResolvedValue(true);
   });
@@ -55,23 +61,45 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
 
   it('lists saved deadlines in the customer timezone, including the preceding local day', async () => {
     fixtures.ctx.channelPluginId = 'channel.whatsapp';
-    fixtures.listForChat.mockResolvedValue([
-      { id: 'one', title: 'Teste', remindAt: new Date('2026-11-12T15:46:00Z'), status: 'pending' },
-      { id: 'two', title: 'Virada', remindAt: new Date('2026-11-12T02:05:20Z'), status: 'pending' },
-    ]);
+    fixtures.listForChatPage.mockResolvedValue({
+      items: [
+        {
+          id: 'one',
+          title: 'Teste',
+          remindAt: new Date('2026-11-12T15:46:00Z'),
+          status: 'pending',
+        },
+        {
+          id: 'two',
+          title: 'Virada',
+          remindAt: new Date('2026-11-12T02:05:20Z'),
+          status: 'pending',
+        },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+    });
     const response = await executeChannelReminderTool(
       'list_channel_reminders',
       {},
       'whatsapp:test'
     );
-    expect(response.result).toEqual([
-      expect.objectContaining({
-        quando: '2026-11-12T15:46:00.000Z',
-        horarioLocal: '12/11/2026, 11:46',
-        timeZone: 'America/Campo_Grande',
-      }),
-      expect.objectContaining({ horarioLocal: '11/11/2026, 22:05:20' }),
-    ]);
+    expect(response.result).toEqual({
+      items: [
+        expect.objectContaining({
+          quando: '2026-11-12T15:46:00.000Z',
+          horarioLocal: '12/11/2026, 11:46',
+          timeZone: 'America/Campo_Grande',
+        }),
+        expect.objectContaining({ horarioLocal: '11/11/2026, 22:05:20' }),
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+    });
   });
 
   it('registers discoverable, typed channel reminder tools', () => {
@@ -81,6 +109,86 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
       'cancel_channel_reminder',
       'reschedule_channel_reminder',
     ]);
+  });
+
+  it('paginates pending reminders and exposes history only when requested', async () => {
+    fixtures.ctx.channelMessageTimestamp = Date.now() - 3_000;
+    fixtures.listForChatPage.mockResolvedValue({
+      items: [],
+      total: 45,
+      page: 3,
+      pageSize: 20,
+      hasMore: false,
+    });
+    const result = await executeChannelReminderTool(
+      'list_channel_reminders',
+      { page: 3, page_size: 20, status: 'all' },
+      'stable-customer-data'
+    );
+    expect(result.result).toMatchObject({ total: 45, page: 3, pageSize: 20, hasMore: false });
+    expect(fixtures.listForChatPage).toHaveBeenCalledWith(
+      'stable-customer-data',
+      'channel.telegram',
+      'chat-123',
+      {
+        page: 3,
+        pageSize: 20,
+        status: 'all',
+        before: new Date(),
+      }
+    );
+  });
+
+  it('includes a reminder created earlier in the same turn when a later tool lists it', async () => {
+    fixtures.ctx.channelMessageTimestamp = Date.now() - 30_000;
+    const createdAt = Date.now() - 10_000;
+    const scheduled = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      {
+        title: 'Conferir pedido',
+        delay_minutes: 2,
+      },
+      'stable-customer-data'
+    );
+    expect(scheduled.success).toBe(true);
+    fixtures.listForChatPage.mockImplementation(async (_user, _plugin, _chat, options) => ({
+      items:
+        options.before.getTime() >= createdAt
+          ? [
+              {
+                id: 'reminder-123',
+                title: 'Conferir pedido',
+                remindAt: new Date(Date.now() + 90_000),
+                status: 'pending',
+              },
+            ]
+          : [],
+      total: options.before.getTime() >= createdAt ? 1 : 0,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+    }));
+    expect(
+      (await executeChannelReminderTool('list_channel_reminders', {}, 'stable-customer-data'))
+        .result
+    ).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ title: 'Conferir pedido' })],
+    });
+  });
+
+  it.each([
+    { page: 0 },
+    { page: 1.5 },
+    { page: 100_001 },
+    { page_size: 51 },
+    { page_size: -1 },
+    { status: 'sent' },
+  ])('rejects invalid pagination before reading private reminders %j', async (args) => {
+    expect((await executeChannelReminderTool('list_channel_reminders', args, 'u')).success).toBe(
+      false
+    );
+    expect(fixtures.listForChatPage).not.toHaveBeenCalled();
   });
 
   it('exposes seconds for both scheduling and rescheduling', () => {
@@ -479,7 +587,17 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
       'default'
     );
     expect(result.success).toBe(true);
-    expect(fixtures.listForChat).toHaveBeenCalledWith('default', 'channel.telegram', 'chat-123');
+    expect(fixtures.listForChatPage).toHaveBeenCalledWith(
+      'default',
+      'channel.telegram',
+      'chat-123',
+      {
+        page: 1,
+        pageSize: 20,
+        status: 'pending',
+        before: new Date(),
+      }
+    );
     expect(fixtures.cancel).toHaveBeenCalledWith(
       'reminder-123',
       'default',

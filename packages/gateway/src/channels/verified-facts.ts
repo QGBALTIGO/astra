@@ -2,6 +2,7 @@ import type { ChannelToolReceipt } from './response-safety.js';
 import { formatAstraMessage } from './response-presentation.js';
 import { integrationItems } from '../services/customer-integration-data.js';
 import { requiredChannelWeatherTool } from './tool-selection.js';
+import { channelOperations } from './receipt-state.js';
 
 const plain = (value: unknown) =>
   typeof value === 'string' ? value.replace(/[\r\n*_`<>]/g, ' ').trim() : '';
@@ -13,6 +14,227 @@ function result(receipt: ChannelToolReceipt): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+const object = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+const count = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+const amount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 9_007_199_254_740;
+const currency = (value: unknown): value is string =>
+  typeof value === 'string' && /^[A-Z]{3}$/u.test(value);
+function money(value: number, code: string): string {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: code }).format(value);
+}
+function day(value: unknown): string | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return null;
+  const parsed = new Date(value + 'T00:00:00Z');
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+    ? value.split('-').reverse().join('/')
+    : null;
+}
+function readPayload(receipt: ChannelToolReceipt): unknown {
+  if (receipt.isError) return null;
+  try {
+    let value: unknown = JSON.parse(receipt.content);
+    for (let depth = 0; depth < 4; depth++) {
+      const entry = object(value);
+      if (!entry) return Array.isArray(value) ? value : null;
+      if (entry.success === false || entry.isError === true || entry.error) return null;
+      if (!Object.hasOwn(entry, 'result')) return entry;
+      // A financial summary's result is its numeric balance, not an adapter envelope.
+      if (entry.result === null || typeof entry.result !== 'object')
+        return entry.success === undefined ? entry : null;
+      value = entry.result;
+    }
+  } catch {
+    // A malformed or failed receipt is never evidence of an empty account.
+  }
+  return null;
+}
+const label = (value: unknown) =>
+  plain(value)
+    .replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/giu, '')
+    .trim()
+    .slice(0, 160);
+
+function financialRead(name: string, payload: unknown): string | undefined {
+  const data = object(payload);
+  if (!data) return;
+  if (name === 'financial_summary') {
+    const period = object(data.period);
+    const from = day(period?.from),
+      to = day(period?.to);
+    const keys = ['income', 'expenses', 'result', 'pendingIncome', 'pendingExpenses'] as const;
+    if (
+      !from ||
+      !to ||
+      !currency(data.currency) ||
+      keys.some((key) => !amount(data[key])) ||
+      keys.some((key) => key !== 'result' && (data[key] as number) < 0)
+    )
+      return;
+    return formatAstraMessage('📊 Resumo financeiro', [
+      { label: 'Período', value: `${from} a ${to}` },
+      { label: 'Entradas recebidas', value: money(data.income as number, data.currency) },
+      { label: 'Despesas pagas', value: money(data.expenses as number, data.currency) },
+      { label: 'Resultado realizado', value: money(data.result as number, data.currency) },
+      { label: 'A receber', value: money(data.pendingIncome as number, data.currency) },
+      { label: 'A pagar', value: money(data.pendingExpenses as number, data.currency) },
+    ]);
+  }
+  if (
+    !Array.isArray(data.transactions) ||
+    !count(data.total) ||
+    !count(data.page) ||
+    data.page < 1 ||
+    !count(data.pageSize) ||
+    data.pageSize < 1 ||
+    data.transactions.length > data.pageSize ||
+    data.total < data.transactions.length
+  )
+    return;
+  const rows = data.transactions.map(object);
+  if (
+    rows.some(
+      (row) =>
+        !row ||
+        !label(row.description) ||
+        !amount(row.amount) ||
+        row.amount < 0 ||
+        !currency(row.currency) ||
+        !['income', 'expense'].includes(String(row.type)) ||
+        !['pending', 'settled'].includes(String(row.status)) ||
+        (row.date !== undefined && !day(row.date))
+    )
+  )
+    return;
+  if (!rows.length)
+    return formatAstraMessage(
+      '🔎 Lançamentos',
+      [],
+      data.total === 0
+        ? 'Nenhum lançamento encontrado nesta consulta.'
+        : 'Nenhum lançamento nesta página.'
+    );
+  const lines = rows.slice(0, 5).map((row) => {
+    const entry = row!;
+    const kind =
+      entry.type === 'income'
+        ? entry.status === 'pending'
+          ? 'A receber'
+          : 'Recebido'
+        : entry.status === 'pending'
+          ? 'A pagar'
+          : 'Pago';
+    return formatAstraMessage('🔎 ' + label(entry.description), [
+      { label: kind, value: money(entry.amount as number, entry.currency as string) },
+      ...(entry.date ? [{ label: 'Data', value: day(entry.date)! }] : []),
+    ]);
+  });
+  return (
+    lines.join('\n\n') +
+    `\n\nExibindo ${lines.length} de ${data.total} lançamentos encontrados · página ${data.page}.` +
+    '\nOs valores da lista não representam um saldo total.'
+  );
+}
+
+function reminderRead(payload: unknown, timeZone?: string): string | undefined {
+  const data = object(payload);
+  const entries = Array.isArray(payload) ? payload : data?.items;
+  if (!Array.isArray(entries)) return;
+  if (
+    data &&
+    (!count(data.total) ||
+      !count(data.page) ||
+      data.page < 1 ||
+      !count(data.pageSize) ||
+      data.pageSize < 1 ||
+      data.total < entries.length ||
+      entries.length > data.pageSize ||
+      typeof data.hasMore !== 'boolean')
+  )
+    return;
+  const statuses: Record<string, string> = {
+    pending: 'Pendente',
+    delivered: 'Enviado',
+    failed: 'Não enviado',
+    cancelled: 'Cancelado',
+    sending: 'Em envio',
+  };
+  const items: string[] = [];
+  for (const raw of entries) {
+    const item = object(raw);
+    if (
+      !item ||
+      !label(item.title) ||
+      !statuses[String(item.status)] ||
+      typeof item.quando !== 'string' ||
+      !/(?:Z|[+-]\d{2}:\d{2})$/u.test(item.quando)
+    )
+      return;
+    const at = new Date(item.quando);
+    if (!Number.isFinite(at.getTime())) return;
+    let local: string;
+    try {
+      const zone = timeZone ?? (typeof item.timeZone === 'string' ? item.timeZone : undefined);
+      if (!zone) return;
+      local = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: zone,
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }).format(at);
+    } catch {
+      return;
+    }
+    if (items.length < 5)
+      items.push(
+        formatAstraMessage('🔔 ' + label(item.title), [
+          { label: 'Quando', value: local },
+          { label: 'Situação', value: statuses[String(item.status)]! },
+        ])
+      );
+  }
+  if (!entries.length)
+    return formatAstraMessage(
+      '🔔 Seus lembretes',
+      [],
+      !data || data.total === 0
+        ? 'Nenhum lembrete encontrado nesta consulta.'
+        : 'Nenhum lembrete nesta página.'
+    );
+  const total = data?.total ?? entries.length;
+  return items.join('\n\n') + `\n\nExibindo ${items.length} de ${total} lembretes desta consulta.`;
+}
+
+/** Recover only the current turn's whitelisted reads; never retry a tool or total a page. */
+export function verifiedReadChannelFacts(
+  receipts: ChannelToolReceipt[],
+  context: { timeZone?: string; requestText?: string } = {}
+): string | undefined {
+  const operations = channelOperations(receipts);
+  const name = (receipt: ChannelToolReceipt) =>
+    receipt.name.replace(/__/g, '.').replace(/^core\./, '');
+  const allowed = new Set(['financial_summary', 'list_transactions', 'list_channel_reminders']);
+  if (!operations.length || operations.some((receipt) => !allowed.has(name(receipt)))) return;
+  // A failed final read must not be disguised using a prior result from the same tool.
+  const latest = new Map(operations.map((receipt) => [name(receipt), receipt]));
+  const replies: string[] = [];
+  for (const [tool, receipt] of latest) {
+    const payload = readPayload(receipt);
+    const reply =
+      tool === 'list_channel_reminders'
+        ? reminderRead(payload, context.timeZone)
+        : financialRead(tool, payload);
+    if (reply) replies.push(reply);
+  }
+  if (!replies.length) return;
+  if (replies.length < latest.size)
+    replies.push('Uma parte da consulta não ficou disponível agora.');
+  return replies.join('\n\n');
 }
 /** Keep a short AI greeting; numerical and operational facts come only from receipts. */
 function opening(text: string): string {
