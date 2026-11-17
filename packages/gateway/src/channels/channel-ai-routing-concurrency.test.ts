@@ -132,6 +132,68 @@ describe('Channel turns across reconnection and slow provider fallbacks', () => 
     mocks.createConversation.mockResolvedValue({});
   });
 
+  it.each([
+    ['bus', 'whatsapp'],
+    ['direct', 'whatsapp'],
+    ['bus', 'telegram'],
+    ['direct', 'telegram'],
+  ] as const)(
+    'uses the pinned channel primary in the %s path for %s without overwriting saved session choices',
+    async (path, platform) => {
+      const agent = makeAgent();
+      agent.chat.mockResolvedValue({ ok: true, value: { content: 'Resposta natural do modelo' } });
+      mocks.getAgent.mockResolvedValue(agent);
+      mocks.resolveRouting.mockResolvedValue({
+        provider: 'groq',
+        model: 'openai/gpt-oss-20b',
+        source: 'channel-primary',
+        fallbackProvider: null,
+        fallbackModel: null,
+      });
+      const { deps, current } = makeDeps();
+      Object.assign(current.context, {
+        preferredModel: 'gemini-stored',
+        preserve: 'session-context',
+      });
+      const savedContext = { ...current.context };
+      const bus = { process: vi.fn().mockResolvedValue(busReply('Resposta natural do modelo')) };
+      const message = incoming('operator-primary-' + path + '-' + platform, {
+        platform,
+        channelPluginId: 'channel.' + platform,
+      });
+      const result =
+        path === 'bus'
+          ? await processViaBus(
+              bus as never,
+              message,
+              { ...session, context: savedContext },
+              user,
+              deps
+            )
+          : await processDirectAgent(message, user.ownpilotUserId, async () => true);
+      expect(result).toBe('Resposta natural do modelo');
+      expect(mocks.getAgent.mock.calls[0]?.slice(0, 2)).toEqual(['groq', 'openai/gpt-oss-20b']);
+      expect(current.context).toEqual(savedContext);
+      expect(path === 'bus' ? bus.process : agent.chat).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('continues honoring the stored session model when the primary override is not active', async () => {
+    const agent = makeAgent();
+    mocks.getAgent.mockResolvedValue(agent);
+    mocks.resolveRouting.mockResolvedValue({
+      provider: 'groq',
+      model: 'openai/gpt-oss-20b',
+      source: 'channel',
+    });
+    const { deps, current } = makeDeps();
+    Object.assign(current.context, { preferredModel: 'legacy-session-model' });
+    const bus = { process: vi.fn().mockResolvedValue(busReply('Usou a escolha salva')) };
+    await processViaBus(bus as never, incoming('stored-session-model'), session, user, deps);
+    expect(mocks.getAgent.mock.calls[0]?.slice(0, 2)).toEqual(['groq', 'legacy-session-model']);
+    expect(current.context).toEqual({ preferredModel: 'legacy-session-model' });
+  });
+
   it('waits for the previous turn before obtaining or mutating the same session agent', async () => {
     const agent = makeAgent();
     mocks.getAgent.mockResolvedValue(agent);

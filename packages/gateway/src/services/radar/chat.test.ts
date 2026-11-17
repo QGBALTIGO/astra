@@ -102,6 +102,31 @@ beforeEach(() => {
   m.preview.mockResolvedValue('queued');
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it('asks the customer to choose between multiple game-day clocks instead of trusting the model first choice', async () => {
+    m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+    const first = await message(user, 'Me avise sempre que tiver jogo do Vasco às 9h ou às 10h', {
+      action: 'follow',
+      source: 'football',
+      subject: 'Vasco',
+      delivery: 'matchday',
+      time: '09:00',
+    });
+    expect(first.needsTime).toBe(true);
+    expect(first.changed).toBe(false);
+    expect(first.reply).toContain('Em qual horário');
+    expect(m.follow).not.toHaveBeenCalled();
+    const chosen = await message(user, 'às 10h', { action: 'follow', time: '09:00' });
+    expect(chosen.changed).toBe(true);
+    expect(m.follow).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({
+        delivery: 'matchday',
+        notifyTime: '10:00',
+      }),
+      'Vasco',
+      '10:00'
+    );
+  });
   it.each([undefined, '07:00'])(
     'uses the game-day clock actually stated instead of the model time %s',
     async (time) => {

@@ -16,6 +16,7 @@ import { searchRadar, fetchRadarResource } from './providers.js';
 import { radarChatPending as pending } from './chat-pending.js';
 import { newsCards } from './news-cards.js';
 import { BRAZIL_TEAMS } from './football.js';
+import { gameAlertRequest, explicitRadarTime } from './chat-intent.js';
 export { clearRadarChatPending } from './chat-pending.js';
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
@@ -34,27 +35,6 @@ const optOutRequest = (s: string) =>
   /\bnao (?:quero (?:mais )?(?:receber|acompanhar|noticias|avisos|o radar)|me (?:mande|envie|avise))\b/.test(
     fold(s)
   );
-const gameAlertRequest = (s: string) => {
-  const text = fold(s).replace(
-    /\b(?:mas )?nao (?:todo dia|todos os dias|diariamente)\b|\bsem (?:um )?resumo diario\b/g,
-    ''
-  );
-  return (
-    !/\b(?:nao|pare|parar|paus\w*|cancel\w*|desativ\w*|deslig\w*|exemplo|hipotetic\w*|so explique|apenas explique)\b/.test(
-      text
-    ) &&
-    /\b(?:me (?:avise|avisar|lembre|notifique)|avisa|quero (?:ser avisad[oa]|um aviso|avisos))\b/.test(
-      text
-    ) &&
-    /\b(?:jogos?|jogar|partidas?)\b/.test(text) &&
-    /\b(?:sempre|quando|cada|toda vez|todos os jogos|todas as partidas|nos dias de jogo)\b/.test(
-      text
-    ) &&
-    (!/\b(?:hoje|amanha|essa partida|esse jogo|nesta partida|neste jogo|dia \d)\b/.test(text) ||
-      /\b(?:sempre|cada|todos os jogos|todas as partidas)\b/.test(text)) &&
-    !/\b(?:resumo diario|todo dia|todos os dias|diariamente)\b/.test(text)
-  );
-};
 const namedFootballTeams = (text: string) =>
   BRAZIL_TEAMS.filter((team) =>
     [team[1], team[2]].some((name) =>
@@ -252,11 +232,9 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       subject: teams.length === 1 ? teams[0]![1] : teams.length > 1 ? undefined : supplied,
       choiceId: undefined,
     };
-    const statedClock = requestText.match(
-      /\bas\s+([01]?\d|2[0-3])(?:(?:h|:)([0-5]?\d)?)?(?=$|[\s.,!?])/u
-    );
-    if (statedClock)
-      args.time = statedClock[1]!.padStart(2, '0') + ':' + (statedClock[2] ?? '0').padStart(2, '0');
+    const statedClock = explicitRadarTime(ctx.channelRequestText ?? '');
+    if (statedClock) args.time = statedClock;
+    else delete args.time;
     action = 'follow';
   }
   if (

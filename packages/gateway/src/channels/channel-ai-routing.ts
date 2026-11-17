@@ -522,8 +522,10 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
   // changing the executing one. A bare model name carries no provider, so infer the
   // owning provider, preferring the routed provider when it already serves the model.
   const preferredModel =
-    ((latestSession?.context ?? session.context)?.preferredModel as string | undefined) ||
-    undefined;
+    routing.source === 'channel-primary'
+      ? undefined
+      : ((latestSession?.context ?? session.context)?.preferredModel as string | undefined) ||
+        undefined;
   const effectiveProvider = preferredModel
     ? (inferProviderForModel(preferredModel, routing.provider) ?? routing.provider ?? 'openai')
     : (routing.provider ?? 'openai');

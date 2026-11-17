@@ -1,10 +1,17 @@
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
+import { runInExecContext } from '@ownpilot/core/agent';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { CustomerRadarRepository } from '../db/repositories/customer-radar.js';
 import { resolveCustomerPhone } from '../services/customer-identity.js';
 import { ASTRA_CUSTOMER_ORIGIN } from '../config/astra-public-urls.js';
 import { integrationPrivateChat } from './customer-integrations.js';
-import { clearRadarChatPending } from '../services/radar/chat-pending.js';
+import {
+  clearRadarChatPending,
+  isPendingRadarReply,
+  radarChatPending,
+} from '../services/radar/chat-pending.js';
+import { gameAlertRequest, explicitRadarTime } from '../services/radar/chat-intent.js';
+import { isConversationalOnlyChannelRequest } from './tool-selection.js';
 
 /** Narrow, zero-inference intents. Ordinary reminders and unrelated messages are untouched. */
 export async function tryRadarChannelReply(
@@ -28,7 +35,28 @@ export async function tryRadarChannelReply(
     /^(?:astra[,]? )?(?:meu radar|(?:quais|que) (?:alertas|acompanhamentos|assuntos) (?:eu )?tenho (?:ativos )?no radar|(?:mostra|mostrar|listar|liste)(?: os)? (?:meus )?acompanhamentos (?:do|no) radar)$/.test(
       text
     );
-  if (!stop && !list) return null;
+  const gameAlert = gameAlertRequest(message.text);
+  const conversationOnly = isConversationalOnlyChannelRequest(message.text);
+  if (!stop && !list && conversationOnly) return null;
+  const cancelText = /^(?:nao|cancelar|cancela|deixa pra la)$/.test(text);
+  // This is only a cheap chat/channel preflight. Resolve the account before
+  // selecting its exact private pending key: callers can carry a phone alias.
+  const pendingCandidate = [...radarChatPending].some(([key, value]) => {
+    const [owner, channel, chat] = JSON.parse(key) as string[];
+    return (
+      channel === message.channelPluginId &&
+      chat === message.platformChatId &&
+      value.expires > Date.now() &&
+      (cancelText || isPendingRadarReply(owner!, channel, chat, message.text))
+    );
+  });
+  if (!stop && !list && !gameAlert && !pendingCandidate) return null;
+  if (
+    !stop &&
+    !list &&
+    (!message.id || !message.channelPluginId || message.metadata?.fromMe !== false)
+  )
+    return null;
   if (!message.sender?.platformUserId || !integrationPrivateChat(message)) return null;
   try {
     const identity = await resolveCustomerPhone(message.sender.platformUserId);
@@ -41,6 +69,24 @@ export async function tryRadarChannelReply(
       ![account.dataUserId, 'whatsapp:' + account.phoneNumber].includes(userId)
     )
       return null;
+    const pending = radarChatPending.get(
+      JSON.stringify([account.dataUserId, message.channelPluginId, message.platformChatId])
+    );
+    const pendingCancel = !!pending && cancelText;
+    const pendingReply =
+      pendingCancel ||
+      isPendingRadarReply(
+        account.dataUserId,
+        message.channelPluginId,
+        message.platformChatId,
+        message.text
+      );
+    const validPending =
+      !!pending &&
+      pending.accountId === account.id &&
+      pending.expires > Date.now() &&
+      pending.messageId !== message.id;
+    if (!stop && !list && !gameAlert && (!validPending || !pendingReply)) return null;
     const repo = new CustomerRadarRepository(account.dataUserId);
     if (stop) {
       clearRadarChatPending(account.dataUserId);
@@ -52,12 +98,48 @@ export async function tryRadarChannelReply(
         '/cliente/radar'
       );
     }
-    if (!(await hasAccess()))
+    if (!pendingCancel && !(await hasAccess()))
       return (
         'Seu Radar está no painel. Renove seu acesso para voltar a receber os avisos: ' +
         ASTRA_CUSTOMER_ORIGIN +
         '/cliente/radar'
       );
+    if (gameAlert || (pendingReply && validPending)) {
+      if (!message.id || !message.channelPluginId || message.metadata?.fromMe !== false)
+        return null;
+      const current = await resolveCustomerPhone(message.sender.platformUserId);
+      if (
+        current?.accountId !== account.id ||
+        !current.isCurrent ||
+        current.retired ||
+        (!pendingCancel && !(await hasAccess()))
+      )
+        return (
+          'Sua identificação ou acesso mudou. Confira seu Radar no painel: ' +
+          ASTRA_CUSTOMER_ORIGIN +
+          '/cliente/radar'
+        );
+      const { manageRadarChat } = await import('../services/radar/chat.js');
+      const time = gameAlert ? explicitRadarTime(message.text) : undefined;
+      const result = await runInExecContext(
+        {
+          channelPluginId: message.channelPluginId,
+          platformChatId: message.platformChatId,
+          channelMessageId: message.id,
+          channelMessageTimestamp: message.timestamp?.getTime(),
+          channelRequestText: message.text,
+          channelIsPrivate: true,
+          channelConversationOnly: conversationOnly,
+          externalContentGuard: { seen: false },
+        },
+        () =>
+          manageRadarChat(
+            account.dataUserId,
+            gameAlert ? { action: 'follow', ...(time && { time }) } : { action: 'status' }
+          )
+      );
+      return result.reply;
+    }
     const [interests, pref] = await Promise.all([repo.list(), repo.preferences()]);
     const current = await resolveCustomerPhone(message.sender.platformUserId);
     if (current?.accountId !== account.id || current.retired || !(await hasAccess()))

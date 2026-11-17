@@ -12,7 +12,8 @@
 
 import { pricingByExactKey } from '@ownpilot/core/costs';
 import { settingsRepo } from '../../db/repositories/index.js';
-import { getDefaultProvider, getDefaultModel } from '../app-settings.js';
+import { getDefaultProvider, getDefaultModel, hasApiKey } from '../app-settings.js';
+import { parseAstraFallbackChain } from '../agent/fallback-chain.js';
 import { getLog } from '../log.js';
 
 const log = getLog('ModelRouting');
@@ -38,9 +39,9 @@ interface ProcessRouting {
   fallbackModel: string | null;
 }
 
-interface ResolvedRouting extends ProcessRouting {
+export interface ResolvedRouting extends ProcessRouting {
   /** Where the primary provider/model came from */
-  source: 'process' | 'channel' | 'global' | 'first-configured';
+  source: 'process' | 'channel' | 'channel-primary' | 'global' | 'first-configured';
 }
 
 export type ChannelRoutingKind = 'default' | 'media';
@@ -190,6 +191,37 @@ export async function resolveForChannel(
   pluginId: string,
   options?: { hasMedia?: boolean }
 ): Promise<ResolvedRouting> {
+  // Explicit and reversible text-channel pin. Stored routing and session choices
+  // remain intact, and text-only models never take over media interpretation.
+  if (
+    !options?.hasMedia &&
+    /^channel\.(?:whatsapp|telegram)(?:[.-]|$)/i.test(pluginId) &&
+    process.env.ASTRA_CHANNEL_USE_PRIMARY === 'true' &&
+    process.env.ASTRA_PRIMARY_PROVIDER === 'groq'
+  ) {
+    const model = process.env.ASTRA_GROQ_MODEL;
+    // Reuse the reviewed free-model allowlist instead of inferring a catalog default.
+    const [selected] = parseAstraFallbackChain(`groq=${model ?? ''}`, 'channel-primary');
+    if (selected?.provider === 'groq' && selected.model === model && (await hasApiKey('groq'))) {
+      const configured = mergeRouting(getChannelScopedRouting(pluginId), getChannelRouting());
+      const explicitFallback =
+        configured.fallbackProvider && configured.fallbackModel
+          ? { provider: configured.fallbackProvider, model: configured.fallbackModel }
+          : undefined;
+      const [fallback] = parseAstraFallbackChain(
+        `groq=${selected.model}`,
+        'groq',
+        explicitFallback
+      );
+      return {
+        provider: 'groq',
+        model: selected.model,
+        fallbackProvider: fallback?.provider ?? null,
+        fallbackModel: fallback?.model ?? null,
+        source: 'channel-primary',
+      };
+    }
+  }
   // Operator-controlled pilot: direct text-only WhatsApp turns to the PC.
   // Audio/image handling and all other channels keep their configured provider.
   // A missing bridge key disables the pilot rather than silently misrouting.
