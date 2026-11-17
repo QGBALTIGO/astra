@@ -411,6 +411,9 @@ function makeMockAgent(opts?: {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A legacy describe replaces process.env. Pin this opt-in switch per test
+  // so dedicated chain fixtures cannot change unrelated manual-fallback cases.
+  vi.stubEnv('ASTRA_FALLBACK_CHAIN', '');
   agentCache.clear();
   agentConfigCache.clear();
   chatAgentCache.clear();
@@ -1426,7 +1429,7 @@ describe('getOrCreateChatAgent', () => {
       undefined,
       true
     );
-    const core = await import('@ownpilot/core');
+    const core = await import('@ownpilot/core/agent');
     expect(core.createFallbackProvider).toHaveBeenCalledWith(
       expect.objectContaining({
         primary: expect.objectContaining({
@@ -1445,6 +1448,191 @@ describe('getOrCreateChatAgent', () => {
       })
     );
   });
+
+  it.each(['key', 'endpoint'] as const)(
+    'preserves the cloud-only deadline when the local reserve lacks its %s',
+    async (missing) => {
+      vi.stubEnv(
+        'ASTRA_FALLBACK_CHAIN',
+        'openrouter=openrouter/free,ollama-local=qwen3:4b-instruct'
+      );
+      try {
+        mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+        mockGetProviderApiKey.mockImplementation(async (id: string) =>
+          id === 'ollama-local' && missing === 'key' ? undefined : 'synthetic-key'
+        );
+        mockLoadProviderConfig.mockImplementation((id: string) => ({
+          type: 'openai-compatible',
+          baseUrl:
+            id === 'ollama-local' && missing === 'endpoint'
+              ? undefined
+              : id === 'ollama-local'
+                ? 'http://127.0.0.1:3000/_internal/astra-ollama/v1'
+                : 'https://openrouter.ai/api/v1',
+        }));
+        await mod.getOrCreateChatAgent(
+          'groq',
+          'openai/gpt-oss-20b',
+          undefined,
+          null,
+          `channel:whatsapp:missing-local-${missing}`,
+          undefined,
+          true
+        );
+        const core = await import('@ownpilot/core/agent');
+        expect(core.createFallbackProvider).toHaveBeenCalledWith(
+          expect.objectContaining({
+            fallbacks: [expect.objectContaining({ id: 'openrouter', timeout: 4000 })],
+            completionTimeoutMs: 12000,
+            preferLastSuccessful: true,
+          })
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  );
+
+  it.each(['healthy', 'pool', 'cloud', 'local'] as const)(
+    'constructs actual fallback transports for a synthetic %s recovery without delaying healthy calls',
+    async (mode) => {
+      const core = await import('@ownpilot/core/agent');
+      const actualCore =
+        await vi.importActual<typeof import('@ownpilot/core/agent')>('@ownpilot/core/agent');
+      // Only the Agent itself is a fixture here. Provider construction,
+      // FallbackProvider, Groq pool and HTTP body generation remain real.
+      vi.mocked(core.createFallbackProvider).mockImplementationOnce(
+        actualCore.createFallbackProvider
+      );
+      const primaryKey = `synthetic-groq-primary-${mode}`;
+      const secondaryKey = `synthetic-groq-secondary-${mode}`;
+      const localKey = `synthetic-local-relay-${mode}`.padEnd(40, 'x');
+      vi.stubEnv(
+        'ASTRA_FALLBACK_CHAIN',
+        'ollama-local=qwen3:4b-instruct,openrouter=openrouter/free'
+      );
+      vi.stubEnv('GROQ_API_KEY', primaryKey);
+      vi.stubEnv('GROQ_API_KEY_2', secondaryKey);
+      for (let index = 3; index <= 10; index++) vi.stubEnv(`GROQ_API_KEY_${index}`, '');
+      vi.stubEnv('ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN', localKey);
+      // No DNS or network is used in this transport-contract test. The SSRF
+      // guard has its own provider tests; every fetch is intercepted below.
+      vi.stubEnv('OWNPILOT_ALLOW_LOCAL_LLM_URL', 'true');
+      vi.useFakeTimers();
+      try {
+        mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+        mockGetProviderApiKey.mockImplementation(async (id: string) =>
+          id === 'groq' ? primaryKey : id === 'ollama-local' ? localKey : 'synthetic-openrouter-key'
+        );
+        mockLoadProviderConfig.mockImplementation((id: string) => ({
+          type: 'openai-compatible',
+          baseUrl:
+            id === 'groq'
+              ? 'https://api.groq.com/openai/v1'
+              : id === 'openrouter'
+                ? 'https://openrouter.ai/api/v1'
+                : 'http://127.0.0.1:3000/_internal/astra-ollama/v1',
+        }));
+        const calls: Array<{
+          host: string;
+          model: string;
+          authorization: string;
+          outputLimit: unknown;
+        }> = [];
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+            const url = new URL(
+              typeof input === 'string' || input instanceof URL ? input : input.url
+            );
+            const body = JSON.parse(String(init?.body));
+            const authorization = new Headers(init?.headers).get('Authorization') ?? '';
+            calls.push({
+              host: url.hostname,
+              model: body.model,
+              authorization,
+              outputLimit: body.max_tokens ?? body.max_completion_tokens,
+            });
+            const groqSuccess =
+              url.hostname === 'api.groq.com' &&
+              (mode === 'healthy' ||
+                (mode === 'pool' && authorization === `Bearer ${secondaryKey}`));
+            const cloudSuccess = url.hostname === 'openrouter.ai' && mode === 'cloud';
+            if (url.hostname === '127.0.0.1') {
+              expect(mode).toBe('local');
+              expect(body.model).toBe('qwen3:4b-instruct');
+              expect(body.max_tokens).toBe(768);
+              expect(new Headers(init?.headers).get('X-Astra-Timeout-Ms')).toBe('16000');
+              await new Promise((resolve) => setTimeout(resolve, 12_000));
+            } else if (!groqSuccess && !cloudSuccess) {
+              return new Response('{"error":{"message":"synthetic rate limit"}}', {
+                status: 429,
+                headers: { 'Retry-After': '60' },
+              });
+            }
+            return new Response(
+              JSON.stringify({
+                id: 'synthetic-provider-response',
+                model: body.model,
+                choices: [
+                  { message: { content: 'Resposta sintética confirmada.' }, finish_reason: 'stop' },
+                ],
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } }
+            );
+          })
+        );
+        await mod.getOrCreateChatAgent(
+          'groq',
+          'openai/gpt-oss-20b',
+          undefined,
+          null,
+          `channel:whatsapp:synthetic-chain-${mode}`,
+          undefined,
+          true
+        );
+        expect(core.createFallbackProvider).toHaveBeenCalledWith(
+          expect.objectContaining({
+            primary: expect.objectContaining({ id: 'groq', timeout: 5000 }),
+            fallbacks: [
+              expect.objectContaining({ id: 'openrouter', timeout: 4000 }),
+              expect.objectContaining({
+                id: 'ollama-local',
+                timeout: 16000,
+                defaultModel: { model: 'qwen3:4b-instruct', maxTokens: 768 },
+              }),
+            ],
+            completionTimeoutMs: 26000,
+            preferLastSuccessful: false,
+          })
+        );
+        const transport = mockCreateAgent.mock.calls.at(-1)![1]
+          .provider as import('@ownpilot/core/agent').IProvider;
+        const started = Date.now();
+        const pending = transport.complete({
+          messages: [{ role: 'user', content: 'Responda somente OK; sem ferramentas.' }],
+          model: { model: 'openai/gpt-oss-20b', maxTokens: 32 },
+        });
+        await vi.advanceTimersByTimeAsync(mode === 'local' ? 12_000 : 0);
+        const result = await pending;
+        expect(result.ok).toBe(true);
+        const expectedHost =
+          mode === 'local' ? '127.0.0.1' : mode === 'cloud' ? 'openrouter.ai' : 'api.groq.com';
+        expect(calls.at(-1)?.host).toBe(expectedHost);
+        expect(calls).toHaveLength(
+          mode === 'healthy' ? 1 : mode === 'pool' ? 2 : mode === 'cloud' ? 3 : 4
+        );
+        expect(Date.now() - started).toBe(mode === 'local' ? 12_000 : 0);
+        expect(calls.filter((call) => call.host === '127.0.0.1')).toHaveLength(
+          mode === 'local' ? 1 : 0
+        );
+      } finally {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+      }
+    }
+  );
 
   it('uses a compact Portuguese prompt and 768 output tokens for Groq channels', async () => {
     const { agent } = makeMockAgent();
@@ -2787,7 +2975,7 @@ describe('extended branch coverage', () => {
     });
     expect(result).toBe(agent);
 
-    const core = await import('@ownpilot/core');
+    const core = await import('@ownpilot/core/agent');
     expect(core.createFallbackProvider).toHaveBeenCalledWith(
       expect.objectContaining({
         fallbacks: [
@@ -2870,7 +3058,7 @@ describe('extended branch coverage', () => {
       .mockResolvedValueOnce('fallback-key');
 
     // Make createFallbackProvider invoke the onFallback callback immediately
-    const core = await import('@ownpilot/core');
+    const core = await import('@ownpilot/core/agent');
     vi.mocked(core.createFallbackProvider).mockImplementationOnce(
       (opts: Record<string, unknown>) => {
         const cb = opts['onFallback'] as

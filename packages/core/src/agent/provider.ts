@@ -135,6 +135,15 @@ export function createProvider(config: ProviderConfig): IProvider {
     }
     case 'openai-compatible':
       return new OpenAICompatibleProvider(openAICompatibleConfig(config));
+    case 'groq': {
+      const resolved = openAICompatibleConfig({ ...config, id: 'groq' });
+      return new OpenAICompatibleProvider({
+        ...resolved,
+        id: 'groq',
+        type: 'openai-compatible',
+        baseUrl: config.baseUrl ?? (resolved.baseUrl || 'https://api.groq.com/openai/v1'),
+      });
+    }
     default:
       return new OpenAIProvider(config);
   }

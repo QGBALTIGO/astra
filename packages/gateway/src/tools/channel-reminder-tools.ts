@@ -56,8 +56,19 @@ const listReminderDef: ToolDefinition = {
   category: 'Automation',
   brief: 'Listar lembretes agendados e seu estado real de entrega',
   description:
-    'Consulta os lembretes desta conversa, incluindo pendente, entregue e falhou. Apresente horarioLocal e use sua data para hoje/amanhã. O campo quando é UTC.',
-  parameters: { type: 'object', properties: {} },
+    'Consulta os lembretes pendentes desta conversa com paginação. Retorna items, total, page, pageSize e hasMore; nunca trate uma página como a lista completa. Para histórico de todos os estados use status="all". Apresente horarioLocal e use sua data para hoje/amanhã. O campo quando é UTC.',
+  parameters: {
+    type: 'object',
+    properties: {
+      page: { type: 'integer', description: 'Página a partir de 1 (padrão 1).' },
+      page_size: { type: 'integer', description: 'Itens por página, de 1 a 50 (padrão 20).' },
+      status: {
+        type: 'string',
+        enum: ['pending', 'all'],
+        description: 'Padrão pending; all inclui histórico.',
+      },
+    },
+  },
 };
 
 const cancelReminderDef: ToolDefinition = {
@@ -126,9 +137,7 @@ function storedReminderResult(saved: ChannelReminder, timeZone: string, secondsR
 }
 
 async function reminderTimeZone(userId: string): Promise<string> {
-  const account = userId.startsWith('whatsapp:')
-    ? await customerAccountsRepo.getByDataUserId(userId)
-    : null;
+  const account = await customerAccountsRepo.getByDataUserId(userId);
   return account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
 }
 
@@ -146,20 +155,47 @@ export async function executeChannelReminderTool(
   }
 
   if (toolName === 'list_channel_reminders') {
+    const page = args.page ?? 1;
+    const pageSize = args.page_size ?? 20;
+    const status = args.status ?? 'pending';
+    if (
+      typeof page !== 'number' ||
+      !Number.isSafeInteger(page) ||
+      page < 1 ||
+      page > 100_000 ||
+      typeof pageSize !== 'number' ||
+      !Number.isSafeInteger(pageSize) ||
+      pageSize < 1 ||
+      pageSize > 50 ||
+      typeof status !== 'string' ||
+      !['pending', 'all'].includes(status)
+    ) {
+      return { success: false, error: 'Informe uma página válida e page_size entre 1 e 50.' };
+    }
     const [entries, timeZone] = await Promise.all([
-      channelRemindersRepo.listForChat(userId, ctx.channelPluginId, ctx.platformChatId),
+      channelRemindersRepo.listForChatPage(userId, ctx.channelPluginId, ctx.platformChatId, {
+        page,
+        pageSize,
+        status: status as 'pending' | 'all',
+        // Reads include a reminder created earlier in this same compound turn.
+        // Cancellation alone uses the original incoming-request cutoff.
+        before: new Date(),
+      }),
       reminderTimeZone(userId),
     ]);
     return {
       success: true,
-      result: entries.map(({ id, title, remindAt, status }) => ({
-        id,
-        title,
-        quando: remindAt.toISOString(),
-        horarioLocal: formatReminderLocalTime(remindAt, timeZone, false),
-        timeZone,
-        status,
-      })),
+      result: {
+        ...entries,
+        items: entries.items.map(({ id, title, remindAt, status }) => ({
+          id,
+          title,
+          quando: remindAt.toISOString(),
+          horarioLocal: formatReminderLocalTime(remindAt, timeZone, false),
+          timeZone,
+          status,
+        })),
+      },
     };
   }
 

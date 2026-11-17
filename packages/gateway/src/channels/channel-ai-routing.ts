@@ -62,6 +62,7 @@ import { tryVerifyCalendarSlot } from './calendar-lookup.js';
 import { tryChannelCalendarMutation } from './calendar-mutation.js';
 import { tryListTodaysReminders } from './today-reminders.js';
 import { tryWeekReminderConversation } from './week-reminders.js';
+import { tryGeneralReminderConversation } from './all-reminders.js';
 import { expenseConfirmationKey, expenseDuplicateGuard } from './expense-duplicate-guard.js';
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 import { tryMorningBriefingChannelReply } from './morning-briefing.js';
@@ -389,6 +390,9 @@ function tryAuthorizedChannelShortcut(
       (await tryPersonalSubscriptionReply(message, userId, () =>
         canProcessChannelMessage(message, isAccessAllowed)
       )) ??
+      (await tryGeneralReminderConversation(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
       (await tryAgendaOverview(message, userId)) ??
       (await tryWeekReminderConversation(message, userId, () =>
         canProcessChannelMessage(message, isAccessAllowed)
@@ -404,7 +408,9 @@ function tryAuthorizedChannelShortcut(
       )) ??
       (await tryCustomerTimezoneChannelReply(message, userId)) ??
       (await tryClockChannelReply(message.text, userId)) ??
-      (await tryCustomerPlanningChannelReply(message, userId)) ??
+      (await tryCustomerPlanningChannelReply(message, userId, () =>
+        canProcessChannelMessage(message, isAccessAllowed)
+      )) ??
       (await tryReceivableChannelReply(message, userId, () =>
         canProcessChannelMessage(message, isAccessAllowed)
       )) ??

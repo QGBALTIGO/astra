@@ -11,9 +11,10 @@ import {
   CustomerFinanceError,
   CustomerFinanceRepository,
 } from '../db/repositories/customer-finance.js';
-import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDay } from '../services/customer-date.js';
 import { formatAstraMessage } from './response-presentation.js';
+import { receivableBalanceFields } from './receivable-presentation.js';
+import { customerChannelAccess } from './customer-channel-access.js';
 
 const money = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -87,7 +88,8 @@ export function parseCustomerPlanningIntent(text: string) {
 
 export async function tryCustomerPlanningChannelReply(
   message: ChannelIncomingMessage,
-  userId: string
+  userId: string,
+  allowed: () => Promise<boolean> = async () => message.platform !== 'whatsapp'
 ): Promise<string | null> {
   if (
     message.attachments?.length ||
@@ -110,6 +112,11 @@ export async function tryCustomerPlanningChannelReply(
     .update(JSON.stringify([userId, message.channelPluginId, message.platformChatId, message.id]))
     .digest('hex');
   try {
+    const denied =
+      'Seu acesso a esta conversa mudou. Não consegui concluir esse pedido de planejamento.';
+    const access = await customerChannelAccess(userId, allowed);
+    if (!access) return denied;
+    const { account, stillAllowed } = access;
     if (intent.kind === 'create') {
       const categories =
         intent.planKind === 'budget'
@@ -123,6 +130,7 @@ export async function tryCustomerPlanningChannelReply(
       );
       if (intent.planKind === 'budget' && matching.length !== 1)
         return 'Informe o nome exato de uma categoria de despesa do painel para definir o orçamento.';
+      if (!(await stillAllowed())) return denied;
       const saved = await new CustomerPlanActions(userId).createPlan(
         {
           kind: intent.planKind,
@@ -136,6 +144,7 @@ export async function tryCustomerPlanningChannelReply(
         },
         key
       );
+      if (!(await stillAllowed())) return denied;
       return formatAstraMessage(
         saved.duplicate ? '✅ Planejamento já registrado' : '✅ Planejamento registrado',
         [
@@ -146,6 +155,7 @@ export async function tryCustomerPlanningChannelReply(
       );
     }
     const plans = await new CustomerPlanningRepository(userId).list();
+    if (!(await stillAllowed())) return denied;
     if (intent.kind === 'list') {
       const kind = (
         { metas: 'goal', orcamentos: 'budget', parcelas: 'installment' } as Record<string, string>
@@ -203,6 +213,7 @@ export async function tryCustomerPlanningChannelReply(
         intent.amount,
         key
       );
+      if (!(await stillAllowed())) return denied;
       return formatAstraMessage(
         saved.duplicate ? '✅ Valor já atualizado na meta' : '✅ Meta atualizada',
         [
@@ -221,26 +232,26 @@ export async function tryCustomerPlanningChannelReply(
     const receivables = (await new CustomerReceivablesRepository(userId).list()).filter(
       (p) => planningNameKey(p.borrower) === planningNameKey(intent.name)
     );
+    if (!(await stillAllowed())) return denied;
     if (matching.length + receivables.length > 1)
       return 'Encontrei mais de um controle com esse nome. Confira qual é o recebimento ou a despesa no painel antes de confirmar; nenhum valor foi alterado.';
     if (receivables.length) {
       let receivable = receivables[0]!;
       if (intent.kind === 'payment') {
-        const account = await customerAccountsRepo.getByDataUserId(userId);
         const saved = await new CustomerReceivablesRepository(userId).receiveNext(
           receivable.id,
           key,
           customerLocalDay(message.timestamp, account?.timeZone ?? 'America/Campo_Grande')
         );
+        if (!(await stillAllowed())) return denied;
         receivable = saved.find((p) => p.id === receivable.id)!;
       }
       return formatAstraMessage(
         intent.kind === 'payment' ? '✅ Parcela recebida' : '📒 Saldo a receber',
-        [
-          { label: 'Pessoa', value: receivable.borrower },
-          { label: 'Recebido', value: money(Number(receivable.paid_cents) / 100) },
-          { label: 'A receber', value: money(Number(receivable.remaining_cents) / 100) },
-        ]
+        [{ label: 'Pessoa', value: receivable.borrower }, ...receivableBalanceFields(receivable)],
+        (receivable.currency_balances?.length ?? 0) > 1
+          ? 'Moedas apresentadas separadamente, sem conversão.'
+          : undefined
       );
     }
     const plan = matching[0];
@@ -260,7 +271,6 @@ export async function tryCustomerPlanningChannelReply(
           ),
         },
       ]);
-    const account = await customerAccountsRepo.getByDataUserId(userId);
     const saved = await new CustomerPlanActions(userId).payInstallment(
       plan.id,
       customerLocalDay(message.timestamp, account?.timeZone ?? 'America/Campo_Grande'),
@@ -268,6 +278,7 @@ export async function tryCustomerPlanningChannelReply(
       undefined,
       plan.updatedAt
     );
+    if (!(await stillAllowed())) return denied;
     return formatAstraMessage(
       saved.duplicate ? '✅ Parcela já registrada' : '✅ Parcela paga e despesa registrada',
       [

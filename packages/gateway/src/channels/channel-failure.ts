@@ -14,6 +14,7 @@ import {
   type ChannelToolReceipt,
 } from './response-safety.js';
 import { isConversationalOnlyChannelRequest } from './tool-selection.js';
+import { verifiedReadChannelFacts } from './verified-facts.js';
 
 /** Technical categories stay in diagnostics. Never copy the provider body into a channel reply. */
 export function channelFailureKind(details: string) {
@@ -102,7 +103,7 @@ const domains = [
   {
     name: 'finance',
     words:
-      /\b(?:financeiro|financas|gastos?|gastei|paguei|recebi|receitas?|despesas?|cartao|saldo|parcelas?|pagamentos?|lancamentos?|transacoes|dinheiro|reais)\b|r\$/,
+      /\b(?:financeiro|financas|gastos?|gastei|paguei|recebi|receber|pagar|recebiveis|pendencias|receitas?|despesas?|cartao|saldo|parcelas?|pagamentos?|lancamentos?|transacoes|dinheiro|reais)\b|r\$/,
   },
 ] as const;
 function classifyRequest(text: string) {
@@ -270,6 +271,8 @@ export function channelFailureReply(
       details.push('Sobre a outra parte do pedido, ainda não tenho confirmação.');
     return details.join('\n\n');
   }
+  const read = verifiedReadChannelFacts(receipts, { timeZone, requestText: request });
+  if (read) return read;
   if (reason === 'agent_busy')
     return 'Sua mensagem anterior ainda está em processamento. Aguarde a resposta dela antes de enviar outro pedido.';
   if (!operations.length && isWeeklyPortalGuide(request)) {

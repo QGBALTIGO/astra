@@ -2,6 +2,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSchedule = vi.hoisted(() => vi.fn());
 const mockExpense = vi.hoisted(() => vi.fn());
+const receivables = vi.hoisted(() => ({
+  totals: vi.fn(),
+  scope: vi.fn(),
+  list: vi.fn(),
+  account: vi.fn(),
+}));
+vi.mock('../db/repositories/customer-accounts.js', () => ({
+  customerAccountsRepo: { getByDataUserId: receivables.account },
+}));
+vi.mock('../db/repositories/customer-receivables.js', async (original) => ({
+  ...(await original<typeof import('../db/repositories/customer-receivables.js')>()),
+  CustomerReceivablesRepository: class {
+    constructor(userId: string) {
+      receivables.scope(userId);
+    }
+    pendingTotals = receivables.totals;
+    list = receivables.list;
+  },
+}));
 vi.mock('../tools/channel-reminder-tools.js', () => ({
   executeChannelReminderTool: mockSchedule,
 }));
@@ -17,6 +36,158 @@ import {
   tryExpenseSummaryChannelReply,
   tryScheduleRelativeChannelReminder,
 } from './channel-ai-routing.js';
+beforeEach(() => {
+  receivables.account.mockImplementation(async (dataUserId: string) => ({
+    id: 'fixture-account',
+    dataUserId,
+    phoneNumber: 'fixture-private-chat',
+    channelUserId: 'fixture-channel-user',
+    authVersion: 1,
+    timeZone: 'America/Cuiaba',
+  }));
+});
+
+describe('complete receivable balance through both authenticated channel entry points', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    receivables.totals.mockResolvedValue([{ currency: 'BRL', amountCents: 77000, count: 125 }]);
+    receivables.list.mockResolvedValue([]);
+  });
+  it.each(
+    ['bus', 'direct'].flatMap((route) => ['revoke', 'relink'].map((change) => ({ route, change })))
+  )('does not reveal a deferred balance after $change in $route', async ({ route, change }) => {
+    let begin!: () => void;
+    let release!: (value: unknown) => void;
+    const began = new Promise<void>((resolve) => {
+      begin = resolve;
+    });
+    const query = new Promise((resolve) => {
+      release = resolve;
+    });
+    receivables.totals.mockImplementationOnce(() => {
+      begin();
+      return query;
+    });
+    let allowed = true;
+    const input = {
+      id: `fixture-race-${route}-${change}`,
+      channelPluginId: 'channel.whatsapp',
+      platform: 'whatsapp',
+      platformChatId: 'fixture-private-chat',
+      text: 'Quanto eu tenho a receber?',
+      timestamp: new Date('2026-11-17T16:00:00Z'),
+      metadata: {},
+      attachments: [],
+      sender: { platform: 'whatsapp', platformUserId: 'fixture-private-chat' },
+    };
+    const bus = { process: vi.fn() };
+    const result =
+      route === 'bus'
+        ? processViaBus(
+            bus as never,
+            input as never,
+            { sessionId: 'fixture-session', conversationId: null },
+            { ownpilotUserId: 'fixture-user' },
+            {
+              sessionsRepo: {} as never,
+              getChannel: () => undefined,
+              isAccessAllowed: async () => allowed,
+            }
+          )
+        : processDirectAgent(input as never, 'fixture-user', async () => allowed);
+    await began;
+    if (change === 'revoke') allowed = false;
+    else
+      receivables.account.mockResolvedValue({
+        id: 'another-account',
+        dataUserId: 'fixture-user',
+        phoneNumber: 'relinked-phone',
+        channelUserId: 'new-channel-user',
+        authVersion: 2,
+      });
+    release([{ currency: 'BRL', amountCents: 543210, count: 3 }]);
+    const answer = await result;
+    expect(answer).toContain('acesso');
+    expect(answer).not.toMatch(/R\$|5\.432|pendentes registrados|não tem valores/i);
+    expect(bus.process).not.toHaveBeenCalled();
+  });
+  it.each(
+    ['whatsapp', 'telegram'].flatMap((platform) =>
+      ['bus', 'direct'].map((route) => ({ platform, route }))
+    )
+  )(
+    'reads all pending entries for only the current user before the provider: $platform/$route',
+    async ({ platform, route }) => {
+      const userId = `fixture-receivable-${platform}`;
+      const input = {
+        id: `fixture-${route}-${platform}`,
+        channelPluginId: `channel.${platform}`,
+        platform,
+        platformChatId: 'fixture-private-chat',
+        text: 'Quanto eu tenho a receber?',
+        timestamp: new Date('2026-11-17T16:00:00Z'),
+        metadata: { chatType: 'private' },
+        attachments: [],
+        sender: { platformUserId: 'fixture-private-chat', platform, displayName: 'Pessoa Exemplo' },
+      };
+      const bus = { process: vi.fn() };
+      const answer =
+        route === 'bus'
+          ? await processViaBus(
+              bus as never,
+              input as never,
+              { sessionId: 'fixture-session', conversationId: null },
+              { ownpilotUserId: userId },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : await processDirectAgent(input as never, userId, async () => true);
+      expect(answer).toContain('R$ 770,00');
+      expect(answer).toContain('Todos os períodos');
+      expect(answer).toContain('125');
+      expect(receivables.scope).toHaveBeenCalledWith(userId);
+      expect(receivables.totals).toHaveBeenCalledTimes(1);
+      expect(receivables.list).not.toHaveBeenCalled();
+      expect(bus.process).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['bus', 'direct'])(
+    'does not read the ledger without the access gate: %s',
+    async (route) => {
+      const input = {
+        id: 'fixture-denied',
+        channelPluginId: 'channel.whatsapp',
+        platform: 'whatsapp',
+        platformChatId: 'fixture-private-chat',
+        text: 'Quanto eu tenho a receber?',
+        timestamp: new Date('2026-11-17T16:00:00Z'),
+        metadata: {},
+        attachments: [],
+      };
+      const bus = { process: vi.fn() };
+      const answer =
+        route === 'bus'
+          ? await processViaBus(
+              bus as never,
+              input as never,
+              { sessionId: 'fixture-session', conversationId: null },
+              { ownpilotUserId: 'fixture-denied-user' },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => false,
+              }
+            )
+          : await processDirectAgent(input as never, 'fixture-denied-user', async () => false);
+      expect(answer).toMatch(/acesso/i);
+      expect(receivables.totals).not.toHaveBeenCalled();
+      expect(bus.process).not.toHaveBeenCalled();
+    }
+  );
+});
 
 describe('Astra respostas gratuitas e instantâneas', () => {
   it.each([

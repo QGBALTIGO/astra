@@ -44,7 +44,14 @@ jobs:
       - name: Real PostgreSQL isolation, HTTP cache, cancellation and recovery
         env:
           ASTRA_RADAR_TEST_PORT: '5432'
-        run: pnpm --filter @ownpilot/gateway exec vitest run src/db/repositories/customer-radar.pg.test.ts src/services/radar/http.pg.test.ts src/routes/customer/radar.pg.test.ts
+        run: >-
+          pnpm --filter @ownpilot/gateway exec vitest run
+          src/db/repositories/customer-radar.pg.test.ts
+          src/services/radar/http.pg.test.ts
+          src/routes/customer/radar.pg.test.ts
+          src/db/repositories/customer-finance-sync.pg.test.ts
+          src/db/repositories/customer-receivables.pg.test.ts
+          src/db/repositories/channel-reminders-bulk.pg.test.ts
       - name: Synthetic evaluator scenarios without external APIs or WhatsApp
         env:
           ASTRA_RADAR_TEST_PORT: '5432'

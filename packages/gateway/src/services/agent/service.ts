@@ -89,7 +89,12 @@ import {
   MAX_CHAT_AGENT_CACHE_SIZE,
 } from './cache.js';
 import { getLLMRouter, getConfigCenter } from '@ownpilot/core/services';
-import { parseAstraFallbackChain } from './fallback-chain.js';
+import {
+  parseAstraFallbackChain,
+  ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
+  ASTRA_LOCAL_FALLBACK_MAX_TOKENS,
+  ASTRA_CHANNEL_FALLBACK_WITH_LOCAL_BUDGET_MS,
+} from './fallback-chain.js';
 import {
   AGENT_DEFAULT_MAX_TOKENS,
   AGENT_DEFAULT_TEMPERATURE,
@@ -819,15 +824,27 @@ async function createChatAgentInstance(
           apiKey: fbApiKey,
           resolvedAuth: fbResolvedAuth,
           baseUrl: fbConfig?.baseUrl,
-          headers: fbConfig?.headers,
+          headers:
+            candidate.provider === 'ollama-local'
+              ? {
+                  ...fbConfig?.headers,
+                  'X-Astra-Timeout-Ms': String(ASTRA_LOCAL_FALLBACK_TIMEOUT_MS),
+                }
+              : fbConfig?.headers,
           defaultModel: {
             model: candidate.model,
             maxTokens:
-              channelMode && candidate.provider === 'groq'
-                ? Math.min(outputBuffer, 768)
-                : outputBuffer,
+              candidate.provider === 'ollama-local'
+                ? Math.min(outputBuffer, ASTRA_LOCAL_FALLBACK_MAX_TOKENS)
+                : channelMode && candidate.provider === 'groq'
+                  ? Math.min(outputBuffer, 768)
+                  : outputBuffer,
           },
-          ...(channelMode ? { timeout: 4_000 } : {}),
+          ...(candidate.provider === 'ollama-local'
+            ? { timeout: ASTRA_LOCAL_FALLBACK_TIMEOUT_MS }
+            : channelMode
+              ? { timeout: 4_000 }
+              : {}),
           // A second retry against the same exhausted key delays WhatsApp
           // responses and wastes quota. Use the next configured provider.
           maxRetries: 0,
@@ -835,6 +852,9 @@ async function createChatAgentInstance(
       }
 
       if (usableFallbacks.length > 0) {
+        const hasLocalReserve = usableFallbacks.some(
+          (candidate) => candidate.id === 'ollama-local'
+        );
         providerInstance = createFallbackProvider({
           primary: {
             id: provider,
@@ -861,8 +881,10 @@ async function createChatAgentInstance(
                 circuitBreakerThreshold: 1,
                 circuitBreakerCooldown: 300_000,
                 sharedCircuitBreaker: true,
-                preferLastSuccessful: true,
-                completionTimeoutMs: 12_000,
+                preferLastSuccessful: !hasLocalReserve,
+                completionTimeoutMs: hasLocalReserve
+                  ? ASTRA_CHANNEL_FALLBACK_WITH_LOCAL_BUDGET_MS
+                  : 12_000,
               }
             : {}),
           onFallback: (failed, _error, next) => {

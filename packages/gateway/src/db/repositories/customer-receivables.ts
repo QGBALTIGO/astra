@@ -21,7 +21,12 @@ export type ReceivablePlan = {
   localTime: string;
   skipSunday: boolean;
 };
-type SavedPlan = {
+export type ReceivableCurrencyBalance = {
+  currency: string;
+  pending_cents: string;
+  paid_cents: string;
+};
+export type SavedReceivablePlan = {
   id: string;
   borrower: string;
   principal_cents: string;
@@ -31,7 +36,10 @@ type SavedPlan = {
   time_zone: string;
   remaining_cents: string;
   paid_cents: string;
+  /** Derived current ledger balances. Historical principal/total fields are unchanged. */
+  currency_balances?: ReceivableCurrencyBalance[];
 };
+type SavedPlan = SavedReceivablePlan;
 export function receivableDates(plan: ReceivablePlan, timeZone: string): Date[] {
   if (
     !validCalendarDay(plan.startDate) ||
@@ -63,16 +71,68 @@ export class CustomerReceivablesRepository extends BaseRepository {
     super();
     if (!userId?.trim()) throw new CustomerFinanceError('Conversa autenticada necessária.');
   }
-  async list(): Promise<SavedPlan[]> {
-    return this.query<SavedPlan>(
-      `
-      SELECT p.*, GREATEST(p.total_cents - COALESCE(SUM(e.amount * 100) FILTER (WHERE e.status = 'settled' AND e.deleted_at IS NULL),0),0)::text AS remaining_cents,
-        COALESCE(SUM(e.amount * 100) FILTER (WHERE e.status = 'settled' AND e.deleted_at IS NULL),0)::text AS paid_cents
-      FROM customer_receivable_plans p LEFT JOIN customer_receivable_items i ON i.plan_id=p.id
-      LEFT JOIN expenses e ON e.id=i.transaction_id AND e.user_id=p.user_id
-      WHERE p.user_id=$1 GROUP BY p.id ORDER BY p.created_at DESC LIMIT 100`,
+  /** The current ledger is canonical, including edited/deleted plan installments and standalone income. */
+  async pendingTotals(): Promise<Array<{ currency: string; amountCents: number; count: number }>> {
+    const rows = await this.query<{ currency: string; pending_cents: string; count: string }>(
+      `SELECT currency, SUM(amount * 100)::text AS pending_cents, COUNT(*)::text AS count
+       FROM expenses
+       WHERE user_id=$1 AND transaction_type='income' AND status='pending' AND deleted_at IS NULL
+       GROUP BY currency ORDER BY currency`,
       [this.userId]
     );
+    return rows.map((row) => {
+      const amountCents = Number(row.pending_cents),
+        count = Number(row.count);
+      if (
+        !/^[A-Z]{3}$/u.test(row.currency) ||
+        !Number.isSafeInteger(amountCents) ||
+        amountCents < 0 ||
+        !Number.isSafeInteger(count) ||
+        count < 1
+      )
+        throw new CustomerFinanceError('Não consegui conferir os valores pendentes agora.');
+      return { currency: row.currency, amountCents, count };
+    });
+  }
+  async list(): Promise<SavedPlan[]> {
+    const rows = await this.query<SavedPlan>(
+      `
+      WITH ledger AS (
+        SELECT i.plan_id,e.currency,
+          COALESCE(SUM(e.amount * 100) FILTER (WHERE e.status='pending'),0) AS pending_cents,
+          COALESCE(SUM(e.amount * 100) FILTER (WHERE e.status='settled'),0) AS paid_cents
+        FROM customer_receivable_items i
+        JOIN customer_receivable_plans owner ON owner.id=i.plan_id AND owner.user_id=$1
+        JOIN expenses e ON e.id=i.transaction_id AND e.user_id=owner.user_id
+        WHERE e.transaction_type='income' AND e.status IN ('pending','settled') AND e.deleted_at IS NULL
+        GROUP BY i.plan_id,e.currency
+      )
+      SELECT p.*,
+        COALESCE(MAX(l.pending_cents) FILTER (WHERE l.currency='BRL'),0)::text AS remaining_cents,
+        COALESCE(MAX(l.paid_cents) FILTER (WHERE l.currency='BRL'),0)::text AS paid_cents,
+        COALESCE(jsonb_agg(jsonb_build_object('currency',l.currency,
+          'pending_cents',l.pending_cents::text,'paid_cents',l.paid_cents::text) ORDER BY l.currency)
+          FILTER (WHERE l.currency IS NOT NULL),'[]'::jsonb) AS currency_balances
+      FROM customer_receivable_plans p LEFT JOIN ledger l ON l.plan_id=p.id
+      WHERE p.user_id=$1 GROUP BY p.id ORDER BY p.created_at DESC,p.id`,
+      [this.userId]
+    );
+    for (const row of rows) {
+      if (
+        !Array.isArray(row.currency_balances) ||
+        row.currency_balances.some(
+          (balance) =>
+            !/^[A-Z]{3}$/u.test(balance.currency) ||
+            [balance.pending_cents, balance.paid_cents].some(
+              (raw) => !Number.isSafeInteger(Number(raw)) || Number(raw) < 0
+            )
+        )
+      )
+        throw new CustomerFinanceError(
+          'Não consegui conferir as parcelas desse recebimento agora.'
+        );
+    }
+    return rows;
   }
   async receive(
     planId: string,
@@ -101,10 +161,11 @@ export class CustomerReceivablesRepository extends BaseRepository {
       [this.userId, sourceKey]
     );
     if (replay) return this.list();
+    await this.assertUnambiguousReceivableCurrency(planId);
     const items = await this.query<{ id: string; amount: string; reminder_id: string }>(
       `SELECT e.id,e.amount,i.reminder_id FROM customer_receivable_items i
         JOIN customer_receivable_plans p ON p.id=i.plan_id JOIN expenses e ON e.id=i.transaction_id AND e.user_id=p.user_id
-        WHERE p.user_id=$1 AND p.id=$2 AND e.status='pending' AND e.deleted_at IS NULL AND e.transaction_type='income'
+        WHERE p.user_id=$1 AND p.id=$2 AND e.status='pending' AND e.deleted_at IS NULL AND e.transaction_type='income' AND e.currency='BRL'
         ORDER BY i.sequence FOR UPDATE OF e`,
       [this.userId, planId]
     );
@@ -136,6 +197,20 @@ export class CustomerReceivablesRepository extends BaseRepository {
     return this.list();
   }
 
+  private async assertUnambiguousReceivableCurrency(planId: string): Promise<void> {
+    const currencies = await this.query<{ currency: string }>(
+      `SELECT DISTINCT e.currency FROM customer_receivable_items i
+       JOIN customer_receivable_plans p ON p.id=i.plan_id
+       JOIN expenses e ON e.id=i.transaction_id AND e.user_id=p.user_id
+       WHERE p.user_id=$1 AND p.id=$2 AND e.status='pending' AND e.deleted_at IS NULL AND e.transaction_type='income'`,
+      [this.userId, planId]
+    );
+    if (currencies.some((entry) => entry.currency !== 'BRL'))
+      throw new CustomerFinanceError(
+        'Esse recebimento tem parcelas em outra moeda. Confira a moeda e o valor antes de confirmar a baixa; nenhuma parcela foi alterada.'
+      );
+  }
+
   /** Explicitly confirmed "one more instalment"; the amount comes from the
    * next locked pending row. A redelivered message cannot settle the next one. */
   async receiveNext(planId: string, sourceKey: string, date: string): Promise<SavedPlan[]> {
@@ -149,6 +224,7 @@ export class CustomerReceivablesRepository extends BaseRepository {
         [this.userId, sourceKey]
       );
       if (replay) return this.list();
+      await this.assertUnambiguousReceivableCurrency(planId);
       const next = await this.queryOne<{ amount: string }>(
         `SELECT e.amount FROM customer_receivable_items i
          JOIN customer_receivable_plans p ON p.id=i.plan_id

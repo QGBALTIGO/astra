@@ -1,0 +1,196 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CompletionRequest, ProviderConfig } from '../types.js';
+
+vi.mock('../tools/dynamic-tool-permissions.js', () => ({
+  isPrivateUrlAsync: vi.fn(async () => false),
+}));
+vi.mock('../../services/get-log.js', () => ({
+  getLog: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+}));
+
+let sequence = 0;
+let keys: string[];
+beforeEach(() => {
+  sequence++;
+  keys = Array.from({ length: 5 }, (_, i) => `gsk-synthetic-${sequence}-${i}`);
+  keys.forEach((key, i) => vi.stubEnv(i ? `GROQ_API_KEY_${i + 1}` : 'GROQ_API_KEY', key));
+  for (let i = 6; i <= 10; i++) vi.stubEnv(`GROQ_API_KEY_${i}`, '');
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+function response(content: string) {
+  return Response.json({
+    choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }],
+  });
+}
+
+function input(customer: string): CompletionRequest {
+  return {
+    messages: [{ id: 'user-1', role: 'user', content: customer }],
+    model: { model: 'openai/gpt-oss-20b', maxTokens: 256 },
+    metadata: { conversationId: customer },
+    toolChoice: 'none',
+  } as CompletionRequest;
+}
+
+async function provider() {
+  const { FallbackProvider } = await import('./fallback.js');
+  const primary: ProviderConfig = {
+    id: 'groq',
+    provider: 'groq',
+    apiKey: keys[0],
+    baseUrl: 'https://api.groq.com/openai/v1',
+    timeout: 1000,
+    maxRetries: 0,
+  };
+  return new FallbackProvider({
+    primary,
+    fallbacks: [
+      {
+        id: 'openrouter',
+        provider: 'openai-compatible',
+        apiKey: `or-synthetic-${sequence}`,
+        baseUrl: 'https://openrouter.ai/api/v1',
+        timeout: 1000,
+        maxRetries: 0,
+        defaultModel: { model: 'openrouter/free' },
+      },
+    ],
+    circuitBreakerThreshold: 1,
+    sharedCircuitBreaker: true,
+    preferLastSuccessful: true,
+    completionTimeoutMs: 3000,
+  });
+}
+
+describe('Groq credential pool with the real fallback transport', () => {
+  it('uses each available Groq credential once, then a private tool-capable OpenRouter route', async () => {
+    const calls: Array<{ url: string; key: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        calls.push({ url, key: new Headers(init.headers).get('authorization')!, body });
+        if (url.startsWith('https://api.groq.com/')) {
+          return Response.json(
+            { error: { message: 'Rate limit reached' } },
+            {
+              status: 429,
+              headers: { 'retry-after': '60' },
+            }
+          );
+        }
+        return response('Seu saldo está pronto.');
+      })
+    );
+    const result = await (await provider()).complete(input('customer-A'));
+    expect(result.ok).toBe(true);
+    expect(calls).toHaveLength(6);
+    expect(new Set(calls.slice(0, 5).map((c) => c.key)).size).toBe(5);
+    expect(calls[5]!.body.model).toBe('openrouter/free');
+    expect(calls[5]!.body.provider).toMatchObject({
+      data_collection: 'deny',
+      require_parameters: true,
+    });
+    expect(JSON.stringify(calls[5]!.body.messages)).toContain('customer-A');
+  });
+
+  it('preserves an already executed tool receipt when the next completion changes credential', async () => {
+    let round = 0;
+    let finalAttempts = 0;
+    const receipts: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        if (body.messages.some((m: { role: string }) => m.role === 'tool')) {
+          receipts.push(body.messages.filter((m: { role: string }) => m.role === 'tool'));
+          if (finalAttempts++ === 0)
+            return Response.json(
+              { error: { message: 'Rate limit' } },
+              {
+                status: 429,
+                headers: { 'retry-after': '30' },
+              }
+            );
+          return response('🍕 Pizza registrada, Kayky!');
+        }
+        round++;
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'receipt-1',
+                    type: 'function',
+                    function: { name: 'core__record_expense', arguments: '{"amount":35}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        });
+      })
+    );
+    const transport = await provider();
+    const request = { ...input('customer-pizza'), toolChoice: 'auto' as const };
+    const first = await transport.complete(request);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw first.error;
+    expect(first.value.toolCalls).toHaveLength(1);
+    const execute = vi.fn(() => ({ saved: true, amount: 35 }));
+    const receipt = execute();
+    const second = await transport.complete({
+      ...request,
+      toolChoice: 'none',
+      messages: [
+        ...request.messages,
+        { id: 'assistant-1', role: 'assistant', content: '', toolCalls: first.value.toolCalls },
+        {
+          id: 'tool-1',
+          role: 'tool',
+          content: '',
+          toolResults: [
+            {
+              toolCallId: 'receipt-1',
+              name: 'core.record_expense',
+              content: JSON.stringify(receipt),
+            },
+          ],
+        },
+      ],
+    } as CompletionRequest);
+    expect(second.ok).toBe(true);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(round).toBe(1);
+    expect(receipts).toHaveLength(2);
+    expect(receipts[0]).toEqual(receipts[1]);
+  });
+
+  it('keeps 500 simultaneous synthetic customer requests isolated across the actual JSON transports', async () => {
+    const observedKeys = new Set<string>();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        observedKeys.add(new Headers(init.headers).get('authorization')!);
+        const body = JSON.parse(String(init.body));
+        await Promise.resolve();
+        return response(body.messages[0].content);
+      })
+    );
+    const transports = await Promise.all(Array.from({ length: 500 }, () => provider()));
+    const results = await Promise.all(transports.map((p, i) => p.complete(input(`customer-${i}`))));
+    results.forEach((result, i) => {
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.content).toBe(`customer-${i}`);
+    });
+    expect(observedKeys.size).toBe(5);
+  });
+});

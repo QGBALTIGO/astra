@@ -49,7 +49,11 @@ import { AGENT_DEFAULT_MAX_TOKENS, AGENT_DEFAULT_TEMPERATURE } from '../../confi
 import { getLlmSemaphore } from '../llm/semaphore.js';
 import { getGatewayExtensionService } from '../extension/accessor.js';
 import { getProviderMetricsRepository } from '../../db/repositories/costs/provider-metrics.js';
-import { parseAstraFallbackChain } from './fallback-chain.js';
+import {
+  parseAstraFallbackChain,
+  ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
+  ASTRA_LOCAL_FALLBACK_MAX_TOKENS,
+} from './fallback-chain.js';
 
 const log = getLog('AgentRunnerUtils');
 
@@ -201,7 +205,9 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
   }
 
   const providerConfig = loadProviderConfig(opts.provider);
-  const providerType = NATIVE_PROVIDERS.has(opts.provider) ? opts.provider : 'openai';
+  const providerType = NATIVE_PROVIDERS.has(opts.provider)
+    ? opts.provider
+    : (providerConfig?.type ?? 'openai');
 
   // Fail fast for unrecognized providers — prevents silent fallback to OpenAI
   if (!providerConfig && !NATIVE_PROVIDERS.has(opts.provider)) {
@@ -226,6 +232,7 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
 
   // Build provider config for Agent (config.provider) and create real IProvider for options.provider
   const agentProviderConfig: ProviderConfig = {
+    id: opts.provider,
     provider: providerType as AIProvider,
     apiKey,
     resolvedAuth,
@@ -267,8 +274,27 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
           apiKey: fbApiKey,
           resolvedAuth: fbResolvedAuth,
           baseUrl: fbConfig?.baseUrl,
-          headers: fbConfig?.headers,
-          defaultModel: { model: candidate.model },
+          headers:
+            candidate.provider === 'ollama-local'
+              ? {
+                  ...fbConfig?.headers,
+                  'X-Astra-Timeout-Ms': String(ASTRA_LOCAL_FALLBACK_TIMEOUT_MS),
+                }
+              : fbConfig?.headers,
+          defaultModel: {
+            model: candidate.model,
+            ...(candidate.provider === 'ollama-local'
+              ? {
+                  maxTokens: Math.min(
+                    opts.maxTokens ?? AGENT_DEFAULT_MAX_TOKENS,
+                    ASTRA_LOCAL_FALLBACK_MAX_TOKENS
+                  ),
+                }
+              : {}),
+          },
+          ...(candidate.provider === 'ollama-local'
+            ? { timeout: ASTRA_LOCAL_FALLBACK_TIMEOUT_MS }
+            : {}),
           maxRetries: 0,
         });
       }
