@@ -50,7 +50,7 @@ export function footballTimingReply(
     .replace(/[.!?]+$/, '')
     .trim();
   if (
-    /^(?:(?:um|uma|dois|duas|\d{1,4})\s*(?:h(?:oras?)?|min(?:utos?)?)\s*)?antes(?: (?:do|da) (?:jogo|partida)(?: (?:comecar|iniciar))?| do inicio(?: (?:do|da) (?:jogo|partida))?| de (?:comecar|iniciar)(?: (?:o|a) (?:jogo|partida))?)?$/.test(
+    /^(?:(?:um|uma|dois|duas|\d{1,4})\s*(?:h(?:oras?)?|min(?:utos?)?)\s*)?antes(?: (?:do|da) (?:jogo|partida)(?: (?:comecar|iniciar))?| de cada (?:jogo|partida)| do inicio(?: (?:do|da) (?:jogo|partida))?| de (?:comecar|iniciar)(?: (?:o|a) (?:jogo|partida))?)?$/.test(
       input
     )
   )

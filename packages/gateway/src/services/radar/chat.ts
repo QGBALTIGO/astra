@@ -42,6 +42,23 @@ const icons: Record<RadarSourceId, string> = {
   energy: '💡',
   releases: '🚀',
 };
+function footballTimeQuestion(subject: unknown): string {
+  const team = cleanText(subject, 100);
+  if (footballKickoffConfigured())
+    return (
+      '⚽ *Como você prefere receber os avisos' +
+      (team ? ' do ' + team : '') +
+      '?*' +
+      '\n\n• *Antes de cada jogo:* por exemplo, _1 hora antes_.' +
+      '\n• *Só na data da partida:* em um horário do dia, por exemplo, _às 9h_.' +
+      '\n\nQual dessas opções você prefere?'
+    );
+  return (
+    '⚽ Posso te avisar *só nos dias de jogo*' +
+    (team ? ' do *' + team + '*' : '') +
+    '. Em qual horário do dia você prefere receber o aviso?'
+  );
+}
 const optOutRequest = (s: string) =>
   /\bnao (?:quero (?:mais )?(?:receber|acompanhar|noticias|avisos|o radar)|me (?:mande|envie|avise))\b/.test(
     fold(s)
@@ -592,9 +609,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
         return ask(
           'time',
           args.delivery === 'matchday'
-            ? '⚽ Posso te avisar *só nos dias de jogo*' +
-                (args.subject ? ' do *' + cleanText(args.subject, 100) + '*' : '') +
-                '. Em qual horário do dia você prefere receber o aviso?'
+            ? footballTimeQuestion(args.subject)
             : '📡 Em qual horário você quer receber o resumo diário?'
         );
     }
@@ -695,9 +710,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     return ask(
       'time',
       args.delivery === 'matchday'
-        ? '⚽ Posso te avisar *só nos dias de jogo* do *' +
-            subject +
-            '*. Em qual horário do dia você prefere receber o aviso?'
+        ? footballTimeQuestion(subject)
         : '📡 Em qual horário você quer receber o resumo diário de *' + subject + '*?'
     );
   let target = subject,

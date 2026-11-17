@@ -34,6 +34,8 @@ describe('explicit recurring football consent without a model', () => {
   it.each([
     'Antes do jogo começar',
     'Antes do início da partida',
+    'Antes de cada jogo',
+    'Antes de cada partida',
     'uma hora antes do jogo',
     'antes de começar o jogo',
   ])('recognizes a relative football clarification as read-only: %s', (text) => {

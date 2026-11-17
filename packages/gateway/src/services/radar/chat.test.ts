@@ -197,11 +197,21 @@ describe('Radar chat consent, continuity and private account scope', () => {
     vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
     m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
     m.fetch.mockResolvedValue({ items: [], sourceLabel: 'API Dados Futebol' });
-    await message(user, 'Me avise sempre que tiver jogo do Vasco', {
+    const question = await message(user, 'Me avise sempre que tiver jogo do Vasco', {
       action: 'follow',
       time: '14:00',
       leadMinutes: 1440,
     });
+    expect(question.reply).toContain('Antes de cada jogo');
+    expect(question.reply).toContain('1 hora antes');
+    expect(question.reply).toContain('Só na data da partida');
+    expect(question.reply).toContain('às 9h');
+    const questionWithoutModelClock = await message(
+      user,
+      'Me avise sempre que tiver jogo do Vasco',
+      { action: 'follow' }
+    );
+    expect(questionWithoutModelClock.reply).toBe(question.reply);
     expect([...radarChatPending.values()][0]!.recurringFootball).toBe(true);
     expect(m.follow).not.toHaveBeenCalled();
     const result = await message(user, 'Antes do jogo começar', { action: 'status' });
