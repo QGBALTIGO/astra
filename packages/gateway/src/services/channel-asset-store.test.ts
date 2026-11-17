@@ -1,13 +1,18 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, extname, join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChannelAssetStore, resolveChannelAssetBaseDir } from './channel-asset-store.js';
+import {
+  ChannelAssetStore,
+  ChannelAssetUnavailableError,
+  resolveChannelAssetBaseDir,
+} from './channel-asset-store.js';
 
 describe('ChannelAssetStore', () => {
   let baseDir: string;
   let repo: {
     create: ReturnType<typeof vi.fn>;
+    getById: ReturnType<typeof vi.fn>;
     linkConversation: ReturnType<typeof vi.fn>;
     listExpired: ReturnType<typeof vi.fn>;
     deleteMany: ReturnType<typeof vi.fn>;
@@ -17,6 +22,9 @@ describe('ChannelAssetStore', () => {
     baseDir = await mkdtemp(join(tmpdir(), 'ownpilot-channel-assets-'));
     repo = {
       create: vi.fn(async (input) => input),
+      getById: vi.fn(
+        async (id: string) => repo.create.mock.calls.find(([asset]) => asset.id === id)?.[0] ?? null
+      ),
       linkConversation: vi.fn(async () => undefined),
       listExpired: vi.fn(async () => []),
       deleteMany: vi.fn(async () => undefined),
@@ -85,6 +93,152 @@ describe('ChannelAssetStore', () => {
       { type: 'file', mimeType: 'application/pdf', filename: 'doc.pdf' },
     ]);
     expect(repo.create).not.toHaveBeenCalled();
+  });
+
+  describe('scoped hydration after AI admission', () => {
+    const scope = {
+      messageId: 'channel.whatsapp:media-1',
+      channelPluginId: 'channel.whatsapp',
+      platform: 'whatsapp',
+      platformChatId: 'synthetic-chat',
+    };
+
+    async function fixture(storageDir = baseDir, data = Buffer.from('private synthetic image')) {
+      const store = new ChannelAssetStore(repo as never, storageDir, 60_000);
+      const [stored] = await store.persistIncomingAttachments({
+        ...scope,
+        attachments: [{ type: 'image', mimeType: 'image/png', filename: 'photo.png', data }],
+      });
+      const { data: _data, ...reference } = stored!;
+      return { store, reference, record: repo.create.mock.calls.at(-1)![0], data };
+    }
+
+    it('hydrates a clone from the authorized record, ignoring a caller path and MIME', async () => {
+      const { store, reference, data } = await fixture();
+      const caller = { ...reference, path: '/not-authorized/private.txt', mimeType: 'text/plain' };
+      const [hydrated] = await store.hydrateIncomingAttachments({
+        ...scope,
+        conversationId: 'conversation-still-linking',
+        attachments: [caller],
+      });
+      expect(hydrated?.data).toEqual(data);
+      expect(hydrated?.mimeType).toBe('image/png');
+      expect(hydrated?.path).toBeUndefined();
+      expect(caller).not.toHaveProperty('data');
+      expect(caller.path).toBe('/not-authorized/private.txt');
+    });
+
+    it.each([
+      ['messageId', 'another-message'],
+      ['channelPluginId', 'channel.other'],
+      ['platform', 'telegram'],
+      ['platformChatId', 'another-customer-chat'],
+    ] as const)(
+      'refuses a record outside the %s scope before reading bytes',
+      async (field, value) => {
+        const { store, reference } = await fixture();
+        await rm(reference.path!);
+        await expect(
+          store.hydrateIncomingAttachments({ ...scope, [field]: value, attachments: [reference] })
+        ).rejects.toBeInstanceOf(ChannelAssetUnavailableError);
+      }
+    );
+
+    it('rejects another conversation when both durable links are present', async () => {
+      const { store, reference, record } = await fixture();
+      record.conversationId = 'conversation-owner';
+      await expect(
+        store.hydrateIncomingAttachments({
+          ...scope,
+          conversationId: 'conversation-other',
+          attachments: [reference],
+        })
+      ).rejects.toBeInstanceOf(ChannelAssetUnavailableError);
+    });
+
+    it.each(['missing', 'expired', 'invalid-expiry'] as const)(
+      'rejects %s assets even when the caller supplies bytes',
+      async (reason) => {
+        const { store, reference, record, data } = await fixture();
+        if (reason === 'missing') repo.getById.mockResolvedValueOnce(null);
+        else record.expiresAt = reason === 'expired' ? '2000-01-01T00:00:00Z' : 'invalid';
+        await expect(
+          store.hydrateIncomingAttachments({
+            ...scope,
+            attachments: [{ ...reference, data }],
+          })
+        ).rejects.toBeInstanceOf(ChannelAssetUnavailableError);
+      }
+    );
+
+    it('never reads a path-only reference and preserves unpersisted inline bytes', async () => {
+      const store = new ChannelAssetStore(repo as never, baseDir, 60_000);
+      const inline = { type: 'image' as const, mimeType: 'image/png', data: Buffer.from('inline') };
+      expect(await store.hydrateIncomingAttachments({ ...scope, attachments: [inline] })).toEqual([
+        inline,
+      ]);
+      expect(repo.getById).not.toHaveBeenCalled();
+      await expect(
+        store.hydrateIncomingAttachments({
+          ...scope,
+          attachments: [{ type: 'file', mimeType: 'text/plain', path: '/private-file' }],
+        })
+      ).rejects.toBeInstanceOf(ChannelAssetUnavailableError);
+    });
+
+    it('rejects a durable path outside its generated scope', async () => {
+      const { store, reference, record } = await fixture();
+      record.storagePath = join(baseDir, 'another-file.png');
+      await expect(
+        store.hydrateIncomingAttachments({ ...scope, attachments: [reference] })
+      ).rejects.toBeInstanceOf(ChannelAssetUnavailableError);
+    });
+
+    it('rejects a symlink that escapes the private asset root', async () => {
+      const { store, reference, data } = await fixture(join(baseDir, 'private-assets'));
+      const outside = join(baseDir, basename(reference.path!));
+      await writeFile(outside, data);
+      await rm(reference.path!);
+      await symlink(outside, reference.path!);
+      await expect(
+        store.hydrateIncomingAttachments({ ...scope, attachments: [reference] })
+      ).rejects.toBeInstanceOf(ChannelAssetUnavailableError);
+    });
+
+    it('rejects corrupted or missing files without fabricating an attachment', async () => {
+      const { store, reference } = await fixture();
+      await writeFile(reference.path!, 'different private bytes');
+      await expect(
+        store.hydrateIncomingAttachments({ ...scope, attachments: [reference] })
+      ).rejects.toBeInstanceOf(ChannelAssetUnavailableError);
+      await rm(reference.path!);
+      await expect(
+        store.hydrateIncomingAttachments({ ...scope, attachments: [reference] })
+      ).rejects.toThrow();
+    });
+
+    it('checks the actual file size before allocating an oversized attachment', async () => {
+      const { store, reference } = await fixture();
+      const file = await open(reference.path!, 'r+');
+      try {
+        await file.truncate(12 * 1024 * 1024 + 1);
+      } finally {
+        await file.close();
+      }
+      await expect(
+        store.hydrateIncomingAttachments({ ...scope, attachments: [reference] })
+      ).rejects.toBeInstanceOf(ChannelAssetUnavailableError);
+    });
+
+    it('bounds total hydrated bytes across multiple valid attachments', async () => {
+      const { store, reference } = await fixture(baseDir, Buffer.alloc(12 * 1024 * 1024, 1));
+      await expect(
+        store.hydrateIncomingAttachments({
+          ...scope,
+          attachments: [reference, reference, reference, reference],
+        })
+      ).rejects.toBeInstanceOf(ChannelAssetUnavailableError);
+    });
   });
 
   it.each(['a.' + 'x'.repeat(240), 'a.' + 'ç'.repeat(120), 'a.p$d$f'])(

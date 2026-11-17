@@ -373,7 +373,9 @@ describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
       status: 'connected',
       connectedAccountPhone: '5511888888888',
       waitForConnectedAccount: vi.fn().mockResolvedValue(undefined),
-      acquireSendSlot: vi.fn().mockResolvedValue(socket),
+      acquireSendSlot: vi
+        .fn()
+        .mockResolvedValue({ sock: socket, permit: { commit: vi.fn(), release: vi.fn() } }),
     });
     mockGenerateNative.mockReturnValue({
       key: { id: 'native-cta-id', remoteJid: '5511999999999@s.whatsapp.net' },

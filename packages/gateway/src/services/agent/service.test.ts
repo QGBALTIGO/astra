@@ -1405,9 +1405,9 @@ describe('getOrCreateChatAgent', () => {
     );
     const config = mockCreateAgent.mock.calls.at(-1)?.[0] as
       (ChatAgentTestConfig & { provider: { timeout: number } }) | undefined;
-    expect(config?.provider.timeout).toBe(8_000);
+    expect(config?.provider.timeout).toBe(35_000);
     expect(mockCreateAgent.mock.calls.at(-1)?.[0].provider.headers['X-Astra-Timeout-Ms']).toBe(
-      '8000'
+      '35000'
     );
     expect(config?.model.maxTokens).toBe(1536);
     expect(config?.memory.maxTokens).toBe(3072);
@@ -1434,9 +1434,9 @@ describe('getOrCreateChatAgent', () => {
       expect.objectContaining({
         primary: expect.objectContaining({
           id: 'ollama-local',
-          timeout: 5000,
+          timeout: 35000,
           maxRetries: 0,
-          headers: expect.objectContaining({ 'X-Astra-Timeout-Ms': '5000' }),
+          headers: expect.objectContaining({ 'X-Astra-Timeout-Ms': '35000' }),
         }),
         fallbacks: expect.arrayContaining([
           expect.objectContaining({
@@ -1445,6 +1445,7 @@ describe('getOrCreateChatAgent', () => {
             defaultModel: { model: 'openai/gpt-oss-20b', maxTokens: 768 },
           }),
         ]),
+        completionTimeoutMs: 44000,
       })
     );
   });
@@ -1524,10 +1525,56 @@ describe('getOrCreateChatAgent', () => {
               expect.objectContaining({ id: 'cloudflare-workers-ai', timeout: 12000 }),
               expect.objectContaining({ id: 'openrouter', timeout: 7000 }),
               ...(localReserve
-                ? [expect.objectContaining({ id: 'ollama-local', timeout: 16000 })]
+                ? [expect.objectContaining({ id: 'ollama-local', timeout: 35000 })]
                 : []),
             ],
-            completionTimeoutMs: localReserve ? 26000 : 24000,
+            completionTimeoutMs: localReserve ? 60000 : 24000,
+          })
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  );
+
+  it.each([false, true])(
+    'keeps a Cloudflare channel primary at 12 seconds with local reserve=%s',
+    async (localReserve) => {
+      vi.stubEnv(
+        'ASTRA_FALLBACK_CHAIN',
+        'openrouter=openrouter/free' + (localReserve ? ',ollama-local=qwen3:4b-instruct' : '')
+      );
+      try {
+        mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+        mockLoadProviderConfig.mockReturnValue({
+          type: 'openai-compatible',
+          baseUrl: 'https://example.invalid/v1',
+        });
+        await mod.getOrCreateChatAgent(
+          'cloudflare-workers-ai',
+          '@cf/zai-org/glm-4.7-flash',
+          undefined,
+          null,
+          `channel:whatsapp:cloudflare-primary-${localReserve}`,
+          undefined,
+          true
+        );
+        const core = await import('@ownpilot/core/agent');
+        expect(core.createFallbackProvider).toHaveBeenCalledWith(
+          expect.objectContaining({
+            primary: expect.objectContaining({
+              id: 'cloudflare-workers-ai',
+              timeout: 12_000,
+              maxRetries: 0,
+              defaultModel: expect.objectContaining({ model: '@cf/zai-org/glm-4.7-flash' }),
+            }),
+            fallbacks: [
+              expect.objectContaining({ id: 'openrouter', timeout: 7_000 }),
+              ...(localReserve
+                ? [expect.objectContaining({ id: 'ollama-local', timeout: 35_000 })]
+                : []),
+            ],
+            completionTimeoutMs: localReserve ? 55_000 : 24_000,
           })
         );
       } finally {
@@ -1576,10 +1623,10 @@ describe('getOrCreateChatAgent', () => {
             fallbacks: [
               expect.objectContaining({ id: 'openrouter', timeout: 8000 }),
               ...(localReserve
-                ? [expect.objectContaining({ id: 'ollama-local', timeout: 16000 })]
+                ? [expect.objectContaining({ id: 'ollama-local', timeout: 35000 })]
                 : []),
             ],
-            completionTimeoutMs: localReserve ? 26000 : 16000,
+            completionTimeoutMs: localReserve ? 49000 : 16000,
           })
         );
       } finally {
@@ -1608,6 +1655,15 @@ describe('getOrCreateChatAgent', () => {
       );
       vi.stubEnv('GROQ_API_KEY', primaryKey);
       vi.stubEnv('GROQ_API_KEY_2', secondaryKey);
+      // These fixtures model genuinely separate organizations. Ordinary
+      // credentials from one organization must not bypass its shared quota.
+      vi.stubEnv(
+        'GROQ_QUOTA_GROUPS',
+        JSON.stringify({
+          GROQ_API_KEY: `synthetic-primary-${mode}`,
+          GROQ_API_KEY_2: `synthetic-secondary-${mode}`,
+        })
+      );
       for (let index = 3; index <= 10; index++) vi.stubEnv(`GROQ_API_KEY_${index}`, '');
       vi.stubEnv('ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN', localKey);
       // No DNS or network is used in this transport-contract test. The SSRF
@@ -1617,7 +1673,11 @@ describe('getOrCreateChatAgent', () => {
       try {
         mockCreateAgent.mockReturnValue(makeMockAgent().agent);
         mockGetProviderApiKey.mockImplementation(async (id: string) =>
-          id === 'groq' ? primaryKey : id === 'ollama-local' ? localKey : 'synthetic-openrouter-key'
+          id === 'groq'
+            ? primaryKey
+            : id === 'ollama-local'
+              ? localKey
+              : `synthetic-openrouter-key-${mode}`
         );
         mockLoadProviderConfig.mockImplementation((id: string) => ({
           type: 'openai-compatible',
@@ -1657,8 +1717,9 @@ describe('getOrCreateChatAgent', () => {
               expect(mode).toBe('local');
               expect(body.model).toBe('qwen3:4b-instruct');
               expect(body.max_tokens).toBe(768);
-              expect(new Headers(init?.headers).get('X-Astra-Timeout-Ms')).toBe('16000');
-              await new Promise((resolve) => setTimeout(resolve, 12_000));
+              expect(new Headers(init?.headers).get('X-Astra-Timeout-Ms')).toBe('35000');
+              // Measured cold-prefix 2,930-token synthetic request on the PC.
+              await new Promise((resolve) => setTimeout(resolve, 19_220));
             } else if (!groqSuccess && !cloudSuccess) {
               return new Response('{"error":{"message":"synthetic rate limit"}}', {
                 status: 429,
@@ -1693,11 +1754,11 @@ describe('getOrCreateChatAgent', () => {
               expect.objectContaining({ id: 'openrouter', timeout: 8000 }),
               expect.objectContaining({
                 id: 'ollama-local',
-                timeout: 16000,
+                timeout: 35000,
                 defaultModel: { model: 'qwen3:4b-instruct', maxTokens: 768 },
               }),
             ],
-            completionTimeoutMs: 26000,
+            completionTimeoutMs: 49000,
             preferLastSuccessful: false,
           })
         );
@@ -1708,7 +1769,7 @@ describe('getOrCreateChatAgent', () => {
           messages: [{ role: 'user', content: 'Responda somente OK; sem ferramentas.' }],
           model: { model: 'openai/gpt-oss-20b', maxTokens: 32 },
         });
-        await vi.advanceTimersByTimeAsync(mode === 'local' ? 12_000 : 0);
+        await vi.advanceTimersByTimeAsync(mode === 'local' ? 19_220 : 0);
         const result = await pending;
         expect(result.ok).toBe(true);
         const expectedHost =
@@ -1717,10 +1778,142 @@ describe('getOrCreateChatAgent', () => {
         expect(calls).toHaveLength(
           mode === 'healthy' ? 1 : mode === 'pool' ? 2 : mode === 'cloud' ? 3 : 4
         );
-        expect(Date.now() - started).toBe(mode === 'local' ? 12_000 : 0);
+        expect(Date.now() - started).toBe(mode === 'local' ? 19_220 : 0);
         expect(calls.filter((call) => call.host === '127.0.0.1')).toHaveLength(
           mode === 'local' ? 1 : 0
         );
+      } finally {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+      }
+    }
+  );
+
+  it.each([false, true])(
+    'preserves local allowance after all cloud attempts, Cloudflare=%s',
+    async (withCloudflare) => {
+      const core = await import('@ownpilot/core/agent');
+      const actualCore =
+        await vi.importActual<typeof import('@ownpilot/core/agent')>('@ownpilot/core/agent');
+      vi.mocked(core.createFallbackProvider).mockImplementationOnce(
+        actualCore.createFallbackProvider
+      );
+      vi.stubEnv(
+        'ASTRA_FALLBACK_CHAIN',
+        (withCloudflare ? 'cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash,' : '') +
+          'zai=glm-4.7-flash,openrouter=openrouter/free,google=gemini-3.5-flash-lite,ollama-local=qwen3:4b-instruct'
+      );
+      vi.stubEnv('OWNPILOT_ALLOW_LOCAL_LLM_URL', 'true');
+      vi.useFakeTimers();
+      try {
+        mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+        mockGetProviderApiKey.mockImplementation(
+          async (id: string) => `synthetic-slow-chain-${withCloudflare}-${id}`
+        );
+        mockLoadProviderConfig.mockImplementation((id: string) => ({
+          type: 'openai-compatible',
+          baseUrl:
+            id === 'cloudflare-workers-ai'
+              ? 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1'
+              : id === 'ollama-local'
+                ? 'http://127.0.0.1:3000/_internal/astra-ollama/v1'
+                : id === 'openrouter'
+                  ? 'https://openrouter.ai/api/v1'
+                  : id === 'zai'
+                    ? 'https://api.z.ai/api/paas/v4'
+                    : id === 'google'
+                      ? 'https://generativelanguage.googleapis.com/v1beta'
+                      : 'https://api.openai.com/v1',
+        }));
+        const attempts: Array<{ host: string; at: number }> = [];
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+            const url = new URL(
+              typeof input === 'string' || input instanceof URL ? input : input.url
+            );
+            attempts.push({ host: url.hostname, at: Date.now() });
+            if (url.hostname !== '127.0.0.1') {
+              if (url.hostname === 'api.cloudflare.com') {
+                expect(JSON.parse(String(init?.body)).model).toBe('@cf/zai-org/glm-4.7-flash');
+              }
+              await new Promise((resolve) =>
+                setTimeout(
+                  resolve,
+                  url.hostname === 'api.openai.com'
+                    ? 4_999
+                    : url.hostname === 'api.cloudflare.com'
+                      ? 11_999
+                      : withCloudflare
+                        ? 6_999
+                        : 7_999
+                )
+              );
+              return new Response('{"error":{"message":"synthetic upstream unavailable"}}', {
+                status: 503,
+              });
+            }
+            expect(new Headers(init?.headers).get('X-Astra-Timeout-Ms')).toBe('35000');
+            await new Promise((resolve) => setTimeout(resolve, 34_500));
+            return new Response(
+              JSON.stringify({
+                id: 'synthetic-local-after-clouds',
+                model: 'qwen3:4b-instruct',
+                choices: [{ message: { content: 'OK sintético.' }, finish_reason: 'stop' }],
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } }
+            );
+          })
+        );
+        await mod.getOrCreateChatAgent(
+          'openai',
+          'gpt-4o',
+          undefined,
+          null,
+          `channel:whatsapp:synthetic-slow-clouds-${withCloudflare}`,
+          undefined,
+          true
+        );
+        expect(core.createFallbackProvider).toHaveBeenCalledWith(
+          expect.objectContaining({
+            primary: expect.objectContaining({ timeout: 5_000 }),
+            fallbacks: [
+              ...(withCloudflare
+                ? [expect.objectContaining({ id: 'cloudflare-workers-ai', timeout: 12_000 })]
+                : []),
+              expect.objectContaining({ id: 'zai', timeout: withCloudflare ? 7_000 : 8_000 }),
+              expect.objectContaining({
+                id: 'openrouter',
+                timeout: withCloudflare ? 7_000 : 8_000,
+              }),
+              expect.objectContaining({ id: 'google', timeout: withCloudflare ? 7_000 : 8_000 }),
+              expect.objectContaining({ id: 'ollama-local', timeout: 35_000 }),
+            ],
+            completionTimeoutMs: withCloudflare ? 74_000 : 65_000,
+          })
+        );
+        const transport = mockCreateAgent.mock.calls.at(-1)![1]
+          .provider as import('@ownpilot/core/agent').IProvider;
+        const started = Date.now();
+        let elapsed = 0;
+        const pending = transport
+          .complete({
+            messages: [{ role: 'user', content: 'Consulta sintética sem efeitos.' }],
+            model: { model: 'gpt-4o', maxTokens: 32 },
+          })
+          .then((result) => {
+            elapsed = Date.now() - started;
+            return result;
+          });
+        await vi.advanceTimersByTimeAsync(withCloudflare ? 74_000 : 65_000);
+        expect((await pending).ok).toBe(true);
+        expect(attempts).toHaveLength(withCloudflare ? 6 : 5);
+        expect(attempts.at(-1)).toEqual({
+          host: '127.0.0.1',
+          at: started + (withCloudflare ? 37_995 : 28_996),
+        });
+        expect(elapsed).toBe(withCloudflare ? 72_495 : 63_496);
       } finally {
         vi.useRealTimers();
         vi.unstubAllGlobals();

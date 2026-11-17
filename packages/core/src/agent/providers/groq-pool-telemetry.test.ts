@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-const f = vi.hoisted(() => ({ warn: vi.fn() }));
-vi.mock('../../services/get-log.js', () => ({ getLog: () => ({ warn: f.warn }) }));
+const f = vi.hoisted(() => ({ warn: vi.fn(), debug: vi.fn() }));
+vi.mock('../../services/get-log.js', () => ({ getLog: () => ({ warn: f.warn, debug: f.debug }) }));
 import {
   groqPoolFailureFacts,
   groqPoolRequestFacts,
@@ -35,6 +35,21 @@ const input = () => ({
     'Request too large for model openai/gpt-oss-20b in organization PRIVATE_ORG on tokens per minute (TPM): Limit 8000, Requested 12345. synthetic-private-key',
 });
 describe('sanitized numerical Groq diagnostics', () => {
+  it('records expected local backpressure at debug level without creating a transport incident', () => {
+    f.warn.mockClear();
+    f.debug.mockClear();
+    reportGroqPoolFailure({ ...input(), admissionReason: 'concurrency' });
+    expect(f.warn).not.toHaveBeenCalled();
+    expect(f.debug).toHaveBeenCalledOnce();
+    expect(f.debug.mock.calls[0]?.[1]).toMatchObject({ admissionReason: 'concurrency' });
+  });
+  it('does not log an unrecognized admission reason supplied by an unchecked caller', () => {
+    const facts = groqPoolFailureFacts({
+      ...input(),
+      admissionReason: 'PRIVATE_UNEXPECTED_VALUE',
+    } as unknown as Parameters<typeof groqPoolFailureFacts>[0]);
+    expect(JSON.stringify(facts)).not.toContain('PRIVATE_UNEXPECTED_VALUE');
+  });
   it('distinguishes an oversized request from a generic exhausted quota without retaining sensitive content', () => {
     const facts = groqPoolFailureFacts(input());
     expect(facts).toMatchObject({
@@ -156,7 +171,7 @@ describe('sanitized numerical Groq diagnostics', () => {
         },
       });
       response.finish();
-      expect(f.warn).toHaveBeenCalledTimes(2);
+      expect(f.warn).toHaveBeenCalledTimes(1);
       expect(f.warn.mock.calls[0]?.[1]).toMatchObject({
         status: 429,
         quotaLimit: 8000,

@@ -20,9 +20,11 @@ import type { ChannelIncomingMessage, ChannelPluginAPI } from '@ownpilot/core/ch
 import type { IMessageBus, NormalizedMessage } from '@ownpilot/core/services';
 import type { StreamCallbacks } from '@ownpilot/core/services';
 import type { ChannelSessionsRepository } from '../db/repositories/channels/sessions.js';
+import type { ChannelNormalizer, NormalizedIncoming } from './normalizers/types.js';
 import { truncate } from '../utils/common.js';
 import { tryExpenseRecordChannelReply, tryFinancingChannelReply } from './finance-routing.js';
 import { runInSessionLane } from '../services/agent/session-lane.js';
+import { runWithChannelAIAdmission } from './channel-ai-admission.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { withCustomerClock } from '../services/customer-date.js';
 import { tryPersonalSubscriptionReply } from './personal-subscriptions.js';
@@ -72,6 +74,7 @@ import { tryRadarChannelReply } from './radar.js';
 import { verifiedRadarToolReply } from './verified-facts.js';
 import { isPendingRadarReply } from '../services/radar/chat-pending.js';
 import { withContactStyleContext } from './channel-personalization.js';
+import { inboundChannelAssetScope } from './whatsapp-inbound-identity.js';
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -349,6 +352,55 @@ async function canProcessChannelMessage(
   return message.platform !== 'whatsapp';
 }
 
+async function normalizeAuthorizedChannelMessage(
+  message: ChannelIncomingMessage,
+  normalizer: ChannelNormalizer,
+  isAccessAllowed?: ChannelAccessCheck,
+  conversationId?: string
+): Promise<NormalizedIncoming> {
+  let mediaMessage = message;
+  if (
+    message.attachments?.some(
+      (attachment) =>
+        attachment.assetId !== undefined || (attachment.path && !attachment.data?.length)
+    )
+  ) {
+    // The access callback validates the current sender/data-user binding. It
+    // must run after admission, before reading any private asset bytes.
+    if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
+      return { text: '', failureReply: INACTIVE_CHANNEL_ACCESS_REPLY };
+    }
+    try {
+      const { channelAssetStore } = await import('../services/channel-asset-store.js');
+      const scope = inboundChannelAssetScope(message);
+      const attachments = await channelAssetStore.hydrateIncomingAttachments({
+        messageId: scope.id,
+        channelPluginId: scope.channelPluginId,
+        platform: scope.platform,
+        platformChatId: scope.platformChatId,
+        conversationId,
+        attachments: message.attachments,
+      });
+      // Leave the queued message as metadata. Only this admitted media stage
+      // owns the hydrated bytes; the subsequent agent retains its interpretation.
+      mediaMessage = { ...message, attachments };
+    } catch {
+      getLog('ChannelMedia').warn('Inbound channel attachment unavailable');
+      return {
+        text: '',
+        failureReply:
+          'Não consegui acessar o anexo desta mensagem. Pode reenviar o arquivo ou escrever o pedido?',
+      };
+    }
+    if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
+      return { text: '', failureReply: INACTIVE_CHANNEL_ACCESS_REPLY };
+    }
+  }
+  const incoming = await normalizer.normalizeIncoming(mediaMessage);
+  const { enrichWhatsAppMedia } = await import('./normalizers/media-understanding.js');
+  return enrichWhatsAppMedia(mediaMessage, incoming);
+}
+
 /** Queue before the first await so both entry points observe consecutive turns in arrival order. */
 function tryAuthorizedChannelShortcut(
   message: ChannelIncomingMessage,
@@ -493,14 +545,18 @@ export async function processViaBus(
   // A reconnect can deliver another message while a provider fallback is still
   // running; loading a conversation or changing tools outside this lane would
   // race with that turn. Independent customers retain independent lanes.
-  return runInSessionLane(
-    JSON.stringify([
-      'channel',
-      message.channelPluginId,
-      session.sessionId,
-      channelUser.ownpilotUserId,
-    ]),
-    () => processViaBusInSession(bus, message, session, channelUser, deps, progress)
+  return runWithChannelAIAdmission(
+    JSON.stringify([message.channelPluginId, message.platformChatId, channelUser.ownpilotUserId]),
+    () =>
+      runInSessionLane(
+        JSON.stringify([
+          'channel',
+          message.channelPluginId,
+          session.sessionId,
+          channelUser.ownpilotUserId,
+        ]),
+        () => processViaBusInSession(bus, message, session, channelUser, deps, progress)
+      )
   );
 }
 
@@ -525,6 +581,25 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
   if (latestSession && !latestSession.isActive) {
     return 'A conversa foi reiniciada. Envie novamente a mensagem que deseja processar.';
   }
+
+  const { getNormalizer } = await import('./normalizers/index.js');
+  const channelNormalizer = getNormalizer(message.platform);
+  const interpreted = await normalizeAuthorizedChannelMessage(
+    message,
+    channelNormalizer,
+    deps.isAccessAllowed,
+    latestSession?.conversationId ?? session.conversationId ?? undefined
+  );
+  if (interpreted.failureReply) return interpreted.failureReply;
+  const speechScope = interpreted.userSpeech
+    ? await tryAstraScopeReply(message.channelPluginId, interpreted.userSpeech)
+    : null;
+  if (speechScope) return speechScope;
+
+  // Forwarding provenance is not retained by every adapter. Speech can deny a
+  // destructive bulk action, but cannot provide its confirmation authority.
+  if (interpreted.userSpeech && isBulkFinanceDeletionRequest(interpreted.userSpeech))
+    return 'Para revisar a exclusão dos pendentes com segurança, escreva o pedido nesta conversa. Vou mostrar a seleção antes de pedir sua confirmação.';
 
   const routing = await resolveForChannel(message.channelPluginId, {
     hasMedia: Boolean(message.attachments?.length),
@@ -622,25 +697,6 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
       });
     });
   }
-
-  // Normalize incoming message via channel normalizer
-  const { getNormalizer } = await import('./normalizers/index.js');
-  const channelNormalizer = getNormalizer(message.platform);
-  const incoming = await channelNormalizer.normalizeIncoming(message);
-  // Understand media before invoking the text model. Auth/owner checks
-  // happened in ChannelService before this function is called.
-  const { enrichWhatsAppMedia } = await import('./normalizers/media-understanding.js');
-  const interpreted = await enrichWhatsAppMedia(message, incoming);
-  if (interpreted.failureReply) return interpreted.failureReply;
-  const speechScope = interpreted.userSpeech
-    ? await tryAstraScopeReply(message.channelPluginId, interpreted.userSpeech)
-    : null;
-  if (speechScope) return speechScope;
-
-  // Forwarding provenance is not retained by every adapter. Speech can deny a
-  // destructive bulk action, but cannot provide its confirmation authority.
-  if (interpreted.userSpeech && isBulkFinanceDeletionRequest(interpreted.userSpeech))
-    return 'Para revisar a exclusão dos pendentes com segurança, escreva o pedido nesta conversa. Vou mostrar a seleção antes de pedir sua confirmação.';
 
   // Build NormalizedMessage from normalized incoming
   const normalized: NormalizedMessage = {
@@ -783,9 +839,13 @@ export async function processDirectAgent(
   )
     return freeReply;
 
-  return runInSessionLane(
-    JSON.stringify(['channel-direct', message.channelPluginId, message.platformChatId, userId]),
-    () => processDirectAgentInSession(message, userId, isAccessAllowed)
+  return runWithChannelAIAdmission(
+    JSON.stringify([message.channelPluginId, message.platformChatId, userId]),
+    () =>
+      runInSessionLane(
+        JSON.stringify(['channel-direct', message.channelPluginId, message.platformChatId, userId]),
+        () => processDirectAgentInSession(message, userId, isAccessAllowed)
+      )
   );
 }
 
@@ -804,6 +864,19 @@ async function processDirectAgentInSession(
     return demoModeReply(message.text);
   }
 
+  // The legacy direct path uses the same scoped media stage as the bus.
+  const { getNormalizer } = await import('./normalizers/index.js');
+  const interpreted = await normalizeAuthorizedChannelMessage(
+    message,
+    getNormalizer(message.platform),
+    isAccessAllowed
+  );
+  if (interpreted.failureReply) return interpreted.failureReply;
+  const speechScope = interpreted.userSpeech
+    ? await tryAstraScopeReply(message.channelPluginId, interpreted.userSpeech)
+    : null;
+  if (speechScope) return speechScope;
+
   const routing = await resolveForChannel(message.channelPluginId, {
     hasMedia: Boolean(message.attachments?.length),
   });
@@ -821,17 +894,6 @@ async function processDirectAgentInSession(
     true,
     userId
   );
-  // The legacy direct-agent path must understand media too; otherwise an
-  // outage of the bus would silently lose WhatsApp voice notes and images.
-  const { getNormalizer } = await import('./normalizers/index.js');
-  const { enrichWhatsAppMedia } = await import('./normalizers/media-understanding.js');
-  const incoming = await getNormalizer(message.platform).normalizeIncoming(message);
-  const interpreted = await enrichWhatsAppMedia(message, incoming);
-  if (interpreted.failureReply) return interpreted.failureReply;
-  const speechScope = interpreted.userSpeech
-    ? await tryAstraScopeReply(message.channelPluginId, interpreted.userSpeech)
-    : null;
-  if (speechScope) return speechScope;
   const account = userId.startsWith('whatsapp:')
     ? await customerAccountsRepo.getByDataUserId(userId)
     : null;

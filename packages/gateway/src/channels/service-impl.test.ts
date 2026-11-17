@@ -15,7 +15,18 @@ import { writeShortChannelReply } from './short-channel-reply.js';
 vi.mock('./short-channel-reply.js', () => ({ writeShortChannelReply: vi.fn() }));
 import type { Message } from '@ownpilot/core/agent';
 import { inboundAccessCycle } from '../db/repositories/channel-access-inbound-notices.js';
+import { type ChannelAIAdmission, getChannelAIAdmissionStats } from './channel-ai-admission.js';
 import type { ChannelUserEntity } from '../db/repositories/channels/users.js';
+import {
+  getOrCreateChatAgent as mockedGetOrCreateChatAgent,
+  isDemoMode as mockedIsDemoMode,
+} from '../services/agent/service.js';
+import { createConversationsRepository as mockedCreateConversationsRepository } from '../db/repositories/chat/conversations.js';
+import {
+  resolveForProcess as mockedResolveForProcess,
+  resolveForChannel as mockedResolveForChannel,
+  inferProviderForModel as mockedInferProviderForModel,
+} from '../services/llm/model-routing.js';
 
 // ============================================================================
 // Hoisted mocks
@@ -274,28 +285,18 @@ vi.mock('../routes/helpers.js', () => ({
   getErrorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
 
-vi.mock('../services/agent/service.js', () => ({
-  getOrCreateChatAgent: mockGetOrCreateChatAgent,
-  isDemoMode: mockIsDemoMode,
-}));
+// Automatic module mocks remain mocked across concurrent dynamic imports.
+// Vitest's manual-factory recursion guard can expose the real module when
+// several new channel sessions import it together.
+vi.mock('../services/agent/service.js');
 
-vi.mock('../services/llm/model-routing.js', () => ({
-  resolveForProcess: mockResolveForProcess,
-  resolveForChannel: mockResolveForProcess,
-  // Channel routing now infers a provider for bare per-session model overrides
-  // (e.g. Telegram `/model gpt-4o`). Default messages carry no override so this
-  // is unused in most tests, but the export must exist or vitest's mock proxy
-  // throws on the destructure in processViaBus.
-  inferProviderForModel: vi.fn(() => null),
-}));
+vi.mock('../services/llm/model-routing.js');
 
 vi.mock('../services/app-settings.js', () => ({
   resolveDefaultProviderAndModel: vi.fn().mockResolvedValue({ provider: 'openai', model: 'gpt-4' }),
 }));
 
-vi.mock('../db/repositories/chat/conversations.js', () => ({
-  createConversationsRepository: () => mockConversationsRepo,
-}));
+vi.mock('../db/repositories/chat/conversations.js');
 vi.mock('../db/repositories/chat/index.js', () => ({
   ChatRepository: class {
     constructor(userId: string) {
@@ -540,6 +541,18 @@ describe('ChannelServiceImpl', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(mockedGetOrCreateChatAgent).mockImplementation((...args) =>
+      mockGetOrCreateChatAgent(...args)
+    );
+    vi.mocked(mockedIsDemoMode).mockImplementation(() => mockIsDemoMode());
+    vi.mocked(mockedCreateConversationsRepository).mockReturnValue(mockConversationsRepo as never);
+    vi.mocked(mockedResolveForProcess).mockImplementation((...args) =>
+      mockResolveForProcess(...args)
+    );
+    vi.mocked(mockedResolveForChannel).mockImplementation((...args) =>
+      mockResolveForProcess(...args)
+    );
+    vi.mocked(mockedInferProviderForModel).mockReturnValue(null);
     mockUsersRepo.getById.mockResolvedValue(null);
     mockResolveCustomerPhone.mockImplementation(
       async (phone: string, options?: { provision?: boolean }) =>
@@ -1211,6 +1224,59 @@ describe('ChannelServiceImpl', () => {
       mockUsersRepo.findByPlatform.mockResolvedValue(customer);
     });
 
+    it('passes a fresh access guard to the transport for grants revoked while queued', async () => {
+      await service.send('channel.whatsapp', {
+        platformChatId: phone,
+        text: 'Private information',
+      });
+      const outgoing = vi.mocked(channelPlugin.api.sendMessage).mock.calls[0]![0];
+      expect(outgoing.canSend).toEqual(expect.any(Function));
+      expect(await outgoing.canSend!()).toBe(true);
+      mockUsersRepo.findByPlatform.mockResolvedValue({ ...customer, isVerified: false });
+      await expect(outgoing.canSend!()).rejects.toThrow('acesso deste número está inativo');
+    });
+
+    it('composes the caller guard instead of replacing it during a queued send', async () => {
+      const canSend = vi.fn(async () => false);
+      await service.send('channel.whatsapp', {
+        platformChatId: phone,
+        text: 'Private information',
+        canSend,
+      });
+      const outgoing = vi.mocked(channelPlugin.api.sendMessage).mock.calls[0]![0];
+      expect(await outgoing.canSend!()).toBe(false);
+      expect(canSend).toHaveBeenCalledOnce();
+    });
+
+    it.each(['broadcast', 'broadcastAll'] as const)(
+      '%s rechecks access if the recipient grant is revoked while queued',
+      async (method) => {
+        const message = { platformChatId: phone, text: 'Private information' };
+        if (method === 'broadcast') await service.broadcast('whatsapp', message);
+        else await service.broadcastAll(message);
+
+        const outgoing = channelPlugin.api.sendMessage.mock.calls[0]![0];
+        expect(outgoing.canSend).toEqual(expect.any(Function));
+        expect(await outgoing.canSend!()).toBe(true);
+        mockUsersRepo.findByPlatform.mockResolvedValue({ ...customer, isVerified: false });
+        await expect(outgoing.canSend!()).rejects.toThrow('acesso deste número está inativo');
+      }
+    );
+
+    it.each(['broadcast', 'broadcastAll'] as const)(
+      '%s preserves the caller guard after validating queued recipient access',
+      async (method) => {
+        const canSend = vi.fn(async () => false);
+        const message = { platformChatId: phone, text: 'Private information', canSend };
+        if (method === 'broadcast') await service.broadcast('whatsapp', message);
+        else await service.broadcastAll(message);
+
+        const outgoing = channelPlugin.api.sendMessage.mock.calls[0]![0];
+        expect(await outgoing.canSend!()).toBe(false);
+        expect(canSend).toHaveBeenCalledOnce();
+      }
+    );
+
     it.each(['blocked', 'expired', 'retired'])(
       'does not redirect a private delivery to a restricted alternate spelling: %s',
       async (restriction) => {
@@ -1377,6 +1443,156 @@ describe('ChannelServiceImpl', () => {
         conversationId: 'conv-1',
       });
       mockSessionsRepo.touchLastMessage.mockResolvedValue(undefined);
+    });
+
+    describe('bounded ingress and first-session capacity', () => {
+      it('processes 300 new conversations with at most four simultaneous agent constructions', async () => {
+        vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+        service.dispose();
+        channelPlugin = createChannelPlugin({ platform: 'whatsapp', botPhone: '5511999990002' });
+        registry = createMockPluginRegistry([channelPlugin]);
+        service = new ChannelServiceImpl(registry as never, {
+          usersRepo: mockUsersRepo as never,
+          sessionsRepo: mockSessionsRepo as never,
+          verificationService: mockVerificationService as never,
+          dmPairingRequests: mockDmPairingRequests as never,
+        });
+        mockGetOwnerUserId.mockResolvedValue('5511999990002');
+        mockHasServiceRegistry.mockReturnValue(false);
+        mockIsDemoMode.mockResolvedValue(false);
+        mockMessagesRepo.createIfNew.mockResolvedValue(true);
+        mockSessionsRepo.findActive.mockResolvedValue(null);
+        const customer = (phone: string) =>
+          createChannelUser({
+            id: `channel:${phone}`,
+            platform: 'whatsapp',
+            platformUserId: phone,
+            ownpilotUserId: `whatsapp:${phone}`,
+            accessSource: 'manual',
+            metadata: { caktoWelcomeDelivered: true },
+          });
+        mockUsersRepo.findOrCreate.mockImplementation(async (input: { platformUserId: string }) =>
+          customer(input.platformUserId)
+        );
+        mockUsersRepo.findByPlatform.mockImplementation(async (_platform: string, phone: string) =>
+          customer(phone)
+        );
+        mockSessionsRepo.create.mockImplementation(
+          async (input: { platformChatId: string; conversationId: string }) => ({
+            id: `session:${input.platformChatId}`,
+            ...input,
+          })
+        );
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let active = 0;
+        let peak = 0;
+        mockGetOrCreateChatAgent.mockImplementation(async (...args: unknown[]) => {
+          active++;
+          peak = Math.max(peak, active);
+          await gate;
+          active--;
+          const userId = String(args[7]);
+          return createMockAgent({
+            newConvId: `conversation:${userId}`,
+            chat: vi
+              .fn()
+              .mockResolvedValue({ ok: true, value: { content: `Resposta exclusiva ${userId}` } }),
+          });
+        });
+        const pending = Array.from({ length: 300 }, (_, index) =>
+          service.processIncomingMessage(
+            createIncomingMessage({
+              id: `capacity-${index}`,
+              platform: 'whatsapp',
+              text: 'Explique a diferença entre observar e medir.',
+              platformChatId: `chat-${index}`,
+              sender: { platform: 'whatsapp', platformUserId: `55${11980000000 + index}` },
+            })
+          )
+        );
+        try {
+          await vi.waitFor(() => expect(active).toBe(4));
+          const inbound = (service as unknown as { inboundAdmission: ChannelAIAdmission })
+            .inboundAdmission;
+          expect(inbound.stats).toMatchObject({ active: 16, queued: 284 });
+          expect(getChannelAIAdmissionStats().active).toBe(4);
+          release();
+          await Promise.all(pending);
+          expect(peak).toBe(4);
+          expect(mockConversationsRepo.create).toHaveBeenCalledTimes(300);
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledTimes(300);
+          const replies = new Map(
+            channelPlugin.api.sendMessage.mock.calls.map(([reply]) => [
+              reply.platformChatId,
+              reply.text,
+            ])
+          );
+          for (let index = 0; index < 300; index++) {
+            expect(replies.get(`chat-${index}`)).toContain(`whatsapp:55${11980000000 + index}`);
+          }
+          await Promise.resolve();
+          expect(inbound.stats).toMatchObject({ active: 0, queued: 0, completed: 300, refused: 0 });
+        } finally {
+          release();
+          await Promise.all(pending);
+          vi.unstubAllEnvs();
+        }
+      });
+
+      it('bounds a chat before the old session lock even after the flood window resets', async () => {
+        vi.useFakeTimers();
+        const internal = service as unknown as {
+          handleIncomingMessage: (
+            incoming: ReturnType<typeof createIncomingMessage>
+          ) => Promise<void>;
+          inboundAdmission: ChannelAIAdmission;
+        };
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const handle = vi.spyOn(internal, 'handleIncomingMessage').mockImplementation(() => gate);
+        const notice = vi.spyOn(service, 'send').mockResolvedValue('capacity-notice');
+        try {
+          const pending = Array.from({ length: 20 }, (_, index) =>
+            service.processIncomingMessage(createIncomingMessage({ id: `queued-${index}` }))
+          );
+          await vi.advanceTimersByTimeAsync(60_001);
+          await service.processIncomingMessage(createIncomingMessage({ id: 'over-backlog' }));
+          expect(handle).toHaveBeenCalledTimes(1);
+          expect(internal.inboundAdmission.stats).toMatchObject({
+            active: 1,
+            queued: 19,
+            refused: 1,
+          });
+          expect(notice).toHaveBeenCalledWith(
+            'test-plugin',
+            expect.objectContaining({
+              text: expect.stringContaining('não consegui iniciar esse pedido'),
+            })
+          );
+          const other = service.processIncomingMessage(
+            createIncomingMessage({
+              id: 'another-customer',
+              platformChatId: 'another-chat',
+              sender: { platformUserId: 'another-customer' },
+            })
+          );
+          await vi.advanceTimersByTimeAsync(0);
+          expect(handle).toHaveBeenCalledTimes(2);
+          release();
+          await Promise.all([...pending, other]);
+          expect(handle).toHaveBeenCalledTimes(21);
+        } finally {
+          release();
+          handle.mockRestore();
+          notice.mockRestore();
+          vi.useRealTimers();
+        }
+      });
     });
 
     describe('personalized WhatsApp access notices', () => {

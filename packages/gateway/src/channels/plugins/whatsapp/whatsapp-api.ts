@@ -65,6 +65,18 @@ import { wsGateway } from '../../../ws/server.js';
 import { channelAssetStore } from '../../../services/channel-asset-store.js';
 import { recordOutboundQuality } from '../../../services/outbound-quality.js';
 import { SimpleTTLCache } from '../../../utils/simple-ttl-cache.js';
+import { ChannelSendNotAttemptedError } from '../../send-not-attempted.js';
+import { whatsappReplyDelayMs } from './whatsapp-response-pacing.js';
+import {
+  WhatsAppOutboundQueue,
+  type WhatsAppOutboundQueueStats,
+  type WhatsAppSendPermit,
+} from './whatsapp-outbound-queue.js';
+import {
+  WhatsAppMediaQueue,
+  WhatsAppMediaQueueFullError,
+  WhatsAppMediaQueueCancelledError,
+} from './whatsapp-media-queue.js';
 
 const log = getLog('WhatsApp');
 const WHATSAPP_MAX_LENGTH = 4096;
@@ -151,8 +163,6 @@ const MAX_CONSECUTIVE_440 = 3;
  * Trust boundary: Baileys group-metadata has a loose metadata shape that does not declare isCommunity, isCommunityAnnounce, or linkedParent. The casts below read those optional fields; the runtime object is documented upstream to have them when relevant. The cast is a documented trust boundary with the upstream type.
  */
 const STABLE_CONNECTION_MS = 2 * 60_000;
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX_MESSAGES = 20; // max 20 messages per minute (global)
 const RATE_LIMIT_PER_JID_MS = 3_000; // min 3s gap per recipient
 const MESSAGE_CACHE_SIZE = 500; // getMessage cache for retry/decryption
 const PROCESSED_MSG_IDS_CAP = 5000; // dedup cap for processedMsgIds (shared across upsert + history sync)
@@ -244,15 +254,15 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   // Anti-ban: message cache for getMessage callback (retry/decryption)
   private messageCache = new Map<string, proto.IMessage>();
 
-  // Anti-ban: rate limiting
-  private globalSendTimes: number[] = [];
-  private perJidLastSend = new Map<string, number>();
+  // Local delivery admission. Delays improve pacing; they cannot guarantee
+  // that a WhatsApp account will avoid platform restrictions.
+  private readonly outboundQueue = new WhatsAppOutboundQueue();
+  private readonly inboundMediaQueue = new WhatsAppMediaQueue();
+  private outboundGeneration = 0;
   private readonly verifiedRecipientPhones = new Map<
     string,
     { phone: string; expiresAt: number }
   >();
-  /** Admit sends atomically so concurrent replies cannot bypass the limits. */
-  private sendRateLimitQueue: Promise<void> = Promise.resolve();
 
   // Anti-ban: message deduplication (prevent double AI responses on reconnect)
   private processedMsgIds = new Set<string>();
@@ -674,6 +684,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     // next explicit connect() can resume without a fresh QR. Invalidate any
     // setup that is still awaiting auth/version discovery as well as callbacks.
     this.connectionGeneration++;
+    this.cancelWaitingSends();
     this.preventAutoReconnect = true;
     this.clearReconnectTimer();
     this.cleanupSocket();
@@ -697,6 +708,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     // CRITICAL: Set flag to prevent auto-reconnect
     this.preventAutoReconnect = true;
     this.connectionGeneration++;
+    this.cancelWaitingSends();
     this.clearReconnectTimer();
     this.internalState = 'disconnecting';
     this.status = 'disconnected';
@@ -755,7 +767,53 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
   }
 
   async sendMessage(message: ChannelOutgoingMessage): Promise<string> {
-    message = publishChannelMessage(message);
+    let transportAttempted = false;
+    try {
+      message = publishChannelMessage(message);
+      assertSendDeadline(message.sendBefore);
+      const generation = this.outboundGeneration;
+      const urgent = Boolean(
+        message.copyCode ||
+        message.sendBefore ||
+        containsCustomerLoginLink(normalizeChannelUrl(message.urlButton?.url) ?? '')
+      );
+      return await this.outboundQueue.run(
+        this.toJid(message.platformChatId),
+        () => {
+          this.assertOutboundGeneration(generation);
+          return this.sendQueuedMessage(message, generation, () => {
+            transportAttempted = true;
+          });
+        },
+        { urgent }
+      );
+    } catch (error) {
+      // A later authorization callback may carry its own pre-transport marker.
+      // Once any segment entered Baileys the whole message is not retry-safe.
+      if (transportAttempted && error instanceof ChannelSendNotAttemptedError) {
+        throw new Error(error.message, { cause: error });
+      }
+      if (!transportAttempted && !(error instanceof ChannelSendNotAttemptedError)) {
+        throw new ChannelSendNotAttemptedError(error);
+      }
+      throw error;
+    }
+  }
+
+  /** Aggregate counts only: no recipient, text or protocol identifiers. */
+  getOutboundQueueStats(): WhatsAppOutboundQueueStats {
+    return this.outboundQueue.stats();
+  }
+
+  getInboundMediaQueueStats(): ReturnType<WhatsAppMediaQueue['stats']> {
+    return this.inboundMediaQueue.stats();
+  }
+
+  private async sendQueuedMessage(
+    message: ChannelOutgoingMessage,
+    generation: number,
+    markTransportAttempted: () => void
+  ): Promise<string> {
     assertSendDeadline(message.sendBefore);
     if (message.copyCode && (message.urlButton || message.attachments?.length)) {
       throw new Error('WhatsApp copy-code messages cannot contain other actions or attachments');
@@ -789,6 +847,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       message.sendBefore?.getTime() ?? Infinity
     );
     await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
+    this.assertOutboundGeneration(generation);
 
     let recipient = message.platformChatId;
     if (/^[1-9]\d{9,14}$/u.test(recipient)) {
@@ -801,6 +860,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       }
     }
     const jid = this.toJid(recipient);
+    this.assertOutboundGeneration(generation);
     if (interactivePayload && !/^\d{7,15}@s\.whatsapp\.net$/.test(jid)) {
       throw new Error(
         copyPayload
@@ -814,6 +874,15 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       ? [urlPayload?.body ?? message.text]
       : splitMessage(renderUrlButtonAsText(message), WHATSAPP_MAX_LENGTH);
     let lastMessageId = '';
+    const directReply = Boolean(message.replyToId && /^\d+@s\.whatsapp\.net$/u.test(jid));
+    // Expiring codes and access/transactional notices do not receive a cosmetic
+    // delay. Private conversational replies pause once, before their first part.
+    const replyDelay =
+      directReply && !copyPayload && !loginButton && !message.sendBefore
+        ? whatsappReplyDelayMs(message.text)
+        : 0;
+    const replyReadyAt = Date.now() + replyDelay;
+    if (replyDelay > 0) await this.sendTyping(recipient);
 
     for (let i = 0; i < parts.length; i++) {
       const options: Record<string, unknown> = {};
@@ -832,61 +901,78 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         }
       }
 
-      // Typing is shown while the AI is working through sendTyping(). Once the
-      // reply is ready, do not add an artificial 1–6s delay. Transport throttles
-      // still apply, including to concurrent sends and ambiguous failures.
-      const sock = await this.acquireSendSlot(
+      // Pacing and transport throttles share the same wait; one conversation's
+      // pause never blocks another recipient that can already send.
+      const { sock, permit } = await this.acquireSendSlot(
         jid,
         accountPhone,
         recoveryDeadline,
         message.sendBefore,
-        Boolean(message.replyToId && /^\d+@s\.whatsapp\.net$/u.test(jid))
+        directReply,
+        i === 0 ? replyReadyAt : Date.now(),
+        generation
       );
-      if (sock !== this.sock || this.status !== 'connected') {
-        throw new Error('WhatsApp disconnected before sending');
-      }
-      assertSendDeadline(message.sendBefore);
-
-      // Preserve the OTP when running against a transport without native-flow
-      // relay support. A known unsupported transport gets ONE plain text send;
-      // an ambiguous relay failure is never retried or followed by a second send.
-      const textOnlyFallback =
-        typeof sock.relayMessage !== 'function' && (loginButton || Boolean(copyPayload));
-      if (interactivePayload && !textOnlyFallback) {
-        const userJid = sock.user?.id;
-        if (!userJid) throw new Error('WhatsApp account unavailable before sending');
-        const generated = generateWAMessageFromContent(jid, interactivePayload.content, {
-          ...options,
-          userJid,
-          messageId: generateMessageIDV2(userJid),
-        });
-        const messageId = generated.key.id;
-        if (!messageId || !generated.message) {
-          throw new Error('WhatsApp interactive CTA could not be prepared');
+      try {
+        this.assertOutboundGeneration(generation);
+        await this.assertSendAuthorization(message.canSend);
+        this.assertOutboundGeneration(generation);
+        if (
+          sock !== this.sock ||
+          this.status !== 'connected' ||
+          !sock.user?.id ||
+          this.phoneFromJid(sock.user.id) !== accountPhone
+        ) {
+          throw new Error('WhatsApp disconnected before sending');
         }
-        // Remember before relay: a self-chat echo may arrive before its receipt.
-        // Cache the exact protocol for same-ID decryption retries. Never resend
-        // a possibly delivered native CTA as plain text after a relay failure.
-        this.rememberSentMessage(messageId);
-        this.cacheMessage(messageId, generated.message);
         assertSendDeadline(message.sendBefore);
-        await sock.relayMessage(jid, generated.message, {
-          ...interactivePayload.relayOptions,
-          messageId,
-        });
-        lastMessageId = messageId;
-      } else {
-        const result = await sock.sendMessage(jid, { text: parts[i]! }, options);
-        lastMessageId = result?.key?.id ?? '';
-      }
 
-      if (lastMessageId) {
-        this.trackMessage(lastMessageId, message.platformChatId);
-        // Track our own sent messages to avoid self-chat loops
-        this.rememberSentMessage(lastMessageId);
-        // Track every confirmed transport segment, including automation
-        // and access notices; only compact metadata is persisted.
-        await recordOutboundQuality(this.pluginId, lastMessageId, parts[i]!);
+        // Preserve the OTP when running against a transport without native-flow
+        // relay support. A known unsupported transport gets ONE plain text send;
+        // an ambiguous relay failure is never retried or followed by a second send.
+        const textOnlyFallback =
+          typeof sock.relayMessage !== 'function' && (loginButton || Boolean(copyPayload));
+        if (interactivePayload && !textOnlyFallback) {
+          const userJid = sock.user?.id;
+          if (!userJid) throw new Error('WhatsApp account unavailable before sending');
+          const generated = generateWAMessageFromContent(jid, interactivePayload.content, {
+            ...options,
+            userJid,
+            messageId: generateMessageIDV2(userJid),
+          });
+          const messageId = generated.key.id;
+          if (!messageId || !generated.message) {
+            throw new Error('WhatsApp interactive CTA could not be prepared');
+          }
+          // Remember before relay: a self-chat echo may arrive before its receipt.
+          // Cache the exact protocol for same-ID decryption retries. Never resend
+          // a possibly delivered native CTA as plain text after a relay failure.
+          this.rememberSentMessage(messageId);
+          this.cacheMessage(messageId, generated.message);
+          assertSendDeadline(message.sendBefore);
+          permit.commit();
+          markTransportAttempted();
+          await sock.relayMessage(jid, generated.message, {
+            ...interactivePayload.relayOptions,
+            messageId,
+          });
+          lastMessageId = messageId;
+        } else {
+          permit.commit();
+          markTransportAttempted();
+          const result = await sock.sendMessage(jid, { text: parts[i]! }, options);
+          lastMessageId = result?.key?.id ?? '';
+        }
+
+        if (lastMessageId) {
+          this.trackMessage(lastMessageId, message.platformChatId);
+          // Track our own sent messages to avoid self-chat loops
+          this.rememberSentMessage(lastMessageId);
+          // Track every confirmed transport segment, including automation
+          // and access notices; only compact metadata is persisted.
+          await recordOutboundQuality(this.pluginId, lastMessageId, parts[i]!);
+        }
+      } finally {
+        permit.release();
       }
 
       // Small delay between split messages
@@ -895,8 +981,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       }
     }
 
-    // Anti-ban: go offline after sending (don't stay 'available' like a bot)
-    // Only relevant for non-self-chat (self-chat has no presence observers)
+    // Clear cosmetic presence after sending. Presence is not an anti-spam control.
     if (!isSelf) {
       try {
         void this.sock?.sendPresenceUpdate('unavailable').catch(() => undefined);
@@ -1384,8 +1469,11 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     this.sentMessageIds.clear();
     this.messageCache.clear();
     this.processedMsgIds.clear();
-    this.globalSendTimes = [];
-    this.perJidLastSend.clear();
+    this.outboundGeneration++;
+    this.inboundMediaQueue.cancelWaiting();
+    this.outboundQueue.resetAccount(
+      new Error('WhatsApp connected account changed while preparing to send')
+    );
     this.verifiedRecipientPhones.clear();
     this.msgRetryCounterCache.flushAll();
     this.userDevicesCache.flushAll();
@@ -1465,6 +1553,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     // Disconnected
     if (connection === 'close') {
       this.connectionGeneration++;
+      this.cancelWaitingSends();
       // Cancel any pending stable-connection reset — the connection didn't
       // last long enough to clear the consecutive440Count.
       this.clearReconnectTimer();
@@ -1688,74 +1777,65 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     return undefined;
   }
 
-  /** Enforce rate limits: global 20/min + per-JID 3s gap. Waits if needed. */
-  private async enforceRateLimit(jid: string, directReply = false): Promise<void> {
-    const now = Date.now();
+  private cancelWaitingSends(): void {
+    this.outboundGeneration++;
+    this.inboundMediaQueue.cancelWaiting();
+    this.outboundQueue.cancelWaiting(
+      new Error('WhatsApp connected account changed or disconnected while preparing to send')
+    );
+  }
 
-    // An explicit reply to an incoming private message can follow its predecessor sooner.
-    const minGap = directReply ? 750 : RATE_LIMIT_PER_JID_MS;
-    const lastSend = this.perJidLastSend.get(jid);
-    if (lastSend !== undefined) {
-      const elapsed = now - lastSend;
-      if (elapsed < minGap) {
-        const waitMs = minGap - elapsed;
-        log.debug('[RateLimit] Recipient throttle', { waitMs });
-        await new Promise((r) => setTimeout(r, waitMs));
-      }
-    }
-
-    // Global rate limit: max 20 messages per minute
-    // Clean old entries
-    const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS;
-    this.globalSendTimes = this.globalSendTimes.filter((t) => t > cutoff);
-
-    if (this.globalSendTimes.length >= RATE_LIMIT_MAX_MESSAGES) {
-      const oldestInWindow = this.globalSendTimes[0]!;
-      const waitMs = oldestInWindow + RATE_LIMIT_WINDOW_MS - Date.now();
-      if (waitMs > 0) {
-        log.info(
-          `[RateLimit] Global throttle: waiting ${waitMs}ms (${this.globalSendTimes.length}/${RATE_LIMIT_MAX_MESSAGES} in window)`
-        );
-        await new Promise((r) => setTimeout(r, waitMs));
-      }
+  private assertOutboundGeneration(generation: number): void {
+    if (generation !== this.outboundGeneration) {
+      throw new Error('WhatsApp connected account changed or disconnected while preparing to send');
     }
   }
 
-  private acquireSendSlot(
+  private async assertSendAuthorization(canSend: ChannelOutgoingMessage['canSend']): Promise<void> {
+    if (!canSend) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const allowed = await Promise.race([
+        canSend(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('WhatsApp send authorization timed out')),
+            5_000
+          );
+          timer.unref?.();
+        }),
+      ]);
+      if (allowed !== true) throw new Error('WhatsApp send authorization changed while waiting');
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async acquireSendSlot(
     jid: string,
     accountPhone: string,
     recoveryDeadline: number,
     sendBefore: Date | undefined,
-    directReply: boolean
-  ): Promise<WASocket> {
-    const operation = this.sendRateLimitQueue.then(async () => {
-      assertSendDeadline(sendBefore);
-      await this.enforceRateLimit(jid, directReply);
-      const sock = await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
-      assertSendDeadline(sendBefore);
-      // Reserve before invoking transport: errors may still mean delivery, and
-      // the next concurrent caller must see this attempt in the rate window.
-      this.recordSend(jid);
-      return sock;
+    directReply: boolean,
+    readyAt = Date.now(),
+    generation = this.outboundGeneration
+  ): Promise<{ sock: WASocket; permit: WhatsAppSendPermit }> {
+    assertSendDeadline(sendBefore);
+    const sock = await this.waitForConnectedAccount(accountPhone, recoveryDeadline);
+    const permit = await this.outboundQueue.acquire({
+      key: jid,
+      readyAt,
+      gapMs: directReply ? 750 : RATE_LIMIT_PER_JID_MS,
+      deadline: sendBefore?.getTime(),
+      assertReady: () => {
+        this.assertOutboundGeneration(generation);
+        const currentPhone = sock.user?.id ? this.phoneFromJid(sock.user.id) : null;
+        if (sock !== this.sock || this.status !== 'connected' || currentPhone !== accountPhone) {
+          throw new Error('WhatsApp connected account changed or disconnected before sending');
+        }
+      },
     });
-    this.sendRateLimitQueue = operation.then(
-      () => undefined,
-      () => undefined
-    );
-    return operation;
-  }
-
-  /** Record a message send for rate limiting. */
-  private recordSend(jid: string): void {
-    const now = Date.now();
-    this.globalSendTimes.push(now);
-    this.perJidLastSend.set(jid, now);
-
-    // Clean up old per-JID entries (keep max 100)
-    if (this.perJidLastSend.size > 100) {
-      const first = this.perJidLastSend.keys().next().value;
-      if (first !== undefined) this.perJidLastSend.delete(first);
-    }
+    return { sock, permit };
   }
 
   // ==========================================================================
@@ -1766,6 +1846,38 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     msg: WAMessage,
     sourceSocket = this.sock,
     generation = this.connectionGeneration
+  ): Promise<void> {
+    if (this.sock !== sourceSocket || generation !== this.connectionGeneration) return;
+    const content = normalizeMessageContent(msg.message);
+    if (
+      !content?.imageMessage &&
+      !content?.documentMessage &&
+      !content?.audioMessage &&
+      !content?.videoMessage
+    ) {
+      return this.handleAdmittedIncomingMessage(msg, sourceSocket, generation);
+    }
+    try {
+      // The lease covers download AND persistence. Queued entries retain only
+      // provider message metadata; no media buffer is allocated until admitted.
+      await this.inboundMediaQueue.run(() =>
+        this.handleAdmittedIncomingMessage(msg, sourceSocket, generation)
+      );
+    } catch (error) {
+      if (error instanceof WhatsAppMediaQueueCancelledError) return;
+      if (!(error instanceof WhatsAppMediaQueueFullError)) throw error;
+      log.warn('WhatsApp media queue full; routing explicit unavailable-attachment feedback');
+      // Use the existing authorized, deduplicated attachment-failure flow.
+      // Never run a caption as an instruction after refusing its attachment.
+      await this.handleAdmittedIncomingMessage(msg, sourceSocket, generation, true);
+    }
+  }
+
+  private async handleAdmittedIncomingMessage(
+    msg: WAMessage,
+    sourceSocket = this.sock,
+    generation = this.connectionGeneration,
+    mediaUnavailable = false
   ): Promise<void> {
     const isCurrentSocket = () =>
       this.sock === sourceSocket && generation === this.connectionGeneration;
@@ -1829,7 +1941,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     // Image messages
     else if (m.imageMessage) {
       text = m.imageMessage.caption ?? '';
-      const data = await this.downloadAttachmentData(msg);
+      const data = mediaUnavailable ? undefined : await this.downloadAttachmentData(msg);
       attachments.push({
         type: 'image',
         mimeType: m.imageMessage.mimetype ?? 'image/jpeg',
@@ -1839,7 +1951,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     // Document messages
     else if (m.documentMessage) {
       text = m.documentMessage.caption ?? '';
-      const data = await this.downloadAttachmentData(msg);
+      const data = mediaUnavailable ? undefined : await this.downloadAttachmentData(msg);
       attachments.push({
         type: 'file',
         mimeType: m.documentMessage.mimetype ?? 'application/octet-stream',
@@ -1849,7 +1961,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     }
     // Audio messages — download binary for auto-transcription
     else if (m.audioMessage) {
-      const audioData = await this.downloadAttachmentData(msg);
+      const audioData = mediaUnavailable ? undefined : await this.downloadAttachmentData(msg);
       attachments.push({
         type: 'audio',
         mimeType: m.audioMessage.mimetype ?? 'audio/ogg',
@@ -1859,7 +1971,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     // Video messages
     else if (m.videoMessage) {
       text = m.videoMessage.caption ?? '';
-      const data = await this.downloadAttachmentData(msg);
+      const data = mediaUnavailable ? undefined : await this.downloadAttachmentData(msg);
       attachments.push({
         type: 'video',
         mimeType: m.videoMessage.mimetype ?? 'video/mp4',
@@ -1893,13 +2005,24 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         attachments.splice(
           0,
           attachments.length,
-          ...(await channelAssetStore.persistIncomingAttachments({
-            messageId: `${this.pluginId}:${messageId}`,
-            channelPluginId: this.pluginId,
-            platform: 'whatsapp',
-            platformChatId,
-            attachments,
-          }))
+          ...(
+            await channelAssetStore.persistIncomingAttachments({
+              messageId: `${this.pluginId}:${messageId}`,
+              channelPluginId: this.pluginId,
+              platform: 'whatsapp',
+              platformChatId,
+              attachments,
+            })
+          ).map((attachment) => {
+            // Acknowledged persistent assets enter the application queue by ID,
+            // not as 12 MiB buffers. The AI pipeline hydrates the scoped asset
+            // only after admission. Keep inline bytes for non-persisted adapters.
+            if (attachment.assetId && attachment.path) {
+              const { data: _data, ...stored } = attachment;
+              return stored;
+            }
+            return attachment;
+          })
         );
       } catch {
         log.warn('WhatsApp attachment storage unavailable; preserving contact onboarding');
@@ -1939,6 +2062,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         isSelfChat: !isGroup && this.isSelfChat(remoteJid),
         fromMe: msg.key.fromMe === true,
         ...(onboardingOnly && { whatsappOnboardingOnly: true }),
+        ...(mediaUnavailable && { whatsappMediaCapacityExceeded: true }),
         pushName: msg.pushName || undefined,
         // For groups: store participant JID so we know who sent it
         ...(isGroup && { participant: participantJid }),

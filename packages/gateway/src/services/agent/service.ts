@@ -93,6 +93,7 @@ import {
   parseAstraFallbackChain,
   ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
   ASTRA_LOCAL_FALLBACK_MAX_TOKENS,
+  astraChannelFallbackBudgetMs,
   ASTRA_CLOUDFLARE_TIMEOUT_MS,
   ASTRA_CHANNEL_OTHER_CLOUD_WITH_CLOUDFLARE_TIMEOUT_MS,
   getAstraChannelFallbackBudget,
@@ -711,9 +712,17 @@ async function createChatAgentInstance(
 
   // A local-only installation needs enough time for the bridge to finish.
   const channelPrimaryTimeout =
-    provider === 'cloudflare-workers-ai' ? ASTRA_CLOUDFLARE_TIMEOUT_MS : 8_000;
+    provider === 'ollama-local'
+      ? ASTRA_LOCAL_FALLBACK_TIMEOUT_MS
+      : provider === 'cloudflare-workers-ai'
+        ? ASTRA_CLOUDFLARE_TIMEOUT_MS
+        : 8_000;
   const channelFallbackPrimaryTimeout =
-    provider === 'cloudflare-workers-ai' ? ASTRA_CLOUDFLARE_TIMEOUT_MS : 5_000;
+    provider === 'ollama-local'
+      ? ASTRA_LOCAL_FALLBACK_TIMEOUT_MS
+      : provider === 'cloudflare-workers-ai'
+        ? ASTRA_CLOUDFLARE_TIMEOUT_MS
+        : 5_000;
 
   const config: AgentConfig = {
     name: isCliProvider
@@ -905,10 +914,16 @@ async function createChatAgentInstance(
                 circuitBreakerCooldown: 300_000,
                 sharedCircuitBreaker: true,
                 preferLastSuccessful: !hasLocalReserve,
-                completionTimeoutMs: getAstraChannelFallbackBudget([
-                  ...(provider === 'cloudflare-workers-ai' ? [provider] : []),
-                  ...usableFallbacks.map((candidate) => candidate.id),
-                ]),
+                completionTimeoutMs:
+                  hasLocalReserve || provider === 'ollama-local'
+                    ? astraChannelFallbackBudgetMs(
+                        channelFallbackPrimaryTimeout,
+                        usableFallbacks.map((candidate) => candidate.timeout ?? 8_000)
+                      )
+                    : getAstraChannelFallbackBudget([
+                        provider,
+                        ...usableFallbacks.map((candidate) => candidate.id),
+                      ]),
               }
             : {}),
           onFallback: (failed, _error, next) => {

@@ -101,7 +101,7 @@ function makeAgent() {
 
 function makeDeps(conversationId = 'conversation-a') {
   const current = { conversationId, isActive: true, context: {} };
-  const getById = vi.fn(async () => ({ ...current }));
+  const getById = vi.fn(async (_sessionId: string) => ({ ...current }));
   const linkConversation = vi.fn(async (_sessionId: string, id: string) => {
     current.conversationId = id;
   });
@@ -227,11 +227,11 @@ describe('Channel turns across reconnection and slow provider fallbacks', () => 
   });
 
   it.each([
-    ['other session', { ...session, sessionId: 'session-b' }, user],
-    ['other authenticated user', session, { ownpilotUserId: 'whatsapp:sender-b' }],
-  ])(
+    ['other conversation', { ...session, sessionId: 'session-b' }, user, 'chat-b'],
+    ['other authenticated user', session, { ownpilotUserId: 'whatsapp:sender-b' }, 'chat-a'],
+  ] as const)(
     'allows an independent turn for %s while the first is waiting',
-    async (_label, secondSession, secondUser) => {
+    async (_label, secondSession, secondUser, secondChatId) => {
       const agent = makeAgent();
       mocks.getAgent.mockResolvedValue(agent);
       const firstGate = deferred<ReturnType<typeof busReply>>();
@@ -248,19 +248,70 @@ describe('Channel turns across reconnection and slow provider fallbacks', () => 
       const { deps } = makeDeps();
       const first = processViaBus(bus as never, incoming('first'), session, user, deps);
       await entered.promise;
-      const independent = await processViaBus(
+      const independent = processViaBus(
         bus as never,
-        incoming('independent'),
+        incoming('independent', { platformChatId: secondChatId }),
         secondSession,
         secondUser,
         deps
       );
-      expect(independent).toBe('independent reply');
-      expect(bus.process).toHaveBeenCalledTimes(2);
-      firstGate.resolve(busReply('first reply'));
-      await first;
+      try {
+        // Bound this assertion so a regression cannot hold the shared admission
+        // slot until Vitest times out and contaminate the following tests.
+        await vi.waitFor(() => expect(bus.process).toHaveBeenCalledTimes(2));
+        expect(await independent).toBe('independent reply');
+        firstGate.resolve(busReply('first reply'));
+        await expect(first).resolves.toBe('first reply');
+      } finally {
+        firstGate.resolve(busReply('first reply'));
+        await Promise.allSettled([first, independent]);
+      }
     }
   );
+
+  it('waits for an active turn when the same conversation receives a new session', async () => {
+    const agent = makeAgent();
+    mocks.getAgent.mockResolvedValue(agent);
+    const firstGate = deferred<ReturnType<typeof busReply>>();
+    const entered = deferred<void>();
+    const bus = {
+      process: vi
+        .fn()
+        .mockImplementationOnce(() => {
+          entered.resolve();
+          return firstGate.promise;
+        })
+        .mockResolvedValueOnce(busReply('new session reply')),
+    };
+    const { deps, getById } = makeDeps();
+    const first = processViaBus(bus as never, incoming('first'), session, user, deps);
+    await entered.promise;
+    const nextSession = processViaBus(
+      bus as never,
+      incoming('new-session'),
+      { ...session, sessionId: 'session-b' },
+      user,
+      deps
+    );
+    try {
+      await flushTurn();
+      await flushTurn();
+      expect(bus.process).toHaveBeenCalledTimes(1);
+      expect(mocks.getAgent).toHaveBeenCalledTimes(1);
+      expect(getById).toHaveBeenCalledTimes(1);
+
+      firstGate.resolve(busReply('first reply'));
+      expect(await Promise.all([first, nextSession])).toEqual(['first reply', 'new session reply']);
+      expect(bus.process).toHaveBeenCalledTimes(2);
+      expect(getById.mock.calls.map(([sessionId]) => sessionId)).toEqual([
+        'session-a',
+        'session-b',
+      ]);
+    } finally {
+      firstGate.resolve(busReply('first reply'));
+      await Promise.allSettled([first, nextSession]);
+    }
+  });
 
   it('releases the session after an unsuccessful turn so the next message can run', async () => {
     const agent = makeAgent();

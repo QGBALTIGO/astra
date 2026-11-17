@@ -576,8 +576,8 @@ describe('agent-runner-utils', () => {
               expect.objectContaining({
                 id: 'ollama-local',
                 provider: 'openai-compatible',
-                timeout: 16000,
-                headers: expect.objectContaining({ 'X-Astra-Timeout-Ms': '16000' }),
+                timeout: 35000,
+                headers: expect.objectContaining({ 'X-Astra-Timeout-Ms': '35000' }),
                 defaultModel: { model: 'qwen3:4b-instruct', maxTokens: 256 },
                 maxRetries: 0,
               }),

@@ -39,6 +39,14 @@ const body = (mock: ReturnType<typeof vi.fn>, index: number) =>
 const tick = async () => {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 };
+const independentOrganizations = () =>
+  vi.stubEnv(
+    'GROQ_QUOTA_GROUPS',
+    JSON.stringify({
+      GROQ_API_KEY: `test-${round}-a`,
+      GROQ_API_KEY_2: `test-${round}-b`,
+    })
+  );
 const sse = (content: string) =>
   'data: ' + JSON.stringify({ id: 'reply', choices: [{ delta: { content } }] }) + '\n\n';
 
@@ -47,6 +55,7 @@ beforeEach(() => {
   keys = ['a', 'b', 'c', 'd', 'e'].map((suffix) => `synthetic-${round}-${suffix}`);
   vi.stubEnv('GROQ_API_KEY', keys[0]!);
   vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '');
+  vi.stubEnv('GROQ_QUOTA_GROUPS', '');
   for (let n = 2; n <= 11; n++)
     vi.stubEnv('GROQ_API_KEY_' + n, n <= keys.length ? keys[n - 1]! : '');
 });
@@ -98,7 +107,7 @@ describe('operator credential boundary and retry hints', () => {
       })
     ).toBeNull();
   });
-  it('leaves a single distinct key on the unchanged legacy transport', () => {
+  it('also admits a single distinct operator key through the bounded transport', () => {
     expect(
       groqPoolKeys(
         {
@@ -108,7 +117,7 @@ describe('operator credential boundary and retry hints', () => {
         },
         { GROQ_API_KEY: 'a', GROQ_API_KEY_2: 'a' }
       )
-    ).toBeNull();
+    ).toEqual(['a']);
   });
   it('honors Retry-After dates, long durations, reset headers and body hints', () => {
     expect(groqRetryDelayMs(new Headers({ 'Retry-After': '120' }), '')).toBe(120_100);
@@ -161,20 +170,21 @@ describe('bounded Groq pool transport', () => {
     ).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
   });
-  it('leaves the default behavior and tenant-owned credentials outside the operator admission guard', async () => {
+  it('bounds the operator by default without applying its budget to tenant-owned credentials', async () => {
     const fetch = vi.fn().mockImplementation(async () => success());
     vi.stubGlobal('fetch', fetch);
     const large = {
       ...request(),
       messages: [{ role: 'user' as const, content: 'x'.repeat(40_000) }],
     };
-    expect((await new OpenAICompatibleProvider(config()).complete(large)).ok).toBe(true);
+    expect((await new OpenAICompatibleProvider(config()).complete(large)).ok).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
     vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '1');
     expect(
       (await new OpenAICompatibleProvider(config({ apiKey: 'tenant-owned-key' })).complete(large))
         .ok
     ).toBe(true);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it('passes an oversized original request intact to the real fallback without contacting Groq', async () => {
     vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
@@ -219,7 +229,8 @@ describe('bounded Groq pool transport', () => {
     ).rejects.toMatchObject({ name: 'AbortError' });
     await tick();
   });
-  it('rotates on429 without waiting or repeating a key, even when maxRetries is zero', async () => {
+  it('rotates on429 only when keys belong to explicitly distinct organizations', async () => {
+    independentOrganizations();
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(failure(429, { 'Retry-After': '3600' }))
@@ -237,14 +248,14 @@ describe('bounded Groq pool transport', () => {
     const fetch = vi.fn().mockImplementation(async () => failure(429, { 'Retry-After': '3600' }));
     vi.stubGlobal('fetch', fetch);
     expect((await new OpenAICompatibleProvider(config()).complete(request())).ok).toBe(false);
-    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect((await new OpenAICompatibleProvider(config()).complete(request())).ok).toBe(false);
-    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(1);
     fetch.mockImplementation(async () => success());
     expect((await new OpenAICompatibleProvider(config()).complete(request('model-b'))).ok).toBe(
       true
     );
-    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
   it('releases rate-limited credentials only after their provider-directed reset', async () => {
     vi.useFakeTimers();
@@ -253,11 +264,11 @@ describe('bounded Groq pool transport', () => {
     await new OpenAICompatibleProvider(config()).complete(request());
     await vi.advanceTimersByTimeAsync(60_000);
     await new OpenAICompatibleProvider(config()).complete(request());
-    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(101);
     fetch.mockImplementation(async () => success());
     expect((await new OpenAICompatibleProvider(config()).complete(request())).ok).toBe(true);
-    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
   it('communicates the next pool reset to fallback without a five-minute cooldown', async () => {
     vi.useFakeTimers();
@@ -265,7 +276,7 @@ describe('bounded Groq pool transport', () => {
     vi.stubGlobal('fetch', fetch);
     await new OpenAICompatibleProvider(config()).complete(request());
     const blocked = await new OpenAICompatibleProvider(config()).complete(request());
-    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) {
       expect(blocked.error.message).toContain('Please try again in 3s');
@@ -274,13 +285,40 @@ describe('bounded Groq pool transport', () => {
       expect(providerCooldownMs(blocked.error, 300_000)).toBe(3_000);
     }
   });
+  it.each(['completion', 'stream'] as const)(
+    'keeps the longer token reset when Retry-After is shorter for %s',
+    async (mode) => {
+      const fetch = vi.fn().mockResolvedValue(
+        failure(429, {
+          'Retry-After': '1',
+          'x-ratelimit-remaining-tokens': '0',
+          'x-ratelimit-reset-tokens': '2m',
+        })
+      );
+      vi.stubGlobal('fetch', fetch);
+      const provider = new OpenAICompatibleProvider(config());
+      const result =
+        mode === 'completion'
+          ? await provider.complete(request())
+          : await (async () => {
+              let last;
+              for await (const value of provider.stream(request())) last = value;
+              return last;
+            })();
+      expect(result?.ok).toBe(false);
+      if (result && !result.ok) {
+        expect(result.error).toHaveProperty('retryAfterMs', 120_100);
+        expect(providerCooldownMs(result.error, 300_000)).toBe(120_100);
+      }
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  );
   it('deduplicates the actual attempts when several env suffixes contain the same key', async () => {
     for (let n = 2; n <= 10; n++) vi.stubEnv('GROQ_API_KEY_' + n, n === 2 ? keys[1]! : keys[0]!);
     const fetch = vi.fn().mockImplementation(async () => failure(429));
     vi.stubGlobal('fetch', fetch);
     await new OpenAICompatibleProvider(config()).complete(request());
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(new Set([authorization(fetch, 0), authorization(fetch, 1)]).size).toBe(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it.each([401, 403])(
     'temporarily disables an invalid credential across models after%s',
@@ -381,6 +419,7 @@ describe('bounded Groq pool transport', () => {
     vi.stubGlobal('fetch', fetch);
     const result = new OpenAICompatibleProvider(config({ timeout: 50 })).complete(request());
     await tick();
+    expect(vi.getTimerCount()).toBe(1);
     await vi.advanceTimersByTimeAsync(51);
     const response = await result;
     expect(response.ok).toBe(false);
@@ -389,6 +428,7 @@ describe('bounded Groq pool transport', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
   it('does not reset the overall deadline when rotating after a slow429', async () => {
+    independentOrganizations();
     vi.useFakeTimers();
     const fetch = vi
       .fn()
@@ -428,6 +468,79 @@ describe('bounded Groq pool transport', () => {
     pending[2]!(success());
     expect((await independent).ok).toBe(true);
   });
+  it.each(['completion', 'stream'] as const)(
+    'releases only the cancelled caller quota lease while another %s body remains active',
+    async (mode) => {
+      vi.useFakeTimers();
+      vi.stubEnv('GROQ_MAX_CONCURRENT_REQUESTS', '2');
+      const encoder = new TextEncoder();
+      const bodies = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
+      const signals = new Map<string, AbortSignal>();
+      const fetch = vi.fn(async (_url: unknown, options: RequestInit) => {
+        const id = JSON.parse(String(options.body)).messages[0].content as string;
+        signals.set(id, options.signal as AbortSignal);
+        if (id === 'replacement')
+          return mode === 'completion' ? success() : new Response('data: [DONE]\n\n');
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              bodies.set(id, controller);
+            },
+          })
+        );
+      });
+      vi.stubGlobal('fetch', fetch);
+      const provider = new OpenAICompatibleProvider(config());
+      const run = (id: string, signal?: AbortSignal) => {
+        const input: CompletionRequest = {
+          ...request(),
+          messages: [{ role: 'user', content: id }],
+          model: { model: 'model-a', maxTokens: 64 },
+          signal,
+        };
+        return mode === 'completion'
+          ? provider.complete(input)
+          : (async () => {
+              let last;
+              for await (const value of provider.stream(input)) last = value;
+              return last;
+            })();
+      };
+      const firstController = new AbortController();
+      const secondController = new AbortController();
+      const first = run('first', firstController.signal);
+      const second = run('second', secondController.signal);
+      try {
+        await tick();
+        expect(fetch).toHaveBeenCalledTimes(2);
+        expect((await run('blocked'))?.ok).toBe(false);
+        expect(fetch).toHaveBeenCalledTimes(2);
+
+        firstController.abort();
+        expect((await first)?.ok).toBe(false);
+        expect(signals.get('first')?.aborted).toBe(true);
+        expect(signals.get('second')?.aborted).toBe(false);
+        expect((await run('replacement'))?.ok).toBe(true);
+        expect(fetch).toHaveBeenCalledTimes(3);
+
+        const secondBody = bodies.get('second')!;
+        secondBody.enqueue(
+          encoder.encode(
+            mode === 'completion'
+              ? JSON.stringify({ choices: [{ message: { content: 'second reply' } }] })
+              : 'data: [DONE]\n\n'
+          )
+        );
+        secondBody.close();
+        expect((await second)?.ok).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        firstController.abort();
+        secondController.abort();
+        await Promise.allSettled([first, second]);
+      }
+    }
+  );
   it('honors cancellation before DNS validation finishes without issuing a request', async () => {
     const fetch = vi.fn().mockImplementation(async () => success());
     vi.stubGlobal('fetch', fetch);
@@ -443,7 +556,7 @@ describe('bounded Groq pool transport', () => {
     vi.stubGlobal('fetch', fetch);
     const response = await new OpenAICompatibleProvider(config()).complete(request());
     expect(response.ok).toBe(false);
-    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(4);
     if (!response.ok) for (const key of keys) expect(response.error.message).not.toContain(key);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -455,6 +568,7 @@ describe('bounded Groq pool transport', () => {
     if (!result.ok) for (const key of keys) expect(result.error.message).not.toContain(key);
   });
   it('reuses the exact tool-result body and never invokes a tool while rotating', async () => {
+    independentOrganizations();
     const fetch = vi.fn().mockResolvedValueOnce(failure(429)).mockResolvedValueOnce(success());
     vi.stubGlobal('fetch', fetch);
     await new OpenAICompatibleProvider(config()).complete({
@@ -479,6 +593,7 @@ describe('bounded Groq pool transport', () => {
 
 describe('streaming and privacy boundaries', () => {
   it('routes the native Groq factory through the real pool and preserves OSS latency controls', async () => {
+    independentOrganizations();
     const fetch = vi.fn().mockResolvedValueOnce(failure(429)).mockResolvedValueOnce(success());
     vi.stubGlobal('fetch', fetch);
     const provider = createProvider({
@@ -504,7 +619,8 @@ describe('streaming and privacy boundaries', () => {
       max_tokens: 700,
     });
   });
-  it('can rotate an HTTP429 before streaming begins', async () => {
+  it('can rotate an HTTP429 to a distinct organization before streaming begins', async () => {
+    independentOrganizations();
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(failure(429))

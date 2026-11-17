@@ -9,21 +9,23 @@ import type { Result } from '../../types/result.js';
 import type { InternalError } from '../../types/errors.js';
 import { OpenAICompatibleProvider, providerRateLimitRetryDelayMs } from './openai-compatible.js';
 
-// Provider unit tests never need live DNS. Keep the real SSRF checks, including
-// the private-address cases below, while giving public hostnames a stable answer.
-vi.mock('node:dns/promises', () => ({
-  lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
-}));
-
 // Mock configs module — vi.hoisted ensures the fns exist before the hoisted vi.mock runs
-const { mockLoadProviderConfig, mockResolveProviderConfig } = vi.hoisted(() => ({
+const { mockLoadProviderConfig, mockResolveProviderConfig, mockDnsLookup } = vi.hoisted(() => ({
   mockLoadProviderConfig: vi.fn(),
   mockResolveProviderConfig: vi.fn(),
+  mockDnsLookup: vi.fn(),
 }));
 
 vi.mock('./configs/index.js', () => ({
   loadProviderConfig: mockLoadProviderConfig,
   resolveProviderConfig: mockResolveProviderConfig,
+}));
+
+// Transport tests must not depend on the runner's DNS/proxy. Keep the actual
+// SSRF validator and control only its network lookup; private answers still fail.
+vi.mock('node:dns/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:dns/promises')>()),
+  lookup: mockDnsLookup,
 }));
 
 // ---------------------------------------------------------------------------
@@ -132,11 +134,17 @@ function mockFetchStream(chunks: string[], ok = true, status = 200) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockDnsLookup.mockReset().mockImplementation(async (hostname: string) => {
+    if (hostname !== 'api.openai.com') throw new Error('Unexpected fixture DNS hostname');
+    return [{ address: '93.184.216.34', family: 4 }];
+  });
+  vi.stubEnv('OWNPILOT_ALLOW_LOCAL_LLM_URL', 'false');
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
@@ -374,6 +382,50 @@ describe('OpenAICompatibleProvider', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.message).toContain('private/internal');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { host: 'loopback.provider.test', addresses: [{ address: '127.0.0.1', family: 4 }] },
+      { host: 'metadata.provider.test', addresses: [{ address: '169.254.169.254', family: 4 }] },
+      { host: 'ipv6.provider.test', addresses: [{ address: '::1', family: 6 }] },
+      {
+        host: 'mixed.provider.test',
+        addresses: [
+          { address: '93.184.216.34', family: 4 },
+          { address: '10.0.0.1', family: 4 },
+        ],
+      },
+    ])(
+      'blocks private DNS answers for $host without transmitting the API key',
+      async ({ host, addresses }) => {
+        mockDnsLookup.mockResolvedValueOnce(addresses);
+        const fetchMock = mockFetchResponse({
+          choices: [{ message: { content: 'must not send' } }],
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        const provider = new OpenAICompatibleProvider({
+          ...mockConfig,
+          baseUrl: `https://${host}/v1`,
+        });
+        const result = await provider.complete(makeRequest());
+        expect(mockDnsLookup).toHaveBeenCalledWith(host, { all: true });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.error.message).toContain('private/internal');
+        expect(fetchMock).not.toHaveBeenCalled();
+      }
+    );
+
+    it('fails closed when the provider DNS lookup is unavailable', async () => {
+      mockDnsLookup.mockRejectedValueOnce(new Error('synthetic DNS unavailable'));
+      const fetchMock = mockFetchResponse({ choices: [{ message: { content: 'must not send' } }] });
+      vi.stubGlobal('fetch', fetchMock);
+      const provider = new OpenAICompatibleProvider({
+        ...mockConfig,
+        baseUrl: 'https://unavailable.provider.test/v1',
+      });
+      expect((await provider.complete(makeRequest())).ok).toBe(false);
+      expect(mockDnsLookup).toHaveBeenCalledWith('unavailable.provider.test', { all: true });
       expect(fetchMock).not.toHaveBeenCalled();
     });
 

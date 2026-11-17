@@ -2,6 +2,13 @@
 import { createHash } from 'node:crypto';
 import { ignoreError } from '../../utils/ignore-error.js';
 import { groqPoolRequestFacts, reportGroqPoolFailure } from './groq-pool-telemetry.js';
+import {
+  groqQuotaGroup,
+  groqDefaultOutputTokens,
+  reserveGroqQuota,
+  type GroqAdmissionLease,
+  type GroqAdmissionResult,
+} from './groq-admission.js';
 
 interface ModelHealth {
   inFlight: number;
@@ -62,7 +69,7 @@ export function groqPoolKeys(
       ),
     ]),
   ];
-  return keys.length > 1 ? keys : null;
+  return keys;
 }
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -166,13 +173,15 @@ function redact(text: string, keys: readonly string[]): string {
 export interface GroqPoolResponse {
   response: Response;
   errorText?: string;
+  /** Effective provider cooldown, including quota reset headers and safety margin. */
+  retryAfterMs?: number;
   /** Keep the deadline and in-flight lease through JSON consumption or the entire stream. */
   finish: () => void;
   signal: AbortSignal;
 }
 
 /** Each distinct credential is attempted at most once. No tools execute at this layer.
- * maxRetries applies to legacy single-key transport; pool failover never repeats a key.
+ * maxRetries applies to unpooled tenant transport; operator failover never repeats a key.
  */
 export async function fetchGroqPool(input: {
   keys: readonly string[];
@@ -185,7 +194,24 @@ export async function fetchGroqPool(input: {
 }): Promise<GroqPoolResponse> {
   const { controller, keys, model } = input;
   const began = Date.now();
-  const request = groqPoolRequestFacts(input.options.body);
+  let options = input.options;
+  // A default output reservation must also be an actual provider-side output cap.
+  if (typeof options.body === 'string') {
+    try {
+      const payload: unknown = JSON.parse(options.body);
+      if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const body = payload as Record<string, unknown>;
+        if (body.max_tokens === undefined && body.max_completion_tokens === undefined)
+          options = {
+            ...options,
+            body: JSON.stringify({ ...body, max_tokens: groqDefaultOutputTokens() }),
+          };
+      }
+    } catch {
+      // The original invalid body is still rejected normally; never log its contents.
+    }
+  }
+  const request = groqPoolRequestFacts(options.body);
   // Opt-in operator budget: reject this payload without consuming any credential or model health.
   const configuredLimit = process.env.GROQ_MAX_REQUEST_TOKENS;
   const requestTokenLimit =
@@ -227,7 +253,10 @@ export async function fetchGroqPool(input: {
     controller.abort();
   }, timeout);
   const attempted = new Set<string>();
+  const skipped = new Set<string>();
   let lease: ModelHealth | undefined;
+  let quotaLease: GroqAdmissionLease | undefined;
+  let blocked: Extract<GroqAdmissionResult, { admitted: false }> | undefined;
   let finished = false;
   const finish = () => {
     if (finished) return;
@@ -238,6 +267,8 @@ export async function fetchGroqPool(input: {
       lease.inFlight--;
       lease = undefined;
     }
+    quotaLease?.release();
+    quotaLease = undefined;
   };
   controller.signal.addEventListener('abort', finish, { once: true });
   const release = () => {
@@ -245,8 +276,10 @@ export async function fetchGroqPool(input: {
       lease.inFlight--;
       lease = undefined;
     }
+    quotaLease?.release();
+    quotaLease = undefined;
   };
-  let last: { response: Response; errorText: string } | undefined;
+  let last: { response: Response; errorText: string; retryAfterMs?: number } | undefined;
   let networkFailed = false;
   try {
     if (input.beforeFetch) await withAbort(input.beforeFetch(), controller.signal);
@@ -257,28 +290,41 @@ export async function fetchGroqPool(input: {
       const available = keys
         .map((key) => {
           const id = hash(key);
-          return { key, id, state: health(id, model) };
+          return { key, id, state: health(id, model), group: groqQuotaGroup(keys, key) };
         })
         .filter(
           (entry) =>
             !attempted.has(entry.id) &&
+            !skipped.has(entry.group) &&
             (disabledKeys.get(entry.id) ?? 0) <= now &&
             entry.state.cooldownUntil <= now
         )
         .sort((a, b) => a.state.inFlight - b.state.inFlight || a.state.used - b.state.used);
       const selected = available[0];
       if (!selected) break;
+      const admission = reserveGroqQuota({
+        group: selected.group,
+        model,
+        inputTokens: request.requestTokensApprox,
+        outputTokens: request.maxOutputTokens,
+      });
+      if (!admission.admitted) {
+        skipped.add(selected.group);
+        if (!blocked || admission.retryAfterMs < blocked.retryAfterMs) blocked = admission;
+        continue;
+      }
+      quotaLease = admission.lease;
       attempted.add(selected.id);
       lease = selected.state;
       lease.inFlight++;
       lease.used = ++sequence;
-      const headers = new Headers(input.options.headers);
+      const headers = new Headers(options.headers);
       headers.set('Authorization', `Bearer ${selected.key}`);
       let response: Response;
       try {
         response = await withAbort(
           fetch(input.url, {
-            ...input.options,
+            ...options,
             headers,
             signal: controller.signal,
             redirect: 'error',
@@ -311,6 +357,7 @@ export async function fetchGroqPool(input: {
         release();
         continue;
       }
+      quotaLease.observe(response.headers);
       if (response.ok) {
         lease.failures = 0;
         const exhausted = resetDelay(response.headers);
@@ -338,24 +385,29 @@ export async function fetchGroqPool(input: {
           signal: controller.signal,
         };
       }
-      const errorText = redact(
+      const providerErrorText = redact(
         await withAbort(response.text(), controller.signal).catch((error) => {
           if (controller.signal.aborted) throw error;
           return '';
         }),
         keys
       );
-      last = { response, errorText };
+      const retryDelay =
+        response.status === 429 ? groqRetryDelayMs(response.headers, providerErrorText) : 0;
+      // Keep a canonical hint for body-only consumers. The adapter also receives
+      // the effective cooldown so a shorter Retry-After cannot hide reset headers.
+      const errorText = retryDelay
+        ? `Please try again in ${Math.max(1, Math.ceil(retryDelay / 1_000))}s. ${providerErrorText}`
+        : providerErrorText;
+      last = { response, errorText, ...(retryDelay ? { retryAfterMs: retryDelay } : {}) };
       const retry =
         response.status === 429 ||
         response.status === 401 ||
         response.status === 403 ||
         response.status >= 500;
       if (response.status === 429) {
-        lease.cooldownUntil = Math.max(
-          lease.cooldownUntil,
-          Date.now() + groqRetryDelayMs(response.headers, errorText)
-        );
+        quotaLease.coolDown(retryDelay);
+        lease.cooldownUntil = Math.max(lease.cooldownUntil, Date.now() + retryDelay);
       } else if (response.status === 401 || response.status === 403) {
         disabledKeys.set(selected.id, Date.now() + AUTH_COOLDOWN_MS);
       } else if (response.status >= 500) {
@@ -384,6 +436,42 @@ export async function fetchGroqPool(input: {
       return { ...last, finish, signal: controller.signal };
     }
     if (networkFailed) throw new Error('Groq transport failed');
+    if (blocked) {
+      const retryAfterSeconds = Math.max(1, Math.ceil(blocked.retryAfterMs / 1_000));
+      const tooLarge = blocked.reason === 'request_too_large';
+      const errorText = tooLarge
+        ? 'request_too_large: groq_local_admission; estimated input plus reserved output exceeds organization budget'
+        : `Groq local admission ${blocked.reason}. Please try again in ${retryAfterSeconds}s`;
+      reportGroqPoolFailure({
+        model,
+        keys,
+        request,
+        status: tooLarge ? 413 : 429,
+        attempt: attempted.size,
+        cooldownMs: blocked.retryAfterMs,
+        elapsedMs: Date.now() - began,
+        errorText,
+        admissionReason: blocked.reason,
+      });
+      finish();
+      return {
+        response: new Response(
+          JSON.stringify({
+            error: {
+              code: tooLarge ? 'request_too_large' : 'groq_local_admission',
+              message: errorText,
+            },
+          }),
+          {
+            status: tooLarge ? 413 : 429,
+            headers: { 'Retry-After': String(retryAfterSeconds) },
+          }
+        ),
+        errorText,
+        finish,
+        signal: controller.signal,
+      };
+    }
     const next = Math.min(
       ...keys.map((key) =>
         Math.max(disabledKeys.get(hash(key)) ?? 0, health(hash(key), model).cooldownUntil)

@@ -110,6 +110,12 @@ import {
 } from './channel-ai-routing.js';
 import { channelAssetStore } from '../services/channel-asset-store.js';
 import { bridgeIncomingMessage } from './bridge-runtime.js';
+import {
+  ChannelAIAdmission,
+  ChannelAIAdmissionError,
+  CHANNEL_AI_QUEUE_BUSY_REPLY,
+  runChannelAIWork,
+} from './channel-ai-admission.js';
 
 const log = getLog('ChannelService');
 
@@ -176,6 +182,15 @@ export class ChannelServiceImpl implements IChannelService {
   private readonly pluginRegistry: PluginRegistry;
   private unsubscribes: Array<() => void> = [];
   private readonly sessionLocks = new Map<string, Promise<void>>();
+  /** Bound work before identity/session lookup and the private-turn lock. */
+  private readonly inboundAdmission = new ChannelAIAdmission({
+    concurrency: 16,
+    maxQueued: Number(process.env.ASTRA_CHANNEL_INBOUND_MAX_QUEUED ?? 600),
+    maxPerConversation: Number(process.env.ASTRA_CHANNEL_INBOUND_MAX_PER_CONVERSATION ?? 20),
+    queueTimeoutMs: Number(process.env.ASTRA_CHANNEL_AI_QUEUE_TIMEOUT_MS ?? 20 * 60_000),
+  });
+  /** Overload feedback must not become a second, unbounded outbound queue. */
+  private readonly inboundCapacityNotices = new Set<string>();
   /** Per-(platform,platformUserId) approval-code attempt counter — wiped on success. */
   private readonly approvalAttemptCounts = new Map<string, number>();
   private static readonly MAX_APPROVAL_ATTEMPTS = 3;
@@ -229,7 +244,8 @@ export class ChannelServiceImpl implements IChannelService {
       if (api.getPlatform() === 'whatsapp' && api.getStatus() !== 'connected')
         throw new Error('WhatsApp disconnected before transport');
       transportInvoked = true;
-      const messageId = await api.sendMessage(message);
+      const guardedMessage = this.guardOutgoingMessage(channelPluginId, api, message);
+      const messageId = await api.sendMessage(guardedMessage);
       await recordOutboundQuality(channelPluginId, messageId, message.text);
 
       // Emit sent event
@@ -278,7 +294,9 @@ export class ChannelServiceImpl implements IChannelService {
       try {
         const api = getChannelApi(plugin);
         await this.assertOutgoingAccess(api, message.platformChatId);
-        const messageId = await api.sendMessage(message);
+        const messageId = await api.sendMessage(
+          this.guardOutgoingMessage(plugin.manifest.id, api, message)
+        );
         await recordOutboundQuality(plugin.manifest.id, messageId, message.text);
         results.set(plugin.manifest.id, messageId);
       } catch (error) {
@@ -301,7 +319,9 @@ export class ChannelServiceImpl implements IChannelService {
         const api = getChannelApi(plugin);
         if (api.getStatus() === 'connected') {
           await this.assertOutgoingAccess(api, message.platformChatId);
-          const messageId = await api.sendMessage(message);
+          const messageId = await api.sendMessage(
+            this.guardOutgoingMessage(plugin.manifest.id, api, message)
+          );
           await recordOutboundQuality(plugin.manifest.id, messageId, message.text);
           results.set(plugin.manifest.id, messageId);
         }
@@ -472,22 +492,52 @@ export class ChannelServiceImpl implements IChannelService {
    */
   async processIncomingMessage(message: ChannelIncomingMessage): Promise<void> {
     if (this.floodGuard.shouldDrop(message.channelPluginId, message.sender.platformUserId)) return;
-    message = await resolveInboundWhatsAppSpelling(message, {
-      findUser: (phone) => this.usersRepo.findByPlatform('whatsapp', phone),
-      resolvePhone: resolveCustomerPhone,
-      owner: () => getOwnerUserId('whatsapp'),
-      api: this.getChannel(message.channelPluginId),
-    });
-    if (message.platform === 'whatsapp' && message.metadata?.isGroup !== true) {
-      const key = JSON.stringify([
-        'private-turn',
-        message.channelPluginId,
-        message.platformChatId,
-        message.sender.platformUserId,
-      ]);
-      return this.withSessionLock(key, () => this.handleIncomingMessage(message));
+    const admissionKey = JSON.stringify([
+      message.channelPluginId,
+      message.platformChatId,
+      message.sender.platformUserId,
+    ]);
+    try {
+      await this.inboundAdmission.run(admissionKey, async () => {
+        const resolved = await resolveInboundWhatsAppSpelling(message, {
+          findUser: (phone) => this.usersRepo.findByPlatform('whatsapp', phone),
+          resolvePhone: resolveCustomerPhone,
+          owner: () => getOwnerUserId('whatsapp'),
+          api: this.getChannel(message.channelPluginId),
+        });
+        if (resolved.platform === 'whatsapp' && resolved.metadata?.isGroup !== true) {
+          const key = JSON.stringify([
+            'private-turn',
+            resolved.channelPluginId,
+            resolved.platformChatId,
+            resolved.sender.platformUserId,
+          ]);
+          await this.withSessionLock(key, () => this.handleIncomingMessage(resolved));
+        } else {
+          await this.handleIncomingMessage(resolved);
+        }
+      });
+    } catch (error) {
+      if (!(error instanceof ChannelAIAdmissionError)) throw error;
+      if (error.reason === 'stopped' || error.reason === 'aborted') return;
+      log.debug('Inbound capacity refused before processing', { reason: error.reason });
+      if (this.inboundCapacityNotices.size >= 16 || this.inboundCapacityNotices.has(admissionKey))
+        return;
+      this.inboundCapacityNotices.add(admissionKey);
+      try {
+        await this.send(message.channelPluginId, {
+          platformChatId: message.platformChatId,
+          replyToId: message.id,
+          text: CHANNEL_AI_QUEUE_BUSY_REPLY,
+        });
+      } catch {
+        // send() applies access and transport checks; an overload must never
+        // bypass them, nor recursively send another error message.
+        log.debug('Inbound capacity notice could not be sent');
+      } finally {
+        this.inboundCapacityNotices.delete(admissionKey);
+      }
     }
-    return this.handleIncomingMessage(message);
   }
 
   private async handleIncomingMessage(message: ChannelIncomingMessage): Promise<void> {
@@ -1088,7 +1138,10 @@ export class ChannelServiceImpl implements IChannelService {
         await this.send(message.channelPluginId, {
           platformChatId: message.platformChatId,
           replyToId: message.id,
-          text: 'Não consegui abrir esse anexo. Pode reenviar ou me contar por texto?',
+          text:
+            message.metadata?.whatsappMediaCapacityExceeded === true
+              ? 'Há muitos anexos aguardando agora e esse arquivo não foi processado. Aguarde um pouco e reenvie, ou me conte por texto.'
+              : 'Não consegui abrir esse anexo. Pode reenviar ou me contar por texto?',
         });
         return;
       }
@@ -1125,51 +1178,63 @@ export class ChannelServiceImpl implements IChannelService {
         );
         if (existing) return existing;
 
-        // Create a new conversation in the agent's in-memory ConversationMemory
-        // so that loadConversation() can find it later for context continuity
-        const { getOrCreateChatAgent } = await import('../services/agent/service.js');
-        const routing = await getLLMRouter().pick({ process: 'channel' });
-        const fallback =
-          routing.fallbackProvider && routing.fallbackModel
-            ? { provider: routing.fallbackProvider, model: routing.fallbackModel }
-            : undefined;
-        const agent = await getOrCreateChatAgent(
-          routing.provider ?? 'openai',
-          routing.model ?? 'gpt-4o',
-          fallback,
-          null,
-          `channel:${message.channelPluginId}:${channelUser.id}`,
-          undefined,
-          true,
-          dataUserId
+        return runChannelAIWork(
+          JSON.stringify([message.channelPluginId, message.platformChatId, dataUserId]),
+          async () => {
+            // Access may change while first-contact setup waits for a shared slot.
+            if (
+              message.platform === 'whatsapp' &&
+              !(await this.isWhatsAppAccessAllowed(message.sender.platformUserId, dataUserId))
+            ) {
+              throw new Error('WhatsApp access changed before session creation');
+            }
+            // Create a new conversation in the agent's in-memory ConversationMemory
+            // so that loadConversation() can find it later for context continuity
+            const { getOrCreateChatAgent } = await import('../services/agent/service.js');
+            const routing = await getLLMRouter().pick({ process: 'channel' });
+            const fallback =
+              routing.fallbackProvider && routing.fallbackModel
+                ? { provider: routing.fallbackProvider, model: routing.fallbackModel }
+                : undefined;
+            const agent = await getOrCreateChatAgent(
+              routing.provider ?? 'openai',
+              routing.model ?? 'gpt-4o',
+              fallback,
+              null,
+              `channel:${message.channelPluginId}:${channelUser.id}`,
+              undefined,
+              true,
+              dataUserId
+            );
+            const systemPrompt = agent.getConversation().systemPrompt;
+            const conv = agent.getMemory().create(systemPrompt);
+            const conversationId = conv.id;
+
+            // Also persist to DB for audit/history
+            const { createConversationsRepository } =
+              await import('../db/repositories/chat/conversations.js');
+            const conversationsRepo = createConversationsRepository();
+            await conversationsRepo.create({
+              id: conversationId,
+              agentName: 'default',
+              userId: dataUserId,
+              metadata: {
+                source: 'channel',
+                platform: message.platform,
+                channelUserId: channelUser.id,
+                ownpilotUserId: dataUserId,
+                displayName: message.sender.displayName,
+              },
+            });
+
+            return this.sessionsRepo.create({
+              channelUserId: channelUser.id,
+              channelPluginId: message.channelPluginId,
+              platformChatId: message.platformChatId,
+              conversationId,
+            });
+          }
         );
-        const systemPrompt = agent.getConversation().systemPrompt;
-        const conv = agent.getMemory().create(systemPrompt);
-        const conversationId = conv.id;
-
-        // Also persist to DB for audit/history
-        const { createConversationsRepository } =
-          await import('../db/repositories/chat/conversations.js');
-        const conversationsRepo = createConversationsRepository();
-        await conversationsRepo.create({
-          id: conversationId,
-          agentName: 'default',
-          userId: dataUserId,
-          metadata: {
-            source: 'channel',
-            platform: message.platform,
-            channelUserId: channelUser.id,
-            ownpilotUserId: dataUserId,
-            displayName: message.sender.displayName,
-          },
-        });
-
-        return this.sessionsRepo.create({
-          channelUserId: channelUser.id,
-          channelPluginId: message.channelPluginId,
-          platformChatId: message.platformChatId,
-          conversationId,
-        });
       });
 
       // Touch last message
@@ -1397,6 +1462,13 @@ export class ChannelServiceImpl implements IChannelService {
           text: responseText,
           ...(dashboardAction ? { urlButton: dashboardAction } : {}),
           replyToId: message.id,
+          ...(message.platform === 'whatsapp'
+            ? {
+                canSend: async () =>
+                  this.getChannel(message.channelPluginId) === api &&
+                  (await this.isWhatsAppAccessAllowed(message.sender.platformUserId, dataUserId)),
+              }
+            : {}),
           options: replyWithVoice ? { telegram: { asVoice: true } } : undefined,
         });
       }
@@ -1458,13 +1530,16 @@ export class ChannelServiceImpl implements IChannelService {
     } catch (error) {
       const reason = channelFailureKind(getErrorMessage(error));
       const persistenceFailed = error instanceof InboundPersistenceError;
+      const admissionFailed = error instanceof ChannelAIAdmissionError;
       log.error('Error processing message', {
-        reason: persistenceFailed ? 'inbound_persistence' : reason,
+        reason: persistenceFailed ? 'inbound_persistence' : admissionFailed ? 'capacity' : reason,
         platform: message.platform,
       });
       const userMessage = persistenceFailed
         ? 'Não consegui registrar sua mensagem agora, então não executei o pedido. Tente novamente em instantes.'
-        : channelFailureReply(message.text, reason);
+        : admissionFailed
+          ? CHANNEL_AI_QUEUE_BUSY_REPLY
+          : channelFailureReply(message.text, reason);
 
       // Surface the error to the user. If a progress ("Thinking...") placeholder
       // is pending, replace it in place — otherwise it is orphaned in the chat
@@ -1494,6 +1569,17 @@ export class ChannelServiceImpl implements IChannelService {
               platformChatId: message.platformChatId,
               text: userMessage,
               replyToId: message.id,
+              ...(message.platform === 'whatsapp'
+                ? {
+                    canSend: async () =>
+                      Boolean(whatsappUserId) &&
+                      this.getChannel(message.channelPluginId) === api &&
+                      (await this.isWhatsAppAccessAllowed(
+                        message.sender.platformUserId,
+                        whatsappUserId!
+                      )),
+                  }
+                : {}),
             });
           }
         }
@@ -1566,6 +1652,22 @@ export class ChannelServiceImpl implements IChannelService {
     return identity
       ? identity.isCurrent && !identity.retired && identity.dataUserId === userId
       : userId === `whatsapp:${platformUserId}`;
+  }
+
+  private guardOutgoingMessage(
+    channelPluginId: string,
+    api: ChannelPluginAPI,
+    message: ChannelOutgoingMessage
+  ): ChannelOutgoingMessage {
+    if (api.getPlatform() !== 'whatsapp') return message;
+    return {
+      ...message,
+      canSend: async () => {
+        if (this.getChannel(channelPluginId) !== api) return false;
+        await this.assertOutgoingAccess(api, message.platformChatId);
+        return message.canSend ? message.canSend() : true;
+      },
+    };
   }
 
   private async assertOutgoingAccess(api: ChannelPluginAPI, platformChatId: string): Promise<void> {
@@ -2026,6 +2128,7 @@ export class ChannelServiceImpl implements IChannelService {
    * Dispose event listeners. Call during shutdown to prevent leaks.
    */
   dispose(): void {
+    this.inboundAdmission.stop();
     for (const unsub of this.unsubscribes) {
       unsub();
     }

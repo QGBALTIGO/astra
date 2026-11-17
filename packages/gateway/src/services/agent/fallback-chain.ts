@@ -10,18 +10,32 @@ export interface AstraFallbackRoute {
   model: string;
 }
 
-// The installed private relay measured about 12 seconds. Only an explicitly
-// selected last resort gets this allowance; healthy cloud calls never wait for it.
-export const ASTRA_LOCAL_FALLBACK_TIMEOUT_MS = 16_000;
+// A representative 2,930-token local request took 19.22 seconds on the
+// installed PC. Keep a bounded allowance for inference and the private relay;
+// healthy cloud requests still return immediately without entering this route.
+export const ASTRA_LOCAL_FALLBACK_TIMEOUT_MS = 35_000;
 export const ASTRA_LOCAL_FALLBACK_MAX_TOKENS = 768;
-export const ASTRA_CHANNEL_FALLBACK_WITH_LOCAL_BUDGET_MS = 26_000;
+export const ASTRA_CHANNEL_FALLBACK_MAX_BUDGET_MS = 75_000;
 export const ASTRA_CLOUDFLARE_TIMEOUT_MS = 12_000;
 export const ASTRA_CHANNEL_FALLBACK_WITH_CLOUDFLARE_BUDGET_MS = 24_000;
 export const ASTRA_CHANNEL_OTHER_CLOUD_WITH_CLOUDFLARE_TIMEOUT_MS = 7_000;
 
-/** Call only with providers that have already passed credential/endpoint checks. */
+/** Preserve the local attempt's time after the configured cloud attempts. */
+export function astraChannelFallbackBudgetMs(
+  primaryTimeoutMs: number,
+  fallbackTimeoutsMs: readonly number[]
+): number {
+  return Math.min(
+    ASTRA_CHANNEL_FALLBACK_MAX_BUDGET_MS,
+    primaryTimeoutMs + fallbackTimeoutsMs.reduce((total, timeout) => total + timeout, 0) + 1_000
+  );
+}
+
+/**
+ * Cloud-only budget for providers that passed credential/endpoint checks.
+ * A chain with local inference must instead sum its actual attempt timeouts.
+ */
 export function getAstraChannelFallbackBudget(providerIds: readonly string[]): number {
-  if (providerIds.includes('ollama-local')) return ASTRA_CHANNEL_FALLBACK_WITH_LOCAL_BUDGET_MS;
   return providerIds.includes('cloudflare-workers-ai')
     ? ASTRA_CHANNEL_FALLBACK_WITH_CLOUDFLARE_BUDGET_MS
     : 16_000;
