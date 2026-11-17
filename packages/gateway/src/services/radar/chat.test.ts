@@ -59,6 +59,7 @@ vi.mock('../email-digest.js', () => ({
 }));
 import { manageRadarChat, clearRadarChatPending } from './chat.js';
 import { executeCustomerRadarTool } from '../../tools/customer-radar-tools.js';
+import { radarChatPending, radarChatContext } from './chat-pending.js';
 const user = 'whatsapp:synthetic-a';
 const message = (
   id: string,
@@ -102,6 +103,128 @@ beforeEach(() => {
   m.preview.mockResolvedValue('queued');
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it('does not register an old team when a read-only all-team clarification changes the topic', async () => {
+    const first = await message(user, 'Me avise sempre que tiver jogo do Flamengo', {
+      action: 'follow',
+    });
+    expect(first.needsTime).toBe(true);
+    expect(radarChatPending.size).toBe(1);
+    const changedTopic = await message(user, 'Todos do Vasco', { action: 'status' });
+    expect(changedTopic.changed).toBe(false);
+    expect(changedTopic.reply).toContain('Todos os jogos do Vasco');
+    expect(radarChatPending.size).toBe(0);
+    await expect(
+      message(user, '9h', {
+        action: 'follow',
+        source: 'football',
+        subject: 'Flamengo',
+        time: '09:00',
+      })
+    ).rejects.toThrow();
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('keeps the team after the write question expires but never turns a relative kickoff reply into a follow', async () => {
+    m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+    await message(user, 'Me avise sempre que tiver jogo do Vasco', { action: 'follow' });
+    const [key, pending] = [...radarChatPending.entries()][0]!;
+    pending.expires = Date.now() - 60000;
+    const contextExpiry = radarChatContext.get(key)!.expires;
+    const before = await message(user, 'Antes do jogo começar', {
+      action: 'follow',
+      source: 'football',
+      subject: 'outro time',
+      time: '09:00',
+    });
+    expect(before.changed).toBe(false);
+    expect(before.reply).toContain('Vasco');
+    expect(before.reply).toContain('horários de início confirmados');
+    expect(before.reply).not.toContain('qual time');
+    expect(radarChatPending.has(key)).toBe(false);
+    const all = await message(user, 'TodosdoVasco', { action: 'follow', time: '09:00' });
+    expect(all.changed).toBe(false);
+    expect(all.reply).toContain('Todos os jogos do Vasco');
+    expect(radarChatContext.get(key)!.expires).toBe(contextExpiry);
+    expect(m.follow).not.toHaveBeenCalled();
+    await expect(
+      message(user, '9h', { action: 'follow', source: 'football', subject: 'Vasco', time: '09:00' })
+    ).rejects.toThrow();
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('discards a still-valid write draft when the customer asks for a pregame notice', async () => {
+    await message(user, 'Me avise sempre que tiver jogo do Vasco', { action: 'follow' });
+    expect(radarChatPending.size).toBe(1);
+    const result = await message(user, 'Antes do jogo começar', { action: 'status' });
+    expect(result.reply).toContain('Vasco');
+    expect(result.changed).toBe(false);
+    expect(radarChatPending.size).toBe(0);
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('explains relative kickoff limits without context and recognizes a known team after a restart', async () => {
+    expect((await message(user, 'Antes do jogo começar', { action: 'status' })).reply).toContain(
+      'De qual time'
+    );
+    const all = await message(user, 'Todos do Vasco', {
+      action: 'follow',
+      source: 'football',
+      time: '09:00',
+    });
+    expect(all.changed).toBe(false);
+    expect(all.reply).toContain('Todos os jogos do Vasco');
+    expect(radarChatPending.size).toBe(0);
+    expect((await message(user, 'Antes do jogo começar', { action: 'status' })).reply).toContain(
+      'Vasco'
+    );
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('retains only the public team after a successful football follow or preview', async () => {
+    m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+    await message(user, 'Me avise sempre que tiver jogo do Vasco às 9h', { action: 'follow' });
+    expect(radarChatPending.size).toBe(0);
+    const context = [...radarChatContext.values()][0]!;
+    expect(context.subject).toBe('Vasco');
+    expect(context).not.toHaveProperty('args');
+    expect(context).not.toHaveProperty('time');
+    expect((await message(user, 'Antes do jogo começar', { action: 'status' })).reply).toContain(
+      'Vasco'
+    );
+    expect(m.follow).toHaveBeenCalledTimes(1);
+    clearRadarChatPending(user);
+    m.fetch.mockResolvedValue({
+      items: [],
+      observedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      sourceLabel: 'openfootball',
+      sourceUrl: 'https://example.org/',
+    });
+    await message(user, 'Quais os próximos jogos do Vasco?', {
+      action: 'preview',
+      source: 'football',
+      subject: 'Vasco',
+    });
+    expect([...radarChatContext.values()][0]!.subject).toBe('Vasco');
+    expect(radarChatPending.size).toBe(0);
+  });
+  it('does not leak an expired or foreign context and clears topic continuity on cancellation or opt-out', async () => {
+    await message(user, 'Me avise sempre que tiver jogo do Vasco', { action: 'follow' });
+    const [key, context] = [...radarChatContext.entries()][0]!;
+    context.accountId = 'foreign-account';
+    expect(
+      (await message(user, 'Antes do jogo começar', { action: 'status' })).reply
+    ).not.toContain('Vasco');
+    context.accountId = 'account:' + user;
+    context.expires = Date.now() - 1;
+    expect(
+      (await message(user, 'Antes do jogo começar', { action: 'status' })).reply
+    ).not.toContain('Vasco');
+    expect(radarChatContext.has(key)).toBe(false);
+    await message(user, 'Todos do Vasco', { action: 'status' });
+    await message(user, 'cancelar', { action: 'status' });
+    expect(radarChatContext.size).toBe(0);
+    await message(user, 'Todos do Vasco', { action: 'status' });
+    await message(user, 'Pare meu Radar', { action: 'configure', enabled: false });
+    expect(radarChatContext.size).toBe(0);
+    expect(m.follow).not.toHaveBeenCalled();
+  });
   it('asks the customer to choose between multiple game-day clocks instead of trusting the model first choice', async () => {
     m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
     const first = await message(user, 'Me avise sempre que tiver jogo do Vasco às 9h ou às 10h', {

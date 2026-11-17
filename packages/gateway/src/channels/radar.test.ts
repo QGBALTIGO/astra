@@ -41,7 +41,7 @@ vi.mock('../services/radar/providers.js', () => ({
 }));
 import { tryRadarChannelReply } from './radar.js';
 import { processViaBus, processDirectAgent } from './channel-ai-routing.js';
-import { radarChatPending } from '../services/radar/chat-pending.js';
+import { radarChatContext, radarChatPending } from '../services/radar/chat-pending.js';
 import * as contracts from '../services/radar/contracts.js';
 // Load the real manager outside timed cases; source transforms are test-runner
 // startup, while each case still exercises the authenticated production handler.
@@ -61,6 +61,7 @@ const message = (text: string) =>
 beforeEach(() => {
   vi.clearAllMocks();
   radarChatPending.clear();
+  radarChatContext.clear();
   m.identity.mockResolvedValue({
     accountId: 'a',
     dataUserId: user,
@@ -87,6 +88,270 @@ beforeEach(() => {
   m.follow.mockResolvedValue({ keptPaused: 0 });
 });
 describe('WhatsApp Radar privacy and opt-out', () => {
+  it.each(['bus', 'direct'] as const)(
+    'clarifies game timing and all-team replies without RAM context or a provider in %s',
+    async (path) => {
+      const model = vi.fn().mockRejectedValue(new Error('Synthetic provider outage'));
+      const route = (msg: ChannelIncomingMessage) =>
+        path === 'bus'
+          ? processViaBus(
+              { process: model } as never,
+              msg,
+              { sessionId: 's', conversationId: null },
+              { ownpilotUserId: user },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : processDirectAgent(msg, user, async () => true);
+      const before = await route(message('Antes do jogo começar'));
+      expect(before).toContain('faltam horários de início confirmados');
+      expect(before).toMatch(/qual time/i);
+      expect(before).not.toMatch(/qual (?:partida|jogo)/i);
+      const all = await route(message('Todos do Vasco'));
+      expect(all).toContain('Vasco');
+      expect(all).toContain('no dia de jogo');
+      expect(model).not.toHaveBeenCalled();
+      expect(m.follow).not.toHaveBeenCalled();
+      expect(m.save).not.toHaveBeenCalled();
+      expect(radarChatPending.size).toBe(0);
+    }
+  );
+  it.each(['bus', 'direct'] as const)(
+    'keeps the football topic after 11 minutes without renewing write consent in %s',
+    async (path) => {
+      const model = vi.fn().mockRejectedValue(new Error('Synthetic provider outage'));
+      const route = (msg: ChannelIncomingMessage) =>
+        path === 'bus'
+          ? processViaBus(
+              { process: model } as never,
+              msg,
+              { sessionId: 's', conversationId: null },
+              { ownpilotUserId: user },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : processDirectAgent(msg, user, async () => true);
+      await route(message('Me avise sempre que tiver jogo do Vasco'));
+      expect(radarChatPending.size).toBe(1);
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11 * 60000);
+      try {
+        const before = await route(message('Antes do jogo começar'));
+        expect(before).toContain('faltam horários de início confirmados');
+        expect(before).toContain('Vasco');
+        expect(before).not.toMatch(/qual (?:partida|jogo|time)/i);
+        expect(radarChatPending.size).toBe(0);
+        const all = await route(message('Todos do Vasco'));
+        expect(all).toContain('Vasco');
+        expect(all).toContain('no dia de jogo');
+        expect(await tryRadarChannelReply(message('9h'), user, async () => true)).toBeNull();
+        expect(model).not.toHaveBeenCalled();
+        expect(m.follow).not.toHaveBeenCalled();
+        expect(m.save).not.toHaveBeenCalled();
+        expect(radarChatPending.size).toBe(0);
+      } finally {
+        clock.mockRestore();
+      }
+    }
+  );
+  it('clears live write consent after a before-kickoff clarification', async () => {
+    await tryRadarChannelReply(
+      message('Me avise sempre que tiver jogo do Vasco'),
+      user,
+      async () => true
+    );
+    expect(radarChatPending.size).toBe(1);
+    expect(
+      await tryRadarChannelReply(message('Antes do jogo começar'), user, async () => true)
+    ).toContain('faltam horários de início confirmados');
+    expect(radarChatPending.size).toBe(0);
+    expect(await tryRadarChannelReply(message('9h'), user, async () => true)).toBeNull();
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('discards an unfinished Flamengo follow when all Vasco games are only clarified', async () => {
+    const model = vi.fn().mockRejectedValue(new Error('Synthetic provider outage'));
+    const route = (msg: ChannelIncomingMessage) =>
+      processViaBus(
+        { process: model } as never,
+        msg,
+        { sessionId: 's', conversationId: null },
+        { ownpilotUserId: user },
+        {
+          sessionsRepo: {} as never,
+          getChannel: () => undefined,
+          isAccessAllowed: async () => true,
+        }
+      );
+    expect(await route(message('Me avise sempre que tiver jogo do Flamengo'))).toContain(
+      'Em qual horário'
+    );
+    expect(radarChatPending.size).toBe(1);
+    const clarification = await route(message('Todos do Vasco'));
+    expect(clarification).toContain('Vasco');
+    expect(clarification).not.toContain('Flamengo');
+    expect(model).not.toHaveBeenCalled();
+    expect(radarChatPending.size).toBe(0);
+    expect(await tryRadarChannelReply(message('9h'), user, async () => true)).toBeNull();
+    expect(m.follow).not.toHaveBeenCalled();
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it.each(['cancelar', 'não'])(
+    'clears only the retained topic with %s after write consent expires',
+    async (text) => {
+      await tryRadarChannelReply(
+        message('Me avise sempre que tiver jogo do Vasco'),
+        user,
+        async () => true
+      );
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11 * 60000);
+      try {
+        expect(await tryRadarChannelReply(message(text), user, async () => false)).toContain(
+          'de lado'
+        );
+        expect(radarChatPending.size).toBe(0);
+        expect(radarChatContext.size).toBe(0);
+        expect(m.follow).not.toHaveBeenCalled();
+        expect(m.save).not.toHaveBeenCalled();
+      } finally {
+        clock.mockRestore();
+      }
+    }
+  );
+  it.each(['account', 'channel', 'expired', 'same-message', 'foreign-owner'] as const)(
+    'does not consume another retained context through a %s cancellation',
+    async (kind) => {
+      await tryRadarChannelReply(
+        message('Me avise sempre que tiver jogo do Vasco'),
+        user,
+        async () => true
+      );
+      radarChatPending.clear();
+      const context = [...radarChatContext.values()][0]!;
+      const next = message('cancelar');
+      if (kind === 'account') context.accountId = 'other-account';
+      if (kind === 'channel') next.channelPluginId = 'other-channel';
+      if (kind === 'expired') context.expires = Date.now() - 1;
+      if (kind === 'same-message') next.id = context.messageId;
+      if (kind === 'foreign-owner') {
+        radarChatContext.clear();
+        radarChatContext.set(JSON.stringify(['foreign-owner', 'channel.whatsapp', phone]), context);
+      }
+      expect(await tryRadarChannelReply(next, user, async () => false)).toBeNull();
+      expect(radarChatContext.size).toBe(1);
+      expect(m.follow).not.toHaveBeenCalled();
+      expect(m.save).not.toHaveBeenCalled();
+    }
+  );
+  it('does not turn an unrelated advance-time answer into a football conversation', async () => {
+    expect(await tryRadarChannelReply(message('1 hora antes'), user, async () => true)).toBeNull();
+    await tryRadarChannelReply(
+      message('Me avise sempre que tiver jogo do Vasco'),
+      user,
+      async () => true
+    );
+    const reply = await tryRadarChannelReply(message('1 hora antes'), user, async () => true);
+    expect(reply).toContain('Vasco');
+    expect(reply).toContain('faltam horários de início confirmados');
+    expect(radarChatPending.size).toBe(0);
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('retains only read context for 24 hours and asks the team again after expiry', async () => {
+    await tryRadarChannelReply(
+      message('Me avise sempre que tiver jogo do Vasco'),
+      user,
+      async () => true
+    );
+    const startedAt = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(startedAt + 60 * 60000);
+    try {
+      expect(
+        await tryRadarChannelReply(message('Antes do jogo começar'), user, async () => true)
+      ).toContain('Vasco');
+      clock.mockReturnValue(startedAt + 25 * 60 * 60000);
+      const expired = await tryRadarChannelReply(
+        message('Antes do jogo começar'),
+        user,
+        async () => true
+      );
+      expect(expired).toMatch(/qual time/i);
+      expect(expired).not.toContain('Vasco');
+      expect(m.follow).not.toHaveBeenCalled();
+      expect(radarChatPending.size).toBe(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+  it.each(['account', 'channel', 'foreign-owner'] as const)(
+    'does not expose a stored football topic through a different %s',
+    async (kind) => {
+      await tryRadarChannelReply(
+        message('Me avise sempre que tiver jogo do Vasco'),
+        user,
+        async () => true
+      );
+      const context = [...radarChatContext.values()][0]!;
+      radarChatPending.clear();
+      if (kind === 'account') context.accountId = 'foreign-account';
+      if (kind === 'foreign-owner') {
+        radarChatContext.clear();
+        radarChatContext.set(JSON.stringify(['foreign-owner', 'channel.whatsapp', phone]), context);
+      }
+      const next = message('Antes do jogo começar');
+      if (kind === 'channel') next.channelPluginId = 'other-channel';
+      const reply = await tryRadarChannelReply(next, user, async () => true);
+      expect(reply).toMatch(/qual time/i);
+      expect(reply).not.toContain('Vasco');
+      expect(m.follow).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['group', 'attachment', 'outgoing', 'missing-origin', 'foreign'] as const)(
+    'does not process football fragments in %s context',
+    async (kind) => {
+      const msg = message('Todos do Vasco');
+      if (kind === 'group') msg.metadata!.isGroup = true;
+      if (kind === 'attachment') msg.attachments = [{}] as never;
+      if (kind === 'outgoing') msg.metadata!.fromMe = true;
+      if (kind === 'missing-origin') delete msg.metadata!.fromMe;
+      expect(
+        await tryRadarChannelReply(
+          msg,
+          kind === 'foreign' ? 'foreign-owner' : user,
+          async () => true
+        )
+      ).toBeNull();
+      expect(m.context).not.toHaveBeenCalled();
+      expect(m.follow).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    '"Antes do jogo começar"',
+    'Meu cliente disse: todos do Vasco',
+    'Todos do Vasco. Só quero uma sugestão.',
+  ])('does not execute football fragments quoted or used as an example: %s', async (text) => {
+    expect(await tryRadarChannelReply(message(text), user, async () => true)).toBeNull();
+    expect(m.context).not.toHaveBeenCalled();
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('revalidates active access before returning a stored football topic', async () => {
+    await tryRadarChannelReply(
+      message('Me avise sempre que tiver jogo do Vasco'),
+      user,
+      async () => true
+    );
+    const reply = await tryRadarChannelReply(
+      message('Antes do jogo começar'),
+      user,
+      async () => false
+    );
+    expect(reply).toContain('Renove');
+    expect(reply).not.toContain('Vasco');
+    expect(m.follow).not.toHaveBeenCalled();
+  });
   it('does not turn a request for a suggestion into an operational game subscription', async () => {
     const reply = await tryRadarChannelReply(
       message('Me avise sempre que tiver jogo do Vasco às9h. Só quero uma sugestão.'),

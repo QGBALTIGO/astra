@@ -302,6 +302,14 @@ export function channelFailureReply(
       '⏳ *Não consegui confirmar esse gasto*\n\nConfira seus lançamentos em Transações no painel antes de reenviar, para evitar duplicidade.';
   else if (domain) reply = 'Fiquei sem a resposta completa por aqui. ' + guidance[domain].check;
   else if (
+    reason === 'rate_limited' &&
+    !receipts.length &&
+    !operations.length &&
+    !write &&
+    !attemptedWrite
+  )
+    reply = 'Não consegui te responder agora. Pode tentar de novo daqui a pouquinho? 💙';
+  else if (
     !attemptedWrite &&
     (reading ||
       /^(?:oi|olá|ola|hello|hey|bom dia|boa tarde|boa noite)[.!\s]*$/iu.test(request.trim()))

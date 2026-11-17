@@ -1,7 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import { explicitRadarTime, gameAlertRequest } from './chat-intent.js';
+import { explicitRadarTime, gameAlertRequest, footballTimingReply } from './chat-intent.js';
 
 describe('explicit recurring football consent without a model', () => {
+  it.each([
+    'Antes do jogo começar',
+    'Antes do início da partida',
+    'uma hora antes do jogo',
+    'antes de começar o jogo',
+  ])('recognizes a relative football clarification as read-only: %s', (text) => {
+    expect(footballTimingReply(text)).toEqual({ kind: 'before' });
+    expect(gameAlertRequest(text)).toBe(false);
+  });
+  it.each([
+    'Todos do Vasco',
+    'TodosdoVasco',
+    'Todos os jogos do Vasco',
+    'Todas as partidas do Flamengo',
+  ])('keeps an explicitly named canonical team without granting consent: %s', (text) => {
+    expect(footballTimingReply(text)).toEqual({
+      kind: 'all-team',
+      subject: text.includes('Flamengo') ? 'Flamengo' : 'Vasco',
+    });
+    expect(gameAlertRequest(text)).toBe(false);
+  });
+  it.each([
+    'Não antes do jogo',
+    'Antes do meu remédio',
+    'Todos os clientes',
+    'Todos do time inexistente',
+    '"Antes do jogo começar"',
+    'Como exemplo: Todos do Vasco',
+    'Todos do Vasco, só quero uma sugestão',
+    'Gastei 15 no Vasco',
+  ])('does not capture unrelated or negated fragments: %s', (text) =>
+    expect(footballTimingReply(text)).toBeUndefined()
+  );
   it.each([
     'Me avise sempre que tiver jogo do Vasco',
     'Me lembre sempre que o Flamengo jogar',

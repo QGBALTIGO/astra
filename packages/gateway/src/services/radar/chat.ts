@@ -13,10 +13,19 @@ import {
   type RadarSourceId,
 } from './contracts.js';
 import { searchRadar, fetchRadarResource } from './providers.js';
-import { radarChatPending as pending } from './chat-pending.js';
+import {
+  radarChatPending as pending,
+  radarChatContext,
+  rememberRadarChatContext,
+} from './chat-pending.js';
 import { newsCards } from './news-cards.js';
 import { BRAZIL_TEAMS } from './football.js';
-import { gameAlertRequest, explicitRadarTime } from './chat-intent.js';
+import {
+  gameAlertRequest,
+  explicitRadarTime,
+  canonicalFootballSubject,
+  footballTimingReply,
+} from './chat-intent.js';
 export { clearRadarChatPending } from './chat-pending.js';
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
@@ -101,19 +110,69 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   };
   const key = JSON.stringify([ownerId, ctx.channelPluginId, ctx.platformChatId]);
   for (const [k, v] of pending) if (v.expires < Date.now()) pending.delete(k);
+  for (const [k, v] of radarChatContext) if (v.expires <= Date.now()) radarChatContext.delete(k);
   const prior = pending.get(key);
+  const context = radarChatContext.get(key);
+  const rememberFootball = (subject: unknown) => {
+    const label = typeof subject === 'string' ? canonicalFootballSubject(subject) : undefined;
+    if (label)
+      rememberRadarChatContext(key, {
+        accountId: account!.id,
+        subject: label,
+        messageId: ctx.channelMessageId!,
+      });
+  };
   if (
-    prior &&
+    ((prior && prior.accountId === account!.id) ||
+      (context && context.accountId === account!.id)) &&
     /^(?:n[aã]o|cancelar|cancela|deixa pra l[aá])[.!?]*$/i.test(
       (ctx.channelRequestText ?? '').trim()
     )
   ) {
     pending.delete(key);
+    radarChatContext.delete(key);
     return {
       kind: 'radar',
       changed: false,
       reply:
         'Tudo bem, deixei esse pedido de lado. Seus outros acompanhamentos continuam como estavam.',
+    };
+  }
+  // These fragments explain a public football topic. They never restore an
+  // expired operation or treat an unsupported pregame request as a day clock.
+  const timing = footballTimingReply(ctx.channelRequestText ?? '');
+  if (timing) {
+    if (ctx.externalContentGuard?.seen)
+      throw new Error('Envie sua pergunta sobre os jogos em uma nova mensagem.');
+    await revalidate();
+    if (!sourceAvailable('football'))
+      throw new Error('Me peça os jogos novamente quando o calendário estiver disponível.');
+    const previousSubject =
+      context?.accountId === account!.id && context.messageId !== ctx.channelMessageId
+        ? context.subject
+        : undefined;
+    const subject = timing.kind === 'all-team' ? timing.subject : previousSubject;
+    pending.delete(key);
+    if (
+      subject &&
+      timing.kind === 'all-team' &&
+      (context?.accountId !== account!.id || context.subject !== subject)
+    )
+      rememberFootball(subject);
+    return {
+      kind: 'radar',
+      changed: false,
+      reply: subject
+        ? (timing.kind === 'all-team'
+            ? '⚽ *Todos os jogos do ' + subject + '*'
+            : '⚽ *Jogos do ' + subject + '*') +
+          '\n\nTenho as datas previstas, mas ainda faltam horários de início confirmados. Por isso, não consigo garantir um aviso antes da partida.' +
+          '\n\nPosso avisar *no dia de jogo*, em um horário fixo que você escolher. Para pedir, envie por exemplo: _Me avise sempre que tiver jogo do ' +
+          subject +
+          ' às 9h._'
+        : '⚽ *Avisos de jogos*' +
+          '\n\nAinda faltam horários de início confirmados. Por isso, não consigo garantir um aviso antes da partida.' +
+          '\n\nDe qual time você está falando? Posso avisar *no dia de jogo*, em um horário fixo que você escolher.',
     };
   }
   let continuing = false;
@@ -164,6 +223,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       expires: Date.now() + 10 * 60000,
       messageId: ctx.channelMessageId!,
     });
+    if (args.source === 'football') rememberFootball(args.subject);
     return {
       kind: 'radar',
       reply: text,
@@ -310,6 +370,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     await revalidate(true);
     await repo.savePreferences({ ...pref.preferences, enabled: false });
     pending.delete(key);
+    radarChatContext.delete(key);
     return reply(
       '📡 *Radar pausado*\n\nParei os novos envios. Seus assuntos continuam salvos para quando quiser voltar.',
       true
@@ -447,6 +508,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     if (!saved)
       throw new Error('Esse acompanhamento mudou. Peça para conferir seu Radar novamente.');
     pending.delete(key);
+    if (!saved.active) radarChatContext.delete(key);
     return reply(
       icons[saved.source] +
         ' *' +
@@ -519,6 +581,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   if (action === 'preview') {
     const snapshot = await fetchRadarResource({ id: 'preview', source: source.id, target, label });
     pending.delete(key);
+    if (source.id === 'football') rememberFootball(label);
     if (ctx.externalContentGuard) ctx.externalContentGuard.seen = true;
     if (source.id === 'news' && snapshot.items.length) {
       const cards = newsCards(snapshot.items, label);
@@ -607,6 +670,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   await revalidate();
   const saved = await repo.followFromChat(input, label, time!);
   pending.delete(key);
+  if (source.id === 'football') rememberFootball(label);
   return reply(
     icons[source.id] +
       ' *' +

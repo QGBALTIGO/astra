@@ -25,7 +25,7 @@ Uma consulta agora não cria assinatura. Exemplos e pedidos hipotéticos também
 
 Se o Radar estava inteiramente desligado, uma nova assinatura pelo chat ativa somente o assunto pedido. Outros assuntos que estavam sem envio continuam salvos e pausados. A operação é uma transação: falhar ao salvar o horário não pode deixar uma assinatura parcialmente criada. Um pedido de um assunto não muda silenciosamente o horário do resumo de todos os outros.
 
-As respostas curtas de uma configuração incompleta têm prazo de dez minutos e ficam vinculadas à conta, conversa e canal que fizeram o pedido. Cancelar o pedido elimina essa continuação. Reiniciar o processo perde apenas a configuração ainda incompleta; assinaturas e horários já confirmados permanecem no PostgreSQL.
+As respostas curtas de uma configuração incompleta têm prazo de dez minutos e ficam vinculadas à conta, conversa e canal que fizeram o pedido. O assunto público do futebol permanece em memória por até 24 horas para explicar continuações como “Antes do jogo começar”; esse contexto não contém operação ou horário e nunca renova a autorização vencida. Pedir aviso antes do jogo elimina a configuração incompleta, pois o calendário atual não informa horários confirmados. “Todos do Vasco” pode esclarecer essa limitação mesmo após reiniciar o processo, sem criar acompanhamento. Cancelar ou pausar elimina o contexto. Assinaturas e horários já confirmados permanecem no PostgreSQL.
 
 ## Fontes gratuitas de futebol e notícias
 

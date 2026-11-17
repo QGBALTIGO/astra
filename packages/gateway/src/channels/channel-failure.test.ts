@@ -72,6 +72,39 @@ const calendar = receipt('core.add_calendar_event', {
   },
 });
 describe('channel failure replies', () => {
+  it('keeps an unknown short reply human when rate limited before any operation', () => {
+    const answer = channelFailureReply('Todos do Vasco', 'rate_limited');
+    expect(answer).toContain('daqui a pouquinho');
+    expect(answer).not.toMatch(/painel|registro|dados|confirma|duplic|salv|provedor|API|429/i);
+    expect(channelFailureReply('Quais meus lembretes de hoje?', 'rate_limited')).toContain(
+      'consultar seus lembretes'
+    );
+  });
+  it('preserves duplicate-prevention guidance for a financial write without receipts', () => {
+    const answer = channelFailureReply('Recebi 500 reais', 'rate_limited');
+    expect(answer).toContain('Transações no painel');
+    expect(answer).toContain('antes de anotar de novo');
+    expect(answer).not.toContain('daqui a pouquinho');
+    expect(channelFailureReply('Cancele todos', 'rate_limited')).toContain('confira no painel');
+  });
+  it('does not invite replay when a write was invoked but no persisted result was confirmed', () => {
+    const answer = channelFailureReply('Todos do Vasco', 'rate_limited', [
+      receipt('core.schedule_channel_reminder', { success: false }, true),
+    ]);
+    expect(answer).toContain('confira no painel');
+    expect(answer).not.toContain('daqui a pouquinho');
+  });
+  it('reports verified details instead of a temporary retry banner after a real write', () => {
+    const answer = channelFailureReply(
+      'Todos do Vasco',
+      'rate_limited',
+      [calendar],
+      'America/Cuiaba'
+    );
+    expect(answer).toContain('Revisão');
+    expect(answer).toContain('15:00');
+    expect(answer).not.toMatch(/daqui a pouquinho|internal-private-id/i);
+  });
   it('keeps the misspelled access question useful if all models fail', () => {
     expect(channelFailureReply('cpmp acesso o dashboard', 'provider_unavailable')).toContain(
       'https://app.astraacessor.pro/cliente/entrar'
