@@ -108,3 +108,21 @@ test('production check runs independently without production secrets or writes',
   assert.match(workflow, /issues: write/);
   assert.doesNotMatch(workflow, /secrets\.|RAILWAY_TOKEN|ADMIN_API_KEY/);
 });
+
+test('browser setup remains bounded without disabling release qualification', () => {
+  const workflow = readFileSync(
+    new URL('../.github/workflows/astra-customer-premium.yml', import.meta.url),
+    'utf8'
+  );
+  assert.match(workflow, /timeout-minutes: 8/);
+  assert.match(workflow, /Acquire::Retries/);
+  assert.match(workflow, /Acquire::https::Timeout/);
+  assert.match(workflow, /https:\/\/archive\.ubuntu\.com\/ubuntu/);
+  assert.match(workflow, /playwright install chromium firefox webkit --with-deps/);
+  assert.match(workflow, /playwright test --config=e2e\/customer-premium\.config\.ts/);
+  assert.match(workflow, /playwright test --config=e2e\/customer-update\.config\.ts/);
+  assert.doesNotMatch(
+    workflow,
+    /continue-on-error|allow-unauthenticated|AllowInsecureRepositories/
+  );
+});
