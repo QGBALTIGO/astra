@@ -260,6 +260,7 @@ export class GoogleProvider implements IProvider {
         : Math.max(1, Math.floor(this.config.maxRetries) + 1);
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (request.signal?.aborted) return err(new ValidationError('Google request cancelled'));
       const result = await this.executeRequest(request, model, attempt);
 
       if (result.ok) {
@@ -348,7 +349,7 @@ export class GoogleProvider implements IProvider {
       logRequest(googleDebugInfo);
     }
 
-    const operation = this.createAbortContext();
+    const operation = this.createAbortContext(request.signal);
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -445,7 +446,10 @@ export class GoogleProvider implements IProvider {
       });
     } catch (error) {
       const elapsed = Date.now() - startTime;
-      if (operation.signal.aborted && operation.signal.reason === 'cancelled')
+      if (
+        request.signal?.aborted ||
+        (operation.signal.aborted && operation.signal.reason === 'cancelled')
+      )
         return err(new ValidationError('Google request cancelled'));
 
       if (error instanceof Error && error.name === 'AbortError') {
@@ -502,7 +506,7 @@ export class GoogleProvider implements IProvider {
     googleStreamDebugInfo.payload = calculatePayloadBreakdown(body as Record<string, unknown>);
     logRequest(googleStreamDebugInfo);
 
-    const operation = this.createAbortContext();
+    const operation = this.createAbortContext(request.signal);
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -524,7 +528,7 @@ export class GoogleProvider implements IProvider {
         return;
       }
 
-      for await (const data of readSseData(response.body)) {
+      for await (const data of readSseData(response.body, operation.signal)) {
         try {
           const parsed = JSON.parse(data) as GeminiResponse;
           const candidate = parsed.candidates?.[0];
@@ -613,14 +617,14 @@ export class GoogleProvider implements IProvider {
     for (const controller of this.activeControllers) controller.abort('cancelled');
   }
 
-  private createAbortContext(): { signal: AbortSignal; clear: () => void } {
+  private createAbortContext(parent?: AbortSignal): { signal: AbortSignal; clear: () => void } {
     const controller = new AbortController();
     this.activeControllers.add(controller);
     const timeout = this.config.timeout ?? 30000;
     const timer = setTimeout(() => controller.abort(), timeout);
     timer.unref?.();
     return {
-      signal: controller.signal,
+      signal: parent ? AbortSignal.any([parent, controller.signal]) : controller.signal,
       clear: () => {
         clearTimeout(timer);
         this.activeControllers.delete(controller);

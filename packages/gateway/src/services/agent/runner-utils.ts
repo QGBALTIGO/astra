@@ -53,6 +53,7 @@ import {
   parseAstraFallbackChain,
   ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
   ASTRA_LOCAL_FALLBACK_MAX_TOKENS,
+  ASTRA_CLOUDFLARE_TIMEOUT_MS,
 } from './fallback-chain.js';
 
 const log = getLog('AgentRunnerUtils');
@@ -238,6 +239,9 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
     resolvedAuth,
     baseUrl: providerConfig?.baseUrl,
     headers: providerConfig?.headers,
+    ...(opts.provider === 'cloudflare-workers-ai'
+      ? { timeout: ASTRA_CLOUDFLARE_TIMEOUT_MS, maxRetries: 0 }
+      : {}),
   };
 
   // Provider failover for autonomous runs: a long-running claw/heartbeat
@@ -294,7 +298,9 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
           },
           ...(candidate.provider === 'ollama-local'
             ? { timeout: ASTRA_LOCAL_FALLBACK_TIMEOUT_MS }
-            : {}),
+            : candidate.provider === 'cloudflare-workers-ai'
+              ? { timeout: ASTRA_CLOUDFLARE_TIMEOUT_MS }
+              : {}),
           maxRetries: 0,
         });
       }

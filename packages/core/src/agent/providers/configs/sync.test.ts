@@ -871,6 +871,39 @@ describe('mergeConfigs', () => {
     expect(result.apiKeyEnv).toBe('OPENAI_API_KEY');
   });
 
+  it('preserves the Workers AI API contract and reviewed default when catalog metadata is stale', () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        type: 'openai',
+        baseUrl: 'https://api.cloudflareworkersai.com/v1',
+        apiKeyEnv: 'CLOUDFLARE_ACCOUNT_ID',
+        features: { jsonMode: false },
+      })
+    );
+    const result = syncProvider(
+      'cloudflare-workers-ai',
+      makeDevProvider({
+        models: {
+          '@cf/newer-model': makeDevModel({ id: '@cf/newer-model', release_date: '2026-11-01' }),
+          '@cf/zai-org/glm-4.7-flash': makeDevModel({
+            id: '@cf/zai-org/glm-4.7-flash',
+            release_date: '2026-01-19',
+          }),
+        },
+      }),
+      '/tmp/test'
+    );
+
+    expect(result.type).toBe('openai-compatible');
+    expect(result.baseUrl).toBe('https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1');
+    expect(result.apiKeyEnv).toBe('CLOUDFLARE_API_TOKEN');
+    expect(result.features.jsonMode).toBe(true);
+    expect(result.models.filter((model) => model.default).map((model) => model.id)).toEqual([
+      '@cf/zai-org/glm-4.7-flash',
+    ]);
+  });
+
   it('canonical anthropic provider always has correct type', () => {
     const result = syncWithExisting('anthropic', { type: 'openai' });
     expect(result.type).toBe('anthropic');

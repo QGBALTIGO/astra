@@ -1493,6 +1493,101 @@ describe('getOrCreateChatAgent', () => {
     }
   );
 
+  it.each([false, true])(
+    'gives a usable Cloudflare fallback 12 seconds with local reserve=%s',
+    async (localReserve) => {
+      vi.stubEnv(
+        'ASTRA_FALLBACK_CHAIN',
+        'cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash,openrouter=openrouter/free' +
+          (localReserve ? ',ollama-local=qwen3:4b-instruct' : '')
+      );
+      try {
+        mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+        mockLoadProviderConfig.mockReturnValue({
+          type: 'openai-compatible',
+          baseUrl: 'https://example.invalid/v1',
+        });
+        await mod.getOrCreateChatAgent(
+          'groq',
+          'openai/gpt-oss-20b',
+          undefined,
+          null,
+          `channel:whatsapp:cloudflare-budget-${localReserve}`,
+          undefined,
+          true
+        );
+        const core = await import('@ownpilot/core/agent');
+        expect(core.createFallbackProvider).toHaveBeenCalledWith(
+          expect.objectContaining({
+            primary: expect.objectContaining({ id: 'groq', timeout: 5000 }),
+            fallbacks: [
+              expect.objectContaining({ id: 'cloudflare-workers-ai', timeout: 12000 }),
+              expect.objectContaining({ id: 'openrouter', timeout: 7000 }),
+              ...(localReserve
+                ? [expect.objectContaining({ id: 'ollama-local', timeout: 16000 })]
+                : []),
+            ],
+            completionTimeoutMs: localReserve ? 26000 : 24000,
+          })
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  );
+
+  it.each([
+    ['key', false],
+    ['endpoint', false],
+    ['key', true],
+    ['endpoint', true],
+  ] as const)(
+    'does not extend a channel budget for Cloudflare missing %s, local reserve=%s',
+    async (missing, localReserve) => {
+      vi.stubEnv(
+        'ASTRA_FALLBACK_CHAIN',
+        'cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash,openrouter=openrouter/free' +
+          (localReserve ? ',ollama-local=qwen3:4b-instruct' : '')
+      );
+      try {
+        mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+        mockGetProviderApiKey.mockImplementation(async (id: string) =>
+          id === 'cloudflare-workers-ai' && missing === 'key' ? undefined : 'synthetic-key'
+        );
+        mockLoadProviderConfig.mockImplementation((id: string) => ({
+          type: 'openai-compatible',
+          baseUrl:
+            id === 'cloudflare-workers-ai' && missing === 'endpoint'
+              ? ''
+              : 'https://example.invalid/v1',
+        }));
+        await mod.getOrCreateChatAgent(
+          'groq',
+          'openai/gpt-oss-20b',
+          undefined,
+          null,
+          `channel:whatsapp:missing-cloudflare-${missing}-${localReserve}`,
+          undefined,
+          true
+        );
+        const core = await import('@ownpilot/core/agent');
+        expect(core.createFallbackProvider).toHaveBeenCalledWith(
+          expect.objectContaining({
+            fallbacks: [
+              expect.objectContaining({ id: 'openrouter', timeout: 8000 }),
+              ...(localReserve
+                ? [expect.objectContaining({ id: 'ollama-local', timeout: 16000 })]
+                : []),
+            ],
+            completionTimeoutMs: localReserve ? 26000 : 16000,
+          })
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  );
+
   it.each(['healthy', 'pool', 'cloud', 'local'] as const)(
     'constructs actual fallback transports for a synthetic %s recovery without delaying healthy calls',
     async (mode) => {

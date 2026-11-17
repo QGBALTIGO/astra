@@ -63,19 +63,32 @@ const ASTRA_PROVIDER_ENV_KEYS: Readonly<Record<string, string>> = {
   'gonka-broker': 'GONKA_BROKER_API_KEY',
 };
 
+function isUsableProviderApiKey(provider: string, apiKey: unknown): apiKey is string {
+  if (provider !== 'cloudflare-workers-ai') return typeof apiKey === 'string' && !!apiKey;
+
+  // Never mark Workers AI ready without a safe account-scoped endpoint, and
+  // never mistake an account identifier (including a stale DB value) for a token.
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  return (
+    accountId?.length === 32 &&
+    /^[a-f0-9]{32}$/i.test(accountId) &&
+    typeof apiKey === 'string' &&
+    apiKey.trim().length > 0 &&
+    !/^[a-f0-9]{32}$/i.test(apiKey.trim())
+  );
+}
+
 function getAstraEnvironmentApiKey(provider: string): string | undefined {
   if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return undefined;
-  // The Workers AI endpoint requires both a bearer token and an account ID.
-  if (provider === 'cloudflare-workers-ai' && !process.env.CLOUDFLARE_ACCOUNT_ID) {
-    return undefined;
-  }
   const variableName = ASTRA_PROVIDER_ENV_KEYS[provider];
-  return variableName ? process.env[variableName] || undefined : undefined;
+  const apiKey = variableName ? process.env[variableName] : undefined;
+  return isUsableProviderApiKey(provider, apiKey) ? apiKey : undefined;
 }
 
 /** Check if a provider has an API key configured (database only). */
 export async function hasApiKey(provider: string): Promise<boolean> {
   if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return false;
+  if (provider === 'cloudflare-workers-ai') return !!(await getApiKey(provider));
   if (getAstraEnvironmentApiKey(provider)) return true;
   const key = `${API_KEY_PREFIX}${provider}`;
   return await settingsRepo.has(key);
@@ -87,7 +100,8 @@ export async function getApiKey(provider: string): Promise<string | undefined> {
   const environmentKey = getAstraEnvironmentApiKey(provider);
   if (environmentKey) return environmentKey;
   const key = `${API_KEY_PREFIX}${provider}`;
-  return (await settingsRepo.get<string>(key)) ?? undefined;
+  const apiKey = await settingsRepo.get<string>(key);
+  return isUsableProviderApiKey(provider, apiKey) ? apiKey : undefined;
 }
 
 /**
@@ -99,7 +113,15 @@ export async function getConfiguredProviderIds(): Promise<Set<string>> {
   if (process.env.ASTRA_ONLY_GROQ === 'true') {
     return new Set(process.env.GROQ_API_KEY ? ['groq'] : []);
   }
-  const configured = new Set(apiKeySettings.map((s) => s.key.replace(API_KEY_PREFIX, '')));
+  const configured = new Set(
+    apiKeySettings
+      .filter(
+        (setting) =>
+          setting.key !== `${API_KEY_PREFIX}cloudflare-workers-ai` ||
+          isUsableProviderApiKey('cloudflare-workers-ai', setting.value)
+      )
+      .map((s) => s.key.replace(API_KEY_PREFIX, ''))
+  );
   for (const provider of Object.keys(ASTRA_PROVIDER_ENV_KEYS)) {
     if (getAstraEnvironmentApiKey(provider)) configured.add(provider);
   }
@@ -133,6 +155,9 @@ export async function getApiKeySource(
 ): Promise<'database' | 'environment' | null> {
   if (process.env.ASTRA_ONLY_GROQ === 'true' && provider !== 'groq') return null;
   if (getAstraEnvironmentApiKey(provider)) return 'environment';
+  if (provider === 'cloudflare-workers-ai') {
+    return (await getApiKey(provider)) ? 'database' : null;
+  }
   const key = `${API_KEY_PREFIX}${provider}`;
   return (await settingsRepo.has(key)) ? 'database' : null;
 }
@@ -158,7 +183,7 @@ export async function getResolvedAuth(provider: string): Promise<ResolvedAuth | 
   if (blob) {
     try {
       const parsed = JSON.parse(blob) as ResolvedAuth;
-      if (parsed && typeof parsed.value === 'string' && parsed.value.length > 0) {
+      if (parsed && isUsableProviderApiKey(provider, parsed.value)) {
         return parsed;
       }
       settingsLog.warn(`Stored auth blob for ${provider} is malformed; falling back to API key`);

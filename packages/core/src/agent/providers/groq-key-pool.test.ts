@@ -269,7 +269,9 @@ describe('bounded Groq pool transport', () => {
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) {
       expect(blocked.error.message).toContain('Please try again in 3s');
-      expect(providerCooldownMs(blocked.error, 300_000)).toBe(4_000);
+      // The pool's explicit Retry-After takes precedence over the body-only hint margin.
+      expect(blocked.error).toHaveProperty('retryAfterMs', 3_000);
+      expect(providerCooldownMs(blocked.error, 300_000)).toBe(3_000);
     }
   });
   it('deduplicates the actual attempts when several env suffixes contain the same key', async () => {

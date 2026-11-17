@@ -300,6 +300,16 @@ async function main() {
   await initializeSettingsRepo();
   await bootstrapAstraToolGroups();
 
+  // Await saved credentials before inspecting routes or probing providers.
+  // Optional routing diagnostics must never prevent the server from starting.
+  try {
+    await loadApiKeysToEnvironment();
+    const { logAstraAiRoutingReadiness } = await import('./services/ai-routing-readiness.js');
+    await logAstraAiRoutingReadiness();
+  } catch {
+    log.warn('Astra AI routing readiness unavailable');
+  }
+
   // Reconcile orphaned sessions from any previous crash/unclean shutdown
   log.info('Running orphan session reconciliation...');
   const { reconcileOrphanedSessions } = await import('./services/orphan-reconciliation.js');
@@ -318,9 +328,6 @@ async function main() {
   log.info('Starting metrics service...');
   const { startMetricsService } = await import('./services/metric/service.js');
   startMetricsService();
-
-  // Load saved API keys from database into environment
-  loadApiKeysToEnvironment();
 
   // Initialize UI sessions before auth middleware/session cleanup can query it.
   log.info('Initializing UI sessions...');

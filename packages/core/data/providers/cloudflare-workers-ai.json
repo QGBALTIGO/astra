@@ -2,12 +2,12 @@
   "id": "cloudflare-workers-ai",
   "name": "Cloudflare Workers AI",
   "type": "openai-compatible",
-  "apiKeyEnv": "CLOUDFLARE_ACCOUNT_ID",
+  "apiKeyEnv": "CLOUDFLARE_API_TOKEN",
   "features": {
     "streaming": true,
     "toolUse": true,
     "vision": true,
-    "jsonMode": false,
+    "jsonMode": true,
     "systemMessage": true
   },
   "models": [
@@ -26,7 +26,7 @@
         "reasoning",
         "streaming"
       ],
-      "default": true,
+      "default": false,
       "releaseDate": "2026-08-14"
     },
     {
@@ -165,7 +165,7 @@
         "reasoning",
         "streaming"
       ],
-      "default": false,
+      "default": true,
       "releaseDate": "2026-01-19"
     },
     {
@@ -409,6 +409,6 @@
       "releaseDate": "2024-07-23"
     }
   ],
-  "baseUrl": "https://api.cloudflareworkersai.com/v1",
+  "baseUrl": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
   "docsUrl": "https://developers.cloudflare.com/workers-ai/models/"
 }

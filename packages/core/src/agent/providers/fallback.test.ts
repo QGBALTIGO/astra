@@ -106,6 +106,22 @@ describe('FallbackProvider', () => {
       );
     });
 
+    it('disables implicit retries on reserves as well as the primary', () => {
+      createTestProvider();
+      expect(mockCreateProvider).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ maxRetries: 0 })
+      );
+    });
+
+    it('preserves a reserve retry budget when explicitly configured', () => {
+      createTestProvider({ fallbacks: [{ ...fallbackConfig1, maxRetries: 2 }] });
+      expect(mockCreateProvider).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ maxRetries: 2 })
+      );
+    });
+
     it('returns true when primary is ready', () => {
       const { provider } = createTestProvider();
       expect(provider.isReady()).toBe(true);
@@ -288,12 +304,8 @@ describe('FallbackProvider', () => {
   // -------------------------------------------------------------------------
   // complete — shouldFallback behavior
   //
-  // NOTE: The shouldFallback method only controls whether onFallback callback
-  // and logRetry are invoked. The provider loop itself ALWAYS tries all ready
-  // providers regardless of shouldFallback result. Additionally, instanceof
-  // checks in shouldFallback don't work across Vitest module boundaries
-  // (dynamic await import() vs static import in source), so all errors fall
-  // through to "unknown error type → return true".
+  // Provider-specific authentication/model/request errors may succeed on a
+  // separately configured route. Explicit caller cancellation never falls back.
   // -------------------------------------------------------------------------
   describe('complete — shouldFallback controls onFallback callback', () => {
     it('calls onFallback for retryable InternalError', async () => {
@@ -305,8 +317,7 @@ describe('FallbackProvider', () => {
     });
 
     it('loop always tries all ready providers regardless of error type', async () => {
-      // Even for non-retryable errors (ValidationError in production),
-      // the loop continues through all providers
+      // Different providers can accept different request constraints.
       const { provider, primary, fallback } = createTestProvider();
       primary.complete.mockResolvedValue(err(new ValidationError('bad input')));
       const result = await provider.complete(dummyRequest);
@@ -645,10 +656,6 @@ describe('FallbackProvider', () => {
     });
 
     it('returns fallback result even for non-retryable errors (loop always continues)', async () => {
-      // Note: In the Vitest environment, instanceof checks in shouldFallback
-      // don't work across module boundaries. In production, shouldFallback
-      // would return false for ValidationError, but the loop still continues
-      // trying all providers regardless.
       const { provider, primary, fallback } = createTestProvider();
       primary.complete.mockResolvedValue(err(new InternalError('invalid api key')));
       const result = await provider.complete(dummyRequest);

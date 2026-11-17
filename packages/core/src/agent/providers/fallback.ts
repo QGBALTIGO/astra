@@ -23,6 +23,8 @@ import type {
 import { type IProvider, createProvider, type ProviderHealthResult } from '../provider.js';
 import { logError, logRetry } from '../debug.js';
 import { createHash } from 'node:crypto';
+import { readWithAbort } from './shared.js';
+import { ignoreError } from '../../utils/ignore-error.js';
 
 /**
  * Circuit breaker states
@@ -96,7 +98,7 @@ export interface FallbackProviderConfig {
   /** Opt-in shared provider/model/credential health for channel agents. */
   sharedCircuitBreaker?: boolean;
   preferLastSuccessful?: boolean;
-  /** Deadline for one non-streaming completion including all fallback attempts. */
+  /** Deadline for one completion or stream including all fallback attempts. */
   completionTimeoutMs?: number;
   /** Callback when fallback is triggered */
   onFallback?: (failedProvider: AIProvider, error: Error, nextProvider: AIProvider) => void;
@@ -118,6 +120,7 @@ export class FallbackProvider implements IProvider {
   private readonly cooldownMs: number;
   private readonly availabilityIds: string[];
   private readonly groupKey: string;
+  private readonly activeRequests = new Set<AbortController>();
 
   constructor(config: FallbackProviderConfig) {
     this.config = {
@@ -133,15 +136,20 @@ export class FallbackProvider implements IProvider {
       maxRetries: config.primary.maxRetries ?? 0,
     };
 
+    const fallbackConfigs = config.fallbacks.map((fc) => ({
+      ...fc,
+      maxRetries: fc.maxRetries ?? 0,
+    }));
     this.primary = createProvider(primaryConfig);
     this.type = config.primary.provider;
-    this.fallbacks = config.fallbacks.map((fc) => createProvider(fc));
-    this.orderedConfigs = [primaryConfig, ...config.fallbacks];
+    this.fallbacks = fallbackConfigs.map((fc) => createProvider(fc));
+    this.orderedConfigs = [primaryConfig, ...fallbackConfigs];
     this.availabilityIds = this.orderedConfigs.map((c) =>
       fingerprint([
         c.id ?? c.provider,
         c.provider,
         c.baseUrl ?? '',
+        c.endpoint ?? '',
         c.defaultModel?.model ?? '',
         c.apiKey ?? c.resolvedAuth?.value ?? '',
         c.headers ?? {},
@@ -293,40 +301,97 @@ export class FallbackProvider implements IProvider {
         )
       : entries;
   }
+  private requestContext(request: CompletionRequest) {
+    const controller = new AbortController();
+    this.activeRequests.add(controller);
+    return {
+      request: {
+        ...request,
+        signal: request.signal
+          ? AbortSignal.any([request.signal, controller.signal])
+          : controller.signal,
+      },
+      finish: () => this.activeRequests.delete(controller),
+    };
+  }
+
+  private attemptContext(request: CompletionRequest, index: number, deadline: number) {
+    request.signal?.throwIfAborted();
+    const remaining = Math.min(
+      deadline - Date.now(),
+      this.orderedConfigs[index]?.timeout ?? Number.POSITIVE_INFINITY
+    );
+    if (remaining <= 0)
+      throw new TimeoutError('provider response budget', this.config.completionTimeoutMs ?? 0);
+    const controller = new AbortController();
+    const timer = Number.isFinite(remaining)
+      ? setTimeout(
+          () => controller.abort(new TimeoutError('provider attempt', remaining)),
+          remaining
+        )
+      : undefined;
+    timer?.unref?.();
+    return {
+      request: {
+        ...request,
+        signal: request.signal
+          ? AbortSignal.any([request.signal, controller.signal])
+          : controller.signal,
+      },
+      abort: () => controller.abort(),
+      finish: () => {
+        if (timer) clearTimeout(timer);
+      },
+    };
+  }
+
   private async completeWithinBudget(
     provider: IProvider,
     request: CompletionRequest,
     index: number,
     deadline: number
   ) {
-    if (this.config.completionTimeoutMs && deadline <= Date.now())
-      throw new TimeoutError('channel response budget', this.config.completionTimeoutMs);
-    // Check the remaining budget before invoking a provider. Estimated token
-    // quotas cannot stand in for the limits configured by each provider/account.
-    const remaining = this.config.completionTimeoutMs
-      ? Math.min(
-          deadline - Date.now(),
-          this.orderedConfigs[index]?.timeout ?? Number.POSITIVE_INFINITY
-        )
-      : Number.POSITIVE_INFINITY;
-    if (remaining <= 0)
-      throw new TimeoutError('channel response budget', this.config.completionTimeoutMs!);
-    const transport = Promise.resolve().then(() => provider.complete(request));
-    if (!this.config.completionTimeoutMs) return transport;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = this.attemptContext(request, index, deadline);
     try {
-      return await Promise.race([
-        transport,
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new TimeoutError('channel provider attempt', remaining)),
-            remaining
-          );
-          timer.unref?.();
+      return await readWithAbort(
+        Promise.resolve().then(() => {
+          attempt.request.signal.throwIfAborted();
+          return provider.complete(attempt.request);
         }),
-      ]);
+        attempt.request.signal
+      );
     } finally {
-      if (timer) clearTimeout(timer);
+      attempt.finish();
+    }
+  }
+
+  private async *streamWithinBudget(
+    provider: IProvider,
+    request: CompletionRequest,
+    index: number,
+    deadline: number
+  ): AsyncGenerator<Result<StreamChunk, InternalError>, void, unknown> {
+    const attempt = this.attemptContext(request, index, deadline);
+    const generator = provider.stream(attempt.request);
+    let finished = false;
+    try {
+      while (true) {
+        attempt.request.signal.throwIfAborted();
+        const next = await readWithAbort(generator.next(), attempt.request.signal);
+        if (next.done) {
+          finished = true;
+          return;
+        }
+        yield next.value;
+      }
+    } finally {
+      attempt.finish();
+      if (!finished) {
+        attempt.abort();
+        // A timed-out generator may still be awaiting an uncooperative custom
+        // transport. Closing it must not block the next provider indefinitely.
+        ignoreError(generator.return(), 'fallback.close-stream');
+      }
     }
   }
 
@@ -343,6 +408,28 @@ export class FallbackProvider implements IProvider {
   async complete(
     request: CompletionRequest
   ): Promise<Result<CompletionResponse, InternalError | TimeoutError | ValidationError>> {
+    const context = this.requestContext(request);
+    try {
+      return await this.completeRequest(context.request);
+    } catch (error) {
+      return err(
+        error instanceof TimeoutError ||
+          error instanceof ValidationError ||
+          error instanceof InternalError
+          ? error
+          : new InternalError(
+              context.request.signal.aborted ? 'Provider request cancelled' : String(error)
+            )
+      );
+    } finally {
+      context.finish();
+    }
+  }
+
+  private async completeRequest(
+    request: CompletionRequest
+  ): Promise<Result<CompletionResponse, InternalError | TimeoutError | ValidationError>> {
+    request.signal?.throwIfAborted();
     // Keep each provider's ORIGINAL index (into orderedConfigs) through the
     // readiness filter, so the per-fallback model swap maps to the right config
     // even when some providers are filtered out.
@@ -356,15 +443,16 @@ export class FallbackProvider implements IProvider {
       return err(new ValidationError('No providers are configured or ready'));
     }
 
-    // If fallback is disabled, just use primary
+    const deadline = Date.now() + (this.config.completionTimeoutMs ?? Number.POSITIVE_INFINITY);
+    // If fallback is disabled, keep the same cancellation and deadline contract.
     if (!this.config.enableFallback) {
-      return this.primary.complete(request);
+      return this.completeWithinBudget(this.primary, request, 0, deadline);
     }
 
     let lastError: InternalError | TimeoutError | ValidationError | null = null;
-    const deadline = Date.now() + (this.config.completionTimeoutMs ?? Number.POSITIVE_INFINITY);
 
     for (let i = 0; i < providers.length; i++) {
+      request.signal?.throwIfAborted();
       if (Date.now() >= deadline) {
         lastError = new TimeoutError('channel response budget', this.config.completionTimeoutMs!);
         break;
@@ -390,6 +478,7 @@ export class FallbackProvider implements IProvider {
           entry.origIndex,
           deadline
         );
+        request.signal?.throwIfAborted();
 
         // A provider refusal is meaningful, rather than an empty transport result.
         if (result.ok && result.value.finishReason === 'content_filter') return result;
@@ -454,8 +543,14 @@ export class FallbackProvider implements IProvider {
           }
         }
       } catch (error) {
+        if (request.signal?.aborted) return err(new InternalError('Provider request cancelled'));
         const errorObj = error instanceof Error ? error : new Error(String(error));
-        lastError = new InternalError(errorObj.message);
+        lastError =
+          errorObj instanceof TimeoutError ||
+          errorObj instanceof ValidationError ||
+          errorObj instanceof InternalError
+            ? errorObj
+            : new InternalError(errorObj.message);
         log.error(`Provider ${provider.type} threw exception: ${providerErrorSummary(errorObj)}`);
         logError(provider.type, errorObj, 'Exception during fallback');
         this.recordFailure(provider, errorObj);
@@ -473,6 +568,24 @@ export class FallbackProvider implements IProvider {
   async *stream(
     request: CompletionRequest
   ): AsyncGenerator<Result<StreamChunk, InternalError>, void, unknown> {
+    const context = this.requestContext(request);
+    try {
+      yield* this.streamRequest(context.request);
+    } catch (error) {
+      yield err(
+        new InternalError(
+          context.request.signal.aborted ? 'Provider request cancelled' : String(error)
+        )
+      );
+    } finally {
+      context.finish();
+    }
+  }
+
+  private async *streamRequest(
+    request: CompletionRequest
+  ): AsyncGenerator<Result<StreamChunk, InternalError>, void, unknown> {
+    request.signal?.throwIfAborted();
     const providers = this.preferHealthy(
       this.getAllProviders()
         .map((provider, origIndex) => ({ provider, origIndex }))
@@ -484,13 +597,19 @@ export class FallbackProvider implements IProvider {
       return;
     }
 
-    // If fallback is disabled, just use primary
+    const deadline = Date.now() + (this.config.completionTimeoutMs ?? Number.POSITIVE_INFINITY);
+    // If fallback is disabled, keep the same cancellation and deadline contract.
     if (!this.config.enableFallback) {
-      yield* this.primary.stream(request);
+      yield* this.streamWithinBudget(this.primary, request, 0, deadline);
       return;
     }
 
     for (let i = 0; i < providers.length; i++) {
+      request.signal?.throwIfAborted();
+      if (Date.now() >= deadline) {
+        yield err(new InternalError('Provider stream response budget exceeded'));
+        return;
+      }
       const entry = providers[i];
       if (!entry) continue;
       const provider = entry.provider;
@@ -510,9 +629,15 @@ export class FallbackProvider implements IProvider {
         let hasError = false;
         let lastError: InternalError | null = null;
 
-        const generator = provider.stream(this.requestForProvider(request, entry.origIndex));
+        const generator = this.streamWithinBudget(
+          provider,
+          this.requestForProvider(request, entry.origIndex),
+          entry.origIndex,
+          deadline
+        );
 
         for await (const result of generator) {
+          request.signal?.throwIfAborted();
           if (!result.ok) {
             hasError = true;
             lastError = result.error;
@@ -528,10 +653,15 @@ export class FallbackProvider implements IProvider {
           }
         }
 
-        // If we yielded data and finished without error, we're done
-        if (hasYielded && !hasError) {
-          this.recordSuccess(provider);
-          return;
+        // EOF without a terminal chunk is incomplete: never execute a partial
+        // tool call or silently report a truncated response as success.
+        if (!hasError) {
+          hasError = true;
+          lastError = new InternalError(
+            hasYielded
+              ? 'Provider stream ended before completion'
+              : 'Provider returned an empty stream'
+          );
         }
 
         // If error occurred, try next provider
@@ -568,6 +698,10 @@ export class FallbackProvider implements IProvider {
           return;
         }
       } catch (error) {
+        if (request.signal?.aborted) {
+          yield err(new InternalError('Provider request cancelled'));
+          return;
+        }
         const errorObj = error instanceof Error ? error : new Error(String(error));
         log.error(
           `Stream: Provider ${provider.type} threw exception: ${providerErrorSummary(errorObj)}`
@@ -620,54 +754,10 @@ export class FallbackProvider implements IProvider {
    * Determine if we should try the next provider based on the error
    */
   private shouldFallback(error: Error): boolean {
-    // Always fallback on timeout
-    if (error instanceof TimeoutError) {
-      return true;
-    }
-
-    // Fallback on internal errors (typically API issues)
-    if (error instanceof InternalError) {
-      const message = error.message.toLowerCase();
-
-      // Don't fallback on validation errors that would fail everywhere
-      if (
-        message.includes('invalid api key') ||
-        message.includes('api key not configured') ||
-        message.includes('not configured')
-      ) {
-        return false;
-      }
-
-      // Fallback on rate limits, server errors, timeouts, connection issues
-      if (
-        message.includes('timeout') ||
-        message.includes('rate limit') ||
-        message.includes('429') ||
-        message.includes('500') ||
-        message.includes('502') ||
-        message.includes('503') ||
-        message.includes('504') ||
-        message.includes('econnreset') ||
-        message.includes('econnrefused') ||
-        message.includes('etimedout') ||
-        message.includes('enotfound') ||
-        message.includes('socket') ||
-        message.includes('network')
-      ) {
-        return true;
-      }
-
-      // Default: try fallback for unknown errors
-      return true;
-    }
-
-    // For validation errors, don't fallback (they'll fail everywhere)
-    if (error instanceof ValidationError) {
-      return false;
-    }
-
-    // Unknown error types: try fallback
-    return true;
+    // Authentication, model availability and request constraints belong to
+    // each route. A separately configured provider can still succeed. Caller
+    // cancellation is checked separately and must never start a new attempt.
+    return error.name !== 'AbortError';
   }
 
   /**
@@ -739,6 +829,7 @@ export class FallbackProvider implements IProvider {
    * Cancel request on all providers
    */
   cancel(): void {
+    for (const controller of this.activeRequests) controller.abort();
     const providers = this.getAllProviders();
     for (const provider of providers) {
       if ('cancel' in provider && typeof provider.cancel === 'function') {

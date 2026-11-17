@@ -33,6 +33,11 @@ const CANONICAL_CONFIGS: Record<
   string,
   Partial<Pick<ProviderConfig, 'type' | 'baseUrl' | 'apiKeyEnv'>>
 > = {
+  'cloudflare-workers-ai': {
+    type: 'openai-compatible',
+    baseUrl: 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1',
+    apiKeyEnv: 'CLOUDFLARE_API_TOKEN',
+  },
   // Native OpenAI
   openai: {
     type: 'openai',
@@ -233,6 +238,15 @@ function mergeConfigs(
     if (canonical.apiKeyEnv) {
       merged.apiKeyEnv = canonical.apiKeyEnv;
     }
+  }
+
+  if (newConfig.id === 'cloudflare-workers-ai') {
+    // Keep the explicitly reviewed Workers AI default across catalog refreshes.
+    merged.models = merged.models.map((model) => ({
+      ...model,
+      default: model.id === '@cf/zai-org/glm-4.7-flash',
+    }));
+    merged.features = { ...merged.features, jsonMode: true };
   }
 
   return merged;

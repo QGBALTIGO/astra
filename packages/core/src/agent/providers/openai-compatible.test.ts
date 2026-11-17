@@ -9,6 +9,12 @@ import type { Result } from '../../types/result.js';
 import type { InternalError } from '../../types/errors.js';
 import { OpenAICompatibleProvider, providerRateLimitRetryDelayMs } from './openai-compatible.js';
 
+// Provider unit tests never need live DNS. Keep the real SSRF checks, including
+// the private-address cases below, while giving public hostnames a stable answer.
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+}));
+
 // Mock configs module — vi.hoisted ensures the fns exist before the hoisted vi.mock runs
 const { mockLoadProviderConfig, mockResolveProviderConfig } = vi.hoisted(() => ({
   mockLoadProviderConfig: vi.fn(),

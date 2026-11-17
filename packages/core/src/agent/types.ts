@@ -462,6 +462,8 @@ export interface ProviderConfig {
  * Completion request
  */
 export interface CompletionRequest {
+  /** Per-request cancellation; providers must not cancel other concurrent callers. */
+  readonly signal?: AbortSignal;
   /** Messages to send */
   readonly messages: readonly Message[];
   /** Model configuration */

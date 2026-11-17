@@ -389,6 +389,80 @@ describe('loadProviderConfig', () => {
   });
 });
 
+describe('Cloudflare Workers AI account configuration', () => {
+  const provider = 'cloudflare-workers-ai';
+  const accountId = '0123456789abcdef0123456789abcdef';
+
+  beforeEach(() => {
+    clearConfigCache();
+    setupReadFileMock({
+      [provider]: makeProviderConfig({
+        id: provider,
+        // Old catalog values must not override the account-scoped API contract.
+        apiKeyEnv: 'CLOUDFLARE_ACCOUNT_ID',
+        baseUrl: 'https://untrusted.invalid/v1',
+      }),
+    });
+    setEnv('CLOUDFLARE_ACCOUNT_ID', '');
+    setEnv('CLOUDFLARE_API_TOKEN', '');
+  });
+
+  it('builds only the official account-scoped OpenAI endpoint and uses the API token', () => {
+    setEnv('CLOUDFLARE_ACCOUNT_ID', accountId);
+    setEnv('CLOUDFLARE_API_TOKEN', 'workers-ai-test-token');
+
+    expect(loadProviderConfig(provider)).toMatchObject({
+      apiKeyEnv: 'CLOUDFLARE_API_TOKEN',
+      baseUrl: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
+    });
+    expect(resolveProviderConfig(provider)).toMatchObject({
+      apiKey: 'workers-ai-test-token',
+      baseUrl: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
+    });
+  });
+
+  it.each([
+    '',
+    'not-an-account',
+    'a'.repeat(31),
+    'a'.repeat(33),
+    '../other-account',
+    `https://untrusted.invalid/${accountId}`,
+    `${accountId}?redirect=other`,
+    `${accountId}\n`,
+  ])('keeps the catalog visible but the provider unavailable for invalid account %j', (invalid) => {
+    setEnv('CLOUDFLARE_ACCOUNT_ID', invalid);
+    setEnv('CLOUDFLARE_API_TOKEN', 'workers-ai-test-token');
+
+    expect(loadProviderConfig(provider)?.id).toBe(provider);
+    expect(loadProviderConfig(provider)?.baseUrl).toBe('');
+    expect(resolveProviderConfig(provider)).toBeNull();
+    expect(getConfiguredProviders()).toEqual([]);
+  });
+
+  it('never treats the Account ID as a bearer token', () => {
+    setEnv('CLOUDFLARE_ACCOUNT_ID', accountId);
+    expect(resolveProviderConfig(provider)).toBeNull();
+
+    setEnv('CLOUDFLARE_API_TOKEN', accountId);
+    expect(resolveProviderConfig(provider)).toBeNull();
+    setEnv('CLOUDFLARE_API_TOKEN', '   ');
+    expect(resolveProviderConfig(provider)).toBeNull();
+  });
+
+  it('reevaluates the account even after the static catalog has been cached', () => {
+    setEnv('CLOUDFLARE_ACCOUNT_ID', accountId);
+    expect(loadProviderConfig(provider)?.baseUrl).toContain(accountId);
+
+    const changedAccountId = 'fedcba9876543210fedcba9876543210';
+    setEnv('CLOUDFLARE_ACCOUNT_ID', changedAccountId);
+    expect(loadProviderConfig(provider)?.baseUrl).toContain(changedAccountId);
+    setEnv('CLOUDFLARE_ACCOUNT_ID', '');
+    expect(loadProviderConfig(provider)?.baseUrl).toBe('');
+    expect(mockReadFileSync).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ===========================================================================
 // getProviderConfig
 // ===========================================================================

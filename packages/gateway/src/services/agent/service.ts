@@ -93,7 +93,9 @@ import {
   parseAstraFallbackChain,
   ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
   ASTRA_LOCAL_FALLBACK_MAX_TOKENS,
-  ASTRA_CHANNEL_FALLBACK_WITH_LOCAL_BUDGET_MS,
+  ASTRA_CLOUDFLARE_TIMEOUT_MS,
+  ASTRA_CHANNEL_OTHER_CLOUD_WITH_CLOUDFLARE_TIMEOUT_MS,
+  getAstraChannelFallbackBudget,
 } from './fallback-chain.js';
 import {
   AGENT_DEFAULT_MAX_TOKENS,
@@ -708,8 +710,10 @@ async function createChatAgentInstance(
     : computedMemoryMaxTokens;
 
   // A local-only installation needs enough time for the bridge to finish.
-  const channelPrimaryTimeout = 8_000;
-  const channelFallbackPrimaryTimeout = 5_000;
+  const channelPrimaryTimeout =
+    provider === 'cloudflare-workers-ai' ? ASTRA_CLOUDFLARE_TIMEOUT_MS : 8_000;
+  const channelFallbackPrimaryTimeout =
+    provider === 'cloudflare-workers-ai' ? ASTRA_CLOUDFLARE_TIMEOUT_MS : 5_000;
 
   const config: AgentConfig = {
     name: isCliProvider
@@ -728,7 +732,9 @@ async function createChatAgentInstance(
           : providerConfig?.headers,
       endpoint: providerConfig?.endpoint,
       features: providerConfig?.features,
-      ...(channelMode ? { timeout: channelPrimaryTimeout, maxRetries: 0 } : {}),
+      ...(channelMode || provider === 'cloudflare-workers-ai'
+        ? { timeout: channelPrimaryTimeout, maxRetries: 0 }
+        : {}),
     },
     model: {
       model,
@@ -845,9 +851,11 @@ async function createChatAgentInstance(
           },
           ...(candidate.provider === 'ollama-local'
             ? { timeout: ASTRA_LOCAL_FALLBACK_TIMEOUT_MS }
-            : channelMode
-              ? { timeout: 8_000 }
-              : {}),
+            : candidate.provider === 'cloudflare-workers-ai'
+              ? { timeout: ASTRA_CLOUDFLARE_TIMEOUT_MS }
+              : channelMode
+                ? { timeout: 8_000 }
+                : {}),
           // A second retry against the same exhausted key delays WhatsApp
           // responses and wastes quota. Use the next configured provider.
           maxRetries: 0,
@@ -858,6 +866,16 @@ async function createChatAgentInstance(
         const hasLocalReserve = usableFallbacks.some(
           (candidate) => candidate.id === 'ollama-local'
         );
+        const hasCloudflare =
+          provider === 'cloudflare-workers-ai' ||
+          usableFallbacks.some((candidate) => candidate.id === 'cloudflare-workers-ai');
+        if (channelMode && hasCloudflare) {
+          for (const candidate of usableFallbacks) {
+            if (candidate.id !== 'cloudflare-workers-ai' && candidate.id !== 'ollama-local') {
+              candidate.timeout = ASTRA_CHANNEL_OTHER_CLOUD_WITH_CLOUDFLARE_TIMEOUT_MS;
+            }
+          }
+        }
         providerInstance = createFallbackProvider({
           primary: {
             id: provider,
@@ -875,7 +893,9 @@ async function createChatAgentInstance(
                 : providerConfig?.headers,
             // Bound each transport attempt. Shared health avoids reprobing the
             // same failing model or exhausted key for every customer's message.
-            ...(channelMode ? { timeout: channelFallbackPrimaryTimeout } : {}),
+            ...(channelMode || provider === 'cloudflare-workers-ai'
+              ? { timeout: channelFallbackPrimaryTimeout }
+              : {}),
             maxRetries: 0,
           },
           fallbacks: usableFallbacks,
@@ -885,9 +905,10 @@ async function createChatAgentInstance(
                 circuitBreakerCooldown: 300_000,
                 sharedCircuitBreaker: true,
                 preferLastSuccessful: !hasLocalReserve,
-                completionTimeoutMs: hasLocalReserve
-                  ? ASTRA_CHANNEL_FALLBACK_WITH_LOCAL_BUDGET_MS
-                  : 16_000,
+                completionTimeoutMs: getAstraChannelFallbackBudget([
+                  ...(provider === 'cloudflare-workers-ai' ? [provider] : []),
+                  ...usableFallbacks.map((candidate) => candidate.id),
+                ]),
               }
             : {}),
           onFallback: (failed, _error, next) => {
