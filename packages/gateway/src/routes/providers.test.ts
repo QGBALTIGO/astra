@@ -92,7 +92,7 @@ vi.mock('@ownpilot/core/agent', async (importOriginal) => {
 
 // Import after mocks
 const { providersRoutes } = await import('./providers.js');
-const { getApiKeySource, hasApiKey: _hasApiKey } = await import('./settings.js');
+const { getApiKeySource, hasApiKey } = await import('./settings.js');
 
 // ---------------------------------------------------------------------------
 // App setup
@@ -207,6 +207,13 @@ describe('Providers Routes', () => {
   // ========================================================================
 
   describe('GET /providers/:id', () => {
+    it.each([false, true])('awaits the configured status (%s)', async (configured) => {
+      vi.mocked(hasApiKey).mockResolvedValueOnce(configured);
+      const res = await app.request('/providers/openai');
+      const json = await res.json();
+      expect(json.data.isConfigured).toBe(configured);
+    });
+
     it('returns provider config', async () => {
       const res = await app.request('/providers/openai');
 
@@ -248,6 +255,13 @@ describe('Providers Routes', () => {
   // ========================================================================
 
   describe('GET /providers/:id/models', () => {
+    it.each([false, true])('awaits the configured status (%s)', async (configured) => {
+      vi.mocked(hasApiKey).mockResolvedValueOnce(configured);
+      const res = await app.request('/providers/openai/models');
+      const json = await res.json();
+      expect(json.data.isConfigured).toBe(configured);
+    });
+
     it('returns models for a provider', async () => {
       const res = await app.request('/providers/openai/models');
 

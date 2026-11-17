@@ -17,7 +17,7 @@ import type {
 } from '../types.js';
 import { BaseProvider, DEFAULT_RETRY_CONFIG } from '../base-provider.js';
 import type { ProviderHealthResult } from '../provider-types.js';
-import { withRetry } from '../retry.js';
+import { withRetry, isRetryableError } from '../retry.js';
 import {
   logRequest,
   logResponse,
@@ -174,6 +174,10 @@ export class OpenAIProvider extends BaseProvider {
     const result = await withRetry(async () => {
       try {
         const fetchOpts = this.createFetchOptions(body);
+        if (request.signal) {
+          request.signal.throwIfAborted();
+          fetchOpts.signal = AbortSignal.any([request.signal, fetchOpts.signal!]);
+        }
         // Inject bridge headers for session resume + multi-provider routing.
         // X-Project-Dir was tried in v7.2 (commits 88853c92/fc90fc0b) but removed —
         // container path invalid for host bridge, bridge's default CWD is sufficient.
@@ -237,6 +241,7 @@ export class OpenAIProvider extends BaseProvider {
         // Clear timer on the fetch-error path so a network error doesn't
         // leave a 5-minute timeout pinned to the event loop.
         this.clearRequestTimeout();
+        if (request.signal?.aborted) return err(new ValidationError('OpenAI request cancelled'));
         if (error instanceof Error && error.name === 'AbortError') {
           const timeoutError = new TimeoutError('OpenAI request', this.config.timeout ?? 300000);
           logError('openai', timeoutError, 'Request timeout');
@@ -288,6 +293,10 @@ export class OpenAIProvider extends BaseProvider {
 
     try {
       const streamFetchOpts = this.createFetchOptions(body);
+      if (request.signal) {
+        request.signal.throwIfAborted();
+        streamFetchOpts.signal = AbortSignal.any([request.signal, streamFetchOpts.signal!]);
+      }
       // Inject bridge headers for session resume + multi-provider routing.
       // X-Project-Dir was tried in v7.2 (commits 88853c92/fc90fc0b) but removed —
       // container path invalid for host bridge, bridge's default CWD is sufficient.
@@ -304,6 +313,7 @@ export class OpenAIProvider extends BaseProvider {
       const retryConfig = {
         ...DEFAULT_RETRY_CONFIG,
         maxRetries: this.config.maxRetries ?? DEFAULT_RETRY_CONFIG.maxRetries,
+        retryableErrors: (error: unknown) => !request.signal?.aborted && isRetryableError(error),
       };
       const fetchResult = await withRetry(async () => {
         const resp = await fetch(`${this.config.baseUrl}/chat/completions`, streamFetchOpts);
@@ -336,7 +346,7 @@ export class OpenAIProvider extends BaseProvider {
       const bridgeConvId = response.headers?.get?.('x-conversation-id') ?? undefined;
       const bridgeSessionId = response.headers?.get?.('x-session-id') ?? undefined;
 
-      for await (const data of readSseData(response.body!)) {
+      for await (const data of readSseData(response.body!, streamFetchOpts.signal ?? undefined)) {
         if (data === '[DONE]') {
           yield ok({
             id: '',

@@ -42,6 +42,7 @@ vi.mock('../retry.js', async (importOriginal) => {
 });
 
 import { AnthropicProvider } from './anthropic-provider.js';
+import { withRetry } from '../retry.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -184,6 +185,23 @@ describe('AnthropicProvider', () => {
   // ==================== complete ====================
 
   describe('complete', () => {
+    it('honors an explicit zero retry budget for fallback chains', async () => {
+      const provider = new AnthropicProvider({
+        provider: 'anthropic',
+        apiKey: 'synthetic-key',
+        maxRetries: 0,
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => Response.json(makeAnthropicResponse()))
+      );
+      expect((await provider.complete(makeRequest())).ok).toBe(true);
+      expect(withRetry).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({ maxRetries: 0 })
+      );
+    });
+
     it('returns ValidationError when not ready', async () => {
       const p = new AnthropicProvider({ provider: 'anthropic' });
       const result = await p.complete(makeRequest());

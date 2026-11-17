@@ -162,7 +162,7 @@ const apiUrls: Record<string, string> = {
   'ollama-cloud': 'https://ollama.com/v1',
 
   // Edge / CDN providers
-  'cloudflare-workers-ai': 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run',
+  'cloudflare-workers-ai': 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1',
   vercel: 'https://api.vercel.ai/v1',
   v0: 'https://api.v0.dev/v1',
 };
@@ -316,17 +316,20 @@ function transformProvider(id: string, provider: ModelsDevProvider): ProviderCon
     type = providerTypes[id];
   }
 
-  // Get base URL
-  const baseUrl = provider.api || apiUrls[id] || '';
+  // Workers AI catalog metadata can contain a generic hostname and list the
+  // Account ID before the bearer token. Preserve the official API contract.
+  const baseUrl = id === 'cloudflare-workers-ai' ? apiUrls[id] : provider.api || apiUrls[id] || '';
 
   // Get API key env var
   const apiKeyEnv =
-    provider.env?.[0] || envVars[id] || `${id.toUpperCase().replace(/-/g, '_')}_API_KEY`;
+    id === 'cloudflare-workers-ai'
+      ? envVars[id]!
+      : provider.env?.[0] || envVars[id] || `${id.toUpperCase().replace(/-/g, '_')}_API_KEY`;
 
   // Determine features based on models
   const hasVision = models.some((m) => m.attachment || m.modalities?.input?.includes('image'));
   const hasToolUse = models.some((m) => m.tool_call);
-  const hasJsonMode = models.some((m) => m.structured_output);
+  const hasJsonMode = id === 'cloudflare-workers-ai' || models.some((m) => m.structured_output);
 
   const config: ProviderConfig = {
     id,
@@ -340,7 +343,12 @@ function transformProvider(id: string, provider: ModelsDevProvider): ProviderCon
       jsonMode: hasJsonMode,
       systemMessage: true,
     },
-    models: models.map((m, i) => transformModel(m, i === 0)), // All models included
+    models: models.map((m, i) =>
+      transformModel(
+        m,
+        id === 'cloudflare-workers-ai' ? m.id === '@cf/zai-org/glm-4.7-flash' : i === 0
+      )
+    ), // All models included
   };
 
   if (baseUrl) {
@@ -417,7 +425,7 @@ async function main() {
   const providerIds = Object.keys(data)
     .filter((id) => {
       const provider = data[id];
-      return provider.models && Object.keys(provider.models).length > 0;
+      return provider?.models && Object.keys(provider.models).length > 0;
     })
     .sort();
 

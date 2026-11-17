@@ -15,6 +15,17 @@ export interface AstraFallbackRoute {
 export const ASTRA_LOCAL_FALLBACK_TIMEOUT_MS = 16_000;
 export const ASTRA_LOCAL_FALLBACK_MAX_TOKENS = 768;
 export const ASTRA_CHANNEL_FALLBACK_WITH_LOCAL_BUDGET_MS = 26_000;
+export const ASTRA_CLOUDFLARE_TIMEOUT_MS = 12_000;
+export const ASTRA_CHANNEL_FALLBACK_WITH_CLOUDFLARE_BUDGET_MS = 24_000;
+export const ASTRA_CHANNEL_OTHER_CLOUD_WITH_CLOUDFLARE_TIMEOUT_MS = 7_000;
+
+/** Call only with providers that have already passed credential/endpoint checks. */
+export function getAstraChannelFallbackBudget(providerIds: readonly string[]): number {
+  if (providerIds.includes('ollama-local')) return ASTRA_CHANNEL_FALLBACK_WITH_LOCAL_BUDGET_MS;
+  return providerIds.includes('cloudflare-workers-ai')
+    ? ASTRA_CHANNEL_FALLBACK_WITH_CLOUDFLARE_BUDGET_MS
+    : 16_000;
+}
 
 const ALLOWED_FREE_MODELS: Readonly<Record<string, ReadonlySet<string>>> = {
   zai: new Set(['glm-4.7-flash', 'glm-4.5-flash']),
@@ -23,6 +34,9 @@ const ALLOWED_FREE_MODELS: Readonly<Record<string, ReadonlySet<string>>> = {
   // Groq Free Plan includes these models within rate limits. Explicit opt-in
   // only: API keys may also belong to paid Developer plans.
   groq: new Set(['openai/gpt-oss-20b', 'openai/gpt-oss-120b']),
+  // Workers AI has an account-wide daily free allowance. Explicit opt-in only;
+  // the operator must keep the Cloudflare account on the Free plan.
+  'cloudflare-workers-ai': new Set(['@cf/zai-org/glm-4.7-flash']),
   // Operator-hosted, not a hosted paid tier. Keep the installed model exact
   // and require its own configured credential and guarded loopback relay.
   'ollama-local': new Set(['qwen3:4b-instruct']),

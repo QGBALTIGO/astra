@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { parseAstraFallbackChain } from './fallback-chain.js';
+import { parseAstraFallbackChain, getAstraChannelFallbackBudget } from './fallback-chain.js';
 
 describe('Astra free-only fallback policy', () => {
+  it.each([
+    [[], 16_000],
+    [['openrouter'], 16_000],
+    [['cloudflare-workers-ai', 'openrouter'], 24_000],
+    [['openrouter', 'ollama-local'], 26_000],
+    [['cloudflare-workers-ai', 'openrouter', 'ollama-local'], 26_000],
+  ] as const)('bounds a usable channel chain %j to %i ms', (providers, budget) => {
+    expect(getAstraChannelFallbackBudget(providers)).toBe(budget);
+  });
+
   it('preserves existing manual fallback when feature is not enabled', () => {
     expect(
       parseAstraFallbackChain(undefined, 'groq', { provider: 'openai', model: 'gpt-4o' })
@@ -25,6 +35,29 @@ describe('Astra free-only fallback policy', () => {
     expect(parseAstraFallbackChain('google=gemini-3.5-flash-lite', 'groq')).toEqual([
       { provider: 'google', model: 'gemini-3.5-flash-lite' },
     ]);
+  });
+
+  it('allows only the explicitly reviewed Workers AI model without changing cloud priority', () => {
+    expect(
+      parseAstraFallbackChain(
+        'zai=glm-4.7-flash,cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash,openrouter=openrouter/free,ollama-local=qwen3:4b-instruct',
+        'groq'
+      )
+    ).toEqual([
+      { provider: 'zai', model: 'glm-4.7-flash' },
+      { provider: 'cloudflare-workers-ai', model: '@cf/zai-org/glm-4.7-flash' },
+      { provider: 'openrouter', model: 'openrouter/free' },
+      { provider: 'ollama-local', model: 'qwen3:4b-instruct' },
+    ]);
+    expect(parseAstraFallbackChain('cloudflare-workers-ai=@cf/qwen/qwen3.8-27b', 'groq')).toEqual(
+      []
+    );
+    expect(
+      parseAstraFallbackChain(
+        'cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash',
+        'cloudflare-workers-ai'
+      )
+    ).toEqual([]);
   });
 
   it('rejects paid, unknown and malformed fallback entries', () => {

@@ -13,10 +13,34 @@ import type { Result } from '../../types/result.js';
 import type { InternalError } from '../../types/errors.js';
 import type { Message } from '../types.js';
 import type { ProviderHealthResult } from '../provider-types.js';
+import { ignoreError } from '../../utils/ignore-error.js';
 
 // ---------------------------------------------------------------------------
 // SSE reader
 // ---------------------------------------------------------------------------
+
+/** Bound fetch/body/iterator reads even when a custom transport ignores abort. */
+export async function readWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  const abortError = () =>
+    signal.reason instanceof Error
+      ? signal.reason
+      : new DOMException('Provider request cancelled', 'AbortError');
+  if (signal.aborted) {
+    ignoreError(promise, 'provider.cancelled-read');
+    throw abortError();
+  }
+  let onAbort: () => void = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(abortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([promise, aborted]);
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
+}
 
 /**
  * Read an SSE response body and yield the payload of each `data: ` line
@@ -28,7 +52,10 @@ import type { ProviderHealthResult } from '../provider-types.js';
  * Protocol markers like `[DONE]` are NOT interpreted here; consumers handle
  * them in their own loop body.
  */
-export async function* readSseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+export async function* readSseData(
+  body: ReadableStream<Uint8Array>,
+  signal?: AbortSignal
+): AsyncGenerator<string> {
   const reader = body.getReader();
   try {
     const decoder = new TextDecoder();
@@ -36,7 +63,7 @@ export async function* readSseData(body: ReadableStream<Uint8Array>): AsyncGener
     let offset = 0;
 
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithAbort(reader.read(), signal);
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
@@ -70,7 +97,8 @@ export async function* readSseData(body: ReadableStream<Uint8Array>): AsyncGener
     }
   } finally {
     try {
-      await reader.cancel();
+      // A stalled custom cancel must not defeat the request deadline either.
+      await readWithAbort(reader.cancel(), signal);
     } catch {
       /* already released */
     }

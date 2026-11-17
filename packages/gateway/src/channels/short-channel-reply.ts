@@ -1,5 +1,8 @@
 import { createProvider, createFallbackProvider, type ProviderConfig } from '@ownpilot/core/agent';
-import { parseAstraFallbackChain } from '../services/agent/fallback-chain.js';
+import {
+  parseAstraFallbackChain,
+  ASTRA_CLOUDFLARE_TIMEOUT_MS,
+} from '../services/agent/fallback-chain.js';
 import { resolveForChannel } from '../services/llm/model-routing.js';
 import {
   getProviderApiKey,
@@ -61,7 +64,10 @@ async function complete(
     apiKey,
     resolvedAuth,
     defaultModel: { model },
-    timeout: Math.min(remaining, 2500),
+    timeout: Math.min(
+      remaining,
+      provider === 'cloudflare-workers-ai' ? ASTRA_CLOUDFLARE_TIMEOUT_MS : 2500
+    ),
     maxRetries: 0,
     headers: {
       ...config?.headers,
@@ -90,7 +96,10 @@ async function complete(
       baseUrl: fb?.baseUrl,
       headers: fb?.headers,
       defaultModel: { model: candidate.model },
-      timeout: Math.min(remaining, 3000),
+      timeout: Math.min(
+        remaining,
+        candidate.provider === 'cloudflare-workers-ai' ? ASTRA_CLOUDFLARE_TIMEOUT_MS : 3000
+      ),
       maxRetries: 0,
     });
   }

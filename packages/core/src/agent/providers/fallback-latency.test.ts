@@ -299,13 +299,15 @@ describe('opt-in channel fallback latency', () => {
       1309528
     ));
   it('leaves valid concurrent requests to the configured provider capacity', async () => {
+    vi.useFakeTimers();
     const { provider, config, primary, backup } = setup();
     const pending: Array<(value: ReturnType<typeof ok>) => void> = [];
     primary.complete.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
     const calls = [provider, new FallbackProvider(config), new FallbackProvider(config)].map(
       (route) => route.complete(request)
     );
-    await vi.waitFor(() => expect(primary.complete).toHaveBeenCalledTimes(3));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(primary.complete).toHaveBeenCalledTimes(3);
     expect(backup.complete).not.toHaveBeenCalled();
     pending.forEach((resolve) => resolve(ok({ content: 'done', usage: {} })));
     expect((await Promise.all(calls)).every((result) => result.ok)).toBe(true);

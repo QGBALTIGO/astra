@@ -591,6 +591,42 @@ describe('agent-runner-utils', () => {
       }
     });
 
+    it('bounds the Cloudflare fallback attempt to 12 seconds for autonomous runners', async () => {
+      const core = await import('@ownpilot/core/agent');
+      const constructed = vi.spyOn(core, 'createFallbackProvider');
+      vi.stubEnv('ASTRA_FALLBACK_CHAIN', 'cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash');
+      mockLoadProviderConfig.mockReturnValue({
+        type: 'openai-compatible',
+        baseUrl: 'https://example.invalid/v1',
+      });
+      try {
+        await createConfiguredAgent({
+          name: 'Synthetic Cloudflare runner',
+          provider: 'openai',
+          model: 'synthetic-primary-model',
+          systemPrompt: 'Synthetic',
+          userId: 'synthetic',
+          conversationId: 'synthetic-cloudflare',
+        });
+        expect(constructed).toHaveBeenCalledWith(
+          expect.objectContaining({
+            fallbacks: [
+              expect.objectContaining({
+                id: 'cloudflare-workers-ai',
+                timeout: 12000,
+                defaultModel: { model: '@cf/zai-org/glm-4.7-flash' },
+                maxRetries: 0,
+              }),
+            ],
+          })
+        );
+      } finally {
+        constructed.mockRestore();
+        vi.unstubAllEnvs();
+        mockLoadProviderConfig.mockReturnValue(null);
+      }
+    });
+
     it('resolves the fallback provider key when fallback options are given', async () => {
       await createConfiguredAgent({
         name: 'TestAgent',

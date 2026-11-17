@@ -184,6 +184,10 @@ export class AnthropicProvider extends BaseProvider {
     }
 
     const startTime = Date.now();
+    const retryConfig = {
+      ...DEFAULT_RETRY_CONFIG,
+      maxRetries: this.config.maxRetries ?? DEFAULT_RETRY_CONFIG.maxRetries,
+    };
 
     // Use retry wrapper for the actual API call
     const result = await withRetry(async () => {
@@ -199,7 +203,9 @@ export class AnthropicProvider extends BaseProvider {
           method: 'POST',
           headers: this.buildHeaders(),
           body: JSON.stringify(body),
-          signal: this.abortController.signal,
+          signal: request.signal
+            ? AbortSignal.any([request.signal, this.abortController.signal])
+            : this.abortController.signal,
         });
         this.clearRequestTimeout();
 
@@ -279,6 +285,7 @@ export class AnthropicProvider extends BaseProvider {
         // `await fetch` returns would otherwise leave a 5-minute setTimeout
         // pinned to the event loop calling abort() on an already-failed request.
         this.clearRequestTimeout();
+        if (request.signal?.aborted) return err(new ValidationError('Anthropic request cancelled'));
         if (error instanceof Error && error.name === 'AbortError') {
           const timeoutError = new TimeoutError('Anthropic request', this.config.timeout ?? 300000);
           logError('anthropic', timeoutError, 'Request timeout');
@@ -290,7 +297,7 @@ export class AnthropicProvider extends BaseProvider {
         logError('anthropic', internalError, 'Request exception');
         return err(internalError);
       }
-    }, DEFAULT_RETRY_CONFIG);
+    }, retryConfig);
 
     // Cast result to expected type (withRetry only returns our specific error types)
     return result as Result<CompletionResponse, InternalError | TimeoutError | ValidationError>;
@@ -360,7 +367,9 @@ export class AnthropicProvider extends BaseProvider {
         method: 'POST',
         headers: this.buildHeaders(),
         body: JSON.stringify(body),
-        signal: this.abortController.signal,
+        signal: request.signal
+          ? AbortSignal.any([request.signal, this.abortController.signal])
+          : this.abortController.signal,
       });
       this.clearRequestTimeout();
 
@@ -382,7 +391,7 @@ export class AnthropicProvider extends BaseProvider {
       // Track current content block type
       let currentBlockType: string | undefined;
 
-      for await (const data of readSseData(response.body)) {
+      for await (const data of readSseData(response.body, request.signal)) {
         try {
           const parsed = JSON.parse(data) as AnthropicStreamEvent;
 

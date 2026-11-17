@@ -37,15 +37,16 @@ import {
   type ResolvedProviderConfig,
 } from './configs/index.js';
 import { getAuthHeader, type ResolvedAuth } from './configs/types.js';
-import { readSseData, runProviderHealthCheck, approximateTokenCount } from './shared.js';
-import { getLog } from '../../services/get-log.js';
 import {
-  fetchGroqPool,
-  groqPoolKeys,
-  groqPoolRead,
-  isOfficialProviderBase,
-} from './groq-key-pool.js';
+  readSseData,
+  readWithAbort,
+  runProviderHealthCheck,
+  approximateTokenCount,
+} from './shared.js';
+import { getLog } from '../../services/get-log.js';
+import { fetchGroqPool, groqPoolKeys, isOfficialProviderBase } from './groq-key-pool.js';
 import { groqResponseOptions } from './groq-response-options.js';
+import { ignoreError } from '../../utils/ignore-error.js';
 
 const log = getLog('OpenAICompatible');
 
@@ -155,9 +156,7 @@ export class OpenAICompatibleProvider implements IProvider {
   readonly type: AIProvider;
   private readonly providerId: string;
   private readonly config: ResolvedProviderConfig;
-  private abortController: AbortController | null = null;
-  private requestTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private readonly pooledRequests = new Set<AbortController>();
+  private readonly activeRequests = new Set<AbortController>();
 
   constructor(config: ResolvedProviderConfig) {
     this.config = config;
@@ -210,6 +209,66 @@ export class OpenAICompatibleProvider implements IProvider {
     return !!this.config.apiKey && !!this.config.baseUrl;
   }
 
+  private isCloudflareEndpoint(): boolean {
+    if (this.providerId !== 'cloudflare-workers-ai') return false;
+    try {
+      const url = new URL(this.config.baseUrl);
+      return (
+        url.origin === 'https://api.cloudflare.com' &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash &&
+        /^\/client\/v4\/accounts\/[a-z0-9_-]+\/ai\/v1\/?$/i.test(url.pathname)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private modelsUrl(): string {
+    return this.isCloudflareEndpoint()
+      ? this.config.baseUrl.replace(/\/v1\/?$/, '/models/search')
+      : `${this.config.baseUrl}/models`;
+  }
+
+  private responseError(response: Response, errorText: string, streaming = false): InternalError {
+    const error = new InternalError(
+      `${this.providerId} ${streaming ? 'stream' : 'API'} error: ${response.status}${errorText ? ` - ${errorText}` : ''}`
+    ) as InternalError & { retryAfterMs?: number };
+    const hint = response.headers.get('retry-after');
+    if (hint) {
+      const seconds = Number(hint);
+      const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(hint) - Date.now();
+      if (Number.isFinite(delay) && delay >= 0)
+        error.retryAfterMs = Math.min(86_400_000, Math.max(1000, delay));
+    }
+    if (this.isCloudflareEndpoint() && response.status === 429) {
+      // 3036 is the daily free allocation; 3040 is temporary capacity. Do not
+      // quarantine every 429 until midnight or impose a quota on paid accounts.
+      let dailyQuota = /daily free allocation[\s\S]*neurons/i.test(errorText);
+      let capacityLimit = false;
+      try {
+        const body = JSON.parse(errorText) as {
+          errors?: Array<{ code?: number }>;
+          error?: { code?: number };
+        };
+        dailyQuota ||= body.error?.code === 3036 || !!body.errors?.some((e) => e.code === 3036);
+        capacityLimit = body.error?.code === 3040 || !!body.errors?.some((e) => e.code === 3040);
+      } catch {
+        // Some endpoints return plain text errors.
+      }
+      if (dailyQuota) {
+        const now = Date.now();
+        error.retryAfterMs = Math.max(
+          error.retryAfterMs ?? 0,
+          86_400_000 - (now % 86_400_000) + 100
+        );
+      } else if (capacityLimit && error.retryAfterMs === undefined) error.retryAfterMs = 15_000;
+    }
+    return error;
+  }
+
   /**
    * SSRF guard for the configured base URL. openai-compatible providers point at
    * an operator-set baseUrl, and this client sends the API key in the auth header,
@@ -244,7 +303,7 @@ export class OpenAICompatibleProvider implements IProvider {
       notConfiguredError: 'API key or base URL not configured',
       request: async (signal) => {
         await this.assertBaseUrlSafe();
-        return fetch(`${this.config.baseUrl}/models`, {
+        return fetch(this.modelsUrl(), {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -282,15 +341,11 @@ export class OpenAICompatibleProvider implements IProvider {
       finish = cleanup;
 
       if (!response.ok) {
-        const errorText = rateLimitErrorText ?? (await response.text());
-        return err(
-          new InternalError(`${this.providerId} API error: ${response.status} - ${errorText}`)
-        );
+        const errorText = rateLimitErrorText ?? (await readWithAbort(response.text(), signal));
+        return err(this.responseError(response, errorText));
       }
 
-      const data = (await (signal
-        ? groqPoolRead(response.json(), signal)
-        : response.json())) as OpenAIResponse;
+      const data = (await readWithAbort(response.json(), signal)) as OpenAIResponse;
       const choice = data.choices?.[0];
 
       if (!choice) {
@@ -322,9 +377,7 @@ export class OpenAICompatibleProvider implements IProvider {
           : {}),
       });
     } catch (error) {
-      // Clear the request timeout on the fetch-error path so a network error
-      // before fetch resolves doesn't leak a setTimeout into the event loop.
-      this.clearRequestTimeout();
+      if (error instanceof TimeoutError) return err(error);
       if (error instanceof Error && error.name === 'AbortError') {
         return err(new TimeoutError(`${this.providerId} request`, this.config.timeout ?? 300000));
       }
@@ -361,12 +414,8 @@ export class OpenAICompatibleProvider implements IProvider {
       finish = cleanup;
 
       if (!response.ok || !response.body) {
-        const errorText = rateLimitErrorText ?? (await response.text().catch(() => ''));
-        yield err(
-          new InternalError(
-            `${this.providerId} stream error: ${response.status}${errorText ? ` - ${errorText}` : ''}`
-          )
-        );
+        const errorText = rateLimitErrorText ?? (await readWithAbort(response.text(), signal));
+        yield err(this.responseError(response, errorText, true));
         return;
       }
 
@@ -377,9 +426,7 @@ export class OpenAICompatibleProvider implements IProvider {
       let reasoningBuffer = '';
       let reasoningDone = false;
 
-      for await (const data of readSseData(response.body)) {
-        if (signal?.aborted)
-          throw new DOMException('Groq request cancelled or timed out', 'AbortError');
+      for await (const data of readSseData(response.body, signal)) {
         if (process.env.OWNPILOT_DEBUG_STREAM) {
           log.debug(`[stream:${this.providerId}] ${data.slice(0, 500)}`);
         }
@@ -459,9 +506,6 @@ export class OpenAICompatibleProvider implements IProvider {
         }
       }
     } catch (error) {
-      // Clear timer on the fetch-error path — if the failure happens before
-      // `await fetch` resolves we'd otherwise leak the 5-minute timeout.
-      this.clearRequestTimeout();
       yield err(new InternalError(`${this.providerId} stream failed: ${getErrorMessage(error)}`));
     } finally {
       finish?.();
@@ -486,7 +530,7 @@ export class OpenAICompatibleProvider implements IProvider {
 
     try {
       await this.assertBaseUrlSafe();
-      const response = await fetch(`${this.config.baseUrl}/models`, {
+      const response = await fetch(this.modelsUrl(), {
         headers: {
           Authorization: authHeader(this.config),
           ...this.config.headers,
@@ -498,8 +542,13 @@ export class OpenAICompatibleProvider implements IProvider {
         return this.getModels();
       }
 
-      const data = (await response.json()) as { data?: Array<{ id: string }> };
-      const models = data.data?.map((m) => m.id) ?? [];
+      const data = (await response.json()) as {
+        data?: Array<{ id: string }>;
+        result?: Array<{ name: string }>;
+      };
+      const models = this.isCloudflareEndpoint()
+        ? (data.result?.map((m) => m.name) ?? [])
+        : (data.data?.map((m) => m.id) ?? []);
 
       return ok(models);
     } catch {
@@ -524,19 +573,7 @@ export class OpenAICompatibleProvider implements IProvider {
    * Cancel ongoing request
    */
   cancel(): void {
-    for (const controller of this.pooledRequests) controller.abort();
-    this.clearRequestTimeout();
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
-  }
-
-  private clearRequestTimeout(): void {
-    if (this.requestTimeoutId !== null) {
-      clearTimeout(this.requestTimeoutId);
-      this.requestTimeoutId = null;
-    }
+    for (const controller of this.activeRequests) controller.abort();
   }
 
   private buildRequestBody(
@@ -604,6 +641,15 @@ export class OpenAICompatibleProvider implements IProvider {
 
     if (this.providerId === 'groq') {
       Object.assign(body, groqResponseOptions(this.config.baseUrl, model, request.model.maxTokens));
+    }
+    if (this.isCloudflareEndpoint() && model === '@cf/zai-org/glm-4.7-flash') {
+      // GLM's documented Workers AI contract uses these options. Keep this
+      // scoped to the official route; other vendors have different controls.
+      body.chat_template_kwargs = { enable_thinking: false };
+      if (request.model.maxTokens) {
+        delete body.max_tokens;
+        body.max_completion_tokens = request.model.maxTokens;
+      }
     }
     return body;
   }
@@ -693,31 +739,11 @@ export class OpenAICompatibleProvider implements IProvider {
     }));
   }
 
-  private createFetchOptions(body: unknown): RequestInit {
-    this.clearRequestTimeout();
-    this.abortController = new AbortController();
-    const timeout = this.config.timeout ?? 120000;
-
-    this.requestTimeoutId = setTimeout(() => {
-      this.abortController?.abort();
-    }, timeout);
-
-    return {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: authHeader(this.config),
-        ...this.config.headers,
-      },
-      body: JSON.stringify(body),
-      signal: this.abortController.signal,
-    };
-  }
-
   /**
    * Send a chat request and retry exactly once for a short provider-directed
-   * 429 delay. A fresh AbortController and timeout are created for each attempt.
-   * Non-429 failures are never retried here.
+   * 429 delay. One deadline covers fetch, retry delay and body consumption.
+   * Controllers are scoped to requests, including concurrent requests on the
+   * same instance. Non-429 failures are never retried here.
    */
   private async fetchChatCompletion(
     body: unknown,
@@ -736,6 +762,25 @@ export class OpenAICompatibleProvider implements IProvider {
       ...(request.metadata?.conversationId
         ? { 'X-Conversation-Id': request.metadata.conversationId }
         : {}),
+      ...(this.providerId.startsWith('bridge-')
+        ? { 'X-Runtime': this.providerId.replace('bridge-', '') }
+        : {}),
+    };
+    const controller = new AbortController();
+    const onAbort = () => controller.abort(request.signal?.reason);
+    if (request.signal?.aborted) onAbort();
+    else request.signal?.addEventListener('abort', onAbort, { once: true });
+    this.activeRequests.add(controller);
+    const timeout = this.config.timeout ?? 120_000;
+    const timer = setTimeout(
+      () => controller.abort(new TimeoutError(`${this.providerId} request`, timeout)),
+      timeout
+    );
+    timer.unref?.();
+    const finish = () => {
+      clearTimeout(timer);
+      request.signal?.removeEventListener('abort', onAbort);
+      this.activeRequests.delete(controller);
     };
     const keys = groqPoolKeys({
       providerId: this.providerId,
@@ -743,16 +788,15 @@ export class OpenAICompatibleProvider implements IProvider {
       endpoint: this.config.endpoint,
       authorization: new Headers(headers).get('authorization') ?? '',
     });
-    if (keys) {
-      const controller = new AbortController();
-      this.pooledRequests.add(controller);
-      try {
+    try {
+      controller.signal.throwIfAborted();
+      if (keys) {
         const pooled = await fetchGroqPool({
           keys,
           url,
           model: String((body as { model: string }).model),
           options: { method: 'POST', headers, body: JSON.stringify(body) },
-          timeoutMs: this.config.timeout ?? 120_000,
+          timeoutMs: timeout,
           controller,
           beforeFetch: () => this.assertBaseUrlSafe(),
         });
@@ -760,44 +804,63 @@ export class OpenAICompatibleProvider implements IProvider {
           ...pooled,
           finish: () => {
             pooled.finish();
-            this.pooledRequests.delete(controller);
+            finish();
           },
         };
-      } catch (error) {
-        this.pooledRequests.delete(controller);
-        throw error;
       }
-    }
-    await this.assertBaseUrlSafe();
+      await readWithAbort(this.assertBaseUrlSafe(), controller.signal);
 
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const fetchOptions = this.createFetchOptions(body);
-      if (request.metadata?.conversationId) {
-        (fetchOptions.headers as Record<string, string>)['X-Conversation-Id'] =
-          request.metadata.conversationId;
-      }
-      if (this.providerId.startsWith('bridge-')) {
-        (fetchOptions.headers as Record<string, string>)['X-Runtime'] = this.providerId.replace(
-          'bridge-',
-          ''
+      for (let attempt = 0; attempt < 2; attempt++) {
+        controller.signal.throwIfAborted();
+        const response = await readWithAbort(
+          fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          }).then((value) => {
+            if (controller.signal.aborted) {
+              ignoreError(value.body?.cancel(), 'provider.cancel-late-response');
+              controller.signal.throwIfAborted();
+            }
+            return value;
+          }),
+          controller.signal
         );
+        if (response.status !== 429) return { response, finish, signal: controller.signal };
+
+        const errorText = await readWithAbort(response.text(), controller.signal);
+        if (attempt === 1 || this.config.maxRetries === 0)
+          return { response, errorText, finish, signal: controller.signal };
+
+        const delayMs = providerRateLimitRetryDelayMs(response.headers, errorText);
+        // A daily allocation error must immediately reach the fallback circuit,
+        // even when a standalone provider uses the ordinary short 429 retry.
+        const cooldown = this.responseError(response, errorText) as InternalError & {
+          retryAfterMs?: number;
+        };
+        if (delayMs === null || (cooldown.retryAfterMs ?? 0) > MAX_RATE_LIMIT_RETRY_MS)
+          return { response, errorText, finish, signal: controller.signal };
+
+        log.warn(`Rate limited by ${this.providerId}; retrying once in ${delayMs}ms`);
+        let delayTimer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await readWithAbort(
+            new Promise<void>((resolve) => {
+              delayTimer = setTimeout(resolve, delayMs);
+            }),
+            controller.signal
+          );
+        } finally {
+          if (delayTimer) clearTimeout(delayTimer);
+        }
       }
 
-      const response = await fetch(url, fetchOptions);
-      this.clearRequestTimeout();
-      if (response.status !== 429) return { response };
-
-      const errorText = await response.text().catch(() => '');
-      if (attempt === 1 || this.config.maxRetries === 0) return { response, errorText };
-
-      const delayMs = providerRateLimitRetryDelayMs(response.headers, errorText);
-      if (delayMs === null) return { response, errorText };
-
-      log.warn(`Rate limited by ${this.providerId}; retrying once in ${delayMs}ms`);
-      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      throw new Error('Unreachable provider retry state');
+    } catch (error) {
+      finish();
+      throw error;
     }
-
-    throw new Error('Unreachable provider retry state');
   }
 
   private parseToolCalls(toolCalls: unknown): ToolCall[] | undefined {

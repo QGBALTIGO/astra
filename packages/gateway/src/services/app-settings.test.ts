@@ -340,6 +340,13 @@ describe('Astra Railway AI credentials', () => {
     account: process.env.CLOUDFLARE_ACCOUNT_ID,
   };
 
+  beforeEach(() => {
+    mockGet.mockReset();
+    mockHas.mockReset();
+    mockGetByPrefix.mockReset();
+    mockGetByPrefix.mockResolvedValue([]);
+  });
+
   afterEach(() => {
     const saved = [
       ['ASTRA_ONLY_GROQ', previous.onlyGroq],
@@ -381,5 +388,100 @@ describe('Astra Railway AI credentials', () => {
     const { getApiKey } = await import('./app-settings.js');
     mockGet.mockResolvedValue(undefined);
     expect(await getApiKey('cloudflare-workers-ai')).toBeUndefined();
+  });
+
+  it('uses the Cloudflare token with a valid account and reports only credential provenance', async () => {
+    process.env.ASTRA_ONLY_GROQ = 'false';
+    process.env.CLOUDFLARE_ACCOUNT_ID = '0123456789abcdef0123456789abcdef';
+    process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare-token';
+    const { getApiKey, hasApiKey, getApiKeySource, getConfiguredProviderIds } =
+      await import('./app-settings.js');
+    mockGet.mockResolvedValue('stale-database-token');
+
+    expect(await getApiKey('cloudflare-workers-ai')).toBe('test-cloudflare-token');
+    expect(await hasApiKey('cloudflare-workers-ai')).toBe(true);
+    expect(await getApiKeySource('cloudflare-workers-ai')).toBe('environment');
+    expect((await getConfiguredProviderIds()).has('cloudflare-workers-ai')).toBe(true);
+    expect(await getResolvedAuth('cloudflare-workers-ai')).toEqual({
+      method: 'api_key',
+      value: 'test-cloudflare-token',
+    });
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it.each(['', 'not-an-account', '../other-account', `${'a'.repeat(32)}\n`])(
+    'does not let stored credentials bypass an invalid Cloudflare account %j',
+    async (account) => {
+      process.env.ASTRA_ONLY_GROQ = 'false';
+      process.env.CLOUDFLARE_ACCOUNT_ID = account;
+      process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare-token';
+      const { getApiKey, hasApiKey, getApiKeySource, getConfiguredProviderIds } =
+        await import('./app-settings.js');
+      mockGet.mockImplementation(async (key: string) =>
+        key.startsWith(AUTH_PREFIX)
+          ? JSON.stringify({ method: 'api_key', value: 'stored-cloudflare-token' })
+          : 'stored-cloudflare-token'
+      );
+      mockHas.mockResolvedValue(true);
+      mockGetByPrefix.mockResolvedValue([
+        { key: `${API_KEY_PREFIX}cloudflare-workers-ai`, value: 'stored-cloudflare-token' },
+      ]);
+
+      expect(await getApiKey('cloudflare-workers-ai')).toBeUndefined();
+      expect(await hasApiKey('cloudflare-workers-ai')).toBe(false);
+      expect(await getApiKeySource('cloudflare-workers-ai')).toBeNull();
+      expect((await getConfiguredProviderIds()).has('cloudflare-workers-ai')).toBe(false);
+      expect(await getResolvedAuth('cloudflare-workers-ai')).toBeUndefined();
+    }
+  );
+
+  it('rejects account identifiers mistakenly saved as Cloudflare bearer credentials', async () => {
+    process.env.ASTRA_ONLY_GROQ = 'false';
+    const account = '0123456789abcdef0123456789abcdef';
+    process.env.CLOUDFLARE_ACCOUNT_ID = account;
+    process.env.CLOUDFLARE_API_TOKEN = account;
+    const { getApiKey, hasApiKey, getConfiguredProviderIds } = await import('./app-settings.js');
+    mockGet.mockImplementation(async (key: string) =>
+      key.startsWith(AUTH_PREFIX) ? JSON.stringify({ method: 'api_key', value: account }) : account
+    );
+    mockGetByPrefix.mockResolvedValue([
+      { key: `${API_KEY_PREFIX}cloudflare-workers-ai`, value: account },
+    ]);
+
+    expect(await getApiKey('cloudflare-workers-ai')).toBeUndefined();
+    expect(await hasApiKey('cloudflare-workers-ai')).toBe(false);
+    expect((await getConfiguredProviderIds()).has('cloudflare-workers-ai')).toBe(false);
+    expect(await getResolvedAuth('cloudflare-workers-ai')).toBeUndefined();
+  });
+
+  it('allows a stored Cloudflare API token only when the account is valid', async () => {
+    process.env.ASTRA_ONLY_GROQ = 'false';
+    process.env.CLOUDFLARE_ACCOUNT_ID = '0123456789abcdef0123456789abcdef';
+    delete process.env.CLOUDFLARE_API_TOKEN;
+    const { getApiKey, hasApiKey, getApiKeySource, getConfiguredProviderIds } =
+      await import('./app-settings.js');
+    mockGet.mockResolvedValue('stored-cloudflare-token');
+    mockGetByPrefix.mockResolvedValue([
+      { key: `${API_KEY_PREFIX}cloudflare-workers-ai`, value: 'stored-cloudflare-token' },
+    ]);
+
+    expect(await getApiKey('cloudflare-workers-ai')).toBe('stored-cloudflare-token');
+    expect(await hasApiKey('cloudflare-workers-ai')).toBe(true);
+    expect(await getApiKeySource('cloudflare-workers-ai')).toBe('database');
+    expect((await getConfiguredProviderIds()).has('cloudflare-workers-ai')).toBe(true);
+  });
+
+  it('keeps Workers AI disabled in Groq-only mode even when fully configured', async () => {
+    process.env.ASTRA_ONLY_GROQ = 'true';
+    process.env.CLOUDFLARE_ACCOUNT_ID = '0123456789abcdef0123456789abcdef';
+    process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare-token';
+    const { getApiKey, hasApiKey, getApiKeySource, getConfiguredProviderIds } =
+      await import('./app-settings.js');
+
+    expect(await getApiKey('cloudflare-workers-ai')).toBeUndefined();
+    expect(await hasApiKey('cloudflare-workers-ai')).toBe(false);
+    expect(await getApiKeySource('cloudflare-workers-ai')).toBeNull();
+    expect((await getConfiguredProviderIds()).has('cloudflare-workers-ai')).toBe(false);
+    expect(await getResolvedAuth('cloudflare-workers-ai')).toBeUndefined();
   });
 });

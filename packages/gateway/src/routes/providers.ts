@@ -431,7 +431,7 @@ app.get('/:id', async (c) => {
     // Effective baseUrl (user override > base config)
     baseUrl: override?.baseUrl || config.baseUrl,
     apiKeyEnv: override?.apiKeyEnv || config.apiKeyEnv,
-    isConfigured: hasApiKey(config.id),
+    isConfigured: await hasApiKey(config.id),
     isEnabled: override?.isEnabled !== false,
     hasOverride: !!override,
     // Include user override details if present
@@ -459,7 +459,7 @@ app.get('/:id', async (c) => {
 /**
  * GET /providers/:id/models - Get models for a provider
  */
-app.get('/:id/models', (c) => {
+app.get('/:id/models', async (c) => {
   const id = c.req.param('id');
 
   // Check CLI chat providers first (cli-claude, cli-codex, cli-gemini)
@@ -488,7 +488,7 @@ app.get('/:id/models', (c) => {
     provider: config.id,
     providerName: config.name,
     models: config.models,
-    isConfigured: hasApiKey(config.id),
+    isConfigured: await hasApiKey(config.id),
   });
 });
 

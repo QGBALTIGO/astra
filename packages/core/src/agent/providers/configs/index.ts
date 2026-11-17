@@ -173,11 +173,30 @@ function listAvailableProviderIds(): string[] {
 }
 
 /**
+ * Workers AI uses an account-scoped endpoint and a separate bearer token.
+ * Resolve the account at read time so cached catalog data cannot retain an
+ * endpoint after an operator removes or changes the account configuration.
+ */
+function resolveAccountScopedConfig(config: ProviderConfig): ProviderConfig {
+  if (config.id !== 'cloudflare-workers-ai') return config;
+
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const validAccountId = accountId?.length === 32 && /^[a-f0-9]{32}$/i.test(accountId);
+  return {
+    ...config,
+    apiKeyEnv: 'CLOUDFLARE_API_TOKEN',
+    baseUrl: validAccountId
+      ? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`
+      : '',
+  };
+}
+
+/**
  * Load a provider config by ID
  */
 export function loadProviderConfig(id: string): ProviderConfig | null {
   if (configCache.has(id)) {
-    return configCache.get(id)!;
+    return resolveAccountScopedConfig(configCache.get(id)!);
   }
 
   try {
@@ -196,7 +215,7 @@ export function loadProviderConfig(id: string): ProviderConfig | null {
       config.headers = { ...personaHeaders, ...config.headers };
     }
     configCache.set(id, config);
-    return config;
+    return resolveAccountScopedConfig(config);
   } catch {
     return null;
   }
@@ -259,6 +278,13 @@ export function resolveProviderConfig(id: string): ResolvedProviderConfig | null
 
   const apiKey = process.env[config.apiKeyEnv];
   if (!apiKey) return null;
+  if (
+    id === 'cloudflare-workers-ai' &&
+    (!config.baseUrl || !apiKey.trim() || /^[a-f0-9]{32}$/i.test(apiKey.trim()))
+  ) {
+    // An account identifier is public configuration, never a bearer credential.
+    return null;
+  }
 
   const { apiKeyEnv: _apiKeyEnv, ...rest } = config;
   return { ...rest, apiKey };
