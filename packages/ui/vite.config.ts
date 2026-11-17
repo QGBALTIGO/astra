@@ -43,6 +43,7 @@ function cssSizeGuard(minBytes = 80_000): Plugin {
 }
 
 /** Small uncached release pointer; contains no account or deployment secrets. */
+const customerShellAssets = new Set<string>();
 function customerReleasePointer(): Plugin {
   return {
     name: 'astra-customer-release',
@@ -52,6 +53,18 @@ function customerReleasePointer(): Plugin {
         (item) => item.type === 'chunk' && item.isEntry && item.name === 'index'
       );
       if (!entry) throw new Error('Customer application entry missing');
+      customerShellAssets.clear();
+      const visit = (file: string) => {
+        if (customerShellAssets.has(file)) return;
+        customerShellAssets.add(file);
+        const chunk = bundle[file];
+        if (chunk?.type === 'chunk') chunk.imports.forEach(visit);
+      };
+      visit(entry.fileName);
+      // The customer entry is lazy-loaded from main; include its static graph
+      // as well, so the installed shell does not depend on an uncached chunk.
+      for (const item of Object.values(bundle))
+        if (item.type === 'chunk' && item.name === 'CustomerApp') visit(item.fileName);
       this.emitFile({
         type: 'asset',
         fileName: 'astra-release.json',
@@ -128,11 +141,47 @@ export default defineConfig(({ mode }) => {
           skipWaiting: true,
           clientsClaim: true,
           globPatterns: ['**/*.{js,css,html,svg,jpeg,png,ico,woff2}'],
+          // Installing 180+ unrelated lazy admin chunks delayed activation on
+          // real connections and kept old customer HTML in control. Precache
+          // the entry's static dependency graph; cache lazy public assets as
+          // they are actually used. No private API response is cached.
+          manifestTransforms: [
+            async (entries) => ({
+              manifest: entries.filter(
+                ({ url }) =>
+                  customerShellAssets.has(url) ||
+                  url.endsWith('.css') ||
+                  [
+                    'index.html',
+                    'registerSW.js',
+                    'poppins.woff2',
+                    'logo.svg',
+                    'ownpilot-logo.jpeg',
+                    'astra-approved-logo.svg',
+                    'astra-approved-logo-light.svg',
+                    'astra-logo.svg',
+                    'astra-logo-light.svg',
+                    'astra-boot.css',
+                  ].includes(url)
+              ),
+              warnings: [],
+            }),
+          ],
           // Online customer navigations must ask the server for the current
           // shell. Only public HTML is cached for a network-failure fallback;
           // authenticated API requests never enter a service-worker cache.
           navigateFallbackDenylist: [/^\/cliente(?:\/|$)/, /^\/$/, /^\/api(?:\/|$)/],
           runtimeCaching: [
+            {
+              urlPattern: ({ url, sameOrigin }) =>
+                sameOrigin && /^\/assets\/[\w.-]+\.(?:js|css)$/.test(url.pathname),
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'astra-public-assets-v1',
+                cacheableResponse: { statuses: [200] },
+                expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              },
+            },
             {
               urlPattern: ({ request, url }) =>
                 request.mode === 'navigate' &&

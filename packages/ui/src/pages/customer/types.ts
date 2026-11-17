@@ -101,6 +101,7 @@ export type TransactionInput = Pick<
   'description' | 'amount' | 'type' | 'status' | 'categoryId' | 'date' | 'notes'
 >;
 export interface CustomerTransactionFilters extends CustomerPeriod {
+  sort?: 'created' | 'date';
   type?: 'income' | 'expense';
   status?: 'settled' | 'pending';
   categoryId?: string;

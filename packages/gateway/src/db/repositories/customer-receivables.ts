@@ -85,6 +85,9 @@ export class CustomerReceivablesRepository extends BaseRepository {
       throw new CustomerFinanceError('Confirme o valor recebido e a data.');
     return this.transaction(async () => {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [
+        'customer-finance:' + this.userId,
+      ]);
+      await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [
         this.userId,
       ]);
       const replay = await this.queryOne<{ transaction_id: string }>(
@@ -125,6 +128,33 @@ export class CustomerReceivablesRepository extends BaseRepository {
         [this.userId, sourceKey, selected[0]!.id]
       );
       return this.list();
+    });
+  }
+
+  /** Explicitly confirmed "one more instalment"; the amount comes from the
+   * next locked pending row. A redelivered message cannot settle the next one. */
+  async receiveNext(planId: string, sourceKey: string, date: string): Promise<SavedPlan[]> {
+    if (!/^[a-f0-9]{64}$/.test(sourceKey) || !validCalendarDay(date))
+      throw new CustomerFinanceError('Confirme a parcela recebida e a data.');
+    return this.transaction(async () => {
+      for (const scope of ['customer-finance:' + this.userId, this.userId])
+        await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [scope]);
+      const replay = await this.queryOne<{ transaction_id: string }>(
+        'SELECT transaction_id FROM customer_finance_operations WHERE user_id=$1 AND source_key=$2',
+        [this.userId, sourceKey]
+      );
+      if (replay) return this.list();
+      const next = await this.queryOne<{ amount: string }>(
+        `SELECT e.amount FROM customer_receivable_items i
+         JOIN customer_receivable_plans p ON p.id=i.plan_id
+         JOIN expenses e ON e.id=i.transaction_id AND e.user_id=p.user_id
+         WHERE p.user_id=$1 AND p.id=$2 AND e.status='pending' AND e.deleted_at IS NULL AND e.transaction_type='income'
+         ORDER BY i.sequence LIMIT 1 FOR UPDATE OF e`,
+        [this.userId, planId]
+      );
+      if (!next)
+        throw new CustomerFinanceError('Não há parcelas pendentes desse recebimento.', 409);
+      return this.receive(planId, Number(next.amount), sourceKey, date);
     });
   }
   async create(

@@ -29,7 +29,7 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)('planning reference integrity
     await client.query('SET search_path TO pg_temp');
     for (const [source, tables] of [
       [FINANCE_TABLES_SQL, ['customer_categories', 'expenses']],
-      [CUSTOMER_PORTAL_TABLES_SQL, ['customer_plans']],
+      [CUSTOMER_PORTAL_TABLES_SQL, ['customer_plans', 'customer_planning_requests']],
       [AUTONOMOUS_TABLES_SQL, ['goals']],
     ] as const) {
       for (const table of tables) {
@@ -62,7 +62,9 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)('planning reference integrity
     } as unknown as DatabaseAdapter;
   });
   beforeEach(async () => {
-    await client.query('TRUNCATE customer_plans, expenses, customer_categories, goals');
+    await client.query(
+      'TRUNCATE customer_plans, expenses, customer_categories, goals, customer_planning_requests'
+    );
     await client.query(`INSERT INTO customer_categories(id,user_id,type,name,name_key,color,archived) VALUES
       ('food-a','user-a','expense','Mercado','mercado','#123456',false),
       ('food-b','user-b','expense','Privado','privado','#123456',false),

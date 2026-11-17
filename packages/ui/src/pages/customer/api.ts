@@ -279,6 +279,16 @@ export const customerApi = {
       method: 'PATCH',
       body,
     }),
+  payInstallment: (
+    id: string,
+    expectedPaid: number,
+    idempotencyKey: string,
+    expectedUpdatedAt: string
+  ) =>
+    request<{ plan: CustomerPlan; transaction: CustomerTransaction; duplicate: boolean }>(
+      '/planning/' + encodeURIComponent(id) + '/pay',
+      { method: 'POST', body: { expectedPaid, expectedUpdatedAt }, idempotencyKey }
+    ),
   deletePlan: (id: string) =>
     request<{ deleted: boolean }>('/planning/' + encodeURIComponent(id), {
       method: 'DELETE',

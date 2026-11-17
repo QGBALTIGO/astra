@@ -86,7 +86,10 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)('planning and category concur
     for (const client of clients) await client.query('SET search_path TO ' + schema);
     for (const [source, tables] of [
       [FINANCE_TABLES_SQL, ['customer_categories', 'expenses']],
-      [CUSTOMER_PORTAL_TABLES_SQL, ['customer_plans', 'customer_subscription_requests']],
+      [
+        CUSTOMER_PORTAL_TABLES_SQL,
+        ['customer_plans', 'customer_subscription_requests', 'customer_planning_requests'],
+      ],
     ] as const) {
       for (const table of tables) {
         const ddl = source.match(
@@ -100,7 +103,7 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)('planning and category concur
   beforeEach(async () => {
     afterCategoryLock = undefined;
     await clients[0]!.query(
-      'TRUNCATE customer_plans, customer_categories, expenses, customer_subscription_requests'
+      'TRUNCATE customer_plans, customer_categories, expenses, customer_subscription_requests, customer_planning_requests'
     );
     plans = Object.assign(new CustomerPlanningRepository('user-a'), {
       adapter: adapter(clients[0]!),
