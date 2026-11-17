@@ -47,6 +47,7 @@ const inputSchema = z
       .nullable()
       .optional(),
     notes: z.string().trim().max(500).nullable().optional(),
+    icon: z.enum(['flag', 'shield', 'plane', 'laptop', 'home', 'education']).nullable().optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

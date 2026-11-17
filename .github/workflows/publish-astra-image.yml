@@ -9,6 +9,7 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
+      - 'scripts/railway-entrypoint.sh'
       - 'packages/**'
   workflow_dispatch:
 
@@ -17,11 +18,20 @@ permissions:
   packages: write
 
 concurrency:
-  group: astra-docker-main
+  group: astra-docker-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  qualification:
+    uses: ./.github/workflows/astra-dashboard-release.yml
+    permissions:
+      contents: read
+  customer-verification:
+    uses: ./.github/workflows/astra-customer-premium.yml
+    permissions:
+      contents: read
   docker:
+    needs: [qualification, customer-verification]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -34,12 +44,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and publish Astra image
+      - name: Build candidate Astra image before publication
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          push: true
+          push: false
+          load: true
           platforms: linux/amd64
           tags: |
             ghcr.io/qgbaltigo/astra:testing
@@ -49,3 +60,25 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/QGBALTIGO/astra
             org.opencontainers.image.revision=${{ github.sha }}
+      - name: Verify backup gate and original command passthrough in the built image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/qgbaltigo/astra:sha-${{ github.sha }}"
+          docker run --rm "$image" sh -c '[ "$(id -u)" = "1001" ] && printf "release-command-preserved\n"' | grep -Fx 'release-command-preserved'
+          status=0
+          docker run --rm -e ASTRA_RELEASE_BACKUP_LABEL='../invalid' "$image" sh -c 'printf "command-must-not-run\n"' > backup-refusal.log 2>&1 || status=$?
+          if [ "$status" -ne 1 ] || ! grep -Fxq '[ReleaseBackup] INVALID_LABEL; server startup stopped.' backup-refusal.log; then
+            cat backup-refusal.log
+            exit 1
+          fi
+          if grep -Fq 'command-must-not-run' backup-refusal.log; then
+            cat backup-refusal.log
+            exit 1
+          fi
+      - name: Publish only the qualified image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker push "ghcr.io/qgbaltigo/astra:sha-${{ github.sha }}"
+          docker push ghcr.io/qgbaltigo/astra:testing

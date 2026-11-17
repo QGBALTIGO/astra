@@ -468,3 +468,57 @@ export function CustomerHome({
     </div>
   );
 }
+
+export function CustomerPlanningPage({
+  customer,
+  active,
+  revision,
+  categories,
+  period,
+  onPeriod,
+  onChanged,
+}: {
+  customer: Customer;
+  active: boolean;
+  revision: number;
+  categories: CustomerCategory[];
+  period: CustomerPeriod;
+  onPeriod: (period: CustomerPeriod) => void;
+  onChanged: (message: string) => void;
+}) {
+  const plans = useCustomerQuery(
+    'planning-route',
+    (signal) => customerApi.plans(signal),
+    active,
+    revision
+  );
+  const summary = useCustomerQuery(
+    `planning-summary:${period.from}:${period.to}`,
+    (signal) => customerApi.summary(period, signal),
+    active && validPeriod(period),
+    revision
+  );
+  return (
+    <div className="ac-page ac-release-planning-page">
+      <CustomerPlanning
+        standalone
+        periodControl={
+          <>
+            <PeriodPicker value={period} onChange={onPeriod} timeZone={customer.timeZone} />
+            {summary.error ? <CustomerError error={summary.error} onRetry={summary.retry} /> : null}
+          </>
+        }
+        plans={plans.data?.plans ?? []}
+        summary={summary.error ? undefined : summary.data}
+        summaryError={summary.error}
+        onRetrySummary={summary.retry}
+        categories={categories}
+        hidden={customer.hideAmounts}
+        canWrite={customer.access.canWrite}
+        loading={plans.loading}
+        error={plans.error}
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}

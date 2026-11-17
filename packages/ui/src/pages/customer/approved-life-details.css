@@ -1,0 +1,167 @@
+/* Additional real-data details inside the approved Life layouts. */
+#astra-approved-dashboard .approved-life-page {
+  min-width: 0;
+}
+#astra-approved-dashboard .life-event-open {
+  min-width: 0;
+  text-align: left;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+#astra-approved-dashboard .life-event-open:hover strong {
+  color: var(--blue);
+}
+#astra-approved-dashboard .approved-connection-code {
+  padding: 18px;
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  overflow-wrap: anywhere;
+}
+#astra-approved-dashboard .approved-connection-code code {
+  display: block;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+#astra-approved-dashboard .approved-connection-code p {
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+#astra-approved-dashboard .approved-radar-item-actions {
+  display: flex;
+  gap: 3px;
+}
+#astra-approved-dashboard .approved-radar-updates {
+  display: flex;
+  flex-direction: column;
+}
+#astra-approved-dashboard .approved-radar-update {
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding: 23px 0;
+}
+#astra-approved-dashboard .approved-radar-update:first-child {
+  border-top: 0;
+  padding-top: 5px;
+}
+#astra-approved-dashboard .approved-radar-update:last-child {
+  padding-bottom: 0;
+}
+#astra-approved-dashboard .approved-radar-update h3 {
+  font-size: 14px;
+  margin: 0;
+}
+#astra-approved-dashboard .approved-radar-update > div:not(.section-heading) {
+  margin-bottom: 18px;
+}
+#astra-approved-dashboard .approved-radar-update strong {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.8;
+}
+#astra-approved-dashboard .approved-radar-update small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.8;
+  margin-top: 4px;
+}
+#astra-approved-dashboard .approved-radar-update p {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+#astra-approved-dashboard .approved-radar-update summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+}
+#astra-approved-dashboard .approved-radar-history > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 19px 0;
+  border-bottom: 1px solid var(--line);
+}
+#astra-approved-dashboard .approved-radar-history > div:last-child {
+  border-bottom: 0;
+}
+#astra-approved-dashboard .approved-radar-history strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+}
+#astra-approved-dashboard .approved-radar-history small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.8;
+  margin-top: 5px;
+}
+#astra-approved-dashboard .life-check-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 17px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  margin-bottom: 22px;
+}
+#astra-approved-dashboard .life-check-row input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  max-width: 18px;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--blue);
+  flex: 0 0 18px;
+}
+#astra-approved-dashboard .life-check-row > span {
+  min-width: 0;
+  flex: 1;
+}
+#astra-approved-dashboard .life-check-row strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+}
+#astra-approved-dashboard .life-check-row small {
+  display: block;
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--muted);
+  margin-top: 4px;
+}
+#astra-approved-dashboard .approved-radar-settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 20px;
+}
+#astra-approved-dashboard .approved-radar-settings-footer > span {
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--muted);
+}
+#astra-approved-dashboard .approved-radar-settings-footer > button {
+  flex-shrink: 0;
+}
+@media (max-width: 650px) {
+  #astra-approved-dashboard .approved-radar-settings-footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 15px;
+  }
+  #astra-approved-dashboard .approved-radar-history > div {
+    align-items: flex-start;
+  }
+}

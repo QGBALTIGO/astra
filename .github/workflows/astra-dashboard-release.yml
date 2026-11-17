@@ -1,0 +1,110 @@
+name: Astra dashboard release verification
+
+on:
+  pull_request:
+    paths:
+      - 'packages/ui/src/pages/customer/**'
+      - 'packages/ui/e2e/customer-*'
+      - 'packages/gateway/src/app.ts'
+      - 'packages/gateway/src/dashboard-release.test.ts'
+      - 'packages/gateway/src/release-backup*'
+      - 'scripts/railway-entrypoint.sh'
+      - 'Dockerfile'
+      - 'packages/gateway/src/routes/customer/**'
+      - 'packages/gateway/src/routes/referrals-admin*'
+      - 'packages/gateway/src/middleware/customer-*'
+      - 'packages/gateway/src/db/repositories/customer-planning*'
+      - 'packages/gateway/src/db/repositories/planning-integrity.pg.test.ts'
+      - 'packages/gateway/src/db/repositories/customer-investments*'
+      - 'packages/gateway/src/db/repositories/customer-referrals*'
+      - 'packages/gateway/src/db/repositories/radar-pg-fixture.ts'
+      - 'packages/gateway/src/db/schema/**'
+      - 'packages/gateway/src/services/investments/**'
+      - 'packages/gateway/scripts/investment-qualification/**'
+      - 'packages/gateway/src/db/data-encryption*'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/astra-dashboard-release.yml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: astra-dashboard-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: radar-local-tests-only
+          POSTGRES_DB: astratest_radar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astratest -d astratest_radar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install PostgreSQL 16 preservation qualification client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          /usr/lib/postgresql/16/bin/pg_dump --version
+          echo '/usr/lib/postgresql/16/bin' >> "$GITHUB_PATH"
+      - name: Build shared engine and gateway
+        run: |
+          pnpm --filter @ownpilot/core build
+          pnpm --filter @ownpilot/gateway build
+      - name: Build customer dashboard
+        run: pnpm --filter @ownpilot/ui build
+      - name: Investment validation, customer authorization and provider contracts
+        run: >-
+          pnpm --filter @ownpilot/gateway exec vitest run
+          src/routes/customer/investments.test.ts
+          src/db/repositories/customer-investments.test.ts
+          src/services/investments/brapi.test.ts
+          src/dashboard-release.test.ts
+      - name: Optional encrypted pre-start preservation safety contracts
+        run: pnpm --filter @ownpilot/gateway exec vitest run src/release-backup.test.ts
+      - name: Independent manual ledger and market valuation reference scenarios
+        working-directory: packages/gateway
+        run: |
+          node --experimental-strip-types scripts/investment-qualification/investments-engine.test.ts
+          node --experimental-strip-types scripts/investment-qualification/investments-market-engine.test.ts
+      - name: Referral authorization, manual rewards and Pix input contracts
+        run: >-
+          pnpm --filter @ownpilot/gateway exec vitest run
+          src/routes/customer/referrals.test.ts
+          src/db/repositories/customer-referrals.test.ts
+      - name: Real PostgreSQL concurrency, isolation, retries and encrypted payouts
+        env:
+          ASTRA_RADAR_TEST_PORT: '5432'
+          ASTRA_REVIEW_PG_PORT: '5432'
+          ASTRA_REVIEW_PG_USER: astratest
+          ASTRA_REVIEW_PG_DATABASE: astratest_radar
+          ASTRA_REVIEW_PG_PASSWORD: radar-local-tests-only
+        run: >-
+          pnpm --filter @ownpilot/gateway exec vitest run
+          src/db/repositories/customer-investments.pg.test.ts
+          src/db/repositories/customer-referrals.pg.test.ts
+          src/db/repositories/planning-integrity.pg.test.ts
+          src/release-backup.pg.test.ts

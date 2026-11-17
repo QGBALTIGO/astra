@@ -242,12 +242,20 @@ export function testDom() {
       return result;
     },
     field(name: string) {
-      const label = Array.from(container.querySelectorAll('label')).find(
-        (label) => !label.closest('[hidden]') && label.textContent?.trim().startsWith(name)
-      );
-      const control = label?.control ?? label?.querySelector('input, select, textarea');
-      if (!control) throw new Error('Field not found: ' + name);
-      return control as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+      const dialog = container.querySelector('[role="dialog"]');
+      for (const scope of dialog ? [dialog, container] : [container]) {
+        const named = Array.from(
+          scope.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+            'input[aria-label], select[aria-label], textarea[aria-label]'
+          )
+        ).find((item) => !item.closest('[hidden]') && item.getAttribute('aria-label') === name);
+        const label = Array.from(scope.querySelectorAll('label')).find(
+          (item) => !item.closest('[hidden]') && item.textContent?.trim().startsWith(name)
+        );
+        const control = named ?? label?.control ?? label?.querySelector('input, select, textarea');
+        if (control) return control as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+      }
+      throw new Error('Field not found: ' + name);
     },
     async click(element: HTMLElement) {
       await act(async () => element.click());
@@ -276,8 +284,19 @@ export function testDom() {
     },
     async navigate(tab: string) {
       const link = Array.from(container.querySelectorAll<HTMLAnchorElement>('nav a')).find(
-        (a) => a.textContent === tab
+        (a) =>
+          a.textContent === tab ||
+          a.getAttribute('title') === tab ||
+          a.getAttribute('aria-label') === tab ||
+          (tab === 'Perfil' && a.getAttribute('href') === '/cliente/perfil')
       );
+      if (!link && tab === 'Perfil') {
+        const profile = container.querySelector<HTMLButtonElement>('[aria-label="Abrir perfil"]');
+        if (profile) {
+          await act(async () => profile.click());
+          return;
+        }
+      }
       if (!link) throw new Error('Tab not found: ' + tab);
       await act(async () => link.click());
     },

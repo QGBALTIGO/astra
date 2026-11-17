@@ -1,12 +1,9 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   Download,
-  Edit3,
   ExternalLink,
-  Globe,
   LogOut,
   Monitor,
-  MessageSquare,
   Moon,
   ShieldCheck,
   Sun,
@@ -14,25 +11,22 @@ import {
 import { useNavigate, useLocation } from 'react-router';
 import { formatWhatsAppPhone } from '../channels-access-helpers';
 import { customerApi, downloadCustomerExport } from './api';
-import {
-  CustomerAvatar,
-  CustomerConfirm,
-  CustomerDialog,
-  CustomerError,
-  CustomerSkeleton,
-} from './components';
-import {
-  customerSiteUrl,
-  dateTimeLabel,
-  safeLink,
-  TIME_ZONES,
-  timeZoneLabel,
-  validTimeZone,
-} from './helpers';
+import { CustomerAvatar, CustomerConfirm, CustomerError, CustomerSkeleton } from './components';
+import { dateTimeLabel, safeLink, TIME_ZONES, timeZoneLabel, validTimeZone } from './helpers';
 import { useCustomerQuery } from './hooks';
 import { CustomerPhoneChange } from './PhoneChange';
-import { CustomerPlanAccess } from './PlanAccess';
-import type { Customer, CustomerSession, CustomerTheme } from './types';
+import { planAccessState } from './PlanAccess';
+import { PageHeading, SectionTabs, Badge, Modal } from './approved-profile-referral-ui';
+import {
+  UserRound,
+  Palette,
+  CheckCircle2,
+  LockKeyhole,
+  ArrowRight,
+  ChevronRight,
+} from 'lucide-react';
+import { useCustomerTheme } from './hooks';
+import type { Customer, CustomerSession } from './types';
 
 export function CustomerProfile({
   customer,
@@ -79,7 +73,12 @@ export function CustomerProfile({
     active,
     revision
   );
-  const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState<'general' | 'preferences' | 'privacy' | 'access'>('general');
+  const [sessionsOpen, setSessionsOpen] = useState(false),
+    [exportOpen, setExportOpen] = useState(false);
+  const [name, setName] = useState(customer.displayName),
+    [zone, setZone] = useState(customer.timeZone);
+  const resolvedTheme = useCustomerTheme(customer.theme);
   const [phoneChange, setPhoneChange] = useState(false);
   const [revoke, setRevoke] = useState<CustomerSession | 'others' | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -90,7 +89,6 @@ export function CustomerProfile({
   useEffect(() => {
     if (profile.data) onUpdated(profile.data.profile);
   }, [profile.data, onUpdated]);
-  const siteUrl = customerSiteUrl(integrations.data?.siteUrl);
   const renewalUrl = safeLink(integrations.data?.renewalUrl) ?? 'https://pay.cakto.com.br/CubL455';
   const supportUrl = safeLink(integrations.data?.supportUrl);
   const exportData = async (format: 'json' | 'csv') => {
@@ -150,150 +148,369 @@ export function CustomerProfile({
       setBusy(null);
     }
   };
+  const access = planAccessState(current);
+  useEffect(() => {
+    setName(current.displayName);
+    setZone(current.timeZone);
+  }, [current.displayName, current.timeZone]);
+  useEffect(() => {
+    if (active && new URLSearchParams(location.search).get('secao') === 'plano') setTab('access');
+  }, [active, location.search]);
+  const updatePreferences = async (
+    input: Partial<Pick<Customer, 'displayName' | 'timeZone' | 'theme' | 'hideAmounts'>>
+  ) => {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy('profile');
+    setError(null);
+    try {
+      const result = await customerApi.updateProfile(input);
+      onUpdated(result.profile);
+      onChanged('Preferências atualizadas.');
+    } catch (failure) {
+      setError(
+        failure instanceof Error ? failure.message : 'Não foi possível salvar suas preferências.'
+      );
+    } finally {
+      lock.current = false;
+      setBusy(null);
+    }
+  };
+  const saveGeneral = (event: FormEvent) => {
+    event.preventDefault();
+    if (!name.trim() || !validTimeZone(zone))
+      return setError('Informe seu nome e um fuso horário válido.');
+    void updatePreferences({ displayName: name.trim(), timeZone: zone });
+  };
   return (
-    <div className="ac-page">
-      <header className="ac-page-heading">
-        <div>
-          <p className="ac-eyebrow">DO SEU JEITO</p>
-          <h1>Perfil</h1>
-          <p>Sua conta, suas preferências e seu acesso.</p>
-        </div>
-      </header>
-      {error ? <CustomerError error={error} /> : null}
-      {profile.error ? <CustomerError error={profile.error} onRetry={profile.retry} /> : null}
-      <div className="ac-profile-columns">
-        <div className="ac-profile-column">
-          <section className="ac-card">
-            <div className="ac-profile-identity">
-              <CustomerAvatar displayName={current.displayName} url={avatarUrl} large />
-              <div>
-                <h2>{current.displayName || 'Sua conta'}</h2>
-                <p>{formatWhatsAppPhone(current.phoneNumber)}</p>
+    <div className="ac-page approved-profile">
+      <PageHeading
+        eyebrow="DO SEU JEITO"
+        title="Meu perfil"
+        description="Um espaço que acompanha suas preferências."
+      />
+      {error && <CustomerError error={new Error(error)} />}
+      {profile.error && <CustomerError error={profile.error} onRetry={profile.retry} />}
+      <div className="profile-layout">
+        <SectionTabs
+          items={[
+            { id: 'general', label: 'Geral' },
+            { id: 'preferences', label: 'Preferências' },
+            { id: 'privacy', label: 'Privacidade' },
+            { id: 'access', label: 'Plano e acesso' },
+          ]}
+          value={tab}
+          onChange={setTab}
+          label="Configurações do perfil"
+          prefix="profile"
+        />
+        <div
+          className="settings-content"
+          id="profile-content"
+          role="tabpanel"
+          aria-labelledby={`profile-tab-${tab}`}
+        >
+          {tab === 'general' ? (
+            <section className="panel settings-panel">
+              <div className="section-heading">
+                <div>
+                  <h2>Informações pessoais</h2>
+                  <p>Como você quer ser chamado pelo Astra.</p>
+                </div>
+                {avatarUrl ? (
+                  <CustomerAvatar displayName={current.displayName} url={avatarUrl} />
+                ) : (
+                  <UserRound size={22} />
+                )}
               </div>
-              <button
-                type="button"
-                className="ac-icon-button"
-                aria-label="Editar perfil"
-                onClick={() => setEditing(true)}
-              >
-                <Edit3 aria-hidden="true" />
-              </button>
-            </div>
-            <dl className="ac-profile-facts">
-              <div>
-                <dt>Fuso horário</dt>
-                <dd>{timeZoneLabel(current.timeZone)}</dd>
+              <form onSubmit={saveGeneral} aria-busy={busy === 'profile'}>
+                <div className="form-grid">
+                  <label className="field">
+                    Nome
+                    <input
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      required
+                      maxLength={120}
+                      autoComplete="name"
+                      disabled={Boolean(busy)}
+                    />
+                  </label>
+                  <label className="field">
+                    Telefone
+                    <input
+                      value={formatWhatsAppPhone(current.phoneNumber)}
+                      readOnly
+                      autoComplete="tel"
+                    />
+                  </label>
+                </div>
+                <label className="field">
+                  Fuso horário
+                  <select
+                    value={zone}
+                    onChange={(event) => setZone(event.target.value)}
+                    disabled={Boolean(busy)}
+                  >
+                    {!TIME_ZONES.some(([value]) => value === zone) && (
+                      <option value={zone}>{timeZoneLabel(zone)}</option>
+                    )}
+                    {TIME_ZONES.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="modal-actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={Boolean(busy) || !current.access.canWrite}
+                    onClick={() => setPhoneChange(true)}
+                  >
+                    Alterar telefone
+                  </button>
+                  <button className="primary-button" disabled={Boolean(busy)}>
+                    {busy === 'profile' ? 'Salvando…' : 'Salvar preferências'}
+                  </button>
+                </div>
+              </form>
+            </section>
+          ) : tab === 'preferences' ? (
+            <section className="panel settings-panel">
+              <div className="section-heading">
+                <div>
+                  <h2>Um Astra com a sua cara</h2>
+                  <p>Conforto visual em cada detalhe.</p>
+                </div>
+                <Palette size={22} />
               </div>
-              <div>
-                <dt>Moeda</dt>
-                <dd>Real brasileiro (BRL)</dd>
-              </div>
-              <div>
-                <dt>Aparência</dt>
-                <dd>
-                  {{ light: 'Clara', dark: 'Escura', system: 'Igual ao aparelho' }[current.theme]}
-                </dd>
-              </div>
-              <div>
-                <dt>Privacidade visual</dt>
-                <dd>{current.hideAmounts ? 'Valores ocultos' : 'Valores visíveis'}</dd>
-              </div>
-            </dl>
-            <div className="ac-card-actions">
-              <button
-                className="ac-button ac-button--secondary"
-                type="button"
-                onClick={() => setEditing(true)}
-              >
-                Editar preferências
-              </button>
-              <button
-                className="ac-text-button"
-                type="button"
-                disabled={!current.access.canWrite}
-                onClick={() => setPhoneChange(true)}
-              >
-                Alterar telefone
-              </button>
-            </div>
-          </section>
-          <section className="ac-card ac-plan-card">
-            <div className="ac-card-heading">
-              <div>
-                <p className="ac-eyebrow">SEU ACESSO AO ASTRA</p>
-                <h2>Meu plano</h2>
-              </div>
-              <ShieldCheck aria-hidden="true" />
-            </div>
-            <CustomerPlanAccess customer={current} detailed />
-            <p className="ac-muted">
-              {current.access.canWrite
-                ? 'Você pode consultar e organizar seus registros pelo WhatsApp e pelo painel.'
-                : 'Seus registros continuam disponíveis para consulta e exportação. Renove para voltar a criar e editar.'}
-            </p>
-            {integrations.error ? (
-              <CustomerError error={integrations.error} onRetry={integrations.retry} />
-            ) : integrations.loading && !integrations.data ? (
-              <p role="status" className="ac-loading-copy">
-                Carregando opções de renovação…
-              </p>
-            ) : renewalUrl ? (
-              <a href={renewalUrl} target="_blank" rel="noopener noreferrer" className="ac-button">
-                Renovar meu plano
-                <ExternalLink aria-hidden="true" />
-              </a>
-            ) : (
-              <p className="ac-field-help">Para renovar, fale com o administrador do seu acesso.</p>
-            )}
-          </section>
-        </div>
-        <div className="ac-profile-column">
-          <section className="ac-card">
-            <div className="ac-card-heading">
-              <div>
-                <h2>Aparelhos conectados</h2>
-                <p>Controle onde sua conta está aberta.</p>
-              </div>
-              <Monitor aria-hidden="true" />
-            </div>
-            {sessions.error ? (
-              <CustomerError error={sessions.error} onRetry={sessions.retry} />
-            ) : sessions.loading && !sessions.data ? (
-              <CustomerSkeleton />
-            ) : (
-              <ul className="ac-sessions">
-                {sessions.data?.sessions.map((session) => (
-                  <li key={session.id}>
-                    <Monitor aria-hidden="true" />
-                    <div>
-                      <strong>{session.label || 'Navegador'}</strong>
-                      {session.current ? (
-                        <span className="ac-current-session">Este aparelho</span>
-                      ) : null}
-                      <small>
-                        Último acesso: {dateTimeLabel(session.lastSeenAt, current.timeZone)}
-                      </small>
+              <h3 className="setting-label">Aparência</h3>
+              <div className="theme-options">
+                {(['light', 'dark'] as const).map((theme) => (
+                  <button
+                    type="button"
+                    key={theme}
+                    className={resolvedTheme === theme ? 'selected' : ''}
+                    disabled={Boolean(busy)}
+                    aria-pressed={resolvedTheme === theme}
+                    onClick={() => void updatePreferences({ theme })}
+                  >
+                    <div className={`theme-preview ${theme}`}>
+                      <i />
+                      <div>
+                        <i />
+                        <i />
+                        <i />
+                      </div>
                     </div>
-                    {!session.current ? (
-                      <button
-                        className="ac-icon-button"
-                        type="button"
-                        aria-label={'Encerrar sessão ' + session.label}
-                        disabled={Boolean(busy)}
-                        onClick={() => {
-                          setRevoke(session);
-                          setRevokeError(null);
-                        }}
-                      >
-                        <LogOut aria-hidden="true" />
-                      </button>
-                    ) : null}
-                  </li>
+                    <span>
+                      {theme === 'light' ? <Sun size={16} /> : <Moon size={16} />}Tema{' '}
+                      {theme === 'light' ? 'claro' : 'escuro'}
+                      {resolvedTheme === theme && <CheckCircle2 size={17} />}
+                    </span>
+                  </button>
                 ))}
-              </ul>
-            )}
+              </div>
+              <div className="setting-row">
+                <div>
+                  <strong>Ocultar valores ao abrir</strong>
+                  <p>Sua preferência acompanha sua conta.</p>
+                </div>
+                <button
+                  type="button"
+                  className={`toggle ${current.hideAmounts ? 'on' : ''}`}
+                  disabled={Boolean(busy)}
+                  onClick={() => void updatePreferences({ hideAmounts: !current.hideAmounts })}
+                  role="switch"
+                  aria-checked={current.hideAmounts}
+                  aria-label="Ocultar valores financeiros"
+                >
+                  <span />
+                </button>
+              </div>
+              <div className="setting-row">
+                <div>
+                  <strong>Seguir a aparência do aparelho</strong>
+                  <p>Alterna automaticamente entre claro e escuro.</p>
+                </div>
+                <button
+                  type="button"
+                  className={`toggle ${current.theme === 'system' ? 'on' : ''}`}
+                  disabled={Boolean(busy)}
+                  onClick={() =>
+                    void updatePreferences({
+                      theme: current.theme === 'system' ? resolvedTheme : 'system',
+                    })
+                  }
+                  role="switch"
+                  aria-checked={current.theme === 'system'}
+                  aria-label="Seguir aparência do aparelho"
+                >
+                  <span />
+                </button>
+              </div>
+            </section>
+          ) : tab === 'privacy' ? (
+            <section className="panel settings-panel">
+              <div className="section-heading">
+                <div>
+                  <h2>Seus dados, seu controle</h2>
+                  <p>Transparência em todas as escolhas.</p>
+                </div>
+                <ShieldCheck size={22} />
+              </div>
+              <button
+                type="button"
+                className="setting-row setting-button"
+                aria-label="Sessões e aparelhos"
+                onClick={() => setSessionsOpen(true)}
+              >
+                <div>
+                  <strong>Sessões e aparelhos</strong>
+                  <p>Confira os acessos e encerre uma sessão quando precisar.</p>
+                </div>
+                <ChevronRight size={18} />
+              </button>
+              <button
+                type="button"
+                className="setting-row setting-button"
+                aria-label="Exportar meus dados"
+                onClick={() => setExportOpen(true)}
+              >
+                <div>
+                  <strong>Exportar meus dados</strong>
+                  <p>Baixe seus registros em CSV ou JSON.</p>
+                </div>
+                <Download size={18} />
+              </button>
+            </section>
+          ) : (
+            <section className="panel settings-panel">
+              <div className="section-heading">
+                <div>
+                  <h2>Plano e acesso</h2>
+                  <p>Suas informações sempre com clareza.</p>
+                </div>
+                <LockKeyhole size={22} />
+              </div>
+              <section
+                className="access-card"
+                aria-label="Validade do plano"
+                data-status={access.status}
+              >
+                <span className="soft-icon">
+                  <ShieldCheck size={27} />
+                </span>
+                <h3>{access.label}</h3>
+                <p>{access.remaining}</p>
+                <Badge tone={access.status === 'expired' ? 'warning' : 'success'}>
+                  {access.status === 'expired' ? 'Acesso somente leitura' : 'Acesso ativo'}
+                </Badge>
+              </section>
+              <dl className="detail-list">
+                <div>
+                  <dt>Vencimento</dt>
+                  <dd>{access.dateLabel}</dd>
+                </div>
+                <div>
+                  <dt>Seu acesso</dt>
+                  <dd>{current.access.canWrite ? 'Consulta e edição' : 'Consulta e exportação'}</dd>
+                </div>
+              </dl>
+              {integrations.error ? (
+                <CustomerError error={integrations.error} onRetry={integrations.retry} />
+              ) : integrations.loading && !integrations.data ? (
+                <CustomerSkeleton label="Carregando opções de renovação…" />
+              ) : (
+                <a
+                  className="primary-button"
+                  href={renewalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Renovar meu plano
+                  <ArrowRight size={16} />
+                </a>
+              )}
+              {supportUrl && (
+                <a
+                  className="text-button"
+                  href={supportUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Preciso de ajuda
+                  <ExternalLink size={15} />
+                </a>
+              )}
+            </section>
+          )}
+          <div className="profile-signout">
             <button
-              className="ac-button ac-button--secondary"
+              className="secondary-button"
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => void signOut()}
+            >
+              <LogOut size={17} />
+              {busy === 'logout' ? 'Saindo…' : 'Sair deste aparelho'}
+            </button>
+          </div>
+        </div>
+      </div>
+      {sessionsOpen && (
+        <Modal
+          title="Sessões e aparelhos"
+          subtitle="Confira os acessos à sua conta."
+          onClose={() => setSessionsOpen(false)}
+          busy={busy === 'revoke'}
+        >
+          {sessions.error ? (
+            <CustomerError error={sessions.error} onRetry={sessions.retry} />
+          ) : sessions.loading && !sessions.data ? (
+            <CustomerSkeleton />
+          ) : (
+            <ul className="ac-session-list">
+              {sessions.data?.sessions.map((session) => (
+                <li key={session.id}>
+                  <Monitor aria-hidden="true" />
+                  <div>
+                    <strong>{session.label}</strong>
+                    <span>
+                      Último acesso em {dateTimeLabel(session.lastSeenAt, current.timeZone)}
+                    </span>
+                    {session.current && <small>Este aparelho</small>}
+                  </div>
+                  {!session.current && (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={Boolean(busy)}
+                      onClick={() => {
+                        setRevoke(session);
+                        setRevokeError(null);
+                      }}
+                    >
+                      Encerrar sessão
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="modal-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setSessionsOpen(false)}
+              disabled={Boolean(busy)}
+            >
+              Voltar
+            </button>
+            <button
+              className="primary-button"
               type="button"
               disabled={
                 Boolean(busy) || !sessions.data?.sessions.some((session) => !session.current)
@@ -305,127 +522,41 @@ export function CustomerProfile({
             >
               Encerrar outras sessões
             </button>
-          </section>
-          <section className="ac-card">
-            <div className="ac-card-heading">
-              <div>
-                <h2>Seus dados</h2>
-                <p>Transações em reais, compromissos, tarefas e lembretes.</p>
-              </div>
-              <Download aria-hidden="true" />
-            </div>
-            <div className="ac-export-actions">
-              <button
-                className="ac-button ac-button--secondary"
-                type="button"
-                disabled={Boolean(busy)}
-                onClick={() => void exportData('csv')}
-              >
-                <Download aria-hidden="true" />
-                {busy === 'csv' ? 'Exportando…' : 'Exportar CSV'}
-              </button>
-              <button
-                className="ac-button ac-button--secondary"
-                type="button"
-                disabled={Boolean(busy)}
-                onClick={() => void exportData('json')}
-              >
-                <Download aria-hidden="true" />
-                {busy === 'json' ? 'Exportando…' : 'Exportar JSON'}
-              </button>
-            </div>
-          </section>
-          <section className="ac-card">
-            <h2>Precisa de ajuda?</h2>
-            <p className="ac-muted">
-              Fale com quem administra seu acesso para tirar dúvidas ou pedir ajuda com sua conta.
-            </p>
-            {supportUrl ? (
-              <a
-                className="ac-text-link"
-                href={supportUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Falar com o suporte
-                <ExternalLink aria-hidden="true" />
-              </a>
-            ) : null}
-            {siteUrl ? (
-              <a className="ac-text-link" href={siteUrl} target="_blank" rel="noopener noreferrer">
-                Acessar o site do Astra
-                <ExternalLink aria-hidden="true" />
-              </a>
-            ) : null}
-          </section>
-          <button
-            className="ac-button ac-button--secondary ac-logout"
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void signOut()}
-          >
-            <LogOut aria-hidden="true" />
-            {busy === 'logout' ? 'Saindo…' : 'Sair deste aparelho'}
-          </button>
-        </div>
-      </div>
-      <section className="ac-card ac-profile-connections" id="conexoes">
-        <div className="ac-card-heading">
-          <div>
-            <h2>Integrações</h2>
-            <p>Conexões disponíveis para sua conta.</p>
           </div>
-          <Globe aria-hidden="true" />
-        </div>
-        {integrations.error ? (
-          <CustomerError error={integrations.error} onRetry={integrations.retry} />
-        ) : integrations.loading && !integrations.data ? (
-          <CustomerSkeleton />
-        ) : integrations.data ? (
-          <>
-            {integrations.data.whatsapp ? (
-              <div className="ac-integration">
-                <MessageSquare aria-hidden="true" />
-                <div>
-                  <h3>WhatsApp</h3>
-                  <span className="ac-status">
-                    {integrations.data.whatsapp.status === 'connected'
-                      ? 'Conectado'
-                      : integrations.data.whatsapp.status === 'disconnected'
-                        ? 'Desconectado'
-                        : 'Indisponível'}
-                  </span>
-                  <p>
-                    {integrations.data.whatsapp.connected
-                      ? 'Seus registros enviados ao Astra também aparecem neste painel.'
-                      : 'O canal está indisponível no momento. Seus registros continuam disponíveis no painel.'}
-                  </p>
-                </div>
-              </div>
-            ) : null}
+        </Modal>
+      )}
+      {exportOpen && (
+        <Modal
+          title="Exportar meus dados"
+          subtitle="Escolha o formato do seu arquivo."
+          onClose={() => setExportOpen(false)}
+          busy={Boolean(busy)}
+        >
+          <p className="form-hint">O arquivo é preparado com os registros reais da sua conta.</p>
+          <div className="modal-actions transaction-form-actions">
             <button
+              className="secondary-button"
               type="button"
-              className="ac-button ac-button--secondary"
-              onClick={() => navigate('/cliente/conexoes')}
+              disabled={Boolean(busy)}
+              onClick={() => void exportData('csv')}
             >
-              Gerenciar minhas conexões
-              <ExternalLink aria-hidden="true" />
+              <Download size={16} />
+              {busy === 'csv' ? 'Exportando…' : 'Exportar CSV'}
             </button>
-          </>
-        ) : null}
-      </section>
-      {editing ? (
-        <ProfileEditor
-          customer={current}
-          onClose={() => setEditing(false)}
-          onSaved={(updated) => {
-            onUpdated(updated);
-            setEditing(false);
-            onChanged('Preferências atualizadas.');
-          }}
-        />
-      ) : null}
-      {phoneChange ? (
+            <button
+              className="primary-button"
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => void exportData('json')}
+            >
+              <Download size={16} />
+              {busy === 'json' ? 'Exportando…' : 'Exportar JSON'}
+            </button>
+          </div>
+          {error && <CustomerError error={new Error(error)} />}
+        </Modal>
+      )}
+      {phoneChange && (
         <CustomerPhoneChange
           canWrite={current.access.canWrite}
           onClose={() => setPhoneChange(false)}
@@ -435,8 +566,8 @@ export function CustomerProfile({
             onChanged('Número atualizado. Seu histórico foi preservado.');
           }}
         />
-      ) : null}
-      {revoke ? (
+      )}
+      {revoke && (
         <CustomerConfirm
           title="Encerrar sessões?"
           action={revoke === 'others' ? 'Encerrar outras sessões' : 'Encerrar sessão'}
@@ -449,142 +580,7 @@ export function CustomerProfile({
             ? 'Os outros aparelhos precisarão confirmar um novo código para acessar sua conta. Este aparelho continuará conectado.'
             : `O aparelho “${revoke.label}” precisará confirmar um novo código para acessar sua conta.`}
         </CustomerConfirm>
-      ) : null}
+      )}
     </div>
-  );
-}
-
-function ProfileEditor({
-  customer,
-  onClose,
-  onSaved,
-}: {
-  customer: Customer;
-  onClose: () => void;
-  onSaved: (customer: Customer) => void;
-}) {
-  const id = useId();
-  const [displayName, setDisplayName] = useState(customer.displayName);
-  const [timeZone, setTimeZone] = useState(customer.timeZone);
-  const [theme, setTheme] = useState<CustomerTheme>(customer.theme);
-  const [hideAmounts, setHideAmounts] = useState(customer.hideAmounts);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const lock = useRef(false);
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (lock.current) return;
-    if (!displayName.trim() || !validTimeZone(timeZone.trim())) {
-      setError('Informe seu nome e um fuso horário válido.');
-      return;
-    }
-    lock.current = true;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await customerApi.updateProfile({
-        displayName: displayName.trim(),
-        timeZone: timeZone.trim(),
-        theme,
-        hideAmounts,
-      });
-      onSaved(result.profile);
-    } catch (failure) {
-      setError(
-        failure instanceof Error ? failure.message : 'Não foi possível salvar suas preferências.'
-      );
-    } finally {
-      lock.current = false;
-      setBusy(false);
-    }
-  };
-  return (
-    <CustomerDialog
-      title="Seu perfil e suas preferências"
-      onClose={onClose}
-      busy={busy}
-      footer={
-        <>
-          <button
-            className="ac-button ac-button--secondary"
-            type="button"
-            disabled={busy}
-            onClick={onClose}
-          >
-            Cancelar
-          </button>
-          <button className="ac-button" form={id} type="submit" disabled={busy}>
-            {busy ? 'Salvando…' : 'Salvar preferências'}
-          </button>
-        </>
-      }
-    >
-      <form id={id} className="ac-form" onSubmit={submit} noValidate aria-busy={busy}>
-        <fieldset disabled={busy}>
-          <label>
-            Como você quer ser chamado?
-            <input
-              value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
-              maxLength={120}
-              required
-              autoComplete="name"
-            />
-          </label>
-          <label>
-            Fuso horário
-            <input
-              value={timeZone}
-              onChange={(event) => setTimeZone(event.target.value)}
-              list={id + '-zones'}
-              required
-              maxLength={100}
-            />
-          </label>
-          <datalist id={id + '-zones'}>
-            {TIME_ZONES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </datalist>
-          <p className="ac-field-help">
-            Os instantes dos compromissos existentes são preservados. Eles passarão a ser exibidos
-            no fuso escolhido.
-          </p>
-          <fieldset className="ac-theme-options">
-            <legend>Aparência</legend>
-            {(
-              [
-                ['light', 'Clara', Sun],
-                ['dark', 'Escura', Moon],
-                ['system', 'Sistema', Monitor],
-              ] as const
-            ).map(([value, label, Icon]) => (
-              <label key={value}>
-                <input
-                  type="radio"
-                  name={id + '-theme'}
-                  value={value}
-                  checked={theme === value}
-                  onChange={() => setTheme(value)}
-                />
-                <Icon aria-hidden="true" />
-                <span>{label}</span>
-              </label>
-            ))}
-          </fieldset>
-          <label className="ac-checkbox-label">
-            <input
-              type="checkbox"
-              checked={hideAmounts}
-              onChange={(event) => setHideAmounts(event.target.checked)}
-            />
-            Ocultar valores ao usar o painel
-          </label>
-        </fieldset>
-        {error ? <CustomerError error={error} /> : null}
-      </form>
-    </CustomerDialog>
   );
 }

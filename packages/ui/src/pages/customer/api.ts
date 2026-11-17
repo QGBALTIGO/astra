@@ -165,7 +165,10 @@ export const customerApi = {
     request('/radar/interests/' + encodeURIComponent(id), { method: 'DELETE', accountId }),
   session: (signal?: AbortSignal) => request<{ customer: Customer }>('/auth/session', { signal }),
   requestCode: (phoneNumber: string) =>
-    request<CustomerChallenge>('/auth/request-code', { method: 'POST', body: { phoneNumber } }),
+    request<CustomerChallenge>('/auth/request-code', {
+      method: 'POST',
+      body: { phoneNumber },
+    }),
   verifyCode: (challengeId: string, code: string) =>
     request<{ customer: Customer }>('/auth/verify-code', {
       method: 'POST',
@@ -249,7 +252,10 @@ export const customerApi = {
   categories: (signal?: AbortSignal) =>
     request<{ categories: CustomerCategory[] }>('/finance/categories', { signal }),
   createCategory: (body: Pick<CustomerCategory, 'name' | 'type' | 'color'>) =>
-    request<{ category: CustomerCategory }>('/finance/categories', { method: 'POST', body }),
+    request<{ category: CustomerCategory }>('/finance/categories', {
+      method: 'POST',
+      body,
+    }),
   updateCategory: (
     id: string,
     body: Partial<Pick<CustomerCategory, 'name' | 'color' | 'archived'>>
@@ -278,7 +284,11 @@ export const customerApi = {
   agenda: (period: CustomerPeriod, signal?: AbortSignal) =>
     request<{ items: CustomerAgendaItem[] }>('/agenda', { params: period, signal }),
   createAgenda: (body: AgendaInput, idempotencyKey: string) =>
-    request<{ item: CustomerAgendaItem }>('/agenda', { method: 'POST', body, idempotencyKey }),
+    request<{ item: CustomerAgendaItem }>('/agenda', {
+      method: 'POST',
+      body,
+      idempotencyKey,
+    }),
   updateAgenda: (kind: AgendaKind, id: string, body: Omit<AgendaInput, 'kind'>) =>
     request<{ item: CustomerAgendaItem }>(`/agenda/${kind}/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -322,3 +332,5 @@ export async function downloadCustomerExport(format: 'json' | 'csv'): Promise<vo
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 }
+
+export { request as customerRequest };

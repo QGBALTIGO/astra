@@ -293,6 +293,11 @@ export async function mockCustomerApi(
     }
     let data: unknown;
     const body = request.postData() ? (request.postDataJSON() as Record<string, unknown>) : {};
+    // Session-bound attribution check is a no-op without an invitation cookie.
+    if (method === 'POST' && path === '/referrals/claim') {
+      await route.fulfill({ json: { success: true, data: { claimed: false } } });
+      return;
+    }
     if (method !== 'GET')
       mutations.push({ method, path, body, idempotencyKey: headers['idempotency-key'] });
     if (method === 'GET' && path === '/auth/session') {
@@ -553,4 +558,28 @@ export async function mockCustomerApi(
       failSummary = false;
     },
   };
+}
+
+/** Follow the actual desktop navigation or the mobile primary/More destinations. */
+export async function navigateCustomer(page: Page, name: string) {
+  const target = name === 'Perfil' ? 'Meu perfil' : name;
+  const desktop = page.getByRole('navigation', { name: 'Navegação do cliente' });
+  if (await desktop.isVisible()) {
+    if (target === 'Meu perfil')
+      return page
+        .locator('.sidebar-profile')
+        .getByRole('button', { name: 'Abrir meu perfil', exact: true })
+        .click();
+    return desktop
+      .getByRole('link', { name: name === 'Início' ? 'Visão geral' : target, exact: true })
+      .click();
+  }
+  const mobile = page.locator('nav.mobile-nav');
+  const primary = mobile.getByRole('link', { name: target, exact: true });
+  if (await primary.count()) return primary.click();
+  await mobile.getByRole('button', { name: 'Mais áreas', exact: true }).click();
+  await page
+    .getByRole('region', { name: 'Mais áreas do Astra' })
+    .getByRole('link', { name: target, exact: true })
+    .click();
 }

@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { mockCustomerApi } from './customer-fixtures';
+import { mockCustomerApi, navigateCustomer } from './customer-fixtures';
 
 const screens = [
   { width: 320, height: 740 },
@@ -18,10 +18,10 @@ async function geometry(page: Page) {
     const failures: string[] = [];
     const width = window.innerWidth;
     if (document.documentElement.scrollWidth > width + 2) failures.push('Document overflows');
-    const main = document.querySelector('.ac-content');
+    const main = document.querySelector('.approved-content');
     if (main && main.scrollWidth > main.clientWidth + 2) failures.push('Main overflows');
     const selectors =
-      '.ac-stat-value, .ac-plan-access, .ac-page-heading h1, .ac-login-card, .ac-code-input, .ac-quick-action, .ac-topbar-actions';
+      '.home-summary-balance strong, .home-summary-metric strong, .ac-plan-access, .page-heading h1, .ac-login-card, .ac-code-input, .ac-quick-action, .topbar-actions';
     for (const element of document.querySelectorAll<HTMLElement>(selectors)) {
       if (!element.checkVisibility()) continue;
       const box = element.getBoundingClientRect();
@@ -112,21 +112,23 @@ for (const theme of ['light', 'dark'] as const) {
       await image(page, info, `${prefix}-code`, false);
       await page.getByLabel('Código de 6 dígitos', { exact: true }).fill('123456');
       await page.getByRole('button', { name: 'Acessar meu painel' }).click();
-      await expect(page.getByRole('heading', { name: 'Boa tarde, Ana.' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Olá, Ana.' })).toBeVisible();
       const active = page.locator('.ac-tab-panel:not([hidden])');
-      const validity = active.getByRole('region', { name: 'Validade do plano' });
-      await expect(validity).toContainText('Válido até 10 de dezembro de 2026');
-      await expect(validity).toContainText('Faltam 30 dias');
       await geometry(page);
       await image(page, info, `${prefix}-home`, reference);
       if (reference) await accessibility(page);
-      const upcoming = active.getByRole('heading', { name: 'Próximos passos' });
-      const chart = active.getByRole('heading', { name: 'Entradas e despesas', exact: true });
-      expect((await upcoming.boundingBox())!.y).toBeLessThan((await chart.boundingBox())!.y);
-      await active.getByRole('link', { name: 'Ver plano' }).click();
-      await expect(page.getByRole('heading', { name: 'Meu plano', exact: true })).toBeVisible();
+      await expect(active.getByRole('heading', { name: 'No seu radar de hoje' })).toBeVisible();
+      await expect(
+        active.getByRole('heading', { name: 'Seu fluxo financeiro', exact: true })
+      ).toBeVisible();
+      await navigateCustomer(page, 'Meu perfil');
+      await page.getByRole('tab', { name: 'Plano e acesso', exact: true }).click();
+      await expect(
+        page.getByRole('heading', { name: 'Plano e acesso', exact: true })
+      ).toBeVisible();
+      await expect(active.locator('.detail-list')).toContainText('10 de dezembro de 2026');
       await expect(active.getByRole('region', { name: 'Validade do plano' })).toContainText(
-        '10 de dezembro de 2026'
+        'Faltam 30 dias'
       );
       await expect(active.getByRole('link', { name: 'Renovar meu plano' })).toHaveAttribute(
         'href',
@@ -139,10 +141,19 @@ for (const theme of ['light', 'dark'] as const) {
         path: info.outputPath(`${prefix}-plan-expiry.png`),
         animations: 'disabled',
       });
-      const nav = page.getByRole('navigation', { name: 'Navegação do cliente' });
+      const nav = page.getByRole('navigation', {
+        name: screen.width < 768 ? 'Navegação móvel' : 'Navegação do cliente',
+      });
       for (const name of ['Transações', 'Categorias', 'Agenda', 'Início']) {
-        await nav.getByRole('link', { name, exact: true }).click();
-        await expect(nav.getByRole('link', { name, exact: true })).toBeInViewport({ ratio: 1 });
+        await navigateCustomer(page, name);
+        const destination =
+          screen.width < 768 && name === 'Categorias'
+            ? nav.getByRole('button', { name: 'Mais áreas', exact: true })
+            : nav.getByRole('link', {
+                name: name === 'Início' && screen.width >= 768 ? 'Visão geral' : name,
+                exact: true,
+              });
+        await expect(destination).toBeInViewport({ ratio: 1 });
         await expect(active.getByRole('heading', { level: 1 })).toBeVisible();
         await geometry(page);
         await image(page, info, `${prefix}-${name}`, false);
@@ -173,14 +184,17 @@ for (const state of [
       displayName: 'Ana Mariavitoriafernandesdealbuquerque Santos',
       largeValues: true,
     });
-    await page.goto('/cliente');
+    await page.goto('/cliente/perfil?secao=plano');
     const validity = page.getByRole('region', { name: 'Validade do plano' });
-    await expect(validity).toContainText(state.expected);
+    await expect(state.expiry ? validity : page.locator('.detail-list')).toContainText(
+      state.expected
+    );
     await expect(validity).toHaveAttribute('data-status', state.status);
     await geometry(page);
     if (state.status === 'expired') {
+      await page.getByRole('tab', { name: 'Geral', exact: true }).click();
       await expect(
-        page.locator('.ac-quick-actions').getByRole('button', { name: 'Registrar' })
+        page.getByRole('button', { name: 'Alterar telefone', exact: true })
       ).toBeDisabled();
     }
     expect(api.mutations).toHaveLength(0);

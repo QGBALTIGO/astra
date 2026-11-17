@@ -1,0 +1,170 @@
+/* Customer portal selectors share the approved investment navigation pattern. */
+html:root .astra-customer .ac-segmented {
+  display: grid;
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--ac-border);
+  border-radius: 999px;
+  background: var(--ac-surface);
+  box-shadow: none;
+  overflow: visible;
+  box-sizing: border-box;
+}
+html:root .astra-customer .ac-segmented > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ac-muted);
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  white-space: normal;
+}
+html:root .astra-customer .ac-segmented > button::after {
+  display: none;
+}
+html:root .astra-customer .ac-segmented > button:hover {
+  background: var(--ac-soft);
+  color: var(--ac-text);
+}
+html:root
+  .astra-customer
+  .ac-segmented
+  > button:is(.is-active, .active, [aria-pressed='true'], [aria-selected='true']) {
+  background: var(--ac-text);
+  color: var(--ac-surface);
+  box-shadow: none;
+}
+html:root .astra-customer .ac-card--flush > .ac-segmented {
+  width: calc(100% - 44px);
+  margin: 0 22px 20px;
+}
+html:root .astra-customer .ac-plan-tabs {
+  margin-block: 16px;
+}
+html:root .astra-customer .ac-dialog-footer:has(> button:nth-child(2):last-child) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 10px;
+}
+html:root .astra-customer .ac-dialog-footer:has(> button:nth-child(2):last-child) > button {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px;
+  justify-content: center;
+  line-height: 1.5;
+  text-align: center;
+  white-space: normal;
+}
+html:root .astra-customer .ac-dialog-footer > button > svg {
+  flex-shrink: 0;
+}
+html:root .astra-customer .ac-task-check {
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  padding: 7px;
+  line-height: 0;
+}
+html:root .astra-customer .ac-task-check > svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+html[data-astra-input='pointer']
+  .astra-customer
+  :is(button, a, input, select, textarea, summary):focus {
+  outline: none;
+  box-shadow: none;
+}
+html:root .astra-customer .ac-profile-panels {
+  margin-top: 24px;
+}
+html:root .astra-customer .ac-profile-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+html:root .astra-customer .ac-profile-panel-grid > .ac-card {
+  min-width: 0;
+  margin: 0;
+}
+html:root .astra-customer .ac-profile-panel-single {
+  max-width: 740px;
+}
+html:root .astra-customer .ac-profile-panel-single > .ac-card {
+  margin-bottom: 0;
+}
+html:root .astra-customer .ac-profile-signout {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--ac-border);
+}
+html:root .astra-customer .ac-profile-signout .ac-logout {
+  width: auto;
+  color: var(--ac-danger);
+  background: transparent;
+}
+html:root .astra-customer .ac-planning-content {
+  margin-top: 24px;
+}
+@media (max-width: 650px) {
+  html:root .astra-customer .ac-segmented {
+    gap: 3px;
+    padding: 3px;
+  }
+  html:root .astra-customer .ac-segmented > button {
+    padding: 10px 4px;
+    font-size: 11px;
+    letter-spacing: -0.12px;
+  }
+  html:root .astra-customer .ac-card--flush > .ac-segmented {
+    width: calc(100% - 32px);
+    margin-inline: 16px;
+  }
+  html:root .astra-customer .ac-profile-panel-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  html:root .astra-customer .ac-dialog-footer:has(> button:nth-child(2):last-child) > button {
+    font-size: 11px;
+  }
+}
+@media (max-width: 360px) {
+  html:root .astra-customer .ac-segmented:has(> button:nth-child(4):last-child) > button {
+    padding-inline: 2px;
+    font-size: 10px;
+    letter-spacing: -0.15px;
+  }
+}
+@media (max-width: 340px) {
+  html:root .astra-customer .ac-segmented:has(> button:nth-child(4):last-child) > button {
+    font-size: 9.25px;
+    letter-spacing: -0.25px;
+  }
+}

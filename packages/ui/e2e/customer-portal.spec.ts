@@ -1,12 +1,14 @@
 import { expect, test } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
-import { mockCustomerApi, FOOD_CATEGORY } from './customer-fixtures';
+import { mockCustomerApi, FOOD_CATEGORY, navigateCustomer } from './customer-fixtures';
 
 async function fit(page: Page) {
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth))
     .toBeLessThanOrEqual(2);
-  const navigation = page.getByRole('navigation', { name: 'Navegação do cliente' });
+  const navigation = page.getByRole('navigation', {
+    name: page.viewportSize()!.width < 768 ? 'Navegação móvel' : 'Navegação do cliente',
+  });
   await expect(navigation).toBeVisible();
   for (const link of await navigation.getByRole('link').all()) {
     await expect(link).toBeVisible();
@@ -17,11 +19,14 @@ async function fit(page: Page) {
   }
 }
 async function navigate(page: Page, name: string, heading: string | RegExp) {
-  await page
-    .getByRole('navigation', { name: 'Navegação do cliente' })
-    .getByRole('link', { name, exact: true })
-    .click();
-  await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
+  await navigateCustomer(page, name);
+  await expect(
+    page.getByRole('heading', {
+      name:
+        name === 'Perfil' ? 'Meu perfil' : name === 'Agenda' ? 'Sua agenda, em sintonia.' : heading,
+      level: 1,
+    })
+  ).toBeVisible();
   await fit(page);
 }
 async function shot(page: Page, info: TestInfo, screen: string, state: string) {
@@ -31,70 +36,42 @@ async function shot(page: Page, info: TestInfo, screen: string, state: string) {
   });
 }
 async function expectHeaderLayout(page: Page) {
-  const header = page.locator('.ac-topbar');
-  const refresh = header.getByRole('button', { name: 'Atualizar meus dados' });
-  const profile = header.getByRole('button', { name: 'Abrir meu perfil' });
-  const avatar = profile.locator('.ac-avatar');
-  const [headerBox, refreshBox, profileBox, avatarBox] = await Promise.all([
-    header.boundingBox(),
-    refresh.boundingBox(),
-    profile.boundingBox(),
-    avatar.boundingBox(),
-  ]);
-  expect(headerBox).not.toBeNull();
-  expect(refreshBox).not.toBeNull();
-  expect(profileBox).not.toBeNull();
-  expect(avatarBox).not.toBeNull();
-  for (const box of [refreshBox!, profileBox!]) {
-    expect(box.width).toBeGreaterThanOrEqual(44);
-    expect(box.height).toBeGreaterThanOrEqual(44);
+  const header = page.locator('.topbar');
+  const actions = header.locator('.topbar-actions');
+  const buttons = actions.getByRole('button');
+  await expect(buttons).toHaveCount(page.viewportSize()!.width <= 650 ? 4 : 5);
+  const boxes = await Promise.all((await buttons.all()).map((button) => button.boundingBox()));
+  for (let index = 0; index < boxes.length; index++) {
+    const box = boxes[index]!;
+    expect(box).not.toBeNull();
+    expect(box.width).toBeGreaterThanOrEqual(32);
+    expect(box.height).toBeGreaterThanOrEqual(32);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+    expect(
+      Math.abs(box.y + box.height / 2 - boxes[0]!.y - boxes[0]!.height / 2)
+    ).toBeLessThanOrEqual(1);
+    if (index) expect(box.x).toBeGreaterThanOrEqual(boxes[index - 1]!.x + boxes[index - 1]!.width);
   }
-  expect(avatarBox!.width).toBe(40);
-  expect(avatarBox!.height).toBe(40);
-  expect(
-    Math.abs(refreshBox!.y + refreshBox!.height / 2 - profileBox!.y - profileBox!.height / 2)
-  ).toBeLessThan(1);
-  const gap = profileBox!.x - refreshBox!.x - refreshBox!.width;
-  expect(gap).toBeGreaterThanOrEqual(7);
-  expect(gap).toBeLessThanOrEqual(13);
-  const rightPadding = await header.evaluate((element) =>
-    Number.parseFloat(getComputedStyle(element).paddingRight)
-  );
-  expect(
-    Math.abs(headerBox!.x + headerBox!.width - profileBox!.x - profileBox!.width - rightPadding)
-  ).toBeLessThan(1);
-  if (page.viewportSize()!.width < 768) {
-    await expect(refresh.locator('.ac-refresh-label')).toBeHidden();
-    await expect(profile.locator('.ac-account-name')).toBeHidden();
-    const brand = await header.locator('.ac-mobile-brand').boundingBox();
-    expect(brand).not.toBeNull();
-    expect(brand!.x + brand!.width + 8).toBeLessThanOrEqual(refreshBox!.x);
-  } else {
-    await expect(refresh.locator('.ac-refresh-label')).toBeVisible();
-    await expect(profile.locator('.ac-account-name')).toBeVisible();
-  }
+  if (page.viewportSize()!.width <= 650)
+    await expect(page.getByRole('button', { name: 'Ver meu perfil', exact: true })).toBeVisible();
+  else
+    await expect(
+      header.getByRole('button', { name: 'Abrir perfil' }).locator('.ac-avatar')
+    ).toBeVisible();
   await fit(page);
 }
 
 async function headerShot(page: Page, info: TestInfo, scenario: string) {
-  const png = await page.locator('.ac-topbar').screenshot({
+  const png = await page.locator('.topbar').screenshot({
     path: info.outputPath('whatsapp-access-customer-header-' + scenario + '.png'),
     animations: 'disabled',
   });
-  // CI-only, synthetic fixtures. Keep the inline review cropped to the header.
-  process.stdout.write(
-    'ASTRA_HEADER_VISUAL ' +
-      JSON.stringify({
-        scenario,
-        width: page.viewportSize()!.width,
-        pngBase64: png.toString('base64'),
-      }) +
-      '\n'
-  );
+  await info.attach('header-' + scenario, { body: png, contentType: 'image/png' });
 }
 
 async function expectPaidExpenses(page: Page, amount: string) {
-  const card = page.locator('article').filter({
+  const card = page.locator('.home-summary-metric').filter({
     has: page.getByText('Despesas pagas', { exact: true }),
   });
   await expect(card).toHaveCount(1);
@@ -130,7 +107,7 @@ for (const screen of [
       });
       await page.emulateMedia({ colorScheme: 'light' });
       await page.goto('/cliente', { waitUntil: 'domcontentloaded' });
-      const header = page.locator('.ac-topbar');
+      const header = page.locator('.topbar');
       const image = header.locator('.ac-avatar img');
       await expect(image).toHaveAttribute('src', /^blob:/);
       await expect
@@ -143,7 +120,10 @@ for (const screen of [
         await headerShot(page, info, 'mobile-320-light-photo');
         await page.setViewportSize({ width: 390, height: screen.viewport.height });
         await page.emulateMedia({ colorScheme: 'dark' });
-        await expect(page.locator('.astra-customer.ac-app')).toHaveAttribute('data-theme', 'dark');
+        await expect(page.locator('.astra-customer.ac-approved-ui')).toHaveAttribute(
+          'data-theme',
+          'dark'
+        );
         await expectHeaderLayout(page);
         await headerShot(page, info, 'mobile-390-dark-photo');
         for (const width of [430, 768]) {
@@ -173,9 +153,11 @@ for (const screen of [
       await expect.poll(() => api.avatarRequests.length).toBeGreaterThan(beforeError);
       await expect(image).toHaveCount(0);
       await expect(header.locator('.ac-avatar-initials')).toHaveText('AS');
-      await header.getByRole('button', { name: 'Abrir meu perfil' }).click();
+      if (page.viewportSize()!.width <= 650)
+        await page.getByRole('button', { name: 'Ver meu perfil', exact: true }).click();
+      else await header.getByRole('button', { name: 'Abrir perfil' }).click();
       await expect(page).toHaveURL(/\/cliente\/perfil$/);
-      await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Meu perfil', level: 1 })).toBeVisible();
       for (const requestUrl of api.avatarRequests) {
         expect(new URL(requestUrl).pathname).toBe('/api/v1/customer/profile/avatar');
         expect(new URL(requestUrl).search).toBe('');
@@ -204,7 +186,7 @@ for (const screen of [
       await code.fill('123456');
       await page.getByRole('button', { name: 'Acessar meu painel' }).click();
       await expect(page).toHaveURL(/\/cliente$/);
-      await expect(page.getByRole('heading', { name: 'Boa tarde, Ana.', level: 1 })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Olá, Ana.', level: 1 })).toBeVisible();
       await expectPaidExpenses(page, '182,50');
       await fit(page);
       await shot(page, info, screen.name, 'home');
@@ -216,18 +198,19 @@ for (const screen of [
       ]) {
         await navigate(page, name!, name!);
         if (name === 'Perfil') {
-          await expect(page.getByRole('heading', { name: 'Ana Martins', level: 2 })).toBeVisible();
-          await expect(page.getByRole('heading', { name: 'Meu plano' })).toBeVisible();
+          await expect(page.getByLabel('Nome', { exact: true })).toHaveValue('Ana Martins');
+          await page.getByRole('tab', { name: 'Plano e acesso', exact: true }).click();
+          await expect(page.getByRole('heading', { name: 'Plano e acesso' })).toBeVisible();
         }
         await shot(page, info, screen.name, state!);
       }
-      await page.getByRole('button', { name: 'Editar preferências', exact: true }).click();
-      const preferences = page.getByRole('dialog', { name: 'Seu perfil e suas preferências' });
-      await preferences.getByRole('radio', { name: 'Escura', exact: true }).check();
-      await preferences.getByRole('button', { name: 'Salvar preferências', exact: true }).click();
-      await expect(preferences).toHaveCount(0);
-      await expect(page.locator('.astra-customer.ac-app')).toHaveAttribute('data-theme', 'dark');
-      await navigate(page, 'Início', 'Boa tarde, Ana.');
+      await page.getByRole('tab', { name: 'Preferências', exact: true }).click();
+      await page.getByRole('button', { name: 'Tema escuro', exact: true }).click();
+      await expect(page.locator('.astra-customer.ac-approved-ui')).toHaveAttribute(
+        'data-theme',
+        'dark'
+      );
+      await navigate(page, 'Início', 'Olá, Ana.');
       await shot(page, info, screen.name, 'home-dark');
       expect(
         api.mutations.some(
@@ -246,71 +229,74 @@ for (const screen of [
       page,
     }, info) => {
       const api = await mockCustomerApi(page, { authenticated: true, theme: 'dark' });
-      await page.goto('/cliente', { waitUntil: 'domcontentloaded' });
-      await expect(page.getByRole('heading', { name: 'Meu planejamento' })).toBeVisible();
-      await page.locator('.ac-quick-actions').getByRole('button', { name: 'Metas' }).click();
-      let hub = page.getByRole('dialog', { name: 'Meu planejamento' });
-      await expect(hub).toBeVisible();
-      await hub.getByRole('button', { name: 'Adicionar' }).click();
-      let form = page.getByRole('dialog', { name: 'Novo planejamento' });
-      await form.getByLabel('Nome').fill('Reserva de emergência');
-      await form.getByLabel('Meta (R$)').fill('2000,00');
-      await form.getByLabel('Valor já guardado (R$)').fill('450,00');
-      await form.getByRole('button', { name: 'Salvar', exact: true }).click();
-      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
+      await page.goto('/cliente/planejamento', { waitUntil: 'domcontentloaded' });
+      const hub = page.locator('.ac-tab-panel:not([hidden])');
+      await expect(page.getByRole('heading', { name: 'Planejamento', level: 1 })).toBeVisible();
+      await hub.getByRole('button', { name: 'Nova meta', exact: true }).click();
+      let form = page.getByRole('dialog', { name: 'Nova meta' });
+      await form.getByLabel('Nome', { exact: true }).fill('Reserva de emergência');
+      await form.getByLabel('Valor da meta (R$)', { exact: true }).fill('2000,00');
+      await form.getByLabel('Valor guardado (R$)', { exact: true }).fill('450,00');
+      await form.getByRole('button', { name: 'Salvar meta', exact: true }).click();
+      await expect(form).toHaveCount(0);
       await expect(hub).toContainText('Reserva de emergência');
       await expect(hub).toContainText('450,00');
 
-      await hub.getByRole('button', { name: 'Orçamentos', exact: true }).click();
-      await hub.getByRole('button', { name: 'Adicionar' }).click();
-      form = page.getByRole('dialog', { name: 'Novo planejamento' });
-      await form.getByLabel('Nome').fill('Alimentação mensal');
-      await form.getByLabel('Limite por período (R$)').fill('350,00');
-      await form.getByLabel('Categoria de despesas').selectOption(FOOD_CATEGORY);
-      await form.getByRole('button', { name: 'Salvar', exact: true }).click();
-      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
-      await expect(hub).toContainText('Alimentação mensal');
+      await hub.getByRole('tab', { name: 'Orçamentos', exact: true }).click();
+      await hub.getByRole('button', { name: 'Novo orçamento', exact: true }).click();
+      form = page.getByRole('dialog', { name: 'Novo orçamento' });
+      await form.getByLabel('Nome', { exact: true }).fill('Alimentação mensal');
+      await form.getByLabel('Limite mensal (R$)', { exact: true }).fill('350,00');
+      await form
+        .getByRole('combobox', { name: 'Categoria de despesas', exact: true })
+        .selectOption(FOOD_CATEGORY);
+      await form.getByRole('button', { name: 'Salvar orçamento', exact: true }).click();
+      await expect(form).toHaveCount(0);
       await expect(hub).toContainText('18,00');
 
-      await hub.getByRole('button', { name: 'Parcelas', exact: true }).click();
-      await hub.getByRole('button', { name: 'Adicionar' }).click();
-      form = page.getByRole('dialog', { name: 'Novo planejamento' });
-      await form.getByLabel('Nome').fill('Financiamento do carro');
-      await form.getByLabel('Valor de cada parcela (R$)').fill('470,00');
-      await form.getByLabel('Total de parcelas').fill('12');
-      await form.getByLabel('Já pagas').fill('3');
-      await form.getByRole('button', { name: 'Salvar', exact: true }).click();
-      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
-      await expect(hub).toContainText('9 de 12 parcelas restantes');
+      await hub.getByRole('tab', { name: 'Parcelas', exact: true }).click();
+      await hub.getByRole('button', { name: 'Nova compra', exact: true }).click();
+      form = page.getByRole('dialog', { name: 'Nova compra' });
+      await form.getByLabel('Nome', { exact: true }).fill('Financiamento do carro');
+      await form.getByLabel('Valor por parcela (R$)', { exact: true }).fill('470,00');
+      await form.getByLabel('Total de parcelas', { exact: true }).fill('12');
+      await form.getByLabel('Já pagas', { exact: true }).fill('3');
+      await form.getByRole('button', { name: 'Salvar compra', exact: true }).click();
+      await expect(form).toHaveCount(0);
+      await expect(hub).toContainText('3 de 12 pagas');
+      await expect(hub).toContainText('4.230,00');
 
-      await hub.getByRole('button', { name: 'Assinaturas', exact: true }).click();
-      await hub.getByRole('button', { name: 'Adicionar' }).click();
-      form = page.getByRole('dialog', { name: 'Novo planejamento' });
-      await form.getByLabel('Nome').fill('Internet mensal');
-      await form.getByLabel('Valor mensal (R$)').fill('99,90');
-      await form.getByLabel('Próxima data (opcional)').fill('2026-12-05');
-      await form.getByRole('button', { name: 'Salvar', exact: true }).click();
-      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
+      await hub.getByRole('tab', { name: 'Assinaturas', exact: true }).click();
+      await hub.getByRole('button', { name: 'Nova assinatura', exact: true }).click();
+      form = page.getByRole('dialog', { name: 'Nova assinatura' });
+      await form.getByLabel('Nome', { exact: true }).fill('Internet mensal');
+      await form.getByLabel('Valor mensal (R$)', { exact: true }).fill('99,90');
+      await form.getByLabel('Próxima data (opcional)', { exact: true }).fill('2026-12-05');
+      await form.getByRole('button', { name: 'Salvar assinatura', exact: true }).click();
+      await expect(form).toHaveCount(0);
       await expect(hub).toContainText('Internet mensal');
-      await hub.getByRole('button', { name: 'Editar' }).click();
-      form = page.getByRole('dialog', { name: 'Editar planejamento' });
-      await form.getByLabel('Valor mensal (R$)').fill('105,00');
-      await form.getByRole('button', { name: 'Salvar', exact: true }).click();
-      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
+      await hub
+        .getByRole('button', { name: 'Editar planejamento Internet mensal', exact: true })
+        .click();
+      form = page.getByRole('dialog', { name: 'Editar assinatura' });
+      await form.getByLabel('Valor mensal (R$)', { exact: true }).fill('105,00');
+      await form.getByRole('button', { name: 'Salvar assinatura', exact: true }).click();
+      await expect(form).toHaveCount(0);
       await expect(hub).toContainText('105,00');
-      await hub.getByRole('button', { name: 'Excluir planejamento Internet mensal' }).click();
+      await hub
+        .getByRole('button', { name: 'Excluir planejamento Internet mensal', exact: true })
+        .click();
       await page
         .getByRole('dialog', { name: 'Excluir planejamento?' })
-        .getByRole('button', { name: 'Excluir planejamento' })
+        .getByRole('button', { name: 'Excluir planejamento', exact: true })
         .click();
-      hub = page.getByRole('dialog', { name: 'Meu planejamento' });
       await expect(hub).not.toContainText('Internet mensal');
       const writes = api.mutations.filter((event) => event.path.startsWith('/planning'));
       expect(writes.filter((event) => event.method === 'POST')).toHaveLength(4);
       expect(writes.filter((event) => event.method === 'PATCH')).toHaveLength(1);
       expect(writes.filter((event) => event.method === 'DELETE')).toHaveLength(1);
       expect(api.mutations.filter((event) => event.path.startsWith('/finance/'))).toHaveLength(0);
-      await hub.getByRole('button', { name: 'Fechar' }).click();
+      await navigateCustomer(page, 'Início');
       await expectPaidExpenses(page, '182,50');
       await shot(page, info, screen.name, 'command-center-plans');
       await fit(page);
@@ -323,18 +309,18 @@ for (const screen of [
       const api = await mockCustomerApi(page, { authenticated: true, failTransactionOnce: true });
       await page.goto('/cliente/transacoes', { waitUntil: 'domcontentloaded' });
       await expect(page.getByRole('heading', { name: 'Transações', level: 1 })).toBeVisible();
-      await page.getByRole('button', { name: 'Adicionar', exact: true }).click();
-      const editor = page.getByRole('dialog', { name: 'Adicionar transação' });
+      await page.getByRole('button', { name: 'Nova transação', exact: true }).click();
+      const editor = page.getByRole('dialog', { name: 'Nova movimentação' });
       await editor.getByLabel('Descrição', { exact: true }).fill('Almoço sintético');
       await editor.getByLabel('Valor (R$)', { exact: true }).fill('36,39');
       await editor.getByRole('combobox', { name: /^Categoria/ }).selectOption(FOOD_CATEGORY);
       await editor.getByLabel('Data', { exact: true }).fill('2026-11-10');
       await shot(page, info, screen.name, 'expense-modal');
-      await editor.getByRole('button', { name: 'Salvar transação' }).click();
+      await editor.getByRole('button', { name: 'Registrar movimentação' }).click();
       await expect(editor.getByRole('alert')).toContainText('Não foi possível salvar agora');
       await expect(editor.getByLabel('Descrição', { exact: true })).toHaveValue('Almoço sintético');
       await expect(editor.getByLabel('Valor (R$)', { exact: true })).toHaveValue('36,39');
-      await editor.getByRole('button', { name: 'Salvar transação' }).click();
+      await editor.getByRole('button', { name: 'Registrar movimentação' }).click();
       await expect(editor).toHaveCount(0);
       const region = page.getByRole('region', { name: 'Transações do período' });
       await expect(region.getByRole('button', { name: /Almoço sintético/ })).toContainText('36,39');
@@ -349,7 +335,7 @@ for (const screen of [
         status: 'settled',
         categoryId: FOOD_CATEGORY,
       });
-      await navigate(page, 'Início', 'Boa tarde, Ana.');
+      await navigate(page, 'Início', 'Olá, Ana.');
       await expectPaidExpenses(page, '218,89');
       await shot(page, info, screen.name, 'home-after-expense');
       await navigate(page, 'Transações', 'Transações');
@@ -358,9 +344,9 @@ for (const screen of [
         .getByRole('dialog', { name: 'Detalhes da transação' })
         .getByRole('button', { name: 'Editar', exact: true })
         .click();
-      const edit = page.getByRole('dialog', { name: 'Editar transação' });
+      const edit = page.getByRole('dialog', { name: 'Editar movimentação' });
       await edit.getByLabel('Descrição', { exact: true }).fill('Almoço atualizado');
-      await edit.getByRole('button', { name: 'Salvar transação' }).click();
+      await edit.getByRole('button', { name: 'Salvar alterações' }).click();
       await expect(edit).toHaveCount(0);
       await expect(region.getByRole('button', { name: /Almoço atualizado/ })).toContainText(
         '36,39'
@@ -378,7 +364,7 @@ for (const screen of [
 
       await navigate(page, 'Agenda', 'Agenda');
       await page.getByRole('button', { name: 'Lista', exact: true }).click();
-      await page.getByRole('button', { name: 'Criar item', exact: true }).click();
+      await page.getByRole('button', { name: 'Novo compromisso', exact: true }).click();
       const appointment = page.getByRole('dialog', { name: 'Criar na agenda' });
       await appointment.getByLabel('Título', { exact: true }).fill('Reunião sintética');
       await appointment.getByLabel('Início', { exact: true }).fill('2026-11-12T09:00');
@@ -388,7 +374,9 @@ for (const screen of [
       await shot(page, info, screen.name, 'agenda-modal');
       await appointment.getByRole('button', { name: 'Salvar na agenda' }).click();
       await expect(appointment).toHaveCount(0);
-      await expect(page.getByRole('button', { name: /Reunião sintética/ })).toBeVisible();
+      await expect(
+        page.locator('.life-event-open').filter({ hasText: 'Reunião sintética' })
+      ).toBeVisible();
       expect(api.mutations.find((entry) => entry.path === '/agenda')?.body).toMatchObject({
         kind: 'event',
         title: 'Reunião sintética',
@@ -413,17 +401,16 @@ for (const screen of [
       await expect(
         page.getByText('Seu acesso está em modo de consulta.', { exact: true })
       ).toBeVisible();
-      const summaryError = page
-        .locator('section')
-        .filter({ has: page.getByRole('heading', { name: 'Últimas transações', exact: true }) })
-        .getByRole('alert');
+      const summaryError = page.locator('.ac-tab-panel:not([hidden])').getByRole('alert');
       await expect(summaryError).toHaveCount(1);
       await expect(summaryError).toContainText('Não foi possível carregar seu resumo agora');
       api.allowSummary();
       await summaryError.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
       await expectPaidExpenses(page, '182,50');
       await navigate(page, 'Transações', 'Transações');
-      await expect(page.getByRole('button', { name: 'Adicionar', exact: true })).toBeDisabled();
+      await expect(
+        page.getByRole('button', { name: 'Nova transação', exact: true })
+      ).toBeDisabled();
       await expect(
         page
           .getByRole('region', { name: 'Transações do período' })
@@ -434,14 +421,19 @@ for (const screen of [
         page.getByRole('button', { name: 'Nova categoria', exact: true })
       ).toBeDisabled();
       await navigate(page, 'Agenda', 'Agenda');
-      await expect(page.getByRole('button', { name: 'Criar item', exact: true })).toBeDisabled();
+      await expect(
+        page.getByRole('button', { name: 'Novo compromisso', exact: true })
+      ).toBeDisabled();
       await navigate(page, 'Perfil', 'Perfil');
       await expect(
         page.getByRole('button', { name: 'Alterar telefone', exact: true })
       ).toBeDisabled();
+      await page.getByRole('tab', { name: 'Preferências', exact: true }).click();
       await expect(
-        page.getByRole('button', { name: 'Editar preferências', exact: true })
+        page.getByRole('switch', { name: 'Ocultar valores financeiros', exact: true })
       ).toBeEnabled();
+      await page.getByRole('tab', { name: 'Privacidade', exact: true }).click();
+      await page.getByRole('button', { name: 'Exportar meus dados', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Exportar JSON', exact: true })).toBeEnabled();
       const download = page.waitForEvent('download');
       await page.getByRole('button', { name: 'Exportar JSON', exact: true }).click();

@@ -1,0 +1,774 @@
+/* Investment primitives inherit the official customer theme and stay scoped. */
+.ac-investment-ui {
+  --blue: var(--ac-accent);
+  --blue-hover: var(--ac-link);
+  --blue-soft: var(--ac-accent-soft);
+  --bg: var(--ac-bg);
+  --surface: var(--ac-surface);
+  --text: var(--ac-text);
+  --muted: var(--ac-muted);
+  --line: var(--ac-border);
+  --green: var(--ac-positive);
+  --red: var(--ac-danger);
+  --shadow: var(--ac-shadow);
+  min-width: 0;
+  font: inherit;
+}
+.ac-investment-ui h1,
+.ac-investment-ui h2,
+.ac-investment-ui h3 {
+  font-family: 'Astra Customer Heading', sans-serif;
+}
+.ac-investment-ui button {
+  font-family: inherit;
+  cursor: pointer;
+}
+.ac-investment-ui .investment-modal-subtitle {
+  margin: 0 0 22px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.ac-investment-ui * {
+  box-sizing: border-box;
+}
+.ac-investment-ui button,
+.ac-investment-ui input,
+.ac-investment-ui select,
+.ac-investment-ui textarea {
+  font: inherit;
+}
+.ac-investment-ui button,
+.ac-investment-ui input,
+.ac-investment-ui select,
+.ac-investment-ui textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+.ac-investment-ui button {
+  cursor: pointer;
+  color: inherit;
+}
+.ac-investment-ui button {
+  background: none;
+  border: 0;
+}
+.ac-investment-ui h1,
+.ac-investment-ui h2,
+.ac-investment-ui h3 {
+  margin-top: 0;
+}
+.ac-investment-ui h1,
+.ac-investment-ui h2,
+.ac-investment-ui h3 {
+  font-weight: 600;
+}
+.ac-investment-ui h1 {
+  font-family:
+    Astra Customer Heading,
+    sans-serif;
+  font-weight: 400;
+  letter-spacing: -1.2px;
+  font-size: 29px;
+  line-height: 1.4;
+  margin-bottom: 7px;
+}
+.ac-investment-ui h2 {
+  font-size: 16px;
+  letter-spacing: -0.3px;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+.ac-investment-ui h3 {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.ac-investment-ui svg {
+  flex-shrink: 0;
+}
+.ac-investment-ui input,
+.ac-investment-ui select,
+.ac-investment-ui textarea {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 12px 13px;
+  min-height: 45px;
+  min-width: 0;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+.ac-investment-ui select {
+  padding-right: 24px;
+}
+.ac-investment-ui button {
+  transition:
+    background 0.16s,
+    color 0.16s,
+    box-shadow 0.16s,
+    transform 0.16s;
+}
+.ac-investment-ui .positive {
+  color: var(--green);
+}
+.ac-investment-ui .danger-text {
+  color: var(--red) !important;
+}
+.ac-investment-ui .panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+}
+.ac-investment-ui .primary-button,
+.ac-investment-ui .secondary-button,
+.ac-investment-ui .danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 11px 16px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  line-height: 1.4;
+}
+.ac-investment-ui .primary-button {
+  background: var(--blue);
+  color: #fff;
+  box-shadow: 0 3px 5px #0061fd0d;
+}
+.ac-investment-ui .primary-button:hover:not(:disabled) {
+  background: var(--blue-hover);
+  box-shadow: 0 4px 12px #0061fd20;
+  transform: translateY(-1px);
+}
+.ac-investment-ui .secondary-button {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--text);
+}
+.ac-investment-ui .secondary-button:hover:not(:disabled) {
+  background: var(--bg);
+  border-color: #d2ddec;
+}
+.ac-investment-ui .danger-button {
+  background: var(--red);
+  color: #fff;
+}
+.ac-investment-ui .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 0;
+  min-height: 32px;
+}
+.ac-investment-ui .text-button:hover {
+  color: var(--blue-hover);
+}
+.ac-investment-ui .icon-button {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: var(--muted);
+}
+.ac-investment-ui .icon-button:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+.ac-investment-ui .full-width {
+  width: 100%;
+}
+.ac-investment-ui .badge {
+  font-size: 10px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 6px;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--muted);
+  background: var(--bg);
+}
+.ac-investment-ui .badge.success,
+.ac-investment-ui .badge.positive {
+  color: var(--green);
+  background: #ecf7f2;
+}
+.ac-investment-ui .badge.warning {
+  color: #926110;
+  background: #fcf4e4;
+}
+.ac-investment-ui .field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 18px;
+}
+.ac-investment-ui .field small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.ac-investment-ui .form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.ac-investment-ui .form-hint {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.7;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0;
+}
+.ac-investment-ui .field-error {
+  font-size: 12px;
+  color: var(--red);
+  background: #b13d450a;
+  padding: 10px;
+  border-radius: 8px;
+}
+.ac-investment-ui .section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.ac-investment-ui .section-heading h2 {
+  margin: 0;
+}
+.ac-investment-ui .section-heading p {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 5px 0 0;
+}
+.ac-investment-ui .eyebrow {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 1.1px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.ac-investment-ui .notice {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  background: var(--blue-soft);
+  border: 1px solid color-mix(in srgb, var(--blue) 14%, transparent);
+  border-radius: 11px;
+  padding: 16px 18px;
+  margin-bottom: 24px;
+  font-size: 12px;
+  color: var(--blue);
+}
+.ac-investment-ui .notice > div {
+  flex: 1;
+}
+.ac-investment-ui .notice strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.ac-investment-ui .notice span,
+.ac-investment-ui .notice p {
+  font-size: 11px;
+  margin: 0;
+  line-height: 1.7;
+}
+.ac-investment-ui .notice.amber {
+  background: #fff7e7;
+  color: #926110;
+  border-color: #f0dfbc;
+}
+.ac-investment-ui .notice .text-button {
+  white-space: nowrap;
+}
+.ac-investment-ui .soft-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.ac-investment-ui .welcome-row .eyebrow {
+  font-size: 9px;
+  margin-bottom: 9px;
+  letter-spacing: 1px;
+}
+.ac-investment-ui .welcome-actions .primary-button {
+  min-height: 40px;
+  font-size: 11px;
+  padding: 11px 14px;
+}
+.ac-investment-ui .chart-foot .text-button {
+  font-size: 9px;
+}
+.ac-investment-ui .transactions-panel .section-heading {
+  margin-bottom: 9px;
+}
+.ac-investment-ui .spending-panel .section-heading h2 {
+  font-size: 14px;
+}
+.ac-investment-ui .insight-card .eyebrow {
+  font-size: 7px;
+  letter-spacing: 1px;
+  margin: 3px 0 10px;
+  color: #4f6992;
+}
+.ac-investment-ui .insight-card .text-button {
+  font-size: 9px;
+}
+.ac-investment-ui .modal-heading > .icon-button {
+  margin-top: -4px;
+  margin-right: -5px;
+}
+.ac-investment-ui .modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 25px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+.ac-investment-ui .modal-actions > .danger-text {
+  margin-right: auto;
+}
+.ac-investment-ui .toast > .icon-button {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+}
+.ac-investment-ui .empty-state {
+  text-align: center;
+  padding: 35px 20px;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 7px;
+}
+.ac-investment-ui .empty-symbol {
+  width: 51px;
+  height: 51px;
+  background: var(--blue-soft);
+  color: #7da6e8;
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+.ac-investment-ui .empty-state h3 {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0;
+  letter-spacing: -0.2px;
+}
+.ac-investment-ui .empty-state p {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 340px;
+  margin-bottom: 9px;
+}
+.ac-investment-ui .empty-state .secondary-button {
+  margin-top: 5px;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.ac-investment-ui .settings-menu > .danger-text {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  border-radius: 0;
+}
+.ac-investment-ui .settings-panel > .section-heading {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 23px;
+  margin-bottom: 26px;
+}
+.ac-investment-ui .settings-panel > .section-heading > svg {
+  color: #94a7c8;
+}
+.ac-investment-ui .theme-options > button.selected {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px var(--blue-soft);
+}
+.ac-investment-ui .access-card .soft-icon {
+  background: var(--surface);
+  height: 55px;
+  width: 55px;
+}
+.ac-investment-ui .login-story .eyebrow {
+  color: #fff;
+  letter-spacing: 1.5px;
+  font-size: 11px;
+  margin-bottom: 23px;
+}
+.ac-investment-ui .login-main form > .soft-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 15px;
+  margin-bottom: 25px;
+}
+.ac-investment-ui .login-main .field {
+  margin: 30px 0 20px;
+}
+.ac-investment-ui .login-main .full-width {
+  min-height: 47px;
+  font-size: 12px;
+}
+.ac-investment-ui [data-theme='dark'] .primary-button {
+  background: #0061fd;
+  color: white;
+}
+.ac-investment-ui [data-theme='dark'] .badge.success,
+.ac-investment-ui [data-theme='dark'] .badge.positive {
+  background: #15362f;
+  color: #8bdbbd;
+}
+.ac-investment-ui [data-theme='dark'] .badge.warning {
+  background: #342e20;
+  color: #e4c68c;
+}
+.ac-investment-ui [data-theme='dark'] .insight-card .eyebrow {
+  color: #8fabd6;
+}
+.ac-investment-ui [data-theme='dark'] .notice.amber {
+  background: #30291d;
+  color: #e4c38d;
+  border-color: #4d4028;
+}
+@media (min-width: 1700px) {
+  .ac-investment-ui .chart-foot .text-button {
+    font-size: 11px;
+  }
+  .ac-investment-ui .spending-panel .section-heading h2 {
+    font-size: 16px;
+  }
+  .ac-investment-ui .insight-card .eyebrow {
+    font-size: 9px;
+  }
+  .ac-investment-ui .insight-card .text-button {
+    font-size: 11px;
+  }
+}
+@media (max-width: 1300px) {
+  .ac-investment-ui .section-heading h2 {
+    font-size: 14px;
+  }
+}
+@media (max-width: 800px) {
+  .ac-investment-ui .evolution-panel .section-heading h2,
+  .ac-investment-ui .transactions-panel .section-heading h2,
+  .ac-investment-ui .goals-panel .section-heading h2 {
+    font-size: 15px;
+  }
+  .ac-investment-ui .settings-menu > .danger-text {
+    margin: 0;
+    padding: 12px;
+    border: 0;
+  }
+  .ac-investment-ui .login-main form > .soft-icon {
+    display: none;
+  }
+}
+@media (max-width: 650px) {
+  .ac-investment-ui .topbar-actions .icon-button {
+    width: 37px;
+    min-width: 37px;
+    height: 40px;
+  }
+  .ac-investment-ui .welcome-row .eyebrow {
+    font-size: 9px;
+    margin-bottom: 9px;
+  }
+  .ac-investment-ui .welcome-actions .primary-button {
+    font-size: 11px;
+    min-height: 42px;
+    padding: 10px 12px;
+  }
+  .ac-investment-ui .welcome-actions .primary-button > svg {
+    width: 15px;
+  }
+  .ac-investment-ui .evolution-panel > .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 17px;
+  }
+  .ac-investment-ui .section-heading h2 {
+    font-size: 15px;
+  }
+  .ac-investment-ui .section-heading p {
+    font-size: 11px;
+  }
+  .ac-investment-ui .chart-foot .text-button {
+    font-size: 10px;
+    min-height: 37px;
+  }
+  .ac-investment-ui .section-heading .text-button {
+    font-size: 10px;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .ac-investment-ui .transactions-panel > .section-heading > div > p {
+    display: none;
+  }
+  .ac-investment-ui .goals-panel > .section-heading {
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .ac-investment-ui .goals-panel > .section-heading p {
+    max-width: 190px;
+  }
+  .ac-investment-ui .spending-panel .section-heading h2 {
+    font-size: 16px;
+  }
+  .ac-investment-ui .insight-card .eyebrow {
+    font-size: 9px;
+  }
+  .ac-investment-ui .insight-card .text-button {
+    font-size: 11px;
+  }
+  .ac-investment-ui .mobile-more .section-heading {
+    margin-bottom: 9px;
+  }
+  .ac-investment-ui .modal-actions {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .ac-investment-ui .modal-actions .primary-button,
+  .ac-investment-ui .modal-actions .secondary-button {
+    font-size: 12px;
+  }
+  .ac-investment-ui .primary-button,
+  .ac-investment-ui .secondary-button,
+  .ac-investment-ui .danger-button {
+    min-height: 44px;
+  }
+  .ac-investment-ui .field {
+    font-size: 12px;
+  }
+  .ac-investment-ui .field input,
+  .ac-investment-ui .field select {
+    font-size: 14px;
+  }
+  .ac-investment-ui .form-grid {
+    gap: 12px;
+  }
+  .ac-investment-ui .page-heading > .badge {
+    margin-top: 20px;
+  }
+  .ac-investment-ui .notice {
+    padding: 15px;
+    gap: 10px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .ac-investment-ui .notice > div {
+    min-width: 180px;
+  }
+  .ac-investment-ui .notice strong {
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .ac-investment-ui .notice span {
+    font-size: 11px;
+  }
+  .ac-investment-ui .notice > .text-button {
+    margin-left: 29px;
+  }
+  .ac-investment-ui .settings-menu > .danger-text {
+    padding: 11px 8px;
+    flex-basis: 100%;
+    margin-top: 4px;
+  }
+  .ac-investment-ui .settings-panel .form-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .ac-investment-ui .login-main .notice p {
+    font-size: 12px;
+  }
+}
+@media (max-width: 360px) {
+  .ac-investment-ui .topbar-actions .icon-button {
+    width: 33px;
+    min-width: 33px;
+  }
+  .ac-investment-ui .welcome-actions .primary-button {
+    max-width: 155px;
+    white-space: normal;
+    line-height: 1.4;
+    text-align: left;
+    font-size: 11px;
+    padding: 8px 10px;
+  }
+  .ac-investment-ui .form-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .ac-investment-ui .modal-actions {
+    justify-content: stretch;
+  }
+  .ac-investment-ui .modal-actions > .primary-button {
+    flex: 1;
+  }
+}
+@media (max-height: 750px) and (min-width: 651px) {
+  .ac-investment-ui .login-main .field {
+    margin-top: 20px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ac-investment-ui * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+.ac-investment-ui .profile-signout > .secondary-button {
+  color: var(--red);
+  min-width: 170px;
+}
+.ac-investment-ui .profile-signout > .secondary-button:hover {
+  background: color-mix(in srgb, var(--red) 6%, var(--surface));
+}
+@media (max-width: 650px) {
+  .ac-investment-ui .profile-signout > .secondary-button {
+    width: 100%;
+    min-height: 46px;
+  }
+}
+
+/* One visual contract for tabs, filters and period selectors, including lazy pages. */
+.astra-customer[data-theme] .ac-investment-ui .ac-segmented {
+  display: grid;
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: stretch;
+  justify-content: stretch;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  gap: 4px;
+  padding: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.astra-customer[data-theme] .ac-investment-ui .ac-segmented > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-align: center;
+  white-space: normal;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.astra-customer[data-theme] .ac-investment-ui .ac-segmented > button::after {
+  display: none;
+}
+
+.astra-customer[data-theme] .ac-investment-ui .ac-segmented > button:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.astra-customer[data-theme]
+  .ac-investment-ui
+  .ac-segmented
+  > button:is(.active, [aria-selected='true'], [aria-pressed='true']),
+.astra-customer[data-theme]
+  .ac-investment-ui
+  .ac-segmented
+  > button:is(.active, [aria-selected='true'], [aria-pressed='true']):hover {
+  background: var(--text);
+  color: var(--surface);
+  box-shadow: none;
+}
+
+@media (max-width: 650px) {
+  .astra-customer[data-theme] .ac-investment-ui .ac-segmented > button {
+    font-size: 11px;
+    padding-inline: 4px;
+  }
+}
+@media (max-width: 340px) {
+  .astra-customer[data-theme]
+    .ac-investment-ui
+    .ac-segmented:has(> button:nth-child(4):last-child)
+    > button {
+    font-size: 9.25px;
+    padding-inline: 1px;
+  }
+}
+.ac-investment-ui .modal-actions:has(> button:nth-child(2):last-child) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+.ac-investment-ui .modal-actions > button {
+  min-width: 0;
+  white-space: normal;
+  min-height: 46px;
+  justify-content: center;
+}

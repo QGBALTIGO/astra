@@ -34,6 +34,8 @@ import { registerOpenApiRoutes } from './routes/openapi.js';
 import { registerV2Routes } from './routes/register/v2.js';
 import { registerOllamaRelayRoutes } from './routes/ollama-relay.js';
 import { customerRoutes } from './routes/customer/index.js';
+import { finalizeReferralConsoleHeaders, referralsAdminRoutes } from './routes/referrals-admin.js';
+import { MAX_INVESTMENT_BOOK_BYTES } from './db/repositories/customer-investments.js';
 import {
   RATE_LIMIT_WINDOW_MS,
   RATE_LIMIT_MAX_REQUESTS,
@@ -102,6 +104,19 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
 
   const app = new Hono();
 
+  // secureHeaders writes after next(). Finish the one authenticated HTML console
+  // after it, preserving its fresh script/style nonce without changing other pages.
+  app.use('*', async (c, next) => {
+    await next();
+    if (
+      c.req.method === 'GET' &&
+      c.req.path === '/api/v1/referrals-admin/console' &&
+      c.res.status === 200 &&
+      c.res.headers.get('Content-Type')?.startsWith('text/html')
+    )
+      finalizeReferralConsoleHeaders(c);
+  });
+
   // Security headers (comprehensive protection against common attacks)
   app.use(
     '*',
@@ -142,7 +157,7 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'blob:'],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https://icons.brapi.dev'],
         fontSrc: ["'self'", 'data:'],
         connectSrc: ["'self'", 'ws:', 'wss:'],
         mediaSrc: ["'self'", 'blob:'],
@@ -252,7 +267,22 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
         HTTP_PAYLOAD_TOO_LARGE
       ),
   });
-  app.use('/api/*', bodyLimiter);
+  const investmentBookBodyLimiter = bodyLimit({
+    maxSize: MAX_INVESTMENT_BOOK_BYTES + 1024,
+    onError: (c) =>
+      c.json(
+        {
+          success: false,
+          error: { code: 'PAYLOAD_TOO_LARGE', message: 'O livro deve ter no máximo 10 MiB.' },
+        },
+        413
+      ),
+  });
+  app.use('/api/*', (c, next) =>
+    c.req.method === 'PUT' && c.req.path === '/api/v1/customer/investments/book'
+      ? investmentBookBodyLimiter(c, next)
+      : bodyLimiter(c, next)
+  );
   app.use('/webhooks/*', bodyLimiter);
 
   // Request ID
@@ -313,6 +343,10 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
 
   // Audit logging (fire-and-forget, logs method/path/status/duration)
   app.use('/api/*', auditMiddleware);
+
+  // Cash reward decisions require an explicit administrator session, in addition
+  // to the normal owner authentication chain. Customer sessions never authorize it.
+  app.route('/api/v1/referrals-admin', referralsAdminRoutes);
 
   // Mount routes via registry — programmatically inspectable, harder to typo
   const routeRegistry = [

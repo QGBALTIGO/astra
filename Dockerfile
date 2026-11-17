@@ -38,7 +38,8 @@ RUN pnpm build
 FROM node:22-alpine AS production
 
 # Install Chromium for headless browser automation (puppeteer-core)
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont su-exec
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont su-exec postgresql16-client \
+    && pg_dump --version | grep -Eq 'PostgreSQL\) 16\.'
 
 # Install pnpm (pinned to match packageManager field)
 RUN corepack enable && corepack prepare pnpm@10.29.3 --activate
@@ -88,7 +89,7 @@ ENTRYPOINT ["/usr/local/bin/railway-entrypoint.sh"]
 EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=210s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/health || exit 1
 
 # OCI labels for GHCR
