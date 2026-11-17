@@ -8,12 +8,16 @@ on:
       - 'packages/gateway/src/app.ts'
       - 'packages/gateway/src/dashboard-release.test.ts'
       - 'packages/gateway/src/release-backup*'
+      - 'packages/gateway/src/customer-sync-audit*'
+      - 'packages/gateway/src/channels/short-channel-reply*'
+      - 'packages/gateway/src/channels/confirmed-reply-personality*'
       - 'scripts/railway-entrypoint.sh'
       - 'Dockerfile'
       - 'packages/gateway/src/routes/customer/**'
       - 'packages/gateway/src/routes/referrals-admin*'
       - 'packages/gateway/src/middleware/customer-*'
       - 'packages/gateway/src/db/repositories/customer-planning*'
+      - 'packages/gateway/src/db/repositories/customer-finance*'
       - 'packages/gateway/src/db/repositories/planning-integrity.pg.test.ts'
       - 'packages/gateway/src/db/repositories/customer-investments*'
       - 'packages/gateway/src/db/repositories/customer-referrals*'
@@ -83,6 +87,12 @@ jobs:
           src/db/repositories/customer-investments.test.ts
           src/services/investments/brapi.test.ts
           src/dashboard-release.test.ts
+          src/customer-sync-audit.test.ts
+          src/channels/short-channel-reply.test.ts
+          src/channels/confirmed-reply-personality.test.ts
+          src/channels/customer-finance-routing.test.ts
+          src/db/repositories/customer-finance.test.ts
+          src/routes/customer/finance.test.ts
       - name: Optional encrypted pre-start preservation safety contracts
         run: pnpm --filter @ownpilot/gateway exec vitest run src/release-backup.test.ts
       - name: Independent manual ledger and market valuation reference scenarios
@@ -107,4 +117,5 @@ jobs:
           src/db/repositories/customer-investments.pg.test.ts
           src/db/repositories/customer-referrals.pg.test.ts
           src/db/repositories/planning-integrity.pg.test.ts
+          src/db/repositories/customer-finance-sync.pg.test.ts
           src/release-backup.pg.test.ts

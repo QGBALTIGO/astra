@@ -193,6 +193,10 @@ export async function maybePersonalizeConfirmedReply(input: {
   if (receipt.action === 'assinatura removida' || receipt.action === 'Lembrete cancelado')
     return input.responseText;
   const fallback = confirmationCard(input.responseText, receipt);
+  // Bare monetary statements have no conversational subject to react to.
+  // The complete persisted receipt already confirms the operation clearly.
+  if (/^(?:Despesa|Recebimento|Valor a pagar|Valor a receber)$/iu.test(receipt.subject))
+    return fallback;
   if (isDiscreetSubject(receipt.subject)) return fallback;
   const key = input.channelPluginId + '|' + input.dataUserId;
   if (busy.has(key) || busy.size >= 8) return fallback;

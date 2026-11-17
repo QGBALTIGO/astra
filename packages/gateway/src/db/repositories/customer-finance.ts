@@ -260,6 +260,27 @@ const TRANSACTION_FROM = `FROM expenses AS e LEFT JOIN customer_categories AS c
 const TRANSACTION_SELECT = `SELECT e.*, c.id AS category_id, c.name AS category_name, c.color AS category_color ${TRANSACTION_FROM}`;
 
 export class CustomerFinanceRepository extends BaseRepository {
+  /** Content revision covers both channel and browser writes, including deletes.
+   * Never prepare categories or write records from this polling endpoint.
+   * A content digest also detects an older transaction that commits late, which
+   * COUNT + MAX(updated_at) alone can miss.
+   */
+  async revision(): Promise<string> {
+    const row = await this.queryOne<{ revision: string }>(
+      `SELECT md5(jsonb_build_array(
+        (SELECT jsonb_agg(jsonb_build_array(e.id, e.date, e.amount, e.currency,
+          e.transaction_type, e.status, e.category, e.category_id, e.description,
+          e.notes, e.source, e.deleted_at, e.created_at, e.updated_at) ORDER BY e.id)
+         FROM expenses e WHERE e.user_id = $1),
+        (SELECT jsonb_agg(jsonb_build_array(c.id, c.type, c.name, c.color, c.archived) ORDER BY c.id)
+         FROM customer_categories c WHERE c.user_id = $1)
+      )::text) AS revision`,
+      [this.dataUserId]
+    );
+    if (!row?.revision) throw new Error('Financial revision unavailable');
+    return row.revision;
+  }
+
   private prepared: Promise<void> | undefined;
 
   constructor(private readonly dataUserId: string) {

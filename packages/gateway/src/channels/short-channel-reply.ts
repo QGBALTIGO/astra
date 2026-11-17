@@ -117,5 +117,7 @@ async function complete(
       { role: 'user', content: prompt },
     ],
   });
-  return result.ok ? result.value.content.trim() : null;
+  // A successful transport can still end halfway through a word when the
+  // generation reaches its token limit. Never publish that partial opening.
+  return result.ok && result.value.finishReason === 'stop' ? result.value.content.trim() : null;
 }

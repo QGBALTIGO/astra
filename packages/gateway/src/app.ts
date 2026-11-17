@@ -552,6 +552,21 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
 
   // Serve bundled UI static files (SPA)
   if (UI_AVAILABLE) {
+    // These stable URLs select the current release. Unlike content-hashed
+    // assets, an old cached copy can pin an installed app to a previous UI.
+    app.use('*', async (c, next) => {
+      await next();
+      if (
+        [
+          '/index.html',
+          '/sw.js',
+          '/registerSW.js',
+          '/manifest.webmanifest',
+          '/astra-release.json',
+        ].includes(c.req.path)
+      )
+        c.header('Cache-Control', 'no-cache, max-age=0, must-revalidate');
+    });
     // Vite hashed assets — immutable, 1-year cache
     app.use(
       '/assets/*',

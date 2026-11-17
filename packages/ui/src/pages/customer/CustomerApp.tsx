@@ -50,6 +50,7 @@ import { CUSTOMER_SESSION_EXPIRED, CustomerApiError, customerApi } from './api';
 import { CustomerDialog, CustomerError, CustomerSkeleton } from './components';
 import { monthPeriod } from './helpers';
 import { useCustomerAvatar, useCustomerQuery, useCustomerTheme } from './hooks';
+import { useCustomerFinanceSync } from './finance-sync';
 import { CustomerLogin } from './Login';
 import { CustomerPlanningPage } from './Home';
 import { ApprovedCustomerHome as CustomerHome } from './ApprovedHome';
@@ -226,6 +227,10 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
     pageSize: 20,
   }));
   const [revision, setRevision] = useState(0);
+  const [financeRevision, setFinanceRevision] = useState(0);
+  const financialDataChanged = useCallback(() => setFinanceRevision((value) => value + 1), []);
+  useCustomerFinanceSync(customer.accountId, financialDataChanged);
+  const dataRevision = revision + financeRevision;
   const avatarUrl = useCustomerAvatar(customer.accountId, customer.phoneNumber, revision);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   useEffect(() => {
@@ -274,7 +279,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
     'customer-categories',
     (signal) => customerApi.categories(signal),
     ['inicio', 'transacoes', 'categorias', 'planejamento'].includes(activeTab),
-    revision
+    dataRevision
   );
   const refresh = useCallback(async () => {
     refreshController.current?.abort();
@@ -627,7 +632,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
                   <CustomerHome
                     customer={customer}
                     active={activeTab === 'inicio'}
-                    revision={revision}
+                    revision={dataRevision}
                     period={period}
                     onPeriod={setPeriod}
                     onShowTransactions={showTransactions}
@@ -653,7 +658,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
                   <CustomerTransactions
                     customer={customer}
                     active={activeTab === 'transacoes'}
-                    revision={revision}
+                    revision={dataRevision}
                     categories={categoryList}
                     categoriesError={categories.error}
                     retryCategories={categories.retry}
@@ -670,7 +675,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
                   <CustomerCategories
                     customer={customer}
                     active={activeTab === 'categorias'}
-                    revision={revision}
+                    revision={dataRevision}
                     period={period}
                     onPeriod={setPeriod}
                     categories={categoryList}
@@ -687,7 +692,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
                   <CustomerAgenda
                     customer={customer}
                     active={activeTab === 'agenda'}
-                    revision={revision}
+                    revision={dataRevision}
                     onChanged={changed}
                     onShowTransactions={showTransactions}
                     onAddBill={() => {
@@ -702,7 +707,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
                   <CustomerPlanningPage
                     customer={customer}
                     active={activeTab === 'planejamento'}
-                    revision={revision}
+                    revision={dataRevision}
                     categories={categoryList}
                     period={period}
                     onPeriod={setPeriod}

@@ -19,10 +19,31 @@ beforeEach(() => {
   vi.clearAllMocks();
   mock.provider.mockReturnValue({ complete: mock.complete });
   mock.fallback.mockReturnValue({ complete: mock.complete });
-  mock.complete.mockResolvedValue({ ok: true, value: { content: ' {"planos":[]} ' } });
+  mock.complete.mockResolvedValue({
+    ok: true,
+    value: { content: ' {"planos":[]} ', finishReason: 'stop' },
+  });
 });
 afterEach(() => vi.unstubAllEnvs());
 describe('bounded short channel completion', () => {
+  it.each(['length', 'content_filter', 'tool_calls', 'error', undefined])(
+    'discards an incomplete or filtered completion: %s',
+    async (finishReason) => {
+      mock.complete.mockResolvedValue({
+        ok: true,
+        value: { content: 'Kayky, desp', finishReason },
+      });
+      expect(
+        await writeShortChannelReply(
+          'channel.whatsapp',
+          'Converse.',
+          'Despesa',
+          42,
+          Date.now() + 5000
+        )
+      ).toBeNull();
+    }
+  );
   it('shares configured free-provider health so personality and summaries do not retry an exhausted primary', async () => {
     vi.stubEnv('ASTRA_FALLBACK_CHAIN', 'google=gemini-2.5-flash-lite,openrouter=paid-model');
     await writeShortChannelReply('channel.whatsapp', 'Converse.', 'Café', 42, Date.now() + 5000);

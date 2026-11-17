@@ -49,6 +49,8 @@ for (const theme of ['light', 'dark'] as const)
         let data: unknown;
         if (path === '/profile/avatar') return route.fulfill({ status: 204 });
         if (request.method() === 'GET' && path === '/auth/session') data = { customer };
+        else if (request.method() === 'GET' && path === '/finance/revision')
+          data = { revision: 'a'.repeat(32) };
         else if (request.method() === 'GET' && path === '/radar')
           data = {
             catalog: RADAR_CATALOG.map((s) => ({
