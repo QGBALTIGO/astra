@@ -11,6 +11,7 @@ import {
   ensureImage,
   getExecutionMode,
 } from '@ownpilot/core/sandbox';
+import { checkWhatsAppOnboarding } from '../services/whatsapp-onboarding-health.js';
 import type { HealthCheck } from '../types/index.js';
 import { getAdapter } from '../db/adapters/index.js';
 import { getDatabaseConfig } from '../db/adapters/types.js';
@@ -247,6 +248,16 @@ healthRoutes.get('/ready', async (c) => {
       503
     );
   }
+});
+
+/** Aggregate public probe; never reads/writes customer messages or sends tests. */
+healthRoutes.get('/onboarding', async (c) => {
+  c.header('Cache-Control', 'no-store');
+  const report = await checkWhatsAppOnboarding();
+  const data = c.get('sessionAuthenticated')
+    ? report
+    : { probe: report.probe, status: report.status };
+  return apiResponse(c, data, report.status === 'ready' ? 200 : 503);
 });
 
 /**

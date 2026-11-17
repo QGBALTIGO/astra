@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/publish-astra-image.yml'
+      - '.github/workflows/astra-onboarding-release.yml'
       - 'Dockerfile'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -30,8 +31,12 @@ jobs:
     uses: ./.github/workflows/astra-customer-premium.yml
     permissions:
       contents: read
+  onboarding:
+    uses: ./.github/workflows/astra-onboarding-release.yml
+    permissions:
+      contents: read
   docker:
-    needs: [qualification, customer-verification]
+    needs: [qualification, customer-verification, onboarding]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

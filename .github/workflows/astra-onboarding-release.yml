@@ -1,0 +1,71 @@
+name: Astra onboarding release gate
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'packages/core/**'
+      - 'packages/gateway/**'
+      - 'scripts/astra-onboarding-*'
+      - '.github/workflows/astra-onboarding-*.yml'
+      - '.github/workflows/publish-astra-image.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  onboarding:
+    name: First contact, isolation, durable welcome and PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: synthetic_ci_only
+          POSTGRES_DB: astratest_review
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astratest -d astratest_review"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ASTRA_REVIEW_PG_PORT: '5432'
+      ASTRA_REVIEW_PG_USER: astratest
+      ASTRA_REVIEW_PG_PASSWORD: synthetic_ci_only
+      ASTRA_REVIEW_PG_DATABASE: astratest_review
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm --filter @ownpilot/gateway... install --frozen-lockfile
+      - run: pnpm --filter @ownpilot/core --filter @ownpilot/gateway build
+      - name: Monitor and release wiring contracts
+        run: node --test scripts/astra-onboarding-monitor.test.mjs
+      - name: Real PostgreSQL is mandatory, never silently skipped
+        run: test -n "$ASTRA_REVIEW_PG_PORT"
+      - name: First-contact and durable delivery qualification
+        run: >-
+          pnpm --filter @ownpilot/gateway exec vitest run --maxWorkers=2
+          src/channels/service-impl.test.ts
+          src/channels/trial-entry.test.ts
+          src/channels/whatsapp-trial-messages.test.ts
+          src/channels/whatsapp-inbound-identity.test.ts
+          src/channels/channel-access-service.test.ts
+          src/channels/normalizers/whatsapp.test.ts
+          src/channels/plugins/whatsapp/whatsapp-api.test.ts
+          src/channels/plugins/whatsapp/whatsapp-lifecycle.test.ts
+          src/services/whatsapp-first-contact-recovery.test.ts
+          src/services/channel-access-notification-worker.test.ts
+          src/services/whatsapp-onboarding-health.test.ts
+          src/routes/health.test.ts
+          src/db/repositories/whatsapp-trials.pg.test.ts
