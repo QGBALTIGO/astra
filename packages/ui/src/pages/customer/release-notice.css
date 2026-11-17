@@ -1,0 +1,53 @@
+.astra-release-notice {
+  position: fixed;
+  right: 16px;
+  bottom: max(108px, calc(env(safe-area-inset-bottom) + 90px));
+  z-index: 45;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  width: min(380px, calc(100vw - 32px));
+  padding: 18px;
+  border: 1px solid #dfe5ef;
+  border-radius: 18px;
+  background: #fff;
+  color: #171c2d;
+  box-shadow: 0 8px 32px #14203d1a;
+  font:
+    13px/1.5 'DM Sans',
+    sans-serif;
+}
+.astra-release-notice p {
+  margin: 4px 0 0;
+  color: #667795;
+}
+.astra-release-notice button {
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: #0066ff;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.astra-release-notice button:focus-visible {
+  outline: 2px solid #0066ff;
+  outline-offset: 3px;
+}
+.astra-release-notice button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+@media (prefers-color-scheme: dark) {
+  .astra-release-notice {
+    border-color: #28334a;
+    background: #101a2b;
+    color: #f4f6fb;
+  }
+  .astra-release-notice p {
+    color: #a0afc7;
+  }
+}

@@ -139,6 +139,8 @@ async function fetchCustomerAvatar(signal?: AbortSignal): Promise<Blob | null> {
 }
 
 export const customerApi = {
+  financeRevision: (accountId: string, signal?: AbortSignal) =>
+    request<{ revision: string }>('/finance/revision', { accountId, signal }),
   radar: (accountId: string, signal?: AbortSignal) =>
     request<import('./radar-types').CustomerRadarData>('/radar', { accountId, signal }),
   radarSearch: (accountId: string, source: string, q: string, signal?: AbortSignal) =>

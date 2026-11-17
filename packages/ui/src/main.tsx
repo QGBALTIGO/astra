@@ -17,6 +17,7 @@ import { lazy, StrictMode, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { customerEntryPath } from './customer-entry';
 import { installCustomerInputModality } from './pages/customer/interaction';
+import { CustomerReleaseNotice } from './pages/customer/ReleaseNotice';
 import './index.css';
 import './pages/customer/interaction.css';
 // Keep the customer shell styled before its lazy JavaScript mounts. The
@@ -96,6 +97,7 @@ function AstraBootScreen() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    {customerPath ? <CustomerReleaseNotice /> : null}
     <Suspense fallback={<AstraBootScreen />}>
       <Application />
     </Suspense>

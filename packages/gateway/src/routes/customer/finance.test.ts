@@ -5,6 +5,7 @@ import type { CustomerSessionContext } from '../../middleware/customer-session.j
 const { methods, scope } = vi.hoisted(() => ({
   scope: vi.fn(),
   methods: {
+    revision: vi.fn(),
     summary: vi.fn(),
     listTransactions: vi.fn(),
     getTransaction: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('../../db/repositories/customer-finance.js', async (original) => ({
       scope(userId);
     }
     summary = methods.summary;
+    revision = methods.revision;
     listTransactions = methods.listTransactions;
     getTransaction = methods.getTransaction;
     createTransaction = methods.createTransaction;
@@ -91,6 +93,7 @@ function request(
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  methods.revision.mockResolvedValue('a'.repeat(32));
   methods.summary.mockResolvedValue({ income: 100, expenses: 36.39, result: 63.61 });
   methods.listTransactions.mockResolvedValue({
     transactions: [transaction],
@@ -109,7 +112,15 @@ beforeEach(() => {
 });
 
 describe('customer finance HTTP scope and permissions', () => {
-  it.each(['/summary', '/transactions', '/categories', '/transactions/transaction-1'])(
+  it('returns only the session-scoped opaque revision without creating records or categories', async () => {
+    const response = await app('read').request('/customer/finance/revision');
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toEqual({ revision: 'a'.repeat(32) });
+    expect(scope).toHaveBeenCalledWith(id);
+    expect(methods.listCategories).not.toHaveBeenCalled();
+    expect(methods.createTransaction).not.toHaveBeenCalled();
+  });
+  it.each(['/revision', '/summary', '/transactions', '/categories', '/transactions/transaction-1'])(
     'requires a customer session for %s',
     async (path) => {
       expect((await app('none').request(`/customer/finance${path}`)).status).toBe(401);

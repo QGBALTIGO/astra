@@ -29,7 +29,7 @@ const input = {
   displayName: 'Kayky Silva',
   messageId: 'c',
 };
-const say = (content: string) => ({ ok: true, value: { content } });
+const say = (content: string) => ({ ok: true, value: { content, finishReason: 'stop' } });
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.routing.mockResolvedValue({ provider: 'groq', model: 'small' });
@@ -39,6 +39,30 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('personal writing for private confirmations', () => {
+  it.each([
+    ['Despesa', 'Despesa'],
+    ['Recebimento', 'Entrada'],
+    ['Valor a pagar', 'Valor a pagar'],
+    ['Valor a receber', 'Valor a receber'],
+  ])(
+    'keeps a bare monetary receipt complete without a generated prefix: %s',
+    async (subject, action) => {
+      const receipt = `✅ *${action} registrada*\n\n• *Valor:* R$ 5,00\n• *Descrição:* ${subject}\n• *Categoria:* Outros\n• *Data:* 17/11/2026`;
+      const text = subject.startsWith('Valor')
+        ? receipt.replace('registrada', 'registrado')
+        : receipt;
+      mocks.complete.mockResolvedValue(say('Kayky, desp'));
+      expect(await maybePersonalizeConfirmedReply({ ...input, responseText: text })).toBe(text);
+      expect(mocks.complete).not.toHaveBeenCalled();
+    }
+  );
+  it('keeps a contextual receipt intact when the writing provider reaches its token limit', async () => {
+    mocks.complete.mockResolvedValue({
+      ok: true,
+      value: { content: 'Kayky, desp', finishReason: 'length' },
+    });
+    expect(await maybePersonalizeConfirmedReply(input)).toBe(card);
+  });
   it('writes a contextual opening and preserves every stored field with zero tool access', async () => {
     expect(await maybePersonalizeConfirmedReply(input)).toBe(
       'Essa calabresa dispensou apresentações, Kayky! 🍕\n\n' + card

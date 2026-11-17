@@ -51,6 +51,7 @@ export async function mockCustomerApi(
   let failTransaction = options.failTransactionOnce ?? false;
   let avatarMode = options.avatar ?? 'missing';
   const avatarRequests: string[] = [];
+  let externalRevision = 0;
   let customer: Customer = {
     accountId: 'synthetic-account',
     dataUserId: 'whatsapp:5511999997777',
@@ -332,6 +333,8 @@ export async function mockCustomerApi(
     ) {
       await fail(403, 'ACCESS_EXPIRED', 'Renove o acesso para alterar seus registros.');
       return;
+    } else if (method === 'GET' && path === '/finance/revision') {
+      data = { revision: externalRevision.toString(16).padStart(32, '0') };
     } else if (method === 'GET' && path === '/profile/avatar') {
       avatarRequests.push(request.url());
       if (avatarMode === 'photo') {
@@ -544,6 +547,20 @@ export async function mockCustomerApi(
     });
   });
   return {
+    receiveFromChannel(type: 'income' | 'expense', description: string, amount = 5) {
+      externalRevision++;
+      transactions.unshift(
+        transaction('synthetic-channel-' + externalRevision, {
+          description,
+          amount,
+          type,
+          status: 'settled',
+          categoryId: type === 'income' ? 'synthetic-salary' : FOOD_CATEGORY,
+          date: '2026-11-17',
+          notes: null,
+        })
+      );
+    },
     mutations,
     unexpectedRequests,
     credentialHeaders,

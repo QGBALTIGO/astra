@@ -52,6 +52,7 @@ jobs:
             exit 1
           fi
           pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts
+          pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-update.config.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

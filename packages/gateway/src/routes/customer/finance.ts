@@ -160,6 +160,12 @@ customerFinanceRoutes.onError((error, c) => {
   );
 });
 
+customerFinanceRoutes.get('/revision', async (c) =>
+  apiResponse(c, {
+    revision: await new CustomerFinanceRepository(c.get('customer').dataUserId).revision(),
+  })
+);
+
 customerFinanceRoutes.get('/summary', async (c) => {
   const query = z
     .object({ from: z.string().optional(), to: z.string().optional() })

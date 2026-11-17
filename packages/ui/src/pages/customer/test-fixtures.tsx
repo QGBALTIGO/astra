@@ -74,6 +74,9 @@ export const challengeFixture = {
 
 export function mockCustomerApi(customer: Customer = structuredClone(customerFixture)) {
   return {
+    financeRevision: vi
+      .spyOn(customerApi, 'financeRevision')
+      .mockResolvedValue({ revision: 'a'.repeat(32) }),
     session: vi.spyOn(customerApi, 'session').mockResolvedValue({ customer }),
     requestCode: vi.spyOn(customerApi, 'requestCode').mockResolvedValue(challengeFixture),
     verifyCode: vi.spyOn(customerApi, 'verifyCode').mockResolvedValue({ customer }),

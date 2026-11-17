@@ -42,6 +42,7 @@ async function prepare(page: Page, theme: 'light' | 'dark') {
     };
     let data: unknown;
     if (path === '/auth/session') data = { customer };
+    else if (path === '/finance/revision') data = { revision: 'a'.repeat(32) };
     else if (path === '/profile') data = { profile: customer };
     else if (path === '/profile/avatar') {
       await route.fulfill({ status: 204, body: '' });

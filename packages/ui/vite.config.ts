@@ -42,6 +42,25 @@ function cssSizeGuard(minBytes = 80_000): Plugin {
   };
 }
 
+/** Small uncached release pointer; contains no account or deployment secrets. */
+function customerReleasePointer(): Plugin {
+  return {
+    name: 'astra-customer-release',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const entry = Object.values(bundle).find(
+        (item) => item.type === 'chunk' && item.isEntry && item.name === 'index'
+      );
+      if (!entry) throw new Error('Customer application entry missing');
+      this.emitFile({
+        type: 'asset',
+        fileName: 'astra-release.json',
+        source: JSON.stringify({ entry: '/' + entry.fileName }),
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   // Load env from monorepo root (two levels up from packages/ui)
   const env = loadEnv(mode, resolve(__dirname, '../..'), '');
@@ -74,6 +93,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
+      customerReleasePointer(),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['logo.svg', 'ownpilot-logo.jpeg'],
@@ -108,6 +128,23 @@ export default defineConfig(({ mode }) => {
           skipWaiting: true,
           clientsClaim: true,
           globPatterns: ['**/*.{js,css,html,svg,jpeg,png,ico,woff2}'],
+          // Online customer navigations must ask the server for the current
+          // shell. Only public HTML is cached for a network-failure fallback;
+          // authenticated API requests never enter a service-worker cache.
+          navigateFallbackDenylist: [/^\/cliente(?:\/|$)/, /^\/$/, /^\/api(?:\/|$)/],
+          runtimeCaching: [
+            {
+              urlPattern: ({ request, url }) =>
+                request.mode === 'navigate' &&
+                (url.pathname === '/' || /^\/cliente(?:\/|$)/.test(url.pathname)),
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'astra-customer-shell-v1',
+                cacheableResponse: { statuses: [200] },
+                expiration: { maxEntries: 12, maxAgeSeconds: 7 * 24 * 60 * 60 },
+              },
+            },
+          ],
           // APIs autenticadas devem sempre ser consultadas pela rede.
         },
       }),
