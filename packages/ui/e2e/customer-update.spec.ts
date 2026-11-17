@@ -161,7 +161,7 @@ test('offers a new release while preserving a form until the user chooses to upd
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
-  await page.getByRole('button', { name: 'Nova movimentação', exact: true }).click();
+  await page.getByRole('button', { name: 'Nova transação', exact: true }).click();
   const form = page.getByRole('dialog', { name: 'Nova movimentação' });
   await form.getByLabel('Descrição', { exact: true }).fill('Meu formulário preservado');
   phase = 2;
@@ -185,7 +185,7 @@ test('receives external financial changes without reloading or discarding an ope
   const api = await mockCustomerApi(page, { authenticated: true });
   await page.goto(origin + '/cliente/transacoes');
   await expect(page.getByText('Salário de novembro', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Nova movimentação', exact: true }).click();
+  await page.getByRole('button', { name: 'Nova transação', exact: true }).click();
   const form = page.getByRole('dialog', { name: 'Nova movimentação' });
   await form.getByLabel('Descrição', { exact: true }).fill('Rascunho local');
   api.receiveFromChannel('income', 'Entrada recebida pelo WhatsApp');
