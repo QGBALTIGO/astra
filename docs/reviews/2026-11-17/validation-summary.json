@@ -1,0 +1,396 @@
+{
+  "schemaVersion": 1,
+  "reviewDate": "2026-11-17",
+  "verdict": "Ainda não apto, com os bloqueios identificados",
+  "repository": "QGBALTIGO/astra",
+  "branch": "audit/member-readiness-20261117",
+  "pullRequest": "https://github.com/QGBALTIGO/astra/pull/142",
+  "initialBaseline": "7915ecdd9933b55183b511f5718030b1d34e5304",
+  "integratedMain": "83fecbc16da8220b3ff603c8faa08887bec655ea",
+  "validatedSourceCommit": "43118c019e3d08bc3adea9f4887481c09fe4ee48",
+  "validatedTree": "3947f33a813cc38514b0a6f27013811e48549289",
+  "ciVirtualMergeCommit": "f435e18e18e94462a3dc80c9f960516d084e2957",
+  "ciVirtualMergeHasIdenticalTree": true,
+  "priorIntegratedSourceCommit": "3e50657ffbc4bbef13c6239b9242471937af1c4b",
+  "finalSourceDelta": [
+    "Four landing files: replace unsupported recurring-reminder promise with a dated scheduled reminder and two failing-then-passing contract tests",
+    "Preserve upstream83fecbc branding/PWA/icons; app.ts merge retains authentication guard and adds cache headers for public icons"
+  ],
+  "documentationOnlyCommitsAfterValidatedSource": "Allowed for this evidence package; do not describe an unexecuted commit as independently tested. Application tree remains identical.",
+  "production": {
+    "observedImageCommit": "6d939b28b97129de58087a1742d5c343b99e2156",
+    "gatewayDeploymentId": "55628ded-e112-4811-b42f-f84fe4cbaa21",
+    "candidateDeployedByThisReview": false,
+    "readOnlyStateFile": "production-final-state.json",
+    "readOnlyHealthFile": "production-final-health.json"
+  },
+  "baseline": {
+    "core": {
+      "passed": 10009,
+      "failed": 28,
+      "skipped": 3
+    },
+    "gateway": {
+      "passed": 23385,
+      "failed": 29,
+      "skipped": 1258,
+      "additionalSuiteLoadFailure": 1
+    },
+    "ui": {
+      "passed": 2397,
+      "failed": 0,
+      "skipped": 1
+    },
+    "cli": {
+      "passedBeforeDependencyBuild": 434,
+      "suiteLoadFailureBeforeDependencyBuild": 1,
+      "passedAfterDependencyBuild": 438
+    }
+  },
+  "finalPackages": {
+    "core": {
+      "passed": 10039,
+      "failed": 0,
+      "skipped": 3
+    },
+    "ui": {
+      "passed": 2400,
+      "failed": 0,
+      "skipped": 1
+    },
+    "cli": {
+      "passed": 438,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "gatewayCoverage": {
+    "local": {
+      "sourceCommit": "3e50657ffbc4bbef13c6239b9242471937af1c4b",
+      "passed": 24772,
+      "failed": 0,
+      "skipped": 7,
+      "filesPassed": 628,
+      "filesSkipped": 2,
+      "durationSeconds": 162.46,
+      "postgresVersion": "16.4",
+      "nativeVector": false,
+      "explicitExcludedFile": "release-backup.pg.test.ts",
+      "exclusionReason": "pg_dump/pg_restore unavailable locally",
+      "coveragePercent": {
+        "statements": 85.58,
+        "branches": 78.1,
+        "functions": 86.05,
+        "lines": 86.9
+      }
+    },
+    "ci": {
+      "sourceCommit": "43118c019e3d08bc3adea9f4887481c09fe4ee48",
+      "runId": 44163054983,
+      "passed": 23728,
+      "failed": 0,
+      "skipped": 1052,
+      "filesPassed": 622,
+      "filesSkipped": 9,
+      "postgresVersion": "16.16",
+      "nativeVector": true,
+      "backupRestoreExecuted": true,
+      "coveragePercent": {
+        "statements": 85.07,
+        "branches": 77.32,
+        "functions": 85.62,
+        "lines": 86.42
+      },
+      "skipAccounting": {
+        "calendar-mutation.pg.test.ts": 15,
+        "personal-subscriptions.pg.test.ts": 511,
+        "verification-postgres.test.ts": 7,
+        "personal-tasks.pg.test.ts": 506,
+        "whatsapp-contact-discovery.pg.test.ts": 4,
+        "channel-reminders-range.pg.test.ts": 1,
+        "reminder-selection.pg.test.ts": 1,
+        "radar/load.pg.test.ts": 4,
+        "radar/startup.pg.test.ts": 3
+      },
+      "separateExecution": "Opt-in skipped files were exercised in local PostgreSQL and/or WhatsApp, Simulation Lab and Radar workflows; see per-front evidence",
+      "jobId": 134321713193
+    },
+    "thresholdsUnchanged": {
+      "statements": 83,
+      "branches": 75,
+      "functions": 84,
+      "lines": 84
+    }
+  },
+  "cakto": {
+    "runtime": "Bun 1.4.4",
+    "passed": 16,
+    "failed": 0,
+    "skipped": 0,
+    "postgresReal": true,
+    "eventsSynthetic": true,
+    "s3MemoryFixture": true,
+    "realCaktoEvent": false
+  },
+  "browser": {
+    "generalPlaywrightPassed": 176,
+    "customerPortalPassed": 180,
+    "customerReferenceChecksPassed": 5,
+    "customerReactScenariosPassed": 23,
+    "customerReactRouteThemeViewportCombinations": 80,
+    "customerReactScreenshots": 51,
+    "landingContractsPassed": 35,
+    "landingBrowserPassed": 171,
+    "adminRouteVisits": 177,
+    "adminRoutes": 59,
+    "adminErrorsOrOverflow": 0,
+    "visualEvidenceFile": "visual-review.json",
+    "externalApisMockedForCustomerUi": true,
+    "landingHistoricalPixelEquivalence": false,
+    "landingSourceCommit": "43118c019e3d08bc3adea9f4887481c09fe4ee48",
+    "landingInitialReferenceCaptures": 36,
+    "landingArtifactId": 14365835063,
+    "landingArtifactSha256": "2cd1132ebd0061354c0e12cd1e68450c12550aeab47a0b8659b3d505084ac297",
+    "landingBundleSha256": "ea72c7f6dd37c41ac1b522b17ba4ceda658bace93ab7f3bb253796a224f3397d"
+  },
+  "realPostgres": {
+    "minimumIndependentTestUsers": 3,
+    "migrationCriticalTables": 32,
+    "nativeMemoryLifecycleTestsPassed": 10,
+    "releaseBackupRestorePgTestsPassed": 1,
+    "radarTestsPassed": 476,
+    "allRadarNativeWorkerModesPassed": true
+  },
+  "httpCapacityFinal": {
+    "sourceCommit": "43118c019e3d08bc3adea9f4887481c09fe4ee48",
+    "uniqueFixtureAccounts": 500,
+    "waves": [10, 50, 100, 250, 500],
+    "journeys": 910,
+    "requests": 8190,
+    "errors": 0,
+    "externalAttempts": 0,
+    "largestWave": {
+      "requests": 4500,
+      "durationMs": 6923,
+      "requestsPerSecond": 650.03,
+      "summaryP95Ms": 3134.65,
+      "expenseCreateP95Ms": 1556.47,
+      "nodePeakRssMiB": 371,
+      "admissionQueuePeak": 1852,
+      "queueLimit": 2048,
+      "maxActiveRequests": 32
+    },
+    "queueDrained": true,
+    "notProductionCapacityProof": true,
+    "details": "ci-whatsapp-simulation-final.md"
+  },
+  "security": {
+    "confirmedFindingsCorrected": true,
+    "productionExploitationDemonstrated": false,
+    "productionDependencyAuditAdvisories": 0,
+    "workspaceProductionDependencies": 527,
+    "landingProductionAuditAdvisories": 0,
+    "completeVulnerabilityAbsenceClaimed": false
+  },
+  "externalReleaseGates": [
+    "Three authorized WhatsApp test recipients/accounts and model/OTP delivery journeys",
+    "Provider-origin Cakto test event, product/period validation and held legacy reconciliation",
+    "Complete restart/reconnect and uncertain-effect recovery with real WhatsApp test session",
+    "Effective secrets/path/admin/limits configuration; deployment draining; operational off-volume backup and isolated restore",
+    "Coherent gateway, both Cakto Functions and corrected landing deployment followed by authorized smoke"
+  ],
+  "optionalUnvalidatedAreas": [
+    "STT/vision quality and opt-in Gemini",
+    "OAuth/Composio renew/revoke/quotas",
+    "Market/Radar external provider quality and delivery",
+    "Vector semantic retrieval and HNSW performance",
+    "Sustained load including AI, transport, public ingress and DB resource measurements"
+  ],
+  "neverPerformed": [
+    "Actual charges",
+    "Messages to real or inferred recipients",
+    "Production mutation/deployment by this review",
+    "Destructive production restore",
+    "Arbitrary ownership or legacy goal conversion"
+  ],
+  "priorQualifiedCommit": "f1c8b1302ce511102fa0e74ee6a36bcadb9df3d2",
+  "priorQualifiedWorkflowRuns": [
+    {
+      "id": 44159910653,
+      "name": "Astra interface audit (isolated)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910653"
+    },
+    {
+      "id": 44159910705,
+      "name": "Astra customer portal verification",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910705"
+    },
+    {
+      "id": 44159910660,
+      "name": "Astra member readiness regressions",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910660"
+    },
+    {
+      "id": 44159910780,
+      "name": "Astra dashboard release verification",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910780"
+    },
+    {
+      "id": 44159910665,
+      "name": "Astra Simulation & Reliability Lab",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910665"
+    },
+    {
+      "id": 44159910697,
+      "name": "WhatsApp reliability regression",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910697"
+    },
+    {
+      "id": 44159910857,
+      "name": "Astra Radar verification",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910857"
+    },
+    {
+      "id": 44159910754,
+      "name": "Customer touch and keyboard regression",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910754"
+    },
+    {
+      "id": 44159910672,
+      "name": "CI",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44159910672"
+    }
+  ],
+  "priorHttpCapacity": {
+    "sourceCommit": "f1c8b1302ce511102fa0e74ee6a36bcadb9df3d2",
+    "uniqueFixtureAccounts": 500,
+    "waves": [10, 50, 100, 250, 500],
+    "journeys": 910,
+    "requests": 8190,
+    "errors": 0,
+    "externalAttempts": 0,
+    "largestWave": {
+      "requests": 4500,
+      "durationMs": 9095,
+      "requestsPerSecond": 494.75,
+      "summaryP95Ms": 3764.92,
+      "expenseCreateP95Ms": 2324.7,
+      "nodePeakRssMiB": 406,
+      "admissionQueuePeak": 1942,
+      "queueLimit": 2048,
+      "maxActiveRequests": 32
+    },
+    "queueDrained": true,
+    "notProductionCapacityProof": true,
+    "details": "ci-whatsapp-simulation-final.md"
+  },
+  "brandingIntegration": {
+    "localBuildPassed": true,
+    "localAuthRegressionFiles": 3,
+    "localAuthRegressionPassed": 248,
+    "localAuthRegressionFailed": 0,
+    "staticHttpProbe": "static-http-probe.json",
+    "physicalPwaInstallationTested": false
+  },
+  "landingOfferCorrection": {
+    "finding": "OFFER-01 / LAND-01",
+    "severity": "P2",
+    "before": "Advertised and demonstrated daily arbitrary recurring reminders absent from member flow",
+    "after": "Scheduled single occurrence with explicit date/time; layout preserved",
+    "baselineContractsPassed": 33,
+    "newRegressionFailuresBeforeFix": 2,
+    "finalContractsPassed": 35,
+    "finalContractsFailed": 0,
+    "backendChanged": false
+  },
+  "workflowRuns": [
+    {
+      "id": 44163054907,
+      "name": "Astra Simulation & Reliability Lab",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054907"
+    },
+    {
+      "id": 44163055100,
+      "name": "WhatsApp reliability regression",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163055100"
+    },
+    {
+      "id": 44163054765,
+      "name": "Astra dashboard release verification",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054765"
+    },
+    {
+      "id": 44163054793,
+      "name": "Astra Radar verification",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054793"
+    },
+    {
+      "id": 44163054835,
+      "name": "Customer touch and keyboard regression",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054835"
+    },
+    {
+      "id": 44163054826,
+      "name": "CI",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054826"
+    },
+    {
+      "id": 44163055034,
+      "name": "Astra interface audit (isolated)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163055034"
+    },
+    {
+      "id": 44163055148,
+      "name": "Astra customer portal verification",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163055148"
+    },
+    {
+      "id": 44163054983,
+      "name": "Astra member readiness regressions",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054983"
+    },
+    {
+      "id": 44163054881,
+      "name": "Astra landing verification",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/QGBALTIGO/astra/actions/runs/44163054881"
+    }
+  ]
+}

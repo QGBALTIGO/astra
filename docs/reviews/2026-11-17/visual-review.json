@@ -1,0 +1,174 @@
+{
+  "sourceCommit": "3e50657ffbc4bbef13c6239b9242471937af1c4b",
+  "runId": 44158009331,
+  "artifactId": 14363180035,
+  "artifactSha256": "84f40b76a12595626429a3382693cee913e9cfe8e2b4072ebf9fcca4f67cd3a9",
+  "scope": "Integrated real React customer routes, synthetic account and durable API stubs only. Chrome disposable contexts; all customer API, market data, logos, referral requests and external network calls intercepted. No user browser/storage, provider traffic, actual OTP/WhatsApp or payout.",
+  "executedScenarios": 23,
+  "passed": 23,
+  "routeThemeViewportCombinations": 80,
+  "maximumObservedHorizontalOverflowPx": 0,
+  "screenshotCount": 51,
+  "scenarios": [
+    {
+      "name": "ten routes 320 light",
+      "pass": true
+    },
+    {
+      "name": "ten routes 320 dark",
+      "pass": true
+    },
+    {
+      "name": "ten routes 390 dark",
+      "pass": true
+    },
+    {
+      "name": "ten routes 390 light",
+      "pass": true
+    },
+    {
+      "name": "ten routes 768 dark",
+      "pass": true
+    },
+    {
+      "name": "ten routes 768 light",
+      "pass": true
+    },
+    {
+      "name": "ten routes 1440 light",
+      "pass": true
+    },
+    {
+      "name": "ten routes 1440 dark",
+      "pass": true
+    },
+    {
+      "name": "investment chart dense normal",
+      "pass": true
+    },
+    {
+      "name": "investment chart negative normal",
+      "pass": true
+    },
+    {
+      "name": "investment chart sparse normal",
+      "pass": true
+    },
+    {
+      "name": "investment chart single normal",
+      "pass": true
+    },
+    {
+      "name": "investment chart manual-empty normal",
+      "pass": true
+    },
+    {
+      "name": "investment chart dense empty",
+      "pass": true
+    },
+    {
+      "name": "investment chart dense single",
+      "pass": true
+    },
+    {
+      "name": "investment chart dense gaps",
+      "pass": true
+    },
+    {
+      "name": "investment chart empty normal",
+      "pass": true
+    },
+    {
+      "name": "finance mobile dialogs light",
+      "pass": true
+    },
+    {
+      "name": "finance mobile dialogs dark",
+      "pass": true
+    },
+    {
+      "name": "header parallel theme/privacy responses and Home period cancel/apply",
+      "pass": true
+    },
+    {
+      "name": "investment setup, custody, asset, buy, income, correction, cancellation and reload",
+      "pass": true
+    },
+    {
+      "name": "investment CAS409 stays honest and stops automatic write retries",
+      "pass": true
+    },
+    {
+      "name": "referral share and actual awaited Pix request failure/retry",
+      "pass": true
+    }
+  ],
+  "rootInspectedMemberScreenshots": [
+    "approved-home-320-dark.png",
+    "approved-transacoes-390-light.png",
+    "approved-agenda-390-light.png",
+    "approved-planejamento-320-dark.png",
+    "approved-categorias-390-light.png",
+    "approved-conexoes-320-dark.png",
+    "approved-radar-390-light.png",
+    "approved-perfil-320-dark.png",
+    "approved-investimentos-1440-dark.png",
+    "approved-indicacoes-390-light.png",
+    "approved-transacoes-modal-320-light.png",
+    "approved-agenda-modal-320-dark.png",
+    "approved-home-1440-dark.png",
+    "approved-perfil-1440-dark.png",
+    "approved-planejamento-modal-320-light.png",
+    "approved-categorias-modal-320-dark.png",
+    "approved-investments-chart-negative-normal-390-dark.png"
+  ],
+  "otherRootInspections": {
+    "landing": [
+      "phone-320/hero.png",
+      "phone-320/night-price.png",
+      "tablet-768/main-light.png",
+      "desktop-1440/night-hero.png"
+    ],
+    "admin": ["tablet--dashboard.png", "tablet--calendar.png"],
+    "customerReferences": ["webkit/390-dark-login.png"]
+  },
+  "observedIssue": "P3: 1 assuntos selecionados; fixed in prior qualified code f1c8b13, changed capture inspected; correction retained in43118c0",
+  "limitations": [
+    "No human inspection of every captured frame",
+    "No real OTP/WhatsApp/Cakto/market-provider traffic",
+    "Native date-input appearance follows browser locale",
+    "Landing trial-layout reference images were captured because absent in Git; this does not establish historical pixel equivalence",
+    "Automated layout/a11y checks are not a complete accessibility certification"
+  ],
+  "priorCandidate": {
+    "sourceCommit": "f1c8b1302ce511102fa0e74ee6a36bcadb9df3d2",
+    "runId": 44159910660,
+    "artifactId": 14362273603,
+    "artifactSha256": "8a21de43a077f5ac59efaf4f48ab6a5f0b69fa730e6c2f81a3ad82dfdc3a506d",
+    "scenariosPassed": 23,
+    "screenshotCount": 51,
+    "inspectedChangedScreen": "approved-radar-390-light.png",
+    "observation": "1 assunto selecionado; label fits and remains legible",
+    "unchangedScreens": "Earlier visual sample is linked explicitly to source 3e; final functional matrix executed again"
+  },
+  "finalCandidate": {
+    "sourceCommit": "43118c019e3d08bc3adea9f4887481c09fe4ee48",
+    "runId": 44163054983,
+    "customerArtifactId": 14364087218,
+    "customerArtifactSha256": "feb4c6194e9c7db4759179d5afb24bc71176333bfa3f1258fdac88a60d189f09",
+    "scenariosPassed": 23,
+    "routeThemeViewportCombinations": 80,
+    "screenshotCount": 51,
+    "rootCustomerVisualSample": "See earlier source3e sample and priorCandidate Radar correction; final functional matrix repeated, no claim every final image was inspected",
+    "landingArtifactId": 14365835063,
+    "landingArtifactSha256": "2cd1132ebd0061354c0e12cd1e68450c12550aeab47a0b8659b3d505084ac297",
+    "landingContractsPassed": 35,
+    "landingReferenceCaptures": 36,
+    "landingBrowserTestsPassed": 171,
+    "rootInspectedLandingScreenshots": [
+      "tests/browser/screenshots/trial-whatsapp/phone-320/demo.png",
+      "tests/browser/screenshots/trial-whatsapp/desktop-1440/night-full-demo.png"
+    ],
+    "landingObservations": "Phone conversation at320 and desktop financial demonstration in dark theme remain legible without visible clipping in these samples. Corrected recurring-reminder copy verified by35contracts; these two screenshots do not display the study scenario. References created during this run do not establish historical pixel equivalence."
+  }
+}

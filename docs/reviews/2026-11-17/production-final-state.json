@@ -1,0 +1,258 @@
+{
+  "observedAt": "2026-11-17T19:32:56.605Z",
+  "scope": "Read-only Railway descriptions; no deployment or configuration action by this review.",
+  "gateway": {
+    "service": {
+      "id": "ace0b745-7a1b-4a4b-9279-85fa1f8ad0ea",
+      "name": "astra-gateway",
+      "state": "live"
+    },
+    "environment": {
+      "id": "96a29635-81c6-4eef-aee2-11575514ff2a",
+      "name": "production"
+    },
+    "staged": null,
+    "config": {
+      "source": {
+        "image": "ghcr.io/qgbaltigo/astra:sha-6d939b28b97129de58087a1742d5c343b99e2156"
+      },
+      "networking": {
+        "serviceDomains": {
+          "astra-gateway-production.up.railway.app": {
+            "port": 8080
+          }
+        },
+        "customDomains": {
+          "app.astraacessor.pro": {
+            "port": 8080
+          }
+        }
+      },
+      "build": {
+        "builder": "DOCKERFILE",
+        "buildEnvironment": "V3",
+        "dockerfilePath": "Dockerfile"
+      },
+      "deploy": {
+        "startCommand": "/bin/sh -c \"node /app/packages/gateway/dist/release-backup.js && exec node packages/gateway/dist/server.js\"",
+        "preDeployCommand": [],
+        "healthcheckPath": "/health",
+        "healthcheckTimeout": 300,
+        "useLegacyStacker": false,
+        "ipv6EgressEnabled": false,
+        "runtime": "V2",
+        "multiRegionConfig": {
+          "iad": {
+            "numReplicas": 1
+          }
+        }
+      },
+      "volumeMounts": {
+        "7da0cec6-da7b-46af-bf18-ebf1fc58e826": {
+          "mountPath": "/app/data"
+        }
+      }
+    },
+    "stagedChanges": [],
+    "volumes": [
+      {
+        "id": "7da0cec6-da7b-46af-bf18-ebf1fc58e826",
+        "name": "astra-persistent-data",
+        "mountPath": "/app/data",
+        "sizeMB": 500,
+        "region": "iad",
+        "state": "live"
+      }
+    ],
+    "domains": {
+      "serviceDomains": [
+        {
+          "id": "71bd36f8-d43a-4d86-baaa-5a4e505ba766",
+          "domain": "astra-gateway-production.up.railway.app",
+          "targetPort": 8080
+        }
+      ],
+      "customDomains": [
+        {
+          "id": "3dabb73e-3c82-4395-9833-36c8c6cacadc",
+          "domain": "app.astraacessor.pro",
+          "targetPort": 8080
+        }
+      ]
+    },
+    "tcpProxies": [],
+    "latestDeployment": {
+      "id": "55628ded-e112-4811-b42f-f84fe4cbaa21",
+      "status": "SUCCESS",
+      "createdAt": "2026-11-17T19:24:47.946Z",
+      "url": null
+    },
+    "tracing": {
+      "tracingEnabled": false,
+      "autoInstrumentationEnabled": false,
+      "autoInstrumentationActive": false
+    }
+  },
+  "environment": {
+    "environment": {
+      "id": "96a29635-81c6-4eef-aee2-11575514ff2a",
+      "name": "production"
+    },
+    "services": [
+      {
+        "serviceId": "ace0b745-7a1b-4a4b-9279-85fa1f8ad0ea",
+        "serviceName": "astra-gateway",
+        "state": "online",
+        "statusText": "Online",
+        "activeDeployments": [
+          {
+            "id": "55628ded-e112-4811-b42f-f84fe4cbaa21",
+            "status": "SUCCESS",
+            "createdAt": "2026-11-17T19:24:47.946Z",
+            "statusUpdatedAt": "2026-11-17T19:25:04.731Z"
+          }
+        ],
+        "replicaStatus": {
+          "running": 1,
+          "crashed": 0,
+          "total": 1
+        },
+        "cronJob": null,
+        "issues": {
+          "warningCount": 0,
+          "criticalCount": 0
+        },
+        "recentFailures": 0,
+        "recentFailedDeployments": [],
+        "hasIssues": false,
+        "isCronJob": false,
+        "hasVolume": true
+      },
+      {
+        "serviceId": "860efe48-d6f6-41ed-bb1b-815dfccbd54c",
+        "serviceName": "astra-landing",
+        "state": "online",
+        "statusText": "Online",
+        "activeDeployments": [
+          {
+            "id": "a66d4b43-473e-4723-9c3d-f33736aa6511",
+            "status": "SUCCESS",
+            "createdAt": "2026-11-16T00:05:08.858Z",
+            "statusUpdatedAt": "2026-11-16T00:05:15.758Z"
+          }
+        ],
+        "replicaStatus": {
+          "running": 1,
+          "crashed": 0,
+          "total": 1
+        },
+        "cronJob": null,
+        "issues": {
+          "warningCount": 0,
+          "criticalCount": 0
+        },
+        "recentFailures": 0,
+        "recentFailedDeployments": [],
+        "hasIssues": false,
+        "isCronJob": false,
+        "hasVolume": false
+      },
+      {
+        "serviceId": "eaccbe8a-c711-4c85-9944-662f78515a98",
+        "serviceName": "astra-cakto-webhook",
+        "state": "online",
+        "statusText": "Online",
+        "activeDeployments": [
+          {
+            "id": "0b4a2e3d-ec99-4b7f-8447-e0c107d07059",
+            "status": "SUCCESS",
+            "createdAt": "2026-11-15T15:11:01.726Z",
+            "statusUpdatedAt": "2026-11-15T15:11:07.432Z"
+          }
+        ],
+        "replicaStatus": {
+          "running": 1,
+          "crashed": 0,
+          "total": 1
+        },
+        "cronJob": null,
+        "issues": {
+          "warningCount": 0,
+          "criticalCount": 0
+        },
+        "recentFailures": 0,
+        "recentFailedDeployments": [],
+        "hasIssues": false,
+        "isCronJob": false,
+        "hasVolume": false
+      },
+      {
+        "serviceId": "2d64600b-1d0b-447e-acd3-3109b0e8339c",
+        "serviceName": "astra-svg-preflight-temp",
+        "state": "cronSucceeded",
+        "statusText": "Last run succeeded",
+        "activeDeployments": [
+          {
+            "id": "5b0fe349-ee23-4cb2-9521-9da4703479b3",
+            "status": "SUCCESS",
+            "createdAt": "2026-11-15T15:06:55.972Z",
+            "statusUpdatedAt": "2026-11-15T15:07:00.545Z"
+          }
+        ],
+        "replicaStatus": {
+          "running": 0,
+          "crashed": 0,
+          "total": 1
+        },
+        "cronJob": {
+          "lastExecutionStatus": "succeeded",
+          "lastExecutionAt": "2026-11-17T19:30:43.721Z"
+        },
+        "issues": {
+          "warningCount": 0,
+          "criticalCount": 0
+        },
+        "recentFailures": 0,
+        "recentFailedDeployments": [],
+        "hasIssues": false,
+        "isCronJob": true,
+        "hasVolume": false
+      },
+      {
+        "serviceId": "dfe29bd1-ec22-483a-8c92-438e152e9605",
+        "serviceName": "astra-postgres",
+        "state": "online",
+        "statusText": "Online",
+        "activeDeployments": [
+          {
+            "id": "77c9611a-8eb9-4fa6-823a-e719c37037ba",
+            "status": "SUCCESS",
+            "createdAt": "2026-11-07T12:21:34.904Z",
+            "statusUpdatedAt": "2026-11-07T12:21:40.026Z"
+          }
+        ],
+        "replicaStatus": {
+          "running": 1,
+          "crashed": 0,
+          "total": 1
+        },
+        "cronJob": null,
+        "issues": {
+          "warningCount": 0,
+          "criticalCount": 0
+        },
+        "recentFailures": 0,
+        "recentFailedDeployments": [],
+        "hasIssues": false,
+        "isCronJob": false,
+        "hasVolume": true
+      }
+    ],
+    "pendingWork": [],
+    "summary": {
+      "totalServices": 5,
+      "servicesWithIssues": 0,
+      "totalFailures": 0
+    }
+  }
+}

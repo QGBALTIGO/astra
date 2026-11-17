@@ -1,12 +1,16 @@
 # Infraestrutura, configuração e recuperação
 
-Revisão em 2026-11-17, sobre o candidato local `4336bd2`. Somente leitura de runtime, configurações e testes existentes; o único arquivo criado nesta frente é esta nota. Não houve nova chamada a produção, deploy, alteração de variável, backup de dados reais nem repetição das suítes já aprovadas. O SHA final publicado pelo coordenador pode diferir do SHA local por metadados do commit; prevalecem a árvore e os gates registrados no relatório principal.
+Revisão em 2026-11-17, inicialmente sobre o candidato local `4336bd2`, atualizada com os resultados do CI integrado abaixo. Somente leitura de runtime, configurações, testes e evidências; esta frente modifica apenas documentação. Não houve chamada a produção por esta frente, deploy, alteração de variável, backup de dados reais nem repetição das suítes já aprovadas. Prevalecem a árvore e os gates identificados no relatório principal.
+
+Último head de código verificado: `43118c019e3d08bc3adea9f4887481c09fe4ee48`, árvore `3947f33a813cc38514b0a6f27013811e48549289`, com resultados terminais registrados ao final desta nota. O retrato de produção abaixo permanece uma observação separada, com seu próprio horário e imagem.
 
 ## Evidência disponível de produção
 
 O coordenador informou uma réplica na região `iad`, volume do gateway em `/app/data` de 500 MB e PostgreSQL/pgvector 16 com volume de 500 MB. O healthcheck configurado aponta para `/health`; a leitura retornou HTTP 200 com `degraded`, enquanto `/health/ready` retornou HTTP 200 com `ready`.
 
 O inventário de nomes contém `AUTH_TYPE`, `OWNPILOT_DATA_DIR`, `ASTRA_RELEASE_BACKUP_LABEL`, `OWNPILOT_ENCRYPTION_KEY` e `ENCRYPTION_KEY`. Os valores estão ocultos. Não foi encontrado `OWNPILOT_DISABLE_DATA_ENCRYPTION` nesse inventário. Não foi observada configuração `drainingSeconds` nem a variável `RAILWAY_DEPLOYMENT_DRAINING_SECONDS`. Essas observações não comprovam valores, destino efetivo dos arquivos, conclusão de um backup nem capacidade livre dos volumes.
+
+O coordenador atualizou o retrato de produção às **19:32:56 UTC**, no arquivo `production-final-state.json` desta pasta. A imagem observada passou a ser `ghcr.io/qgbaltigo/astra:sha-6d939b28b97129de58087a1742d5c343b99e2156`, deployment `55628ded-e112-4811-b42f-f84fe4cbaa21`, criado às 19:24:47 UTC e com status `SUCCESS`. O arquivo registra uma réplica em execução em `iad`, nenhuma mudança staged e o mesmo healthcheck `/health`. Essa implantação foi externa à revisão; o arquivo não comprova quem a iniciou. **Ela não é o candidato final `43118c0` validado no CI desta nota.** As limitações de configuração, draining e recuperação abaixo continuam pendentes; o status de deploy não as elimina.
 
 ## Pontos que condicionam a liberação
 
@@ -48,6 +52,8 @@ O inventário não é completo: `db/data-encryption.ts:104` aceita `OWNPILOT_DIS
 As sete tabelas de `CRITICAL_TABLES` são `settings`, `conversations`, `messages`, `user_extensions`, `ui_sessions`, `expenses` e `usage_records`. Não incluem `customer_accounts`, `customer_plans` nem `customer_goal_requests`. O boot aplica esses schemas, mas o probe não é uma verificação contínua completa deles.
 
 No candidato, respostas públicas dos probes omitem topologia e diagnósticos; diagnósticos de sandbox/dependências ficam sob guard administrativo. A observação de `degraded` é compatível com vários estados, inclusive sandbox indisponível; sem diagnóstico autenticado não se pode atribuir a causa.
+
+Para uma futura conferência autorizada do guard administrativo, foi mapeado somente em código `GET /api/v1/health/live`: o prefixo `/api/*` passa pelos guards em `app.ts`, o registro de rotas monta o handler de liveness e sua resposta contém apenas `status: ok`. Não consulta registros de clientes nem executa operação de negócio. O caminho público `/health/live` não serve para essa comparação. Nesta frente não foi feita a requisição a produção; foi apenas descrito ao coordenador como comparar status, descartando o corpo, sem cookies e com header sintético inválido. Proxy/cache e a configuração API efetiva ainda precisam ser considerados na interpretação de um eventual resultado.
 
 O Dockerfile também define healthcheck em `/health`. A documentação Railway informa que seu healthcheck de serviço aceita resposta 2xx durante a ativação e não faz monitoramento contínuo posterior. Um volume anexado impede que dois deployments compartilhem simultaneamente o mesmo volume e implica uma pequena interrupção na troca. Portanto, nem `ready` nem esta configuração fundamentam promessa de implantação sem interrupção. Fonte: [Railway — Healthchecks](https://docs.railway.com/deployments/healthchecks), consultada nesta revisão.
 
@@ -93,6 +99,41 @@ O encerramento é **limitado para o canal**, não globalmente: `server.close()` 
 A documentação Railway diferencia overlap de draining: este último é o intervalo SIGTERM→SIGKILL e seu default é zero. A proposta `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30`, uma réplica e overlap zero continua sendo pré-requisito operacional a configurar e verificar; não foi aplicada por esta revisão. Fontes: [Deployment Teardown](https://docs.railway.com/deployments/deployment-teardown) e [Variables Reference](https://docs.railway.com/variables/reference), consultadas nesta revisão.
 
 Operações que excedem o prazo permanecem incertas e geram aviso. Não há, no trecho revisado, garantia de replay após hard crash de toda mensagem, lease distribuída da sessão ou coordenação de múltiplos escritores WhatsApp. A restrição de uma réplica e recuperação conciliada deve permanecer explícita. O backup pré-start e os testes de restore não eliminam esses limites.
+
+## Evidência de CI e recuperação no candidato integrado
+
+O [CI 44158009253](https://github.com/QGBALTIGO/astra/actions/runs/44158009253) terminou com success às **19:31:14 UTC**, e o [Dashboard release 44158009324](https://github.com/QGBALTIGO/astra/actions/runs/44158009324) terminou com success às **19:25:15 UTC**. Ambos executaram o head `3e50657ffbc4bbef13c6239b9242471937af1c4b`, árvore `110af807ce183a2801dafcd43f770b0338482583`.
+
+| Gate observado                              | Evidência e limite                                                                                                                                                                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Migração pgvector/PG16                      | Job aprovado; 32 tabelas críticas conferidas, segunda aplicação do schema idempotente, verificações de outbox/claims/expiração/dedup, privacidade, acesso WhatsApp, OTP e metas. Os testes usam banco de CI. |
+| Boot do gateway                             | Job aprovado; `/health/ready` chegou a ready aproximadamente seis segundos após o início do probe. Isso comprova o boot desse ambiente de teste, não todas as integrações externas.                          |
+| Recuperação/delivery no Linux               | Etapa independente aprovada: 9 arquivos, 107 testes.                                                                                                                                                         |
+| Backup unitário no Dashboard release        | 1 arquivo, 25 testes aprovados.                                                                                                                                                                              |
+| Integrações PostgreSQL no Dashboard release | 5 arquivos, 35 testes aprovados, incluindo o teste real de `release-backup.pg.test.ts` que restaura banco e arquivos privados para destinos isolados e verifica a ausência de archive plaintext.             |
+| Demais contratos do Dashboard release       | 11 arquivos/252 testes de contratos e 2 arquivos/15 testes de referrals aprovados; script de referência manual também terminou sem falha.                                                                    |
+
+Os números são de etapas distintas e não devem ser somados a suítes locais como se fossem casos únicos. Mensagens SQL de violação de constraints aparecem em cenários negativos aprovados; não são falha terminal dos jobs.
+
+Esses gates validam mecanismos de recuperação com dados, chaves e diretórios sintéticos. Não constituem restauração de produção, conferência do manifest atual, prova de cópia externa, medição de espaço livre, reconexão real do WhatsApp ou exercício de SIGTERM/SIGKILL na Railway. As limitações operacionais identificadas acima permanecem.
+
+### Revalidação intermediária após plural e contador
+
+O head de código posterior `f1c8b1302ce511102fa0e74ee6a36bcadb9df3d2` contém somente o ajuste de plural do Radar e o contador do resumo de smoke em relação a `3e50657`. O [CI 44159910672](https://github.com/QGBALTIGO/astra/actions/runs/44159910672) terminou com **success às 19:41:03 UTC**, e o [Dashboard release 44159910780](https://github.com/QGBALTIGO/astra/actions/runs/44159910780) terminou com **success às 19:35:48 UTC**, em 2026-11-17, ambos com esse head confirmado.
+
+Os cinco jobs executados do CI foram aprovados; somente o job condicional `Coverage report` foi ignorado. A migração confirmou novamente as 32 tabelas críticas, e o boot chegou a ready em aproximadamente 16 segundos. A recuperação/delivery aprovou 9 arquivos/107 testes. O Dashboard release repetiu 25 testes unitários de backup, 35 de integração PG, 252 de contratos e 15 de referrals, todos aprovados. Os resultados gerais e a inspeção visual, esta mantida no artifact anterior de autenticação, estão em `auth-ui.md`.
+
+Essa revalidação não executou qualquer operação em produção, não altera o retrato da imagem `6d939b2` e não encerra as pendências operacionais de draining, persistência, backup externo e configuração efetiva. Um commit posterior apenas de documentação deve ser distinguido do head de código testado.
+
+### Head final após integração do branding externo
+
+O candidato final `43118c019e3d08bc3adea9f4887481c09fe4ee48` integra o branding/PWA externo de `83fecbc` sem remover os guards corrigidos. O [CI 44163054826](https://github.com/QGBALTIGO/astra/actions/runs/44163054826) terminou com **success às 19:57:18 UTC**, e o [Dashboard release 44163054765](https://github.com/QGBALTIGO/astra/actions/runs/44163054765) terminou com **success às 19:53:34 UTC**, em 2026-11-17. Os metadados dos dois runs confirmam esse head.
+
+Os cinco jobs executados do CI aprovaram; o job condicional `Coverage report` foi ignorado. A migração conferiu novamente as 32 tabelas e os cenários de outbox, OTP/isolamento, metas e ledger. O boot chegou a ready em aproximadamente 10 segundos. Recuperação/delivery PG aprovou 9 arquivos/107 testes; Dashboard release repetiu 25 testes unitários de backup, 35 de integração PG, 252 de contratos e 15 de referrals. O CI de navegador aprovou 176 testes após incluir o caso novo de PWA/ícones. Esses resultados não são somados como casos únicos às execuções anteriores.
+
+A coordenação também registrou `static-http-probe.json`, produzido com o gateway e UI compilados desse head, HTTP somente loopback, política de autenticação de bind externo e configuração sintética. Ícones e manifesto responderam 200 com MIME e revalidação corretos; asset JavaScript com hash manteve cache imutável; o liveness administrativo recusou ausência/chave inválida e aceitou a chave sintética válida. O probe não iniciou banco nem provedores e não contatou produção. As correções de expectativas do fixture estão preservadas na evidência e não representam alteração do produto. A revisão dos guards e os limites do teste PWA estão detalhados em `auth-ui.md`.
+
+O head de CI não muda a imagem observada em produção no retrato das 19:32:56 UTC e não comprova draining configurado, caminho efetivo, espaço livre ou backup externo. Commit posterior apenas de documentação deve ser distinguido do código verificado.
 
 ## Conclusão desta frente
 
