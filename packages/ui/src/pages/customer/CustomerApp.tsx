@@ -543,12 +543,12 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
                 alt="Astra"
               />
             </button>
-            <button className="global-search" onClick={() => setCommandOpen(true)}>
-              <Search size={17} />
-              <span>Buscar no seu espaço</span>
-              <kbd>⌘ K</kbd>
-            </button>
             <div className="topbar-actions">
+              <button className="search-trigger global-search" onClick={() => setCommandOpen(true)}>
+                <Search size={17} />
+                <span>Buscar no seu espaço</span>
+                <kbd>⌘ K</kbd>
+              </button>
               <button
                 className="icon-button"
                 aria-label="Atualizar meus dados"

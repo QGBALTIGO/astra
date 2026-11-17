@@ -114,6 +114,68 @@ describe('investment book refresh integration', () => {
     expect(versions).toEqual([]);
   });
 
+  it.each([1, 2])(
+    'preserves a new draft after a local save when a delayed refresh returns version %s',
+    async (returnedVersion) => {
+      const initial = stored;
+      await render();
+      await start('Carteira salva');
+      await dom.submit();
+      expect(stored.storageVersion).toBe(2);
+      await dom.click(dom.button('Mais opções de investimentos'));
+      await dom.click(dom.container.querySelector<HTMLButtonElement>('.invest-options button')!);
+      await dom.click(dom.button('Carteiras'));
+      await dom.fill(dom.field('Nome da carteira'), 'Novo rascunho');
+      const field = dom.field('Nome da carteira');
+      const pending = deferred<Response>();
+      nextRead = pending;
+      await render(1);
+      expect(field.value).toBe('Novo rascunho');
+      await act(async () =>
+        pending.resolve(bookResponse(returnedVersion === 1 ? initial : stored))
+      );
+      expect(dom.field('Nome da carteira')).toBe(field);
+      expect(field.value).toBe('Novo rascunho');
+      expect(versions).toEqual([1]);
+      await dom.submit();
+      expect(versions).toEqual([1, 2]);
+      expect(stored.state.portfolios.map((portfolio) => portfolio.name)).toEqual([
+        'Carteira salva',
+        'Novo rascunho',
+      ]);
+    }
+  );
+
+  it('preserves a loaded draft when refresh fails and retries without remounting it', async () => {
+    await render();
+    await start('Rascunho durante falha');
+    const field = dom.field('Nome da carteira');
+    const pending = deferred<Response>();
+    nextRead = pending;
+    await render(1);
+    await act(async () =>
+      pending.resolve(
+        response(
+          {
+            success: false,
+            error: { code: 'UNAVAILABLE', message: 'Falha ao atualizar a carteira.' },
+          },
+          503
+        )
+      )
+    );
+    expect(dom.field('Nome da carteira')).toBe(field);
+    expect(field.value).toBe('Rascunho durante falha');
+    expect(dom.container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Falha ao atualizar a carteira.'
+    );
+    await dom.click(dom.button('Tentar novamente'));
+    expect(dom.field('Nome da carteira')).toBe(field);
+    expect(field.value).toBe('Rascunho durante falha');
+    expect(dom.container.querySelector('[role="alert"]')).toBeNull();
+    expect(versions).toEqual([]);
+  });
+
   it('recovers from a 409 after reading the current book and submits the new storage version', async () => {
     await render();
     await start('Minha carteira');

@@ -192,6 +192,7 @@ export default function InvestmentsPage(p: {
   readonly: boolean;
   hidden: boolean;
   notify: (message: string) => void;
+  onCommitted?: (storageVersion: number) => void;
 }) {
   const [loaded] = useState(() => p.initialBook);
   const storageVersion = useRef(p.initialBook.storageVersion);
@@ -359,6 +360,7 @@ export default function InvestmentsPage(p: {
       storageVersion.current = book.storageVersion;
       latestState.current = book.state;
       setState(book.state);
+      p.onCommitted?.(book.storageVersion);
       setPageError('');
       if (message) p.notify(message);
     } finally {

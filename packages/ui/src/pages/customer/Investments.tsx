@@ -1,8 +1,47 @@
+import { useEffect, useState } from 'react';
 import { CustomerError, CustomerSkeleton } from './components';
 import { useCustomerQuery } from './hooks';
 import type { Customer } from './types';
-import { fetchInvestmentBook } from './investments/investment-api';
+import { fetchInvestmentBook, type InvestmentBook } from './investments/investment-api';
 import InvestmentsPage from './investments/InvestmentsPage';
+
+function InvestmentBookView({
+  book,
+  customer,
+  notify,
+}: {
+  book: InvestmentBook;
+  customer: Customer;
+  notify: (message: string, error?: boolean) => void;
+}) {
+  const [current, setCurrent] = useState(() => ({ book, latestVersion: book.storageVersion }));
+  useEffect(() => {
+    setCurrent((previous) =>
+      book.storageVersion > previous.latestVersion
+        ? { book, latestVersion: book.storageVersion }
+        : previous
+    );
+  }, [book]);
+  return (
+    <InvestmentsPage
+      // A GET that catches up with a confirmed local save must retain its drafts.
+      // Only a newer external book replaces the mounted page.
+      key={current.book.storageVersion}
+      accountId={customer.accountId}
+      initialBook={current.book}
+      onCommitted={(storageVersion) =>
+        setCurrent((previous) =>
+          storageVersion > previous.latestVersion
+            ? { ...previous, latestVersion: storageVersion }
+            : previous
+        )
+      }
+      readonly={!customer.access.canWrite}
+      hidden={customer.hideAmounts}
+      notify={notify}
+    />
+  );
+}
 
 export function CustomerInvestments({
   customer,
@@ -22,18 +61,21 @@ export function CustomerInvestments({
     revision
   );
   if (!active) return null;
-  if (book.error) return <CustomerError error={book.error} onRetry={book.retry} />;
-  if (!book.data) return <CustomerSkeleton label="Carregando sua carteira…" />;
+  if (!book.data)
+    return book.error ? (
+      <CustomerError error={book.error} onRetry={book.retry} />
+    ) : (
+      <CustomerSkeleton label="Carregando sua carteira…" />
+    );
   return (
-    <InvestmentsPage
-      // Query refreshes retain the prior book while loading. Adopt only a new
-      // server version, preserving drafts when the stored book is unchanged.
-      key={`${customer.accountId}-${book.data.storageVersion}`}
-      accountId={customer.accountId}
-      initialBook={book.data}
-      readonly={!customer.access.canWrite}
-      hidden={customer.hideAmounts}
-      notify={notify}
-    />
+    <>
+      {book.error && <CustomerError error={book.error} onRetry={book.retry} />}
+      <InvestmentBookView
+        key={customer.accountId}
+        book={book.data}
+        customer={customer}
+        notify={notify}
+      />
+    </>
   );
 }
