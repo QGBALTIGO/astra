@@ -61,7 +61,7 @@ import { referralsApi } from './referrals-api';
 import { CustomerTransactions, TransactionDetail } from './Transactions';
 import { CustomerCategories } from './Categories';
 import { CustomerAgenda } from './Agenda';
-import { CustomerProfile } from './Profile';
+import { CustomerProfile, type CustomerPreferenceKey } from './Profile';
 import { CustomerConnectedApps } from './ConnectedApps';
 import { CustomerRadar } from './Radar';
 import type {
@@ -177,6 +177,39 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [customer, setCustomer] = useState(initialCustomer);
+  const customerRef = useRef(customer);
+  customerRef.current = customer;
+  const onUpdated = useCallback(
+    (updated: Customer, baseline: Customer, fields?: readonly CustomerPreferenceKey[]) => {
+      if (
+        updated.accountId !== initialCustomer.accountId ||
+        updated.dataUserId !== initialCustomer.dataUserId
+      ) {
+        window.dispatchEvent(new Event(CUSTOMER_SESSION_EXPIRED));
+        return;
+      }
+      setCustomer((previous) => {
+        // A read started before another update must not undo preferences, even
+        // if a preference was toggled twice and returned to its starting value.
+        const preference = <K extends CustomerPreferenceKey>(key: K): Customer[K] =>
+          (fields ? fields.includes(key) : previous === baseline) ? updated[key] : previous[key];
+        return {
+          ...updated,
+          phoneNumber:
+            previous.phoneNumber === baseline.phoneNumber
+              ? updated.phoneNumber
+              : previous.phoneNumber,
+          access: previous.access === baseline.access ? updated.access : previous.access,
+          currency: previous.currency === baseline.currency ? updated.currency : previous.currency,
+          displayName: preference('displayName'),
+          timeZone: preference('timeZone'),
+          theme: preference('theme'),
+          hideAmounts: preference('hideAmounts'),
+        };
+      });
+    },
+    [initialCustomer.accountId, initialCustomer.dataUserId]
+  );
   const [collapsed, setCollapsed] = useState(false),
     [commandOpen, setCommandOpen] = useState(false),
     [commandQuery, setCommandQuery] = useState(''),
@@ -248,6 +281,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
     const controller = new AbortController();
     refreshController.current = controller;
     const sequence = ++refreshSequence.current;
+    const baseline = customerRef.current;
     setRefreshing(true);
     try {
       const result = await customerApi.session(controller.signal);
@@ -261,7 +295,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
           window.dispatchEvent(new Event(CUSTOMER_SESSION_EXPIRED));
           return;
         }
-        setCustomer(result.customer);
+        onUpdated(result.customer, baseline);
         setRevision((value) => value + 1);
       }
     } catch (failure) {
@@ -274,7 +308,7 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
     } finally {
       if (!controller.signal.aborted && sequence === refreshSequence.current) setRefreshing(false);
     }
-  }, [initialCustomer.accountId, initialCustomer.dataUserId]);
+  }, [initialCustomer.accountId, initialCustomer.dataUserId, onUpdated]);
   useEffect(() => {
     const whenVisible = () => {
       if (document.visibilityState === 'visible') void refresh();
@@ -321,7 +355,6 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
     check();
     return () => clearTimeout(timer);
   }, [customer.access.status, customer.access.expiresAt]);
-  const onUpdated = useCallback((updated: Customer) => setCustomer(updated), []);
   const changed = useCallback((text: string) => {
     setRevision((value) => value + 1);
     setNotice({ text });
@@ -334,9 +367,10 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
     if (hideLock.current) return;
     hideLock.current = true;
     setHiding(true);
+    const baseline = customer;
     try {
       const result = await customerApi.updateProfile({ hideAmounts: !customer.hideAmounts });
-      setCustomer((previous) => ({ ...previous, hideAmounts: result.profile.hideAmounts }));
+      onUpdated(result.profile, baseline, ['hideAmounts']);
     } catch (error) {
       setNotice({
         text: error instanceof Error ? error.message : 'Não foi possível alterar a privacidade.',
@@ -350,11 +384,12 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
   const toggleTheme = async () => {
     if (themeBusy) return;
     setThemeBusy(true);
+    const baseline = customer;
     try {
       const result = await customerApi.updateProfile({
         theme: theme === 'light' ? 'dark' : 'light',
       });
-      setCustomer((previous) => ({ ...previous, theme: result.profile.theme }));
+      onUpdated(result.profile, baseline, ['theme']);
     } catch (error) {
       setNotice({
         text: error instanceof Error ? error.message : 'Não foi possível alterar o tema.',

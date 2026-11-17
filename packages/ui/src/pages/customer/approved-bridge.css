@@ -230,3 +230,15 @@ html[data-astra-input='keyboard']
 #astra-approved-dashboard[data-theme='light'] .transaction-value > .pending-label {
   color: #926110;
 }
+
+/* Pale blue fallback avatars need readable initials without changing the white hero. */
+#astra-approved-dashboard[data-theme='light'] .top-avatar,
+#astra-approved-dashboard[data-theme='light'] .sidebar-profile .avatar {
+  color: #4262a8;
+}
+
+/* Small record captions stay readable on the selected card's pale blue fill. */
+#astra-approved-dashboard[data-theme='light'] .invest-record-card[aria-pressed='true'] > span,
+#astra-approved-dashboard[data-theme='light'] .invest-record-card[aria-pressed='true'] > small {
+  color: #5c687e;
+}

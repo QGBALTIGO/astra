@@ -28,6 +28,8 @@ import {
 import { useCustomerTheme } from './hooks';
 import type { Customer, CustomerSession } from './types';
 
+export type CustomerPreferenceKey = 'displayName' | 'timeZone' | 'theme' | 'hideAmounts';
+
 export function CustomerProfile({
   customer,
   avatarUrl,
@@ -41,7 +43,11 @@ export function CustomerProfile({
   avatarUrl: string | null;
   active: boolean;
   revision: number;
-  onUpdated: (profile: Customer) => void;
+  onUpdated: (
+    profile: Customer,
+    baseline: Customer,
+    fields?: readonly CustomerPreferenceKey[]
+  ) => void;
   onChanged: (message: string) => void;
   onSignOut: () => Promise<void>;
 }) {
@@ -57,7 +63,11 @@ export function CustomerProfile({
   }, [active, location.search, location.hash, navigate]);
   const profile = useCustomerQuery(
     'profile',
-    (signal) => customerApi.profile(signal),
+    async (signal) => {
+      const baseline = customer;
+      const result = await customerApi.profile(signal);
+      return { ...result, baseline };
+    },
     active,
     revision
   );
@@ -80,6 +90,7 @@ export function CustomerProfile({
     [zone, setZone] = useState(customer.timeZone);
   const resolvedTheme = useCustomerTheme(customer.theme);
   const [phoneChange, setPhoneChange] = useState(false);
+  const phoneChangeBaseline = useRef<Customer | null>(null);
   const [revoke, setRevoke] = useState<CustomerSession | 'others' | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +98,7 @@ export function CustomerProfile({
   const lock = useRef(false);
   const current = customer;
   useEffect(() => {
-    if (profile.data) onUpdated(profile.data.profile);
+    if (profile.data) onUpdated(profile.data.profile, profile.data.baseline);
   }, [profile.data, onUpdated]);
   const renewalUrl = safeLink(integrations.data?.renewalUrl) ?? 'https://pay.cakto.com.br/CubL455';
   const supportUrl = safeLink(integrations.data?.supportUrl);
@@ -163,9 +174,10 @@ export function CustomerProfile({
     lock.current = true;
     setBusy('profile');
     setError(null);
+    const baseline = customer;
     try {
       const result = await customerApi.updateProfile(input);
-      onUpdated(result.profile);
+      onUpdated(result.profile, baseline, Object.keys(input) as CustomerPreferenceKey[]);
       onChanged('Preferências atualizadas.');
     } catch (failure) {
       setError(
@@ -267,7 +279,10 @@ export function CustomerProfile({
                     className="secondary-button"
                     type="button"
                     disabled={Boolean(busy) || !current.access.canWrite}
-                    onClick={() => setPhoneChange(true)}
+                    onClick={() => {
+                      phoneChangeBaseline.current = customer;
+                      setPhoneChange(true);
+                    }}
                   >
                     Alterar telefone
                   </button>
@@ -561,7 +576,7 @@ export function CustomerProfile({
           canWrite={current.access.canWrite}
           onClose={() => setPhoneChange(false)}
           onChanged={(updated) => {
-            onUpdated(updated);
+            onUpdated(updated, phoneChangeBaseline.current ?? customer, []);
             setPhoneChange(false);
             onChanged('Número atualizado. Seu histórico foi preservado.');
           }}

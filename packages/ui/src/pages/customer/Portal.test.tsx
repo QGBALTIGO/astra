@@ -387,6 +387,25 @@ describe('customer refresh and session changes', () => {
 });
 
 describe('customer header actions and shared photo', () => {
+  it('keeps values hidden when an older profile read arrives afterward', async () => {
+    const profileResponse = deferred<{ profile: Customer }>();
+    api.profile.mockReturnValueOnce(profileResponse.promise);
+    await mount('/cliente/perfil');
+    await dom.click(dom.button('Ocultar valores'));
+    expect(dom.button('Mostrar valores')).toBeDefined();
+    await act(async () => profileResponse.resolve({ profile: customerFixture }));
+    expect(dom.button('Mostrar valores')).toBeDefined();
+  });
+  it('keeps values hidden when an older session refresh arrives afterward', async () => {
+    await mount();
+    const sessionResponse = deferred<{ customer: Customer }>();
+    api.session.mockReturnValueOnce(sessionResponse.promise);
+    await dom.click(dom.button('Atualizar meus dados'));
+    await dom.click(dom.button('Ocultar valores'));
+    expect(dom.button('Mostrar valores')).toBeDefined();
+    await act(async () => sessionResponse.resolve({ customer: customerFixture }));
+    expect(dom.button('Mostrar valores')).toBeDefined();
+  });
   it('keeps values hidden when an older theme response arrives afterward', async () => {
     await mount();
     const themeResponse = deferred<{ profile: Customer }>();
