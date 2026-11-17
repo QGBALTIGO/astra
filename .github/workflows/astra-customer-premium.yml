@@ -34,7 +34,20 @@ jobs:
           pnpm --filter @ownpilot/ui exec vitest run src/pages/customer
           pnpm --filter @ownpilot/ui build
       - name: Install browser engines and accessibility auditor
+        timeout-minutes: 8
+        env:
+          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '60000'
         run: |
+          # GitHub's regional EC2 mirror stalled repeatedly during qualification.
+          # Keep signed Ubuntu packages, use official HTTPS mirrors, and fail
+          # with bounded retries instead of hanging the entire release.
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/80-astra-download-timeouts >/dev/null
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          if [ -f /etc/apt/apt-mirrors-security.txt ]; then
+            printf '%s\n' 'https://security.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors-security.txt >/dev/null
+          fi
           pnpm --filter @ownpilot/ui exec playwright install chromium firefox webkit --with-deps
           npm ci --prefix landing --ignore-scripts --no-audit --no-fund
       - name: Exercise production build, login, records, expiry, layout and accessibility
