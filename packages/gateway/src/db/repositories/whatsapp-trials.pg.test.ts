@@ -255,7 +255,7 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)(
         );
       if (kind === 'asset')
         await clients[0]!.query(
-          "INSERT INTO channel_assets(id,channel_message_id,channel_plugin_id,platform,platform_chat_id,type,storage_path,sha256,expires_at) VALUES('prior','prior','channel.whatsapp','whatsapp',$1,'image','synthetic','synthetic',NOW()+INTERVAL '1 hour')",
+          "INSERT INTO channel_assets(id,channel_message_id,channel_plugin_id,platform,platform_chat_id,type,mime_type,storage_path,sha256,expires_at) VALUES('prior','prior','channel.whatsapp','whatsapp',$1,'image','image/png','synthetic','synthetic',NOW()+INTERVAL '1 hour')",
           [phone]
         );
       if (kind === 'notice')
