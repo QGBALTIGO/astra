@@ -54,7 +54,7 @@ export const ONBOARDING_BACKLOG_SQL = `SELECT
           AND n.platform_user_id=u.platform_user_id AND n.kind='approved'
           AND n.access_granted_at IS NOT DISTINCT FROM u.access_granted_at
           AND n.access_expires_at IS NOT DISTINCT FROM u.access_expires_at
-          AND n.status='delivered' AND n.delivery_id IS NOT NULL
+          AND n.status='delivered' AND NULLIF(BTRIM(n.delivery_id),'') IS NOT NULL
       )
   ) AS overdue_welcome`;
 

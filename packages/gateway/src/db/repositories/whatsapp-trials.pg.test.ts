@@ -156,6 +156,14 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)(
         );
         expect((await onboardingProbe()).overdue_welcome, status).toBe(true);
       }
+      for (const emptyReceipt of ['', '   ']) {
+        await clients[0]!.query(
+          `UPDATE channel_access_notifications SET status='delivered',delivery_id=$2
+          WHERE channel_user_id=$1 AND kind='approved'`,
+          [id, emptyReceipt]
+        );
+        expect((await onboardingProbe()).overdue_welcome).toBe(true);
+      }
       await clients[0]!.query(
         `UPDATE channel_access_notifications SET status='delivered',delivery_id='synthetic-confirmed'
         WHERE channel_user_id=$1 AND kind='approved'`,
