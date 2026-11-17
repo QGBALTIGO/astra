@@ -9,6 +9,11 @@ import type { Result } from '../../types/result.js';
 import type { InternalError } from '../../types/errors.js';
 import { OpenAICompatibleProvider, providerRateLimitRetryDelayMs } from './openai-compatible.js';
 
+// Provider tests stub HTTP and must also control DNS: a disconnected runner or
+// an egress proxy must not change whether the real SSRF guard permits a fixture.
+const dnsLookupMock = vi.hoisted(() => vi.fn());
+vi.mock('node:dns/promises', () => ({ lookup: dnsLookupMock }));
+
 // Mock configs module — vi.hoisted ensures the fns exist before the hoisted vi.mock runs
 const { mockLoadProviderConfig, mockResolveProviderConfig } = vi.hoisted(() => ({
   mockLoadProviderConfig: vi.fn(),
@@ -126,6 +131,7 @@ function mockFetchStream(chunks: string[], ok = true, status = 200) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  dnsLookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
 
@@ -355,6 +361,31 @@ describe('OpenAICompatibleProvider', () => {
   // complete
   // -------------------------------------------------------------------------
   describe('complete', () => {
+    it.each([
+      ['private-provider.example', [{ address: '10.0.0.5', family: 4 }]],
+      [
+        'mixed-provider.example',
+        [
+          { address: '93.184.216.34', family: 4 },
+          { address: '::ffff:169.254.169.254', family: 6 },
+        ],
+      ],
+    ])('does not send credentials when %s resolves internally', async (host, addresses) => {
+      dnsLookupMock.mockResolvedValue(addresses);
+      const fetchMock = mockFetchResponse({ choices: [{ message: { content: 'hi' } }] });
+      vi.stubGlobal('fetch', fetchMock);
+      const provider = new OpenAICompatibleProvider({
+        ...mockConfig,
+        baseUrl: `https://${host}/v1`,
+      });
+
+      const result = await provider.complete(makeRequest());
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toContain('private/internal');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('blocks a private/internal base URL (SSRF) when local LLMs are not opted in', async () => {
       delete process.env.OWNPILOT_ALLOW_LOCAL_LLM_URL;
       const fetchMock = mockFetchResponse({ choices: [{ message: { content: 'hi' } }] });

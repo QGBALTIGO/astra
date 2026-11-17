@@ -43,6 +43,60 @@ function normalizedMime(mime: string): string {
   return mime.toLowerCase().split(';', 1)[0]?.trim() ?? '';
 }
 
+/** Reject obvious content/MIME mismatches before sharing bytes with a provider.
+ * Container signatures do not replace the provider's codec/format validation.
+ */
+function hasExpectedMediaContent(data: Uint8Array, mime: string): boolean {
+  const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  const at = (offset: number, value: string) =>
+    bytes.subarray(offset, offset + value.length).toString('ascii') === value;
+  switch (mime) {
+    case 'image/jpeg':
+      return bytes.length >= 16 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    case 'image/png':
+      return (
+        bytes.length >= 33 &&
+        bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+        at(12, 'IHDR')
+      );
+    case 'image/webp':
+      return (
+        bytes.length >= 20 &&
+        at(0, 'RIFF') &&
+        at(8, 'WEBP') &&
+        bytes.readUInt32LE(4) + 8 <= bytes.length
+      );
+    case 'audio/ogg':
+    case 'audio/opus': {
+      if (bytes.length < 28 || !at(0, 'OggS') || bytes[4] !== 0) return false;
+      const segments = bytes[26]!;
+      if (!segments || bytes.length < 27 + segments) return false;
+      let pageSize = 27 + segments;
+      for (let index = 27; index < 27 + segments; index++) pageSize += bytes[index]!;
+      return pageSize <= bytes.length;
+    }
+    case 'audio/wav':
+    case 'audio/x-wav':
+      return bytes.length >= 44 && at(0, 'RIFF') && at(8, 'WAVE');
+    case 'audio/mpeg':
+    case 'audio/mp3':
+      return (
+        bytes.length >= 10 && (at(0, 'ID3') || (bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0))
+      );
+    case 'audio/mp4':
+    case 'audio/x-m4a':
+      return bytes.length >= 16 && at(4, 'ftyp');
+    case 'audio/webm':
+      return (
+        bytes.length >= 16 && bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
+      );
+    case 'audio/flac':
+      return bytes.length >= 42 && at(0, 'fLaC');
+    default:
+      return false;
+  }
+}
+
 function safeString(value: unknown, max = 180): string {
   return typeof value === 'string'
     ? value
@@ -180,7 +234,12 @@ export async function inspectWhatsAppImage(
   caption: string
 ): Promise<ImageFinding | null> {
   const mime = normalizedMime(mimeType);
-  if (!IMAGE_TYPES.has(mime) || !data.length || data.length > MAX_IMAGE_BYTES) return null;
+  if (
+    !IMAGE_TYPES.has(mime) ||
+    data.length > MAX_IMAGE_BYTES ||
+    !hasExpectedMediaContent(data, mime)
+  )
+    return null;
   try {
     const result = await readGroqImage(data, mime, caption);
     if (result) return result;
@@ -201,7 +260,8 @@ export async function transcribeWhatsAppAudio(
   const key = process.env.GROQ_API_KEY;
   const mime = normalizedMime(mimeType);
   const ext = AUDIO_EXTENSIONS[mime];
-  if (!key || !ext || !data.length || data.length > MAX_AUDIO_BYTES) return null;
+  if (!key || !ext || data.length > MAX_AUDIO_BYTES || !hasExpectedMediaContent(data, mime))
+    return null;
   try {
     const form = new FormData();
     form.append('model', 'whisper-large-v3-turbo');
@@ -295,17 +355,6 @@ export async function enrichWhatsAppMedia(
 ): Promise<NormalizedIncoming> {
   if (message.platform !== 'whatsapp' || !message.attachments?.length) return incoming;
   const originals = message.attachments;
-  if (
-    !originals.some(
-      (a) =>
-        isAudio(a.type, a.mimeType) ||
-        isSupportedImage(a.type, a.mimeType) ||
-        normalizedMime(a.mimeType) === 'application/pdf'
-    )
-  ) {
-    return incoming;
-  }
-
   const caption = incoming.text === '[Attachment]' ? '' : incoming.text;
   const parts: string[] = caption ? [caption] : [];
   let audioCount = 0;
@@ -314,19 +363,31 @@ export async function enrichWhatsAppMedia(
   let understood = 0;
   let failureReply: string | undefined;
   let userSpeech: string | undefined;
+  let hasUntrustedContent = false;
   for (const att of originals) {
     if (isAudio(att.type, att.mimeType)) {
       if (++audioCount > 1) {
         parts.push('Recebi mais de um áudio. Envie um de cada vez para evitar erros.');
         continue;
       }
-      if (!att.data?.length || att.data.length > MAX_AUDIO_BYTES) {
+      if (
+        !att.data?.length ||
+        att.data.length > MAX_AUDIO_BYTES ||
+        !hasExpectedMediaContent(att.data, normalizedMime(att.mimeType))
+      ) {
         failureReply =
           'Recebi seu áudio, mas o arquivo não ficou disponível para ouvir. Pode reenviar o áudio ou escrever o pedido?';
-        parts.push('Não consegui baixar ou aceitar esse áudio. Envie um áudio menor.');
+        parts.push(
+          'Não consegui baixar ou aceitar esse áudio. Confira o formato e envie um áudio de até 12 MB.'
+        );
         continue;
       }
-      const result = await (hooks.transcribe ?? transcribeWhatsAppAudio)(att.data, att.mimeType);
+      let result: string | null = null;
+      try {
+        result = await (hooks.transcribe ?? transcribeWhatsAppAudio)(att.data, att.mimeType);
+      } catch {
+        // An unavailable provider has no transcript and cannot authorize a write.
+      }
       if (result) userSpeech = safeString(result, 6_000);
       if (result) understood++;
       else
@@ -344,12 +405,15 @@ export async function enrichWhatsAppMedia(
       }
       let result: string | null = null;
       try {
-        if (att.data?.length) result = await (hooks.readPdf ?? readWhatsAppPdf)(att.data);
+        if (att.data?.length && att.data.length <= MAX_PDF_BYTES)
+          result = await (hooks.readPdf ?? readWhatsAppPdf)(att.data);
       } catch {
         /* Invalid, protected and unreadable documents have no extracted facts. */
       }
-      if (result) understood++;
-      else
+      if (result) {
+        understood++;
+        hasUntrustedContent = true;
+      } else
         failureReply =
           'Recebi seu PDF, mas não consegui ler o texto. Pode enviar um PDF com texto selecionável ou uma foto da página que quer analisar?';
       parts.push(
@@ -363,15 +427,28 @@ export async function enrichWhatsAppMedia(
         parts.push('Limite de três fotos por mensagem. Envie as demais separadamente.');
         continue;
       }
-      if (!att.data?.length || att.data.length > MAX_IMAGE_BYTES) {
+      if (
+        !att.data?.length ||
+        att.data.length > MAX_IMAGE_BYTES ||
+        !hasExpectedMediaContent(att.data, normalizedMime(att.mimeType))
+      ) {
         failureReply =
           'Recebi sua imagem, mas o arquivo não ficou disponível para analisar. Pode reenviar a foto?';
-        parts.push('Não consegui baixar ou aceitar essa foto. Envie uma imagem de até 8 MB.');
+        parts.push(
+          'Não consegui baixar ou aceitar essa foto. Confira o formato e envie uma imagem de até 8 MB.'
+        );
         continue;
       }
-      const result = await (hooks.inspect ?? inspectWhatsAppImage)(att.data, att.mimeType, caption);
-      if (result) understood++;
-      else
+      let result: ImageFinding | null = null;
+      try {
+        result = await (hooks.inspect ?? inspectWhatsAppImage)(att.data, att.mimeType, caption);
+      } catch {
+        // Never manufacture extracted facts after a provider failure.
+      }
+      if (result) {
+        understood++;
+        hasUntrustedContent = true;
+      } else
         failureReply =
           'Recebi sua imagem, mas não consegui ler os detalhes. Pode reenviar uma foto mais nítida ou escrever os dados que quer conferir?';
       parts.push(
@@ -379,19 +456,17 @@ export async function enrichWhatsAppMedia(
           ? formatImageFinding(result)
           : 'Não consegui analisar essa imagem agora. Reenvie uma foto mais legível ou descreva o conteúdo.'
       );
+    } else {
+      failureReply =
+        'Ainda não consigo ler esse formato de arquivo. Envie uma foto JPEG, PNG ou WebP, um áudio compatível ou um PDF com texto selecionável.';
+      parts.push(failureReply);
     }
   }
-
-  const remaining = incoming.attachments?.filter(
-    (att) =>
-      !isAudio(att.type, att.mimeType ?? '') &&
-      !isSupportedImage(att.type, att.mimeType ?? '') &&
-      normalizedMime(att.mimeType ?? '') !== 'application/pdf'
-  );
   return {
     ...(!understood && failureReply ? { failureReply } : {}),
     ...(userSpeech ? { userSpeech } : {}),
+    ...(hasUntrustedContent ? { hasUntrustedContent: true } : {}),
     text: parts.join('\n\n') || 'Não consegui entender o arquivo enviado.',
-    attachments: remaining?.length ? remaining : undefined,
+    attachments: undefined,
   };
 }

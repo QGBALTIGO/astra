@@ -35,7 +35,13 @@ OwnPilot implements multiple layers of security:
 
 ### Encryption & Privacy
 
-- **AES-256-GCM** encryption for personal memories with PBKDF2 key derivation
+- The core privacy vault supports **AES-256-GCM** with PBKDF2 key derivation.
+  This does not imply that every gateway record uses that vault: the gateway's
+  `MemoriesRepository` currently stores memory content as PostgreSQL `TEXT`, without
+  application-level field encryption. Its confidentiality depends on server-side
+  ownership checks, database access controls and the deployment's storage protection.
+  The optional encrypted release backup is a separate mechanism; verify volume and
+  backup protection in the actual deployment before making an at-rest encryption claim.
 - **PII detection** across 15+ categories (SSN, credit cards, emails, phone numbers, etc.)
 - Zero-dependency crypto implementation using only Node.js built-ins
 

@@ -737,6 +737,29 @@ describe('PomodoroRepository', () => {
       expect(await repo.getStreak()).toBe(3);
     });
 
+    it.each(['America/Campo_Grande', 'America/Sao_Paulo', 'Asia/Tokyo', 'America/New_York'])(
+      'preserves calendar-day streaks across year and DST boundaries in %s',
+      async (timeZone) => {
+        vi.stubEnv('TZ', timeZone);
+        vi.useFakeTimers();
+        try {
+          for (const [today, dates] of [
+            ['2026-01-01T12:00:00Z', ['2025-12-31', '2025-12-30']],
+            ['2026-03-09T12:00:00Z', ['2026-03-08', '2026-03-07']],
+          ] as const) {
+            vi.setSystemTime(new Date(today));
+            mockAdapter.query.mockResolvedValueOnce(
+              dates.map((date) => makeDailyStatsRow({ date, completed_sessions: 1 }))
+            );
+            expect(await repo.getStreak()).toBe(2);
+          }
+        } finally {
+          vi.useRealTimers();
+          vi.unstubAllEnvs();
+        }
+      }
+    );
+
     it('should query for completed_sessions > 0 ordered by date DESC', async () => {
       mockAdapter.query.mockResolvedValueOnce([]);
 

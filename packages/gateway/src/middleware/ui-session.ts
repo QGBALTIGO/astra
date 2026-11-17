@@ -63,6 +63,8 @@ function shouldEnforceCsrf(method: string, source: string): boolean {
 }
 
 export interface UiSessionMiddlewareOptions {
+  /** True only when a downstream middleware validates API keys or JWTs. */
+  apiAuthEnabled?: boolean;
   /**
    * Preserve the passwordless single-user flow only when the gateway is local
    * or API authentication is explicitly disabled. Exposed gateways with
@@ -73,7 +75,7 @@ export interface UiSessionMiddlewareOptions {
 }
 
 export function createUiSessionMiddleware(options: UiSessionMiddlewareOptions = {}) {
-  const { allowImplicitOwnerWithoutPassword = true } = options;
+  const { allowImplicitOwnerWithoutPassword = true, apiAuthEnabled = false } = options;
 
   return createMiddleware(async (c, next) => {
     const fullPath = c.req.path;
@@ -116,7 +118,7 @@ export function createUiSessionMiddleware(options: UiSessionMiddlewareOptions = 
       const hasAuthHeader = c.req.header('Authorization');
       const hasApiKey = c.req.header('X-API-Key');
 
-      if (!hasAuthHeader && !hasApiKey) {
+      if (!apiAuthEnabled || (!hasAuthHeader && !hasApiKey)) {
         return apiError(
           c,
           { code: ERROR_CODES.UNAUTHORIZED, message: 'Authentication required' },
@@ -124,8 +126,8 @@ export function createUiSessionMiddleware(options: UiSessionMiddlewareOptions = 
         );
       }
 
-      // Password configured + Authorization/X-API-Key present: let the API auth
-      // middleware validate the credential.
+      // Delegate only when the application actually mounted API authentication.
+      // An arbitrary header must never bypass a configured UI password in mode none.
       return next();
     }
 

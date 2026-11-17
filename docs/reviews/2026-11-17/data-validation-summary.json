@@ -1,0 +1,301 @@
+{
+  "baseCommit": "7915ecdd9933b55183b511f5718030b1d34e5304",
+  "branch": "audit/member-readiness-20261117",
+  "environment": "isolated local PostgreSQL 16.4; fictional fixtures; no external transport/provider or production access",
+  "runs": {
+    "unit": {
+      "success": true,
+      "passed": 1939,
+      "failed": 0,
+      "skipped": 0,
+      "files": [
+        {
+          "file": "packages/gateway/src/channels/astra-lab-regression.test.ts",
+          "status": "passed",
+          "passed": 14,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/channel-ai-routing-access.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/channel-ai-routing-concurrency.test.ts",
+          "status": "passed",
+          "passed": 16,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/tool-selection.test.ts",
+          "status": "passed",
+          "passed": 88,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/agent-tool-registry.test.ts",
+          "status": "passed",
+          "passed": 112,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/channel-reminder-tools.test.ts",
+          "status": "passed",
+          "passed": 1052,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/customer-finance-tools.test.ts",
+          "status": "passed",
+          "passed": 31,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/customer-integration-tools.test.ts",
+          "status": "passed",
+          "passed": 29,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/customer-planning-tools.test.ts",
+          "status": "passed",
+          "passed": 14,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/tools/expense-tools.test.ts",
+          "status": "passed",
+          "passed": 26,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/channel-asset-store.test.ts",
+          "status": "passed",
+          "passed": 13,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/channel-reminder-worker.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/customer-integration-data.test.ts",
+          "status": "passed",
+          "passed": 16,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/customer-integration-policy.test.ts",
+          "status": "passed",
+          "passed": 29,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/customer-integrations.test.ts",
+          "status": "passed",
+          "passed": 31,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/channel-reminders-reliability.test.ts",
+          "status": "passed",
+          "passed": 4,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-agenda.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-finance.test.ts",
+          "status": "passed",
+          "passed": 37,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-planning.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/normalizers/media-understanding.test.ts",
+          "status": "passed",
+          "passed": 26,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/routes/customer/agenda.test.ts",
+          "status": "passed",
+          "passed": 29,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/routes/customer/connected-apps.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/routes/customer/finance.test.ts",
+          "status": "passed",
+          "passed": 34,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/agent/prompt.test.ts",
+          "status": "passed",
+          "passed": 59,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/agent/service.test.ts",
+          "status": "passed",
+          "passed": 181,
+          "skipped": []
+        }
+      ]
+    },
+    "postgres": {
+      "success": true,
+      "passed": 1182,
+      "failed": 0,
+      "skipped": 3,
+      "files": [
+        {
+          "file": "packages/gateway/src/channels/calendar-mutation.pg.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/personal-subscriptions.pg.test.ts",
+          "status": "passed",
+          "passed": 511,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/channels/personal-tasks.pg.test.ts",
+          "status": "passed",
+          "passed": 506,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/channel-assets-integrity.pg.test.ts",
+          "status": "passed",
+          "passed": 4,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/channel-reminders-delivery.pg.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/channel-reminders-range.pg.test.ts",
+          "status": "passed",
+          "passed": 1,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-finance-sync.pg.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-goals.pg.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-investments.pg.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-radar.pg.test.ts",
+          "status": "passed",
+          "passed": 55,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/customer-referrals.pg.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/memory-integrity.pg.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/planning-concurrency.pg.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/planning-integrity.pg.test.ts",
+          "status": "passed",
+          "passed": 12,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/db/repositories/reminder-selection.pg.test.ts",
+          "status": "passed",
+          "passed": 1,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/routes/customer/radar.pg.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/radar/http.pg.test.ts",
+          "status": "passed",
+          "passed": 16,
+          "skipped": []
+        },
+        {
+          "file": "packages/gateway/src/services/radar/startup.pg.test.ts",
+          "status": "passed",
+          "passed": 0,
+          "skipped": [
+            "dedicated Radar worker with actual pgvector schema boots in standalone mode and stops cleanly without starting another channel gateway",
+            "dedicated Radar worker with actual pgvector schema boots in thread mode and stops cleanly without starting another channel gateway",
+            "dedicated Radar worker with actual pgvector schema boots in compiled-thread mode and stops cleanly without starting another channel gateway"
+          ]
+        }
+      ]
+    }
+  },
+  "radarComponentBenchmark": {
+    "accounts": 500,
+    "follows": 1500,
+    "resources": 3,
+    "queued": 500,
+    "errorCount": 0,
+    "elapsedMs": 814,
+    "accountsPerSecond": 615,
+    "batch100": {
+      "p50Ms": 116.96,
+      "p95Ms": 332.44,
+      "p99Ms": 332.44
+    },
+    "nodeHeapMb": 64,
+    "note": "local PostgreSQL/evaluator only; no API/WhatsApp/production capacity claim"
+  }
+}

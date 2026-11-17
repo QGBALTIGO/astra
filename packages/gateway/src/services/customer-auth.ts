@@ -121,6 +121,7 @@ function deviceLabel(userAgent: string): string {
 export class CustomerAuthService {
   private readonly d: AuthDependencies;
   private running = false;
+  private lastCodeCleanupAt: number | null = null;
   constructor(dependencies: Partial<AuthDependencies> = {}) {
     this.d = {
       accounts: customerAccountsRepo,
@@ -513,6 +514,16 @@ export class CustomerAuthService {
     if (this.running) return;
     this.running = true;
     try {
+      const now = this.d.now();
+      const timestamp = now.getTime();
+      if (
+        this.lastCodeCleanupAt === null ||
+        timestamp - this.lastCodeCleanupAt >= 60_000 ||
+        timestamp < this.lastCodeCleanupAt
+      ) {
+        await this.d.auth.clearExpiredChallengeCodes(now);
+        this.lastCodeCleanupAt = timestamp;
+      }
       this.d.secret();
       if (!this.connectedChannel()) return;
       for (const challenge of await this.d.auth.claimDeliveries(this.d.now())) {

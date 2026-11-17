@@ -853,6 +853,19 @@ async function main() {
     // 1. Stop accepting new HTTP connections
     (server as Server).close();
 
+    // Stop new scheduled sends, finish accepted channel turns and flush
+    // transport credentials before tearing down the dependencies they use.
+    stopDailyGreetingWorker();
+    stopEmailDigestWorker();
+    stopChannelReminderWorker();
+    stopChannelAccessNotificationWorker();
+    stopCustomerOtpWorker();
+    try {
+      await channelService.shutdown();
+    } catch {
+      log.warn('Channel shutdown did not complete cleanly');
+    }
+
     // 2. Stop WebSocket gateway
     try {
       await wsGateway.stop();
@@ -901,12 +914,7 @@ async function main() {
       log.warn('Autonomy engine stop error', { error: String(e) });
     }
 
-    // Stop scheduled channel notifications before disconnecting database.
-    stopDailyGreetingWorker();
-    stopEmailDigestWorker();
-    stopChannelReminderWorker();
-    stopChannelAccessNotificationWorker();
-    stopCustomerOtpWorker();
+    // Stop Radar before disconnecting database.
     stopRadar();
     await stopRadarRuntime();
 

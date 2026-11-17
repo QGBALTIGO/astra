@@ -36,6 +36,16 @@ CREATE TABLE IF NOT EXISTS customer_subscription_requests (
   PRIMARY KEY (user_id, request_key)
 );
 
+-- A channel retry must not recreate a deleted goal or repeat a progress update.
+-- Keep only the operation fingerprint and ID, never the customer's goal text.
+CREATE TABLE IF NOT EXISTS customer_goal_requests (
+  user_id TEXT NOT NULL,
+  request_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  goal_id TEXT,
+  PRIMARY KEY (user_id, request_key)
+);
+
 CREATE TABLE IF NOT EXISTS customer_agenda_links (
   user_id TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('event', 'task')),

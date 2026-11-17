@@ -113,55 +113,18 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   /**
-   * Classify an error as a transient connection failure (dead/stale socket)
-   * rather than a query-level error. These are safe to retry once on a fresh
-   * pool connection: the failing socket has already been removed from the pool
-   * by pg's internal error handling, so the retry pulls a healthy connection.
-   *
-   * Covers Node socket errors (ECONNRESET/EPIPE/ETIMEDOUT), Postgres connection
-   * exception SQLSTATEs (class 08 + 57P01 admin shutdown), and the pg-pool
-   * "Connection terminated…" messages that have no machine-readable code.
-   */
-  private isTransientConnectionError(err: unknown): boolean {
-    if (!(err instanceof Error)) return false;
-    const code = (err as { code?: string }).code;
-    if (
-      code &&
-      ['ECONNRESET', 'EPIPE', 'ETIMEDOUT', '57P01', '08000', '08003', '08006'].includes(code)
-    ) {
-      return true;
-    }
-    const msg = err.message.toLowerCase();
-    return (
-      msg.includes('connection terminated') ||
-      msg.includes('connection ended') ||
-      msg.includes('server closed the connection') ||
-      msg.includes('terminating connection')
-    );
-  }
-
-  /**
    * Run a query through the transaction client (if inside one) or the pool.
    *
-   * When NOT in a transaction, a transient connection error is retried exactly
-   * once against the pool — the stale client is gone and a fresh connect
-   * succeeds. Inside a transaction we never retry: the statement is bound to a
-   * single BEGIN-scoped client, and silently re-running it on a new connection
-   * would break atomicity (and run outside the now-aborted transaction).
+   * Never replay SQL after a connection error: the server may have committed
+   * before the response was lost. query() can also perform writes (RETURNING,
+   * CTEs or functions), so its name does not prove that replay is safe. The pool
+   * replaces broken connections for later requests; retrying a business action
+   * belongs to the caller that owns its transaction and durable idempotency key.
    */
   private async runQuery(sql: string, params: QueryParams): Promise<pg.QueryResult> {
     const txClient = txClientStorage.getStore();
     const target = txClient ?? this.pool!;
-    try {
-      return await target.query(sql, params);
-    } catch (err) {
-      if (txClient || !this.isTransientConnectionError(err)) throw err;
-      log.warn(
-        '[PostgreSQL] Transient connection error — retrying once on a fresh connection:',
-        (err as Error).message
-      );
-      return await this.pool!.query(sql, params);
-    }
+    return await target.query(sql, params);
   }
 
   async query<T extends object = Row>(sql: string, params: QueryParams = []): Promise<T[]> {

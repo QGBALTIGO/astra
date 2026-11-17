@@ -14,6 +14,10 @@ const mockGetProviderService = vi.fn();
 const mockBuildSoulPrompt = vi.fn(() => '');
 const mockGetByAgentId = vi.fn(async () => null as unknown);
 const mockCountUnread = vi.fn(async () => 0 as unknown);
+const mockRegistryNames = vi.fn<() => string[]>(() => []);
+const mockRegistryUnregister = vi.fn();
+const mockGoalDefinitions: Array<{ name: string; category: string; parameters: { type: string } }> =
+  [];
 
 const mockGetEventSystem = vi.fn(() => ({
   emit: vi.fn(),
@@ -85,8 +89,8 @@ vi.mock('@ownpilot/core/tools', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   class MockToolRegistry {
     has = vi.fn(() => true);
-    getNames = vi.fn(() => []);
-    unregister = vi.fn();
+    getNames = mockRegistryNames;
+    unregister = mockRegistryUnregister;
     setConfigCenter = vi.fn();
   }
   return {
@@ -217,7 +221,7 @@ vi.mock('../../tools/agent-tool-registry.js', () => ({
   registerAllTools: vi.fn(),
   getToolDefinitions: vi.fn(() => []),
   MEMORY_TOOLS: [],
-  GOAL_TOOLS: [],
+  GOAL_TOOLS: mockGoalDefinitions,
   CUSTOM_DATA_TOOLS: [],
   PERSONAL_DATA_TOOLS: [],
   CONFIG_TOOLS: [],
@@ -410,6 +414,8 @@ function makeMockAgent(opts?: {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  mockRegistryNames.mockReturnValue([]);
+  mockGoalDefinitions.length = 0;
   vi.clearAllMocks();
   agentCache.clear();
   agentConfigCache.clear();
@@ -1348,6 +1354,39 @@ describe('getOrCreateDefaultAgent', () => {
 // =============================================================================
 
 describe('getOrCreateChatAgent', () => {
+  it('keeps legacy goal reads but removes legacy writers from customer tool discovery', async () => {
+    mockGoalDefinitions.push(
+      ...['create_goal', 'update_goal', 'list_goals', 'get_goal_details'].map((name) => ({
+        name,
+        category: 'Goals',
+        parameters: { type: 'object' },
+      }))
+    );
+    mockRegistryNames.mockReturnValue([
+      'core.create_goal',
+      'core.update_goal',
+      'core.list_goals',
+      'core.get_goal_details',
+      'core.create_customer_goal',
+      'core.update_customer_goal',
+    ]);
+    mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+    await mod.getOrCreateChatAgent(
+      'groq',
+      'test-model',
+      undefined,
+      null,
+      'channel:whatsapp:goal-boundary',
+      undefined,
+      true
+    );
+    expect(mockRegistryUnregister).toHaveBeenCalledWith('core.create_goal');
+    expect(mockRegistryUnregister).toHaveBeenCalledWith('core.update_goal');
+    expect(mockRegistryUnregister).not.toHaveBeenCalledWith('core.list_goals');
+    expect(mockRegistryUnregister).not.toHaveBeenCalledWith('core.get_goal_details');
+    expect(mockRegistryUnregister).not.toHaveBeenCalledWith('core.create_customer_goal');
+    expect(mockRegistryUnregister).not.toHaveBeenCalledWith('core.update_customer_goal');
+  });
   type ChatAgentTestConfig = {
     model: { maxTokens: number };
     memory: { maxTokens: number };

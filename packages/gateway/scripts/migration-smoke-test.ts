@@ -64,6 +64,7 @@ const CRITICAL_TABLES = [
   'customer_agenda_links',
   'customer_agenda_requests',
   'customer_subscription_requests',
+  'customer_goal_requests',
   'usage_records',
   // Tables used by /api/v1/edge must survive the schema squash.
   'edge_devices',

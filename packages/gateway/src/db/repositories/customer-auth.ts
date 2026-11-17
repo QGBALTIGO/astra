@@ -294,6 +294,18 @@ export class CustomerAuthRepository extends BaseRepository {
     ).changes;
   }
 
+  /** Keep throttle/audit history while removing code material after its validity ends. */
+  async clearExpiredChallengeCodes(now: Date): Promise<void> {
+    await this.execute(
+      `UPDATE customer_auth_challenges SET code_ciphertext = NULL,
+         delivery_status = CASE WHEN delivery_status IN ('pending', 'claimed', 'sending')
+           THEN 'cancelled' ELSE delivery_status END,
+         lease_token = NULL, leased_until = NULL
+       WHERE expires_at <= $1::timestamptz AND code_ciphertext IS NOT NULL`,
+      [now.toISOString()]
+    );
+  }
+
   async claimDeliveries(now: Date): Promise<CustomerChallenge[]> {
     return this.transaction(async () => {
       await this.execute(

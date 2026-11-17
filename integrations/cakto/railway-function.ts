@@ -15,7 +15,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 
-const RELEASE = 'astra-cakto-20261115-inbox-recovery-v5';
+const RELEASE = 'astra-cakto-20261117-member-readiness-v6';
 const SECRET = String(Bun.env.CAKTO_WEBHOOK_SECRET || '');
 const PRODUCT_ID = String(Bun.env.CAKTO_PRODUCT_ID || '').trim();
 const PRODUCT_NAME = String(Bun.env.CAKTO_PRODUCT_NAME || 'Astra Acessor')
@@ -270,6 +270,18 @@ async function initializeDatabase() {
   await sql`CREATE INDEX IF NOT EXISTS astra_cakto_pending_pix_created ON astra_cakto_pending_pix(generated_at DESC)`;
 }
 
+async function priorEventOutcome(tx, key) {
+  const [prior] = await tx`SELECT outcome FROM astra_cakto_events WHERE event_key=${key}`;
+  // The database may have committed a hold before the encrypted move failed.
+  // Preserve that outcome on retries so the last durable copy is not deleted.
+  return {
+    outcome:
+      typeof prior?.outcome === 'string' && prior.outcome.startsWith('held_')
+        ? prior.outcome
+        : 'duplicate',
+  };
+}
+
 // All operations for one buyer are committed together. No duplicate grant on Cakto retry.
 async function applyEvent(event, data, digest) {
   if (!RELEVANT.has(event)) return { outcome: 'ignored_event' };
@@ -304,6 +316,7 @@ async function applyEvent(event, data, digest) {
         : '';
     const generatedISO = (dateValue(data.createdAt) || when).toISOString();
     return sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`astra-cakto-order:${orderId}`},0))`;
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`astra-cakto:${phone}`},0))`;
       const existingOrder =
         await tx`SELECT phone,product_id,status FROM astra_cakto_orders WHERE order_id=${orderId} FOR UPDATE`;
@@ -325,7 +338,7 @@ async function applyEvent(event, data, digest) {
         await tx`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
         VALUES (${key},${orderId},${event},${digest},'processing')
         ON CONFLICT DO NOTHING RETURNING event_key`;
-      if (!inserted.length) return { outcome: 'duplicate' };
+      if (!inserted.length) return priorEventOutcome(tx, key);
       const orderStatus = existingOrder[0]?.status;
       const pendingStatus = existingPending[0]?.status;
       const terminal = new Set(['paid', 'refunded', 'chargedback', 'canceled']);
@@ -351,20 +364,30 @@ async function applyEvent(event, data, digest) {
   }
 
   return sql.begin(async (tx) => {
-    // A transaction advisory lock serializes this phone's renewals and revocations.
+    // Lock the order before the buyer everywhere: conflicting phone numbers
+    // for one order must be checked after the first event has committed.
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`astra-cakto-order:${orderId}`},0))`;
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`astra-cakto:${phone}`},0))`;
     const inserted =
       await tx`INSERT INTO astra_cakto_events(event_key,order_id,event_type,payload_digest,outcome)
       VALUES (${key},${orderId},${event},${digest},'processing') ON CONFLICT DO NOTHING RETURNING event_key`;
-    if (!inserted.length) return { outcome: 'duplicate' };
+    if (!inserted.length) return priorEventOutcome(tx, key);
     const existingOrder =
-      await tx`SELECT phone,product_id FROM astra_cakto_orders WHERE order_id=${orderId} FOR UPDATE`;
+      await tx`SELECT phone,product_id,status FROM astra_cakto_orders WHERE order_id=${orderId} FOR UPDATE`;
     if (
       existingOrder.length &&
       (existingOrder[0].phone !== phone || existingOrder[0].product_id !== productId)
     ) {
       await tx`UPDATE astra_cakto_events SET outcome='held_order_conflict' WHERE event_key=${key}`;
       return { outcome: 'held_order_conflict' };
+    }
+
+    // Reversals are terminal for this order. A late approval, including one
+    // with the same millisecond timestamp, cannot restore refunded money.
+    // A new purchase has its own order ID and is evaluated independently.
+    if (GRANT_EVENTS.has(event) && ['refunded', 'chargedback'].includes(existingOrder[0]?.status)) {
+      await tx`UPDATE astra_cakto_events SET outcome='ignored_reversed_order' WHERE event_key=${key}`;
+      return { outcome: 'ignored_reversed_order' };
     }
 
     if (GRANT_EVENTS.has(event)) {
@@ -512,6 +535,7 @@ function inboxOptions(env) {
 }
 const inbox = new S3Client(inboxOptions(Bun.env));
 const prefix = 'pending/v1/';
+const heldPrefix = 'held/v1/';
 function seal(value) {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', Buffer.from(inboxKey, 'hex'), iv);
@@ -566,8 +590,28 @@ async function processStored(key) {
   const entry = unseal(await inbox.file(key).arrayBuffer());
   await ensureDatabase();
   const outcomes = [];
-  for (const record of entry.records)
-    outcomes.push((await applyEvent(entry.event, record, entry.digest)).outcome);
+  const heldRecords = [];
+  for (const record of entry.records) {
+    const outcome = (await applyEvent(entry.event, record, entry.digest)).outcome;
+    outcomes.push(outcome);
+    if (outcome.startsWith('held_')) heldRecords.push({ record, outcome });
+  }
+  if (heldRecords.length) {
+    // A verified payment with incomplete/conflicting identity still needs
+    // reconciliation. Keep its minimal encrypted evidence outside the retry
+    // prefix; a worker must neither discard it nor guess a customer to grant.
+    // The deterministic destination also makes a retry after a failed delete safe.
+    await inbox.file(heldPrefix + key.slice(prefix.length)).write(
+      seal({
+        event: entry.event,
+        digest: entry.digest,
+        records: heldRecords.map(({ record }) => record),
+        outcomes: heldRecords.map(({ outcome }) => outcome),
+      })
+    );
+  }
+  // This is intentionally after both the database commit and any required
+  // manual-review write. On either failure the original durable object remains.
   await inbox.file(key).delete();
   return outcomes;
 }
@@ -575,6 +619,7 @@ async function drainInbox() {
   // Pagination keeps a poisoned or failing old entry from starving later payments.
   let startAfter;
   let processed = 0,
+    held = 0,
     failed = 0;
   for (let page = 0; page < 10; page++) {
     const listed = await inbox.list({
@@ -584,8 +629,9 @@ async function drainInbox() {
     });
     for (const object of listed.contents || []) {
       try {
-        await processStored(object.key);
-        processed++;
+        const outcomes = await processStored(object.key);
+        if (outcomes.some((outcome) => outcome.startsWith('held_'))) held++;
+        else processed++;
       } catch {
         failed++;
       }
@@ -593,7 +639,7 @@ async function drainInbox() {
     }
     if (!listed.isTruncated) break;
   }
-  console.log(JSON.stringify({ event: 'cakto_inbox_drain', processed, failed }));
+  console.log(JSON.stringify({ event: 'cakto_inbox_drain', processed, held, failed }));
   if (failed) throw new Error('Inbox has pending failures');
 }
 const noCache = {

@@ -1,0 +1,119 @@
+name: Astra member readiness regressions
+
+on:
+  pull_request:
+    paths:
+      - 'packages/gateway/src/**'
+      - 'packages/ui/src/pages/customer/**'
+      - 'packages/ui/qa-release-dashboard.mjs'
+      - 'integrations/cakto/**'
+      - '.github/workflows/astra-member-readiness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: astra-member-readiness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  persisted-boundaries:
+    name: Three-member persistence and Cakto recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: radar-local-tests-only
+          POSTGRES_DB: astratest_radar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astratest -d astratest_radar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ownpilot/core build
+      - name: Authentication, goals, finances and persisted delivery isolation
+        env:
+          ASTRA_RADAR_TEST_PORT: '5432'
+          ASTRA_REVIEW_PG_PORT: '5432'
+          ASTRA_REVIEW_PG_DATABASE: astratest_radar
+          ASTRA_REVIEW_PG_USER: astratest
+          ASTRA_REVIEW_PG_PASSWORD: radar-local-tests-only
+          ASTRA_REVIEW_PG_VECTOR: 'true'
+        run: >-
+          pnpm --filter @ownpilot/gateway exec vitest run --maxWorkers=2
+          src/db/repositories/customer-auth.pg.test.ts
+          src/db/repositories/customer-goals.pg.test.ts
+          src/db/repositories/customer-finance-sync.pg.test.ts
+          src/db/repositories/channel-reminders-delivery.pg.test.ts
+          src/db/repositories/channel-assets-integrity.pg.test.ts
+          src/db/repositories/memory-integrity.pg.test.ts
+      - name: Install the deployed Bun version outside the project
+        run: npm install --prefix "$RUNNER_TEMP/astra-bun" --no-save --no-package-lock bun@1.4.4
+      - name: Cakto signatures, duplicate and out-of-order events with real PostgreSQL
+        env:
+          ASTRA_REVIEW_PG_PORT: '5432'
+          ASTRA_REVIEW_PG_DATABASE: astratest_radar
+          ASTRA_REVIEW_PG_USER: astratest
+          ASTRA_REVIEW_PG_PASSWORD: radar-local-tests-only
+        run: '"$RUNNER_TEMP/astra-bun/node_modules/.bin/bun" test integrations/cakto/railway-function.test.mjs'
+
+  customer-visuals:
+    name: Customer screens at 320, 390, 768 and 1440 pixels
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+    defaults:
+      run:
+        shell: bash
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ownpilot/core build
+      - run: pnpm --filter @ownpilot/ui build
+      - name: Exercise real React screens with synthetic intercepted APIs
+        working-directory: packages/ui
+        run: |
+          set -euo pipefail
+          pnpm exec vite preview --host 127.0.0.1 --port 5188 > /tmp/astra-member-ui.log 2>&1 &
+          astra_ui_pid=$!
+          trap 'kill "$astra_ui_pid" || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:5188/cliente/entrar >/dev/null; then break; fi
+            sleep 1
+          done
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node --input-type=module -e 'import {chromium} from "@playwright/test"; console.log(chromium.executablePath())')"
+          node qa-release-dashboard.mjs
+      - name: Preserve screenshots and executed scenario report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: astra-member-readiness-visuals
+          path: packages/ui/test-results/release-dashboard
+          retention-days: 14
+          if-no-files-found: error

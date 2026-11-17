@@ -404,6 +404,59 @@ describe('WSGateway', () => {
       expect(mockSessionManager.create).not.toHaveBeenCalled();
     });
 
+    it.each([
+      {},
+      { authorization: 'Bearer invented-key' },
+      { cookie: 'astra_customer_session=customer-token' },
+      { cookie: 'ownpilot_ui_session=invalid-session' },
+    ] as Record<string, string>[])(
+      'requires the owner session with a UI password even when API auth is none (%j)',
+      async (headers) => {
+        vi.mocked(isPasswordConfigured).mockReturnValue(true);
+        const mod = await import('./server.js');
+        mod.setWsAuthConfig({ type: 'none' });
+        const gw = new WSGateway();
+        gw.start();
+        const socket = createMockSocket();
+
+        await getConnectionHandler()(socket, createMockRequest('/', headers));
+
+        expect(socket.close).toHaveBeenCalledWith(1008, 'Authentication required');
+        expect(mockSessionManager.create).not.toHaveBeenCalled();
+      }
+    );
+
+    it('accepts a valid owner session with a UI password and API auth disabled', async () => {
+      vi.mocked(isPasswordConfigured).mockReturnValue(true);
+      vi.mocked(validateSession).mockResolvedValueOnce(true);
+      const mod = await import('./server.js');
+      mod.setWsAuthConfig({ type: 'none' });
+      const gw = new WSGateway();
+      gw.start();
+      const socket = createMockSocket();
+
+      await getConnectionHandler()(
+        socket,
+        createMockRequest('/', { cookie: 'ownpilot_ui_session=valid-owner-session' })
+      );
+
+      expect(mockSessionManager.create).toHaveBeenCalledWith(socket);
+      expect(socket.close).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when API key authentication is configured without any keys', async () => {
+      const mod = await import('./server.js');
+      mod.setWsAuthConfig({ type: 'api-key', apiKeys: [] });
+      const gw = new WSGateway();
+      gw.start();
+      const socket = createMockSocket();
+
+      await getConnectionHandler()(socket, createMockRequest('/'));
+
+      expect(socket.close).toHaveBeenCalledWith(1008, 'Authentication required');
+      expect(mockSessionManager.create).not.toHaveBeenCalled();
+    });
+
     it('accepts a valid JWT on a passwordless WebSocket gateway', async () => {
       const secret = 's'.repeat(64);
       const token = await new SignJWT({})
@@ -1633,6 +1686,47 @@ describe('WSGateway', () => {
       expect(mockWss.handleUpgrade).not.toHaveBeenCalled();
       expect(mockSocket.write).toHaveBeenCalledWith('HTTP/1.1 401 Unauthorized\r\n\r\n');
       expect(mockSocket.destroy).toHaveBeenCalled();
+    });
+
+    it('rejects a malformed session cookie without rejecting the upgrade handler promise', async () => {
+      vi.mocked(isPasswordConfigured).mockReturnValue(true);
+      const { upgradeHandler } = setupGatewayWithUpgrade();
+      const socket = { write: vi.fn(), destroy: vi.fn() };
+      const request = {
+        url: '/ws',
+        headers: { host: 'localhost', cookie: 'ownpilot_ui_session=%' },
+        socket: { remoteAddress: '127.0.0.1' },
+      };
+
+      await expect(upgradeHandler(request, socket, Buffer.from(''))).resolves.toBeUndefined();
+
+      expect(mockWss.handleUpgrade).not.toHaveBeenCalled();
+      expect(socket.write).toHaveBeenCalledWith('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      expect(socket.destroy).toHaveBeenCalled();
+    });
+
+    it('denies the HTTP upgrade to a customer cookie when owner UI authentication is required', async () => {
+      vi.mocked(isPasswordConfigured).mockReturnValue(true);
+      const mod = await import('./server.js');
+      mod.setWsAuthConfig({ type: 'none' });
+      const { upgradeHandler } = setupGatewayWithUpgrade();
+      const socket = { write: vi.fn(), destroy: vi.fn() };
+      const request = {
+        url: '/ws',
+        headers: {
+          host: 'localhost',
+          cookie: 'astra_customer_session=customer-token',
+          authorization: 'Bearer invented-key',
+        },
+        socket: { remoteAddress: '127.0.0.1' },
+      };
+
+      await upgradeHandler(request, socket, Buffer.from(''));
+
+      expect(validateSession).not.toHaveBeenCalled();
+      expect(mockWss.handleUpgrade).not.toHaveBeenCalled();
+      expect(socket.write).toHaveBeenCalledWith('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      expect(socket.destroy).toHaveBeenCalled();
     });
   });
 

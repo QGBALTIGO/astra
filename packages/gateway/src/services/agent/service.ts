@@ -562,7 +562,11 @@ async function createChatAgentInstance(
     const customerTools = new Set([
       ...EXPENSE_TRACKER_TOOLS.map((entry) => `core.${entry.definition.name}`),
       ...MEMORY_TOOLS.map((def) => `core.${def.name}`),
-      ...GOAL_TOOLS.map((def) => `core.${def.name}`),
+      // Preserve access to legacy percentage goals without letting discovery
+      // create a second financial goal store invisible to the member portal.
+      ...GOAL_TOOLS.filter((def) => /^(?:list_|get_)/.test(def.name)).map(
+        (def) => `core.${def.name}`
+      ),
       ...PERSONAL_DATA_TOOLS.map((def) => `core.${def.name}`),
       ...CHANNEL_REMINDER_TOOLS.map((def) => `core.${def.name}`),
       ...FINANCING_TOOLS.map((def) => `core.${def.name}`),

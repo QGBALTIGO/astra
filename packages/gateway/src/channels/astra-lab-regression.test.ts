@@ -90,9 +90,10 @@ describe('Astra lab — native recurring routes and goal discovery', () => {
 
   it('keeps explicit savings goals discoverable in the real channel tool registry', () => {
     const tools = channelToolsForMessage('Quero juntar 5 mil reais para fazer uma viagem');
-    expect(tools).toContain('core.create_goal');
-    expect(tools).toContain('core.list_goals');
-    expect(tools).toContain('core.update_goal');
+    expect(tools).toContain('core.create_customer_goal');
+    expect(tools).toContain('core.list_customer_goals');
+    expect(tools).toContain('core.update_customer_goal');
+    expect(tools).not.toContain('core.create_goal');
   });
 
   it('keeps opinions and requests to write a message out of tool execution', () => {

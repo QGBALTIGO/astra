@@ -75,4 +75,6 @@ CREATE INDEX IF NOT EXISTS idx_customer_otp_ip
   ON customer_auth_challenges(ip_hash, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_customer_otp_delivery
   ON customer_auth_challenges(delivery_status, created_at) WHERE delivery_status IN ('pending', 'claimed', 'sending');
+CREATE INDEX IF NOT EXISTS idx_customer_otp_expiry
+  ON customer_auth_challenges(expires_at) WHERE code_ciphertext IS NOT NULL;
 `;

@@ -111,13 +111,15 @@ async function validateWsAuth(auth: WsAuth): Promise<boolean> {
     }
   }
 
-  // Auth explicitly disabled — mirror the HTTP middleware (auth.ts skips all
-  // checks when type === 'none').
-  if (resolvedWsAuth?.type === 'none') return true;
+  // Disabling API credentials does not disable the separate owner UI password.
+  // Its session was checked above; customer cookies never authorize this socket.
+  if (resolvedWsAuth?.type === 'none') return !isPasswordConfigured();
 
   const apiKeys = resolvedWsAuth?.apiKeys ?? process.env.API_KEYS?.split(',').filter(Boolean) ?? [];
 
   if (apiKeys.length === 0) {
+    // Explicit API-key configuration must fail closed when keys are missing.
+    if (resolvedWsAuth?.type === 'api-key') return false;
     // No API keys configured — but if UI password is set, require a valid session token
     // (the check above already failed, so reject)
     if (isPasswordConfigured()) return false;
@@ -137,7 +139,11 @@ function getCookieValue(cookieHeader: string | undefined, name: string): string 
   for (const part of cookieHeader.split(';')) {
     const [rawKey, ...rawValue] = part.trim().split('=');
     if (rawKey === name) {
-      return decodeURIComponent(rawValue.join('='));
+      try {
+        return decodeURIComponent(rawValue.join('='));
+      } catch {
+        return null;
+      }
     }
   }
   return null;

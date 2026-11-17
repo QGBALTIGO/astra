@@ -90,6 +90,46 @@ describe('isolated customer API', () => {
     await expect(customerApi.session(controller.signal)).rejects.toBe(abort);
     expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
   });
+  it('preserves cancellation while reading the response body', async () => {
+    const response = ok({ customer: { accountId: 'old-account' } });
+    const abort = new DOMException('cancelled', 'AbortError');
+    vi.spyOn(response, 'json').mockRejectedValueOnce(abort);
+    fetchMock.mockResolvedValueOnce(response);
+
+    await expect(customerApi.session()).rejects.toBe(abort);
+  });
+  it.each([200, 401])(
+    'ignores a cancelled old response with status %i after its body finishes',
+    async (status) => {
+      const listener = vi.fn();
+      window.addEventListener(CUSTOMER_SESSION_EXPIRED, listener);
+      const controller = new AbortController();
+      const response = new Response(null, { status });
+      let finishBody!: (value: unknown) => void;
+      const body = vi.spyOn(response, 'json').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finishBody = resolve;
+          })
+      );
+      fetchMock.mockResolvedValueOnce(response);
+      try {
+        const pending = customerApi.session(controller.signal);
+        await vi.waitFor(() => expect(body).toHaveBeenCalledOnce());
+        controller.abort();
+        finishBody(
+          status === 200
+            ? { success: true, data: { customer: { accountId: 'old-account' } } }
+            : { success: false, error: { code: 'UNAUTHORIZED', message: 'Expired old account' } }
+        );
+
+        await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+        expect(listener).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener(CUSTOMER_SESSION_EXPIRED, listener);
+      }
+    }
+  );
   it('reports network and malformed gateway failures without fake data', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('offline'));
     await expect(customerApi.session()).rejects.toMatchObject({ status: 0, code: 'NETWORK_ERROR' });

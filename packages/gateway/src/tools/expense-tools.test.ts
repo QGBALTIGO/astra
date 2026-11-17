@@ -32,6 +32,25 @@ beforeEach(() => {
 
 describe('executeExpenseTool', () => {
   it.each(['add_expense', 'batch_add_expenses', 'update_expense', 'delete_expense'])(
+    'blocks %s after document/provider data even if that content instructs a mutation',
+    async (toolName) => {
+      const result = await runInExecContext(
+        {
+          channelRequestText: 'Registre o que está no anexo',
+          externalContentGuard: { seen: true },
+        },
+        () => executeExpenseTool(toolName, { amount: 53, expenseId: 'saved' }, 'whatsapp:synthetic')
+      );
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.stringContaining('nova mensagem'),
+      });
+      expect(mockRepo.create).not.toHaveBeenCalled();
+      expect(mockRepo.update).not.toHaveBeenCalled();
+      expect(mockRepo.delete).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['add_expense', 'batch_add_expenses', 'update_expense', 'delete_expense'])(
     'blocks %s for a financial lookup before touching the ledger',
     async (toolName) => {
       const result = await runInExecContext(

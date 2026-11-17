@@ -418,33 +418,18 @@ export class PomodoroRepository extends BaseRepository {
     if (stats.length === 0) return 0;
 
     let streak = 0;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // "Allow for today or yesterday to count as start": anchor the walk at
-    // the most recent completed day. When that day is YESTERDAY the streak is
-    // not broken — today hasn't been missed until it ends — so the walk must
-    // start at yesterday. Anchoring at today made the first comparison always
-    // fail and reset yesterday-anchored streaks to 0 (round 22).
-    const firstStatDate = new Date(stats[0]!.date);
-    firstStatDate.setHours(0, 0, 0, 0);
-    const anchor = firstStatDate.getTime() < today.getTime() ? firstStatDate : today;
+    const now = new Date();
+    // The stored value is a calendar date, not a UTC instant. Compare calendar
+    // day numbers to avoid shifting YYYY-MM-DD to the previous local day and
+    // to keep a daylight-saving transition from changing the length of a day.
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / MS_PER_DAY;
+    const dayNumber = (date: string) => Date.parse(`${date}T00:00:00Z`) / MS_PER_DAY;
+    const anchor = dayNumber(stats[0]!.date);
+    if (!Number.isFinite(anchor) || anchor > today || today - anchor > 1) return 0;
 
     for (let i = 0; i < stats.length; i++) {
       const stat = stats[i]!;
-      const statDate = new Date(stat.date);
-      statDate.setHours(0, 0, 0, 0);
-
-      const expectedDate = new Date(anchor);
-      expectedDate.setDate(anchor.getDate() - streak);
-
-      // Allow for today or yesterday to count as start
-      if (i === 0) {
-        const diffDays = Math.floor((today.getTime() - statDate.getTime()) / MS_PER_DAY);
-        if (diffDays > 1) return 0; // Streak is broken
-      }
-
-      if (statDate.getTime() === expectedDate.getTime()) {
+      if (dayNumber(stat.date) === anchor - streak) {
         streak++;
       } else {
         break;

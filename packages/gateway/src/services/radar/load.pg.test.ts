@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
+import { appendFile } from 'node:fs/promises';
 import type { DatabaseAdapter } from '../../db/adapters/types.js';
 const state = vi.hoisted(() => ({ adapter: null as DatabaseAdapter | null }));
 vi.mock('../../db/adapters/index.js', () => ({
@@ -98,25 +99,31 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT || process.env.ASTRA_RADAR_LO
           Math.round(
             batches[Math.min(batches.length - 1, Math.ceil(batches.length * p) - 1)]! * 100
           ) / 100;
-        console.log(
-          'RADAR_COMPONENT_BENCHMARK ' +
-            JSON.stringify({
-              accounts: count,
-              follows: count * 3,
-              resources: 3,
-              queued,
-              errorCount: count - actual,
-              elapsedMs: Math.round(elapsedMs),
-              accountsPerSecond: Math.round((count / elapsedMs) * 1000),
-              batch100: {
-                p50Ms: percentile(0.5),
-                p95Ms: percentile(0.95),
-                p99Ms: percentile(0.99),
-              },
-              nodeHeapMb: Math.round(process.memoryUsage().heapUsed / 1048576),
-              note: 'local PostgreSQL/evaluator only; no API/WhatsApp/production capacity claim',
-            })
-        );
+        const benchmark = {
+          accounts: count,
+          follows: count * 3,
+          resources: 3,
+          queued,
+          errorCount: count - actual,
+          elapsedMs: Math.round(elapsedMs),
+          accountsPerSecond: Math.round((count / elapsedMs) * 1000),
+          batch100: {
+            p50Ms: percentile(0.5),
+            p95Ms: percentile(0.95),
+            p99Ms: percentile(0.99),
+          },
+          nodeHeapMb: Math.round(process.memoryUsage().heapUsed / 1048576),
+          note: 'local PostgreSQL/evaluator only; no API/WhatsApp/production capacity claim',
+        };
+        console.log('RADAR_COMPONENT_BENCHMARK ' + JSON.stringify(benchmark));
+        // Machine-readable evidence survives runners that suppress successful
+        // test stdout. Only opt-in synthetic benchmark data is written here.
+        if (process.env.ASTRA_RADAR_BENCHMARK_OUTPUT)
+          await appendFile(
+            process.env.ASTRA_RADAR_BENCHMARK_OUTPUT,
+            JSON.stringify(benchmark) + '\n',
+            { mode: 0o600 }
+          );
       },
       120000
     );

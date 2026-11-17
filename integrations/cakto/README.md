@@ -20,14 +20,15 @@ No painel Cakto, em **Integrações → Webhooks → Astra**, edite a URL, mante
 1. Validar `X-Cakto-Timestamp`, `X-Cakto-Signature` HMAC-SHA256 e o `secret` do corpo de forma segura antes de qualquer operação.
 2. Aceitar somente o produto Astra, pedido principal e eventos `purchase_approved`, `subscription_renewed` ou `subscription_late_recovered` com `status=paid` e `paidAt` para conceder acesso a `data.customer.phone`, normalizado conforme a implementação do gateway.
 3. Validade: 30 dias após pagamento. Quando expira, a própria verificação do gateway nega novas mensagens; eventos de reembolso, chargeback e cancelamento/pausa recalculam o acesso.
-4. Idempotência por tipo de evento + ID do pedido, com transação e lock de telefone. Um pagamento repetido não acrescenta 30 dias novamente. Acesso manual existente não é substituído.
+4. Idempotência por tipo de evento + ID do pedido, com transação e locks de pedido e telefone, sempre nessa ordem. Eventos concorrentes com identidades conflitantes ficam retidos para conciliação. Um pagamento repetido não acrescenta 30 dias novamente. Acesso manual existente não é substituído.
 5. `pix_gerado`: registrar pedido em `astra_cakto_pending_pix` com ID, nome, telefone e e-mail do comprador, status `pending` e data da geração. Não liberar WhatsApp. Quando `purchase_approved` chegar, vincular a intenção à compra aprovada e marcar `paid`.
-6. Ignorar boleto gerado, carrinho abandonado, produtos diferentes, upsells/order bumps e identidades inválidas.
+6. Ignorar boleto gerado, carrinho abandonado, produtos diferentes e upsells/order bumps. Identidades inválidas de eventos relevantes ficam retidas para conciliação.
 7. Não transmitir CPF, e-mail, nome completo, telefone, códigos Pix ou corpo bruto nos logs de aplicação; guardar apenas o mínimo necessário em tabelas privadas.
+8. Reembolso e chargeback são terminais para o ID do pedido: aprovação ou renovação atrasada do mesmo pedido retorna `ignored_reversed_order`, sem reativar acesso, alterar o Pix para pago nem gerar aviso de pagamento. Uma nova compra com outro ID continua elegível. A regra também vale quando as datas são iguais após arredondamento para milissegundos.
 
 ## Validação
 
-- `GET /health` retorna HTTP 200 e `pendingPixTracking: true` somente quando a função iniciou e as tabelas foram preparadas.
+- `GET /health` é uma verificação de processo: retorna HTTP 200 e `pendingPixTracking: true` quando a função iniciou. Não comprova a disponibilidade do PostgreSQL, do bucket nem a concessão de acesso; as tabelas são preparadas ao processar um evento.
 - `POST /webhooks/cakto` sem assinatura retorna HTTP 401, sem acesso ao banco.
 - Um evento real de `pix_gerado`, corretamente assinado e do produto Astra, deve responder `{"received":true,"outcomes":["pending_recorded"]}` e gravar registro privado. Não autoriza cliente.
 - O reenvio do mesmo evento deve retornar `duplicate`, sem duplicar dados ou conceder 30 dias.
@@ -51,12 +52,18 @@ Variáveis adicionais: `CAKTO_INBOX_KEY` (32 bytes hex, compartilhada e mantida 
 
 O recebimento só é confirmado após uma gravação durável. Falha no armazenamento retorna 503 e exige alerta/reenvio, pois nenhuma infraestrutura elimina indisponibilidade simultânea de todos os destinos. Eventos retidos são mantidos e os logs do worker indicam contagens de processados/falhos, sem conteúdo pessoal. A rotina pagina até 1.000 objetos por execução; backlog maior continua na execução seguinte. O bucket não tem URL pública.
 
+### Pagamentos que exigem conciliação (v6)
+
+Resultados `held_*` (por exemplo, telefone ausente, identidade conflitante ou data de pagamento ausente) não concedem acesso. Seus dados mínimos permanecem criptografados no prefixo privado `held/v1/`, junto do motivo da retenção. A cópia em `pending/v1/` só é removida após a gravação da retenção; se esta falhar, o worker tenta novamente a partir do objeto original. Entradas em `held/v1/` não são reaplicadas automaticamente. O log `cakto_inbox_drain` distingue `processed`, `held` e `failed`, sem expor dados pessoais.
+
+Antes do piloto, o operador deve acompanhar essas contagens e a existência de objetos retidos. Para conciliar, confira o pedido e o telefone no histórico autenticado da Cakto e no cadastro administrativo do Astra. Corrija a origem e reenvie o evento assinado quando houver identificação inequívoca; nunca escolha um usuário por semelhança de nome ou transfira registros de outra conta. Um conflito com pedido já associado exige análise administrativa explícita: o reenvio não deve contornar a idempotência nem as proteções existentes. A aplicação não oferece uma tela de conciliação automática. Preserve o objeto retido até concluir a análise e a política de retenção aplicável. A versão deve ser atualizada tanto no receptor quanto no worker.
+
 Testes: `node --test integrations/cakto/railway-function.test.mjs` cobre indisponibilidade do banco, reinício, integridade da criptografia, assinatura, falha do armazenamento e preservação de e-mail. Não cria pagamentos em produção.
 
 ### Validação com o runtime e banco reais
 
 `bun test integrations/cakto/railway-function.test.mjs` também verifica o endereço gerado pelo cliente S3 nativo. No modo virtual-host, `S3_ENDPOINT` recebe o nome do bucket no hostname: informar só o endpoint regional faz o Bun consultar o bucket incorreto.
 
-Com `ASTRA_REVIEW_PG_PORT`, `ASTRA_REVIEW_PG_PASSWORD` e, opcionalmente, `ASTRA_REVIEW_PG_USER`/`ASTRA_REVIEW_PG_DATABASE`, o mesmo comando executa a recuperação de um evento criptografado em PostgreSQL de teste na interface local. O teste cria um esquema exclusivo, usa os contratos reais das tabelas envolvidas e o remove ao terminar. Cobre concessão, duplicação, renovação, Pix sem pagamento, reembolso com outra compra vigente e revogação da última compra. A CI executa esse caso em seu PostgreSQL descartável.
+Com `ASTRA_REVIEW_PG_PORT`, `ASTRA_REVIEW_PG_PASSWORD` e, opcionalmente, `ASTRA_REVIEW_PG_USER`/`ASTRA_REVIEW_PG_DATABASE`, o mesmo comando executa a recuperação de um evento criptografado em PostgreSQL de teste na interface local. O teste cria um esquema exclusivo, usa os contratos reais das tabelas envolvidas e o remove ao terminar. Cobre concessão, duplicação, renovação, Pix sem pagamento, reembolso com outra compra vigente, revogação da última compra, eventos atrasados após reembolso/chargeback e associação conflitante em eventos simultâneos. A CI executa esse caso em seu PostgreSQL descartável.
 
 Os parâmetros JSON são enviados com `tx.json(...)`: serializar o objeto previamente fazia o Bun gravar uma string JSON em vez de um objeto, impedindo a criação do aviso de acesso. Uma nova renovação também recupera os campos desse formato legado. Esses testes não simulam o checkout nem o envio final do aviso no WhatsApp de produção.

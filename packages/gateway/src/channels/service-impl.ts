@@ -115,6 +115,20 @@ const log = getLog('ChannelService');
 
 class InboundPersistenceError extends Error {}
 
+async function settleWithin(operation: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation.then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Try to get ISessionService via the core capability accessor.  *
  * Trust boundary: Channel plugin responses are normalised via per-plugin normalizers before reaching this code; the casts below adapt the normalised shape to the canonical channel-event type. The normalizer is the trust boundary.
  */
@@ -176,6 +190,10 @@ export class ChannelServiceImpl implements IChannelService {
   private readonly pluginRegistry: PluginRegistry;
   private unsubscribes: Array<() => void> = [];
   private readonly sessionLocks = new Map<string, Promise<void>>();
+  private readonly incomingOperations = new Set<Promise<void>>();
+  private incomingClosed = false;
+  private shutdownOperation: Promise<{ pendingMessages: number; disconnected: boolean }> | null =
+    null;
   /** Per-(platform,platformUserId) approval-code attempt counter — wiped on success. */
   private readonly approvalAttemptCounts = new Map<string, number>();
   private static readonly MAX_APPROVAL_ATTEMPTS = 3;
@@ -471,6 +489,17 @@ export class ChannelServiceImpl implements IChannelService {
    * This is the main pipeline: auth check -> session lookup -> AI routing.
    */
   async processIncomingMessage(message: ChannelIncomingMessage): Promise<void> {
+    if (this.incomingClosed) return;
+    const operation = this.processAcceptedIncomingMessage(message);
+    this.incomingOperations.add(operation);
+    try {
+      await operation;
+    } finally {
+      this.incomingOperations.delete(operation);
+    }
+  }
+
+  private async processAcceptedIncomingMessage(message: ChannelIncomingMessage): Promise<void> {
     if (this.floodGuard.shouldDrop(message.channelPluginId, message.sender.platformUserId)) return;
     message = await resolveInboundWhatsAppSpelling(message, {
       findUser: (phone) => this.usersRepo.findByPlatform('whatsapp', phone),
@@ -1388,13 +1417,21 @@ export class ChannelServiceImpl implements IChannelService {
         });
       }
 
-      if (integrationProposal)
-        await customerIntegrationsRepo.markPromptSent(
-          integrationProposal.id,
-          dataUserId,
-          message.channelPluginId,
-          message.platformChatId
-        );
+      if (integrationProposal) {
+        try {
+          await customerIntegrationsRepo.markPromptSent(
+            integrationProposal.id,
+            dataUserId,
+            message.channelPluginId,
+            message.platformChatId
+          );
+        } catch {
+          // The proposal has already been sent. Do not append a false reply
+          // failure or overwrite it; confirmation still requires a persisted
+          // prompt_sent_at and cannot execute an unrecorded proposal.
+          log.warn('Failed to record integration proposal delivery');
+        }
+      }
       // Quality events contain no message text and dedupe against transport logs.
       await recordOutboundQuality(message.channelPluginId, sentMessageId, responseText);
 
@@ -2009,10 +2046,58 @@ export class ChannelServiceImpl implements IChannelService {
     }
   }
 
-  /**
-   * Dispose event listeners. Call during shutdown to prevent leaks.
-   */
+  /** Finish accepted turns while their dependencies and transport still exist. */
+  shutdown(
+    drainTimeoutMs = 15_000,
+    disconnectTimeoutMs = 5_000
+  ): Promise<{ pendingMessages: number; disconnected: boolean }> {
+    if (!this.shutdownOperation) {
+      this.shutdownOperation = this.drainAndDisconnect(drainTimeoutMs, disconnectTimeoutMs);
+    }
+    return this.shutdownOperation;
+  }
+
+  private async drainAndDisconnect(
+    drainTimeoutMs: number,
+    disconnectTimeoutMs: number
+  ): Promise<{ pendingMessages: number; disconnected: boolean }> {
+    const drain = async () => {
+      // The socket still receives during the drain. Include those turns rather
+      // than acknowledging and silently discarding them before disconnect.
+      while (this.incomingOperations.size > 0) {
+        await Promise.allSettled([...this.incomingOperations]);
+      }
+      this.incomingClosed = true;
+    };
+    await settleWithin(drain(), drainTimeoutMs);
+    const pendingMessages = this.incomingOperations.size;
+    this.dispose();
+    if (pendingMessages > 0) {
+      log.warn('Channel shutdown drain timed out; accepted turns remain uncertain', {
+        pendingMessages,
+      });
+    }
+    let failures = 0;
+    const disconnections = Promise.allSettled(
+      this.getChannelPlugins().map(async (plugin) => getChannelApi(plugin).disconnect())
+    ).then((results) => {
+      failures = results.filter((result) => result.status === 'rejected').length;
+    });
+    // WhatsApp.disconnect closes its socket immediately, preserves the session
+    // and awaits accepted credential writes. Bound a hung disk/adapter as well.
+    const settled = await settleWithin(disconnections, disconnectTimeoutMs);
+    if (!settled || failures > 0) {
+      log.warn('Channel disconnect did not complete cleanly', {
+        timedOut: !settled,
+        failures,
+      });
+    }
+    return { pendingMessages, disconnected: settled && failures === 0 };
+  }
+
+  /** Dispose event listeners; shutdown() also drains turns and transport state. */
   dispose(): void {
+    this.incomingClosed = true;
     for (const unsub of this.unsubscribes) {
       unsub();
     }

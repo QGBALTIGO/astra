@@ -332,6 +332,7 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
   app.use(
     '/api/*',
     createUiSessionMiddleware({
+      apiAuthEnabled: authType !== 'none',
       allowImplicitOwnerWithoutPassword: authType === 'none' || isLoopbackBind,
     })
   );

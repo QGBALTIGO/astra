@@ -25,6 +25,7 @@ describe('CustomerAuthService', () => {
     listSessions: vi.fn(),
     revokeSession: vi.fn(),
     revokeOthers: vi.fn(),
+    clearExpiredChallengeCodes: vi.fn(),
     isSessionActive: vi.fn(),
     claimDeliveries: vi.fn(),
     beginDelivery: vi.fn(),
@@ -443,6 +444,15 @@ describe('CustomerAuthService', () => {
     await service.dispatchOtps();
     expect(api.sendMessage).not.toHaveBeenCalled();
     if (reason !== 'revoked') expect(auth.claimDeliveries).not.toHaveBeenCalled();
+  });
+
+  it('cleans expired code material once per minute even while WhatsApp is disconnected', async () => {
+    api.getStatus.mockReturnValue('disconnected');
+    await service.dispatchOtps();
+    await service.dispatchOtps();
+    expect(auth.clearExpiredChallengeCodes).toHaveBeenCalledExactlyOnceWith(now);
+    expect(auth.claimDeliveries).not.toHaveBeenCalled();
+    expect(api.sendMessage).not.toHaveBeenCalled();
   });
   it.each(['transport', 'receipt'])(
     'never retries or exposes the OTP after an ambiguous %s failure',

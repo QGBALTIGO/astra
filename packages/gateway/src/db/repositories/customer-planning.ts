@@ -42,6 +42,19 @@ export type SubscriptionResult =
   | { status: 'ambiguous'; plans: CustomerPlan[] }
   | { status: 'missing' | 'replay' | 'conflict' | 'limit' | 'inactive' };
 
+type GoalFields = Pick<
+  CustomerPlanInput,
+  'title' | 'amount' | 'progress' | 'nextDueDate' | 'notes'
+>;
+export type CustomerGoalChange =
+  | ({ action: 'create' } & GoalFields)
+  | ({ action: 'update'; id: string } & Partial<GoalFields>)
+  | { action: 'remove'; id: string };
+export type CustomerGoalResult =
+  | { status: 'created' | 'updated' | 'removed'; plan: CustomerPlan }
+  | { status: 'replay'; plan: CustomerPlan | null }
+  | { status: 'missing' | 'conflict' | 'limit' | 'inactive' };
+
 export function subscriptionTitleKey(value: string): string {
   return value
     .normalize('NFD')
@@ -192,6 +205,65 @@ export class CustomerPlanningRepository extends BaseRepository {
       [this.userId]
     );
     return rows.map(map);
+  }
+
+  async goals(): Promise<CustomerPlan[]> {
+    const rows = await this.query<PlanRow>(
+      `SELECT ${PLAN_FIELDS} FROM customer_plans WHERE user_id = $1 AND kind = 'goal' ORDER BY updated_at DESC, id LIMIT 80`,
+      [this.userId]
+    );
+    return rows.map(map);
+  }
+
+  /** Same monetary goals as the portal; legacy percentage goals are untouched. */
+  async changeGoal(
+    requestKey: string,
+    change: CustomerGoalChange,
+    canWrite: () => Promise<boolean>
+  ): Promise<CustomerGoalResult> {
+    if (!requestKey || requestKey.length > 200) throw new Error('Pedido de meta inválido.');
+    const fingerprint = createHash('sha256').update(JSON.stringify(change)).digest('hex');
+    return this.transaction(async () => {
+      await this.lockPlans();
+      // Access can expire while another message or a panel edit holds the lock.
+      if (!(await canWrite())) return { status: 'inactive' };
+      const previous = await this.queryOne<{ fingerprint: string; goal_id: string | null }>(
+        'SELECT fingerprint, goal_id FROM customer_goal_requests WHERE user_id = $1 AND request_key = $2',
+        [this.userId, requestKey]
+      );
+      if (previous) {
+        if (previous.fingerprint !== fingerprint) return { status: 'conflict' };
+        const current = previous.goal_id ? await this.get(previous.goal_id) : null;
+        return { status: 'replay', plan: current?.kind === 'goal' ? current : null };
+      }
+      let result: CustomerGoalResult;
+      if (change.action === 'create') {
+        if (await this.atLimit()) return { status: 'limit' };
+        result = {
+          status: 'created',
+          plan: await this.insert(validate({ ...change, kind: 'goal' })),
+        };
+      } else {
+        const current = await this.get(change.id);
+        if (!current || current.kind !== 'goal') result = { status: 'missing' };
+        else if (change.action === 'remove') {
+          result = (await this.delete(current.id))
+            ? { status: 'removed', plan: current }
+            : { status: 'missing' };
+        } else {
+          const plan = await this.updateLocked(
+            current.id,
+            validate({ ...current, ...change, kind: 'goal' })
+          );
+          result = plan ? { status: 'updated', plan } : { status: 'missing' };
+        }
+      }
+      await this.execute(
+        'INSERT INTO customer_goal_requests (user_id, request_key, fingerprint, goal_id) VALUES ($1,$2,$3,$4)',
+        [this.userId, requestKey, fingerprint, 'plan' in result ? result.plan?.id : null]
+      );
+      return result;
+    });
   }
 
   async changeSubscription(
