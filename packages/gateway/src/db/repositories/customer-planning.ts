@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
 import { customerMoneyCents, validateCustomerFinanceDate } from './customer-finance.js';
 
+export type PlanIcon = 'flag' | 'shield' | 'plane' | 'laptop' | 'home' | 'education';
+
 export type PlanKind = 'goal' | 'budget' | 'installment' | 'subscription';
 
 export interface CustomerPlanInput {
@@ -15,6 +17,7 @@ export interface CustomerPlanInput {
   installmentsPaid?: number | null;
   nextDueDate?: string | null;
   notes?: string | null;
+  icon?: PlanIcon | null;
 }
 
 export interface CustomerPlan extends CustomerPlanInput {
@@ -59,6 +62,7 @@ interface PlanRow {
   installments_paid: number | null;
   next_due_date: string | null;
   notes: string | null;
+  icon?: PlanIcon;
   created_at: string | Date;
   updated_at: string | Date;
 }
@@ -67,7 +71,7 @@ interface PlanRow {
 // midnight to a JavaScript instant (which can fall on the previous UTC day).
 const PLAN_FIELDS =
   'id, kind, title, amount_cents, progress_cents, category_id, installments_total, installments_paid, ' +
-  "to_char(next_due_date, 'YYYY-MM-DD') AS next_due_date, notes, created_at, updated_at";
+  "to_char(next_due_date, 'YYYY-MM-DD') AS next_due_date, notes, icon, created_at, updated_at";
 
 function iso(value: string | Date): string {
   return new Date(value).toISOString();
@@ -85,6 +89,7 @@ function map(row: PlanRow): CustomerPlan {
     installmentsPaid: row.installments_paid,
     nextDueDate: row.next_due_date,
     notes: row.notes,
+    icon: row.icon ?? 'flag',
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -140,6 +145,11 @@ function validate(input: CustomerPlanInput): Required<CustomerPlanInput> {
   if (input.notes != null && (input.notes.length > 500 || /[\u0000-\u001f]/.test(input.notes))) {
     throw new Error('Observações inválidas.');
   }
+  if (
+    input.icon != null &&
+    !['flag', 'shield', 'plane', 'laptop', 'home', 'education'].includes(input.icon)
+  )
+    throw new Error('Símbolo da meta inválido.');
   return {
     kind: input.kind,
     title: input.title.trim(),
@@ -150,6 +160,7 @@ function validate(input: CustomerPlanInput): Required<CustomerPlanInput> {
     installmentsPaid,
     nextDueDate: input.nextDueDate ?? null,
     notes: input.notes?.trim() || null,
+    icon: input.icon ?? null,
   };
 }
 
@@ -287,8 +298,8 @@ export class CustomerPlanningRepository extends BaseRepository {
     const row = await this.queryOne<PlanRow>(
       `INSERT INTO customer_plans
          (id, user_id, kind, title, amount_cents, progress_cents, category_id,
-          installments_total, installments_paid, next_due_date, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING ${PLAN_FIELDS}`,
+          installments_total, installments_paid, next_due_date, notes, icon)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, 'flag')) RETURNING ${PLAN_FIELDS}`,
       [
         randomUUID(),
         this.userId,
@@ -301,6 +312,7 @@ export class CustomerPlanningRepository extends BaseRepository {
         value.installmentsPaid,
         value.nextDueDate,
         value.notes,
+        value.icon,
       ]
     );
     if (!row) throw new Error('Não foi possível salvar o planejamento.');
@@ -330,7 +342,7 @@ export class CustomerPlanningRepository extends BaseRepository {
        UPDATE customer_plans SET
           kind = $3, title = $4, amount_cents = $5, progress_cents = $6,
           category_id = $7, installments_total = $8, installments_paid = $9,
-          next_due_date = $10, notes = $11, updated_at = NOW()
+          next_due_date = $10, notes = $11, icon = COALESCE($12, icon), updated_at = NOW()
         WHERE id = $1 AND user_id = $2
           AND ($7::text IS NULL OR EXISTS (SELECT 1 FROM owned_category))
         RETURNING ${PLAN_FIELDS}`,
@@ -346,6 +358,7 @@ export class CustomerPlanningRepository extends BaseRepository {
         value.installmentsPaid,
         value.nextDueDate,
         value.notes,
+        value.icon,
       ]
     );
     if (!row && value.categoryId && (await this.get(id)))

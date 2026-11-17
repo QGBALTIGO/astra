@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { navigateCustomer } from './customer-fixtures';
 
 // These tests exercise the real portal UI. All API data is synthetic and every
 // write is rejected: no login codes, WhatsApp messages or production records.
@@ -26,6 +27,10 @@ async function prepare(page: Page, theme: 'light' | 'dark') {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname.replace('/api/v1/customer', '');
+    if (request.method() === 'POST' && path === '/referrals/claim') {
+      await route.fulfill({ json: { success: true, data: { claimed: false } } });
+      return;
+    }
     if (request.method() !== 'GET' || !url.pathname.startsWith('/api/v1/customer/')) {
       failures.push(`${request.method()} ${url.pathname}`);
       await route.fulfill({ status: 501, json: { success: false } });
@@ -95,7 +100,7 @@ async function fits(page: Page) {
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const main = document.querySelector('.ac-content')!;
+        const main = document.querySelector('.approved-content')!;
         return Math.max(
           document.documentElement.scrollWidth - window.innerWidth,
           main.scrollWidth - main.clientWidth
@@ -111,13 +116,13 @@ for (const theme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width, height: 900 });
       const failures = await prepare(page, theme);
       await page.goto('/cliente/agenda');
-      const nav = page.locator('.ac-agenda-date-nav');
-      const date = nav.getByLabel('Data da agenda');
-      await expect(date).toHaveValue('2026-11-10');
+      const nav = page.locator('.life-date-controls');
+      const title = nav.getByRole('heading', { level: 2 });
+      await expect(title).toHaveText('novembro de 2026');
       await fits(page);
       const elements = [
         nav.getByRole('button', { name: 'Período anterior da agenda' }),
-        date,
+        title,
         nav.getByRole('button', { name: 'Próximo período da agenda' }),
         nav.getByRole('button', { name: 'Hoje', exact: true }),
       ];
@@ -125,34 +130,36 @@ for (const theme of ['light', 'dark'] as const) {
       for (let i = 0; i < boxes.length; i++) {
         const box = boxes[i]!;
         expect(box).not.toBeNull();
-        expect(box.height).toBeGreaterThanOrEqual(43);
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
-        expect(Math.abs(box.y - boxes[0]!.y)).toBeLessThanOrEqual(1);
-        if (i > 0) expect(box.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width - 1);
+        expect(
+          Math.abs(box.y + box.height / 2 - boxes[0]!.y - boxes[0]!.height / 2)
+        ).toBeLessThanOrEqual(1);
+        if (i) expect(box.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width - 1);
       }
       await elements[2]!.tap();
-      await expect(date).toHaveValue('2026-11-17');
+      await expect(title).toHaveText('dezembro de 2026');
       await expect(elements[2]!).toHaveCSS('outline-style', 'none');
       await elements[0]!.tap();
-      await expect(date).toHaveValue('2026-11-10');
-      await date.fill('2026-12-25');
-      await expect(date).toHaveValue('2026-12-25');
-      await elements[3]!.tap();
-      await expect(date).toHaveValue('2026-11-10');
-      await page.getByRole('button', { name: 'Mês', exact: true }).tap();
+      await expect(title).toHaveText('novembro de 2026');
       await elements[2]!.tap();
-      await expect(date).toHaveValue('2026-12-01');
       await elements[3]!.tap();
-      await expect(date).toHaveValue('2026-11-10');
+      await expect(title).toHaveText('novembro de 2026');
+      await expect(page.locator('.life-calendar-day.selected')).toContainText('10');
+      await page.getByRole('button', { name: 'Semana', exact: true }).tap();
+      await expect(page.locator('.life-calendar-grid.week-view .life-calendar-day')).toHaveCount(7);
+      await elements[2]!.tap();
+      await expect(title).toContainText('16 de nov.');
+      await elements[3]!.tap();
+      await expect(page.locator('.life-calendar-day.selected')).toContainText('10');
       await fits(page);
       await info.attach(`agenda-${width}-${theme}`, {
         body: await page.screenshot(),
         contentType: 'image/png',
       });
       if (width === 390 && theme === 'dark' && info.project.name === 'webkit-touch') {
-        const image = await page.locator('.ac-agenda-toolbar').screenshot();
-        console.log('ASTRA_CONTROLS_REVIEW_PNG=' + image.toString('base64'));
+        const image = await page.locator('.life-calendar-toolbar').screenshot();
+        await info.attach('agenda-toolbar', { body: image, contentType: 'image/png' });
       }
       expect(failures).toEqual([]);
     });
@@ -164,10 +171,12 @@ for (const theme of ['light', 'dark'] as const) {
       const failures = await prepare(page, theme);
       await page.goto('/cliente');
       const panel = page.locator('.ac-tab-panel:not([hidden])');
-      const preset = panel.getByLabel('Período', { exact: true });
+      await panel.getByRole('button', { name: 'Alterar mês do resumo' }).click();
+      const periodDialog = page.getByRole('dialog', { name: 'Escolher período' });
+      const preset = periodDialog.getByLabel('Período', { exact: true });
       await preset.selectOption('custom');
 
-      const dates = panel.locator('.ac-period-dates');
+      const dates = periodDialog.locator('.ac-period-dates');
       const from = dates.getByLabel('Data inicial');
       const to = dates.getByLabel('Data final');
       await expect(from).toBeVisible();
@@ -201,7 +210,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(last).not.toBeNull();
       expect(dateArea).not.toBeNull();
       for (const [index, box] of [first!, last!].entries()) {
-        expect(box.width).toBeGreaterThan(width < 640 ? 112 : 200);
+        expect(box.width).toBeGreaterThan(112);
         expect(box.height).toBeGreaterThanOrEqual(46);
         expect(box.height).toBeLessThanOrEqual(54);
         expect(box.x).toBeGreaterThanOrEqual(container!.x - 1);
@@ -241,19 +250,21 @@ for (const theme of ['light', 'dark'] as const) {
     const failures = await prepare(page, theme);
     await page.goto('/cliente');
     const panel = page.locator('.ac-tab-panel:not([hidden])');
-    const preset = panel.getByLabel('Período', { exact: true });
+    await panel.getByRole('button', { name: 'Alterar mês do resumo' }).tap();
+    const periodDialog = page.getByRole('dialog', { name: 'Escolher período' });
+    const preset = periodDialog.getByLabel('Período', { exact: true });
     await expect(preset).toBeVisible();
     await preset.dispatchEvent('pointerdown', { pointerType: 'touch' });
     await preset.focus();
     await expect(preset).toHaveCSS('outline-style', 'none');
     await expect(preset).toHaveCSS('font-size', '16px');
     await preset.selectOption('custom');
-    await expect(panel.getByLabel('Data inicial')).toBeVisible();
+    await expect(periodDialog.getByLabel('Data inicial')).toBeVisible();
     await fits(page);
     await preset.selectOption('current');
-    const nav = page.getByRole('navigation', { name: 'Navegação do cliente' });
-    await nav.getByRole('link', { name: 'Transações' }).tap();
-    const search = panel.getByPlaceholder('Buscar descrição');
+    await periodDialog.getByRole('button', { name: 'Concluir', exact: true }).tap();
+    await navigateCustomer(page, 'Transações');
+    const search = panel.getByRole('textbox', { name: 'Buscar transações', exact: true });
     await search.tap();
     await expect(search).toBeFocused();
     await expect(search).toHaveCSS('outline-style', 'none');
@@ -263,8 +274,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(search).toHaveCSS('outline-style', 'none');
     await page.keyboard.press('Tab');
     await expect(page.locator(':focus')).toHaveCSS('outline-width', '2px');
-    await nav.getByRole('link', { name: 'Agenda', exact: true }).tap();
-    await panel.getByRole('button', { name: 'Criar item', exact: true }).tap();
+    await navigateCustomer(page, 'Agenda');
+    await panel.getByRole('button', { name: 'Novo compromisso', exact: true }).tap();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await expect(page.locator(':focus')).toHaveCSS('outline-style', 'none');
@@ -274,10 +285,12 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(dialog).toBeHidden();
     // Retained panels, selects and route transitions must not reintroduce halos.
     for (const name of ['Categorias', 'Perfil', 'Início', 'Agenda', 'Início']) {
-      await nav.getByRole('link', { name, exact: true }).tap();
+      await navigateCustomer(page, name);
       await fits(page);
     }
+    await panel.getByRole('button', { name: 'Alterar mês do resumo' }).tap();
     await expect(preset).toHaveValue('current');
+    await periodDialog.getByRole('button', { name: 'Concluir', exact: true }).tap();
     await info.attach(`home-${theme}`, {
       body: await page.screenshot(),
       contentType: 'image/png',

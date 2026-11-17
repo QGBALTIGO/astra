@@ -1,20 +1,29 @@
+import './approved-life-details.css';
 import { useRef, useState } from 'react';
+import { ExternalLink, RefreshCw, Mail, Folder } from '../../components/icons';
 import {
-  Calendar,
-  ExternalLink,
-  Globe,
-  RefreshCw,
-  Shield,
-  MessageSquare,
-  Mail,
-  Folder,
-  Table,
-  ListChecks,
-} from '../../components/icons';
-import { CustomerConfirm, CustomerError, CustomerSkeleton } from './components';
+  CustomerConfirm,
+  CustomerDialog,
+  CustomerEmpty,
+  CustomerError,
+  CustomerSkeleton,
+} from './components';
+import {
+  CalendarDays,
+  ChevronRight,
+  CreditCard,
+  FileSpreadsheet,
+  Info,
+  ListTodo,
+  MoreHorizontal,
+  Search,
+  Send,
+  ShieldCheck,
+  Unplug,
+} from 'lucide-react';
 import { customerApi } from './api';
 import { useCustomerQuery } from './hooks';
-import type { CustomerAppSlug } from './types';
+import type { CustomerAppSlug, CustomerConnectedApp } from './types';
 
 /** The customer session owns every grant and every refresh. */
 export function CustomerConnectedApps({
@@ -31,6 +40,9 @@ export function CustomerConnectedApps({
     (signal) => customerApi.connectedApps(signal),
     active
   );
+  const [filter, setFilter] = useState('Todos');
+  const [search, setSearch] = useState('');
+  const [selectedDetails, setDetails] = useState<CustomerConnectedApp | 'telegram' | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -127,190 +139,330 @@ export function CustomerConnectedApps({
   if (apps.loading && !apps.data) return <CustomerSkeleton />;
   if (apps.error) return <CustomerError error={apps.error} onRetry={apps.retry} />;
 
+  const appAppearance = {
+    gmail: { color: '#d85140', Icon: Mail, kind: 'Comunicação' },
+    googlecalendar: { color: '#3578e5', Icon: CalendarDays, kind: 'Produtividade' },
+    googledrive: { color: '#209a67', Icon: Folder, kind: 'Arquivos' },
+    googlesheets: { color: '#18864b', Icon: FileSpreadsheet, kind: 'Produtividade' },
+    todoist: { color: '#d44e43', Icon: ListTodo, kind: 'Produtividade' },
+    notion: { color: '#3c4657', Icon: MoreHorizontal, kind: 'Produtividade' },
+    trello: { color: '#1679c8', Icon: CreditCard, kind: 'Produtividade' },
+  };
+  const statusLabel = (app: CustomerConnectedApp) =>
+    app.status === 'connected'
+      ? 'Conectado'
+      : app.status === 'needs_attention'
+        ? 'Reconexão necessária'
+        : app.status === 'pending'
+          ? 'Em autorização'
+          : app.status === 'unavailable'
+            ? 'Aguardando ativação'
+            : 'Não conectado';
+  const shown = (apps.data?.apps ?? []).filter(
+    (app) =>
+      (filter === 'Todos' || appAppearance[app.slug].kind === filter) &&
+      (app.name + ' ' + (app.description || ''))
+        .toLocaleLowerCase('pt-BR')
+        .includes(search.toLocaleLowerCase('pt-BR'))
+  );
+  const showTelegram =
+    (filter === 'Todos' || filter === 'Comunicação') &&
+    'Telegram'.toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'));
+  const details =
+    selectedDetails && selectedDetails !== 'telegram'
+      ? apps.data?.apps.find((app) => app.slug === selectedDetails.slug) || selectedDetails
+      : selectedDetails;
+  const DetailIcon = details && details !== 'telegram' ? appAppearance[details.slug].Icon : Send;
   return (
-    <>
-      <div className="ac-connections-intro">
-        <Shield aria-hidden="true" />
+    <div className="approved-life-page">
+      <div className="page-heading">
         <div>
-          <h3>Suas contas. Sua rotina.</h3>
-          <p>
-            Conecte o que você usa e peça ao Astra pelo WhatsApp ou Telegram. Cada cliente usa
-            apenas as próprias contas.
-          </p>
+          <div className="eyebrow">SEU UNIVERSO CONECTADO</div>
+          <h1>Menos abas. Mais possibilidades.</h1>
+          <p>Seus aplicativos favoritos, mais perto do seu assessor pessoal.</p>
         </div>
+        <button className="secondary-button" type="button" onClick={apps.retry}>
+          <RefreshCw size={17} />
+          Atualizar conexões
+        </button>
       </div>
+      <section className="life-connections-intro">
+        <div>
+          <span className="life-hero-icon">
+            <Unplug size={24} />
+          </span>
+          <h2>Uma rotina que se conecta.</h2>
+          <p>Reúna o que importa em um só lugar, sempre com sua autorização e controle.</p>
+        </div>
+        <div className="life-trust-copy">
+          <ShieldCheck size={22} />
+          <span>
+            <strong>Você decide o que compartilhar.</strong>
+            <small>Acesso com escopo definido e revogação pelo provedor.</small>
+          </span>
+        </div>
+      </section>
+      {!apps.data?.configured ? (
+        <div className="life-configuration-notice">
+          <Info size={19} />
+          <div>
+            <strong>Integrações aguardando ativação</strong>
+            <p>
+              A autorização dos aplicativos depende da disponibilidade do serviço. Suas informações
+              permanecem separadas e vinculadas somente à sua conta.
+            </p>
+          </div>
+        </div>
+      ) : null}
       {error && !errorApp ? (
-        <p className="ac-field-error" role="alert">
+        <p className="field-error" role="alert">
           {error}
         </p>
       ) : null}
-      {!apps.data?.configured ? (
-        <p className="ac-muted">
-          As conexões ainda estão em configuração. Você poderá autorizar suas contas de agenda,
-          e-mail, documentos e tarefas assim que o serviço estiver pronto.
-        </p>
-      ) : null}
-      <div className="ac-connections-grid">
-        {apps.data?.apps.map((app) => {
-          const isConnected = app.status === 'connected';
-          const Icon =
-            {
-              googlecalendar: Calendar,
-              gmail: Mail,
-              googledrive: Folder,
-              googlesheets: Table,
-              todoist: ListChecks,
-              notion: Table,
-              trello: ListChecks,
-            }[app.slug] ?? Globe;
+      <div className="life-catalog-toolbar">
+        <div className="segmented-control tabs" role="group" aria-label="Filtrar aplicativos">
+          {['Todos', 'Produtividade', 'Comunicação', 'Arquivos'].map((value) => (
+            <button
+              type="button"
+              key={value}
+              className={filter === value ? 'active' : ''}
+              aria-pressed={filter === value}
+              onClick={() => setFilter(value)}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+        <label className="life-search">
+          <Search size={17} />
+          <input
+            aria-label="Buscar aplicativo"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Buscar aplicativo"
+          />
+        </label>
+      </div>
+      <div className="life-app-grid">
+        {shown.map((app) => {
+          const { Icon, color } = appAppearance[app.slug];
           return (
-            <article className="ac-connection-card" key={app.slug} aria-label={app.name}>
-              <div className="ac-connection-heading">
-                <span className="ac-connection-icon">
-                  <Icon aria-hidden="true" />
+            <article className="panel life-app-card" key={app.slug} aria-label={app.name}>
+              <div className="life-app-heading">
+                <span className="life-app-icon" style={{ color }}>
+                  <Icon size={26} strokeWidth={1.8} />
                 </span>
-                <div>
-                  <h3>{app.name}</h3>
-                  <span className={'ac-connection-status' + (isConnected ? ' is-connected' : '')}>
-                    {isConnected
-                      ? 'Conectado'
-                      : app.status === 'needs_attention'
-                        ? 'Reconexão necessária'
-                        : app.status === 'unavailable'
-                          ? 'Aguardando ativação'
-                          : app.status === 'pending'
-                            ? 'Em autorização'
-                            : 'Não conectado'}
-                  </span>
-                </div>
+                <span className={`badge ${app.status === 'connected' ? 'success' : 'neutral'}`}>
+                  {statusLabel(app)}
+                </span>
               </div>
-              <p className="ac-connection-description">
-                {app.description ?? 'Conecte sua conta para os recursos deste aplicativo.'}
+              <h2>{app.name}</h2>
+              <p>
+                {app.description ||
+                  'Conecte sua conta para utilizar os recursos deste aplicativo no Astra.'}
               </p>
-              {isConnected && (
-                <div className="ac-connection-sync">
-                  <RefreshCw aria-hidden="true" />
-                  <span>
-                    {app.lastSyncedAt
+              <button className="secondary-button" type="button" onClick={() => setDetails(app)}>
+                Ver detalhes
+                <ChevronRight size={16} />
+              </button>
+            </article>
+          );
+        })}
+        {showTelegram ? (
+          <article className="panel life-app-card" aria-label="Telegram">
+            <div className="life-app-heading">
+              <span className="life-app-icon" style={{ color: '#289bc8' }}>
+                <Send size={26} strokeWidth={1.8} />
+              </span>
+              <span className="badge">Vínculo seguro</span>
+            </div>
+            <h2>Telegram</h2>
+            <p>Mais um canal para conversar com o Astra, com suas contas e seu histórico.</p>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setDetails('telegram')}
+            >
+              Ver detalhes
+              <ChevronRight size={16} />
+            </button>
+          </article>
+        ) : null}
+      </div>
+      {!shown.length && !showTelegram ? (
+        <section className="panel">
+          <CustomerEmpty title="Nenhum aplicativo encontrado">
+            Tente buscar outro nome ou trocar o filtro.
+          </CustomerEmpty>
+        </section>
+      ) : null}
+      {details ? (
+        <CustomerDialog
+          title={details === 'telegram' ? 'Telegram' : details.name}
+          onClose={() => setDetails(null)}
+        >
+          <div className="life-connection-status">
+            <span
+              className="life-app-icon"
+              style={{
+                color: details === 'telegram' ? '#289bc8' : appAppearance[details.slug].color,
+              }}
+            >
+              <DetailIcon size={30} />
+            </span>
+            <div>
+              <span className="badge">
+                {details === 'telegram' ? 'Vínculo por código' : statusLabel(details)}
+              </span>
+              <p>
+                {details === 'telegram'
+                  ? 'Converse com o Astra em mais um canal.'
+                  : details.description}
+              </p>
+            </div>
+          </div>
+          {details === 'telegram' ? (
+            <>
+              <h3>Leve suas conexões para o Telegram</h3>
+              <p>
+                Gere um código e envie o comando na conversa particular com o bot do Astra. Não
+                compartilhe esse comando.
+              </p>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={!canWrite || busy !== null}
+                onClick={() => void linkTelegram()}
+              >
+                {busy === 'telegram' ? 'Preparando…' : 'Gerar código de vínculo'}
+              </button>
+              {telegram ? (
+                <div className="approved-connection-code" role="status">
+                  <code>{telegram.command}</code>
+                  <p>
+                    Válido até{' '}
+                    {new Intl.DateTimeFormat('pt-BR', {
+                      timeStyle: 'short',
+                      ...(apps.data?.timeZone ? { timeZone: apps.data.timeZone } : {}),
+                    }).format(new Date(telegram.expiresAt))}
+                    .
+                  </p>
+                  {telegram.botUrl &&
+                  /^https:\/\/t\.me\/[a-zA-Z0-9_]{5,32}$/.test(telegram.botUrl) ? (
+                    <a
+                      className="text-button"
+                      href={telegram.botUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Abrir o Astra no Telegram
+                      <ExternalLink size={16} />
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
+              {error && errorApp === 'telegram' ? (
+                <p className="field-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <ul className="life-permission-list">
+                <li>
+                  <ShieldCheck size={17} />A autorização acontece diretamente no provedor.
+                </li>
+                <li>
+                  <ShieldCheck size={17} />
+                  Você pode revogar o acesso quando precisar.
+                </li>
+              </ul>
+              {details.status === 'connected' ? (
+                <div className="life-configuration-notice">
+                  <RefreshCw size={18} />
+                  <p>
+                    {details.lastSyncedAt
                       ? 'Atualizado em ' +
                         new Intl.DateTimeFormat('pt-BR', {
                           dateStyle: 'short',
                           timeStyle: 'short',
                           ...(apps.data?.timeZone ? { timeZone: apps.data.timeZone } : {}),
-                        }).format(new Date(app.lastSyncedAt))
+                        }).format(new Date(details.lastSyncedAt))
                       : 'Pronto para a primeira consulta'}
-                  </span>
+                    {details.itemCount !== undefined
+                      ? ` · ${details.itemCount} registros sincronizados`
+                      : ''}
+                  </p>
                 </div>
-              )}
-              {app.syncIssue && (
-                <p className="ac-field-error" role="status">
-                  {app.syncIssue}
+              ) : null}
+              {details.syncIssue ? (
+                <p className="field-error" role="status">
+                  {details.syncIssue}
                 </p>
-              )}
-              {error && errorApp === app.slug && (
-                <p className="ac-field-error" role="alert">
+              ) : null}
+              {error && errorApp === details.slug ? (
+                <p className="field-error" role="alert">
                   {error}
                 </p>
-              )}
-              {notice?.app === app.slug && (
-                <p className="ac-field-help" role="status">
+              ) : null}
+              {notice?.app === details.slug ? (
+                <p className="form-hint" role="status">
                   {notice.text}
                 </p>
-              )}
-              <div className="ac-connection-actions">
-                {isConnected && app.connectionId ? (
+              ) : null}
+              <div className="life-modal-footer">
+                {details.status === 'connected' && details.connectionId ? (
                   <>
                     <button
-                      className="ac-button ac-button--secondary"
-                      type="button"
-                      disabled={!canWrite || busy !== null}
-                      onClick={() => void sync(app.slug)}
-                    >
-                      <RefreshCw aria-hidden="true" />
-                      {busy === app.slug ? 'Atualizando…' : 'Atualizar agora'}
-                    </button>
-                    <button
-                      className="ac-text-button"
+                      className="secondary-button"
                       type="button"
                       disabled={busy !== null}
                       onClick={() => {
-                        setErrorApp(app.slug);
+                        setErrorApp(details.slug);
                         setError(null);
-                        setConfirmId(app.connectionId);
+                        setConfirmId(details.connectionId);
                       }}
                     >
                       Desconectar
                     </button>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={!canWrite || busy !== null}
+                      onClick={() => void sync(details.slug)}
+                    >
+                      <RefreshCw size={16} />
+                      {busy === details.slug ? 'Atualizando…' : 'Atualizar agora'}
+                    </button>
                   </>
                 ) : (
                   <button
-                    className="ac-button ac-button--secondary"
+                    className="primary-button"
                     type="button"
-                    disabled={!apps.data?.configured || !canWrite || busy !== null}
-                    onClick={() => void connect(app.slug)}
+                    disabled={
+                      !apps.data?.configured ||
+                      !canWrite ||
+                      busy !== null ||
+                      details.status === 'unavailable'
+                    }
+                    onClick={() => void connect(details.slug)}
                   >
-                    {busy === app.slug
+                    {busy === details.slug
                       ? 'Conectando…'
-                      : app.status === 'pending'
+                      : details.status === 'pending'
                         ? 'Continuar autorização'
-                        : app.status === 'needs_attention'
+                        : details.status === 'needs_attention'
                           ? 'Reconectar conta'
                           : 'Conectar conta'}
-                    <ExternalLink aria-hidden="true" />
+                    <ExternalLink size={16} />
                   </button>
                 )}
               </div>
-            </article>
-          );
-        })}
-      </div>
-      {apps.data?.configured ? (
-        <p className="ac-field-help">
-          As consultas atualizam os dados sob demanda. Alterações são revisadas e confirmadas no
-          chat. Agenda e tarefas também aparecem na sua rotina do Astra. Os limites gratuitos de
-          cada aplicativo continuam valendo.
-        </p>
+            </>
+          )}
+        </CustomerDialog>
       ) : null}
-      <section className="ac-telegram-link">
-        <MessageSquare aria-hidden="true" />
-        <div>
-          <h3>Leve suas conexões para o Telegram</h3>
-          <p>
-            Use as mesmas contas e o mesmo histórico nos dois canais. Gere um código e envie o
-            comando na conversa particular com o bot do Astra.
-          </p>
-          <button
-            className="ac-button ac-button--secondary"
-            type="button"
-            disabled={!canWrite || busy !== null}
-            onClick={() => void linkTelegram()}
-          >
-            {busy === 'telegram' ? 'Preparando…' : 'Gerar código de vínculo'}
-          </button>
-          {telegram && (
-            <div className="ac-pair-command" role="status">
-              <code>{telegram.command}</code>
-              <p>Válido por 10 minutos. Não compartilhe esse comando.</p>
-              {telegram.botUrl && /^https:\/\/t\.me\/[a-zA-Z0-9_]{5,32}$/.test(telegram.botUrl) && (
-                <a
-                  className="ac-text-link"
-                  href={telegram.botUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Abrir o Astra no Telegram
-                  <ExternalLink aria-hidden="true" />
-                </a>
-              )}
-            </div>
-          )}
-          {error && errorApp === 'telegram' && (
-            <p className="ac-field-error" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-      </section>
       {confirmId ? (
         <CustomerConfirm
           title="Desconectar aplicativo?"
@@ -323,6 +475,6 @@ export function CustomerConnectedApps({
           O Astra deixará de utilizar essa conexão. Seus dados salvos no painel não serão apagados.
         </CustomerConfirm>
       ) : null}
-    </>
+    </div>
   );
 }

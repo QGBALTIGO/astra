@@ -1,3 +1,4 @@
+import './release-controls.css';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import {
   AlertCircle,
@@ -17,6 +18,62 @@ import {
   validPeriod,
 } from './helpers';
 import type { CustomerPeriod } from './types';
+
+export function CustomerTabs<T extends string>({
+  id,
+  label,
+  items,
+  value,
+  onChange,
+  panelId,
+}: {
+  id: string;
+  label: string;
+  items: readonly { id: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  panelId: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  return (
+    <div
+      className="ac-segmented segmented-control section-tabs"
+      role="tablist"
+      aria-label={label}
+      ref={ref}
+      onKeyDown={(event) => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();
+        const current = items.findIndex((item) => item.id === value);
+        const next =
+          event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? items.length - 1
+              : (current + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
+        const item = items[next];
+        if (!item) return;
+        onChange(item.id);
+        ref.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+      }}
+    >
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          role="tab"
+          id={`${id}-tab-${item.id}`}
+          aria-selected={value === item.id}
+          aria-controls={panelId}
+          tabIndex={value === item.id ? 0 : -1}
+          onClick={() => onChange(item.id)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function CustomerAvatar({
   displayName,
@@ -151,7 +208,7 @@ export function CustomerDialog({
   }, [busy, onClose]);
   return (
     <div
-      className="ac-overlay"
+      className="ac-overlay modal-backdrop"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
       }}
@@ -162,13 +219,13 @@ export function CustomerDialog({
         aria-modal="true"
         aria-labelledby={id}
         aria-busy={busy}
-        className={'ac-dialog' + (wide ? ' ac-dialog--wide' : '')}
+        className={'ac-dialog modal' + (wide ? ' ac-dialog--wide wide' : '')}
       >
-        <header className="ac-dialog-head">
+        <header className="ac-dialog-head modal-heading">
           <h2 id={id}>{title}</h2>
           <button
             type="button"
-            className="ac-icon-button"
+            className="ac-icon-button icon-button"
             aria-label="Fechar"
             disabled={busy}
             onClick={onClose}
@@ -176,8 +233,8 @@ export function CustomerDialog({
             <X aria-hidden="true" />
           </button>
         </header>
-        <div className="ac-dialog-body">{children}</div>
-        {footer ? <footer className="ac-dialog-footer">{footer}</footer> : null}
+        <div className="ac-dialog-body approved-dialog-body">{children}</div>
+        {footer ? <footer className="ac-dialog-footer modal-actions">{footer}</footer> : null}
       </div>
     </div>
   );

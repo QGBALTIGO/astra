@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS customer_plans (
   installments_paid INTEGER CHECK (installments_paid BETWEEN 0 AND 360),
   next_due_date DATE,
   notes TEXT,
+  icon TEXT NOT NULL DEFAULT 'flag' CHECK (icon IN ('flag', 'shield', 'plane', 'laptop', 'home', 'education')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT customer_plan_consistency CHECK (
@@ -22,6 +23,9 @@ CREATE TABLE IF NOT EXISTS customer_plans (
     (kind = 'subscription' AND progress_cents = 0 AND installments_total IS NULL AND installments_paid IS NULL)
   )
 );
+
+-- Additive upgrade: existing plans and all financial rows remain intact.
+ALTER TABLE customer_plans ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'flag' CHECK (icon IN ('flag', 'shield', 'plane', 'laptop', 'home', 'education'));
 
 -- Keep a receipt after a subscription is removed so a redelivered message
 -- cannot recreate it. No title, price, date or chat text is retained here.

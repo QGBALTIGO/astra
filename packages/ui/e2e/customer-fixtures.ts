@@ -293,6 +293,11 @@ export async function mockCustomerApi(
     }
     let data: unknown;
     const body = request.postData() ? (request.postDataJSON() as Record<string, unknown>) : {};
+    // Session-bound attribution check is a no-op without an invitation cookie.
+    if (method === 'POST' && path === '/referrals/claim') {
+      await route.fulfill({ json: { success: true, data: { claimed: false } } });
+      return;
+    }
     if (method !== 'GET')
       mutations.push({ method, path, body, idempotencyKey: headers['idempotency-key'] });
     if (method === 'GET' && path === '/auth/session') {
@@ -553,4 +558,48 @@ export async function mockCustomerApi(
       failSummary = false;
     },
   };
+}
+
+/** Stable destinations work with both the full sidebar labels and compact icon titles. */
+export function customerNavigationPath(name: string): string {
+  const paths: Record<string, string> = {
+    Início: '/cliente',
+    'Visão geral': '/cliente',
+    Transações: '/cliente/transacoes',
+    Categorias: '/cliente/categorias',
+    Agenda: '/cliente/agenda',
+    Planejamento: '/cliente/planejamento',
+    Investimentos: '/cliente/investimentos',
+    Conexões: '/cliente/conexoes',
+    'Astra Radar': '/cliente/radar',
+    'Indique o Astra': '/cliente/indicacoes',
+    Perfil: '/cliente/perfil',
+    'Meu perfil': '/cliente/perfil',
+  };
+  const path = paths[name];
+  if (!path) throw new Error('Unknown customer navigation destination: ' + name);
+  return path;
+}
+
+/** Follow the actual desktop navigation or the mobile primary/More destinations. */
+export async function navigateCustomer(page: Page, name: string) {
+  const target = name === 'Perfil' ? 'Meu perfil' : name;
+  const path = customerNavigationPath(target);
+  const desktop = page.getByRole('navigation', { name: 'Navegação do cliente' });
+  if (await desktop.isVisible()) {
+    if (target === 'Meu perfil')
+      return page
+        .locator('.sidebar-profile')
+        .getByRole('button', { name: 'Abrir meu perfil', exact: true })
+        .click();
+    return desktop.locator(`a[href="${path}"]`).click();
+  }
+  const mobile = page.getByRole('navigation', { name: 'Navegação móvel' });
+  const primary = mobile.locator(`a[href="${path}"]`);
+  if (await primary.count()) return primary.click();
+  await mobile.getByRole('button', { name: 'Mais áreas', exact: true }).click();
+  await page
+    .getByRole('region', { name: 'Mais áreas do Astra' })
+    .locator(`a[href="${path}"]`)
+    .click();
 }

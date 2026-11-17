@@ -1,5 +1,14 @@
 export type CustomerTab =
-  'inicio' | 'transacoes' | 'categorias' | 'agenda' | 'conexoes' | 'radar' | 'perfil';
+  | 'inicio'
+  | 'transacoes'
+  | 'categorias'
+  | 'agenda'
+  | 'planejamento'
+  | 'investimentos'
+  | 'indicacoes'
+  | 'conexoes'
+  | 'radar'
+  | 'perfil';
 export type CustomerTheme = 'light' | 'dark' | 'system';
 export interface Customer {
   accountId: string;
@@ -127,6 +136,7 @@ export interface CustomerPlanInput {
   installmentsPaid?: number | null;
   nextDueDate?: string | null;
   notes?: string | null;
+  icon?: 'flag' | 'shield' | 'plane' | 'laptop' | 'home' | 'education' | null;
 }
 export interface CustomerPlan extends CustomerPlanInput {
   id: string;

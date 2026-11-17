@@ -44,6 +44,8 @@ for (const theme of ['light', 'dark'] as const)
       await page.route('**/api/v1/**', async (route) => {
         const request = route.request(),
           path = new URL(request.url()).pathname.replace('/api/v1/customer', '');
+        if (request.method() === 'POST' && path === '/referrals/claim')
+          return route.fulfill({ json: { success: true, data: { claimed: false } } });
         let data: unknown;
         if (path === '/profile/avatar') return route.fulfill({ status: 204 });
         if (request.method() === 'GET' && path === '/auth/session') data = { customer };
@@ -75,32 +77,47 @@ for (const theme of ['light', 'dark'] as const)
         return route.fulfill({ json: { success: true, data } });
       });
       await page.goto('/cliente/radar');
-      await expect(
-        page.getByRole('heading', { name: 'Meus acompanhamentos', exact: true })
-      ).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Astra Radar', exact: true })).toBeVisible();
       expect(mutations).toEqual([]);
       await expect(
         page.getByRole('link', { name: 'Configurar pelo WhatsApp', exact: true })
       ).toBeVisible();
       if (width <= 600) {
-        const copy = (await page.locator('.ac-page-heading > div').first().boundingBox())!;
+        const copy = (await page.locator('.page-heading > div').first().boundingBox())!;
         const action = (await page
-          .getByRole('link', { name: 'Configurar pelo WhatsApp', exact: true })
+          .getByRole('button', { name: 'Acompanhar assunto', exact: true })
           .boundingBox())!;
         expect(action.y).toBeGreaterThanOrEqual(copy.y + copy.height);
-        expect(action.width).toBeGreaterThanOrEqual(width - 60);
+        expect(action.height).toBeGreaterThanOrEqual(43);
+        expect(action.x).toBeGreaterThanOrEqual(copy.x);
+        expect(action.x + action.width).toBeLessThanOrEqual(width);
       }
-      await expect(page.getByRole('heading', { name: 'É só me pedir no WhatsApp' })).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: 'Bem informado. Sem o excesso.' })
+      ).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Últimas atualizações' })).toBeVisible();
       await expect(page.getByLabel('Receber todos os envios do Radar')).toHaveCount(0);
-      await expect(page.locator('.ac-navigation a:visible')).toHaveCount(width <= 767 ? 6 : 7);
+      await expect(
+        page
+          .getByRole('navigation', {
+            name: width <= 767 ? 'Navegação móvel' : 'Navegação do cliente',
+          })
+          .getByRole('link')
+      ).toHaveCount(width <= 767 ? 4 : 9);
+      if (width <= 767)
+        await expect(page.getByRole('button', { name: 'Mais áreas', exact: true })).toBeVisible();
       if (width <= 767)
         await expect(page.getByRole('button', { name: 'Abrir meu Radar' })).toBeVisible();
+      else
+        await expect(
+          page.getByRole('button', { name: 'Abrir meu perfil', exact: true })
+        ).toBeVisible();
       expect(
         await page.evaluate(() =>
           Math.max(
             document.documentElement.scrollWidth - innerWidth,
-            document.querySelector('.ac-content')!.scrollWidth -
-              document.querySelector('.ac-content')!.clientWidth
+            document.querySelector('main.approved-content')!.scrollWidth -
+              document.querySelector('main.approved-content')!.clientWidth
           )
         )
       ).toBeLessThanOrEqual(2);
@@ -108,7 +125,7 @@ for (const theme of ['light', 'dark'] as const)
         body: await page.screenshot(),
         contentType: 'image/png',
       });
-      await page.getByRole('button', { name: 'Adicionar assunto', exact: true }).click();
+      await page.getByRole('button', { name: 'Acompanhar assunto', exact: true }).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole('button', { name: /Futebol/ })).toBeDisabled();
@@ -127,14 +144,25 @@ for (const theme of ['light', 'dark'] as const)
       });
       await page.keyboard.press('Escape');
       await expect(dialog).not.toBeVisible();
-      await page
-        .getByRole('button', { name: 'Ajustar horários e notificações', exact: true })
-        .click();
+      await page.getByRole('button', { name: 'Preferências', exact: true }).click();
       await expect(page.getByLabel('Receber todos os envios do Radar')).not.toBeChecked();
+      const optInBox = (await page.getByLabel('Receber todos os envios do Radar').boundingBox())!;
+      expect(optInBox.width).toBeLessThanOrEqual(24);
+      expect(optInBox.height).toBeLessThanOrEqual(24);
       await page.getByLabel('Receber todos os envios do Radar').check();
+      await page.getByLabel('Horário do resumo', { exact: true }).fill('08:30');
       await page.getByRole('button', { name: 'Salvar preferências', exact: true }).click();
       await expect(page.getByText('Preferências do Radar salvas.', { exact: true })).toBeVisible();
       expect(mutations).toEqual(['preferences']);
+      expect(prefs).toEqual({
+        enabled: true,
+        time: '08:30',
+        quietStart: '22:00',
+        quietEnd: '07:00',
+      });
+      await page.getByRole('button', { name: 'Histórico', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Histórico de avisos' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Seu histórico começa aqui' })).toBeVisible();
       expect(errors).toEqual([]);
     });
   }

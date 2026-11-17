@@ -74,6 +74,35 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)('planning reference integrity
     await client?.end();
   });
 
+  it('round-trips goal symbols, preserves them for legacy edits and scopes them to their owner', async () => {
+    const owner = connected(new CustomerPlanningRepository('user-a'));
+    const other = connected(new CustomerPlanningRepository('user-b'));
+    const created = await owner.create({
+      kind: 'goal',
+      title: 'Viagem',
+      amount: 2000,
+      progress: 100,
+      icon: 'plane',
+    });
+    expect((await owner.get(created.id))?.icon).toBe('plane');
+    await owner.update(created.id, {
+      kind: 'goal',
+      title: 'Viagem atualizada',
+      amount: 2200,
+      progress: 200,
+    });
+    expect((await owner.get(created.id))?.icon).toBe('plane');
+    await owner.update(created.id, {
+      kind: 'goal',
+      title: 'Reserva',
+      amount: 2200,
+      progress: 200,
+      icon: 'shield',
+    });
+    expect((await owner.list())[0]?.icon).toBe('shield');
+    expect(await other.get(created.id)).toBeNull();
+  });
+
   it.each(['food-b', 'missing', 'income-a', 'archived-a'])(
     'rejects an invalid budget category without inserting a plan: %s',
     async (categoryId) => {

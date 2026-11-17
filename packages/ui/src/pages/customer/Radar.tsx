@@ -1,6 +1,6 @@
+import './approved-life-details.css';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
-  Bell,
   Plus,
   Settings,
   Pause,
@@ -20,6 +20,22 @@ import {
 import { useCustomerQuery } from './hooks';
 import { customerApi } from './api';
 import { dateTimeLabel } from './helpers';
+import {
+  BellOff,
+  ChevronRight,
+  Clock3,
+  CloudSun,
+  Coins,
+  FileText,
+  Globe2,
+  MessageCircle,
+  Newspaper,
+  Radio,
+  Rocket,
+  Trophy,
+  Tv,
+  Zap,
+} from 'lucide-react';
 import type { Customer } from './types';
 import type {
   CustomerRadarData,
@@ -73,7 +89,7 @@ export function CustomerRadar({
     revision
   );
   const [adding, setAdding] = useState(false),
-    [settingsOpen, setSettingsOpen] = useState(false),
+    [tab, setTab] = useState<'overview' | 'preferences' | 'history'>('overview'),
     [editing, setEditing] = useState<RadarInterest | null>(null),
     [deleting, setDeleting] = useState<RadarInterest | null>(null);
   const [prefs, setPrefs] = useState<RadarPreferences>(defaults),
@@ -130,11 +146,11 @@ export function CustomerRadar({
   };
   if (!data.data)
     return (
-      <div className="ac-page">
-        <header className="ac-page-heading">
+      <div className="approved-life-page">
+        <header className="page-heading">
           <div>
-            <p className="ac-eyebrow">SEUS INTERESSES, NO SEU RITMO</p>
-            <h1>Radar</h1>
+            <div className="eyebrow">SEU OLHAR PARA O QUE IMPORTA</div>
+            <h1>Astra Radar</h1>
           </div>
         </header>
         {data.error ? (
@@ -152,400 +168,497 @@ export function CustomerRadar({
     url.searchParams.set('text', text);
     return url.href;
   };
-  const activeInterests = loaded.interests.filter((i) => i.active);
+  const activeInterests = loaded.interests.filter((interest) => interest.active);
   const activeCount = activeInterests.length;
-  const digestCount = activeInterests.filter((i) => i.delivery === 'digest').length;
-  const hasIndividualAlerts = activeCount > digestCount;
+  const digestCount = activeInterests.filter((interest) => interest.delivery === 'digest').length;
   const timingLabel = !loaded.preferences.enabled
-    ? 'Você decide quando começar'
+    ? 'Seu Radar está em pausa'
     : digestCount > 0
-      ? 'Todo dia, às ' + loaded.preferences.time
-      : activeCount > 0 && activeInterests.every((i) => i.delivery === 'matchday')
+      ? 'Resumo às ' + loaded.preferences.time
+      : activeCount > 0 && activeInterests.every((interest) => interest.delivery === 'matchday')
         ? 'Só nos dias de jogo'
         : activeCount > 0
           ? 'Avisos nos dias escolhidos'
           : 'Você escolhe o que acompanhar';
+  const individualTimes = [
+    ...new Set(
+      activeInterests
+        .filter((interest) => interest.delivery === 'matchday' && interest.notifyTime)
+        .map((interest) => interest.notifyTime!)
+    ),
+  ];
+  const preferredTime =
+    digestCount > 0 || activeCount === 0
+      ? loaded.preferences.time
+      : individualTimes.length === 1
+        ? individualTimes[0]!
+        : 'No seu ritmo';
+  const topicAppearance = {
+    weather: { Icon: CloudSun, color: '#e6a24b' },
+    ptax: { Icon: Coins, color: '#209b76' },
+    currency: { Icon: Coins, color: '#209b76' },
+    football: { Icon: Trophy, color: '#37886a' },
+    news: { Icon: Newspaper, color: '#0061fd' },
+    series: { Icon: Tv, color: '#997de0' },
+    gazettes: { Icon: FileText, color: '#4f86bc' },
+    energy: { Icon: Zap, color: '#d7a532' },
+    releases: { Icon: Rocket, color: '#7a6cce' },
+  };
+  const snapshots = loaded.interests.filter((interest) => interest.snapshot);
+  const pauseAll = () => {
+    const nextPreferences = { ...loaded.preferences, enabled: !loaded.preferences.enabled };
+    void mutate(
+      'all',
+      async () => {
+        await customerApi.radarPreferences(customer.accountId, nextPreferences);
+        setPrefs((current) => ({ ...current, enabled: nextPreferences.enabled }));
+      },
+      nextPreferences.enabled ? 'Radar ativado.' : 'Radar pausado.'
+    );
+  };
   return (
-    <div className="ac-page ac-radar">
-      <header className="ac-page-heading">
+    <div className="approved-life-page">
+      <div className="page-heading">
         <div>
-          <p className="ac-eyebrow">O QUE IMPORTA PARA VOCÊ</p>
-          <h1>Radar</h1>
-          <p>Escolha pelo WhatsApp. Acompanhe tudo por aqui.</p>
+          <div className="eyebrow">SEU OLHAR PARA O QUE IMPORTA</div>
+          <h1>Astra Radar</h1>
+          <p>O mundo se move. Acompanhe o que faz sentido para você.</p>
         </div>
-        <div className="ac-radar-heading-actions">
-          {loaded.chatUrl ? (
+        <button
+          className="primary-button"
+          type="button"
+          disabled={!customer.access.canWrite}
+          onClick={() => setAdding(true)}
+        >
+          <Plus size={17} />
+          Acompanhar assunto
+        </button>
+      </div>
+      <section className="life-radar-hero">
+        <div className="life-radar-hero-copy">
+          <div className="life-radar-label">
+            <Radio size={17} />
+            <span>UM RESUMO, DO SEU JEITO</span>
+          </div>
+          <h2>
+            Bem informado.
+            <br />
+            Sem o excesso.
+          </h2>
+          <p>
+            Escolha seus assuntos e organize suas preferências para receber o essencial pelo
+            WhatsApp.
+          </p>
+          {chatLink('Quero configurar meu Radar') ? (
             <a
-              className="ac-button"
+              className="life-white-button"
               href={chatLink('Quero configurar meu Radar')}
               target="_blank"
               rel="noopener noreferrer"
             >
-              <Bell aria-hidden="true" /> Configurar pelo WhatsApp
+              <MessageCircle size={17} />
+              Configurar pelo WhatsApp
+              <ChevronRight size={16} />
             </a>
-          ) : null}
-          <button
-            type="button"
-            className="ac-button ac-button--secondary"
-            disabled={!customer.access.canWrite}
-            onClick={() => setAdding(true)}
-          >
-            <Plus aria-hidden="true" />
-            Adicionar assunto
+          ) : (
+            <button className="life-white-button" type="button" disabled>
+              <MessageCircle size={17} />
+              WhatsApp indisponível
+            </button>
+          )}
+        </div>
+        <div className="life-radar-preview">
+          <div className="life-radar-preview-label">
+            <Clock3 size={17} />
+            SEU HORÁRIO PREFERIDO
+          </div>
+          <strong>{preferredTime}</strong>
+          <span>{loaded.interests.length} assuntos selecionados</span>
+          <p>
+            {timingLabel}
+            <br />
+            Horários da sua conta.
+          </p>
+          <button type="button" onClick={() => setTab('preferences')}>
+            Ajustar meu horário
+            <ChevronRight size={16} />
           </button>
         </div>
-      </header>
-      <div className="ac-radar-overview">
-        <section className="ac-card ac-radar-summary" aria-label="Resumo do Radar">
-          <div className={'ac-radar-live-icon' + (loaded.preferences.enabled ? ' is-on' : '')}>
-            <Bell aria-hidden="true" />
+      </section>
+      <div className="life-radar-summary">
+        <div>
+          <span className="life-summary-icon">
+            <Radio size={19} />
+          </span>
+          <div>
+            <strong>{loaded.interests.length} assuntos</strong>
+            <span>{activeCount} acompanhamentos ativos</span>
           </div>
-          <div className="ac-radar-summary-copy">
-            <span className="ac-radar-summary-status">
-              {loaded.preferences.enabled
-                ? 'Você está recebendo seu Radar'
-                : 'Seu Radar está em pausa'}
-            </span>
-            <h2>{timingLabel}</h2>
-            <p>
-              {activeCount} {activeCount === 1 ? 'assunto escolhido' : 'assuntos escolhidos'}
-              {digestCount > 0 && hasIndividualAlerts
-                ? ' · resumo diário e avisos individuais'
-                : ''}
-              {' · seu horário local'}
-            </p>
+        </div>
+        <div>
+          <span className="life-summary-icon">
+            <Clock3 size={19} />
+          </span>
+          <div>
+            <strong>{timingLabel}</strong>
+            <span>Horário de {loaded.timeZone.replace('America/', '').replaceAll('_', ' ')}</span>
           </div>
-          <button
-            type="button"
-            className="ac-icon-button"
-            aria-label="Ajustar horários e notificações"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <Settings aria-hidden="true" />
-          </button>
-        </section>
-        <section className="ac-card ac-radar-chat-help" aria-labelledby="radar-chat-title">
-          <p className="ac-eyebrow">DO SEU JEITO</p>
-          <h2 id="radar-chat-title">É só me pedir no WhatsApp</h2>
-          <p>
-            Peça o que quer acompanhar. Para escolher o horário, mudar ou pausar, continue a
-            conversa.
-          </p>
-          <div className="ac-radar-examples">
-            {[
-              'Quero receber notícias de tecnologia todo dia às 8h',
-              'Me avise sempre que tiver jogo do Vasco',
-              'Pause as notícias do meu Radar',
-            ].map((example) =>
-              loaded.chatUrl ? (
-                <a key={example} href={chatLink(example)} target="_blank" rel="noopener noreferrer">
-                  “{example}” <ExternalLink aria-hidden="true" />
-                </a>
-              ) : (
-                <span key={example}>“{example}”</span>
-              )
-            )}
+        </div>
+        <div>
+          <span className="life-summary-icon">
+            <BellOff size={19} />
+          </span>
+          <div>
+            <strong>
+              {loaded.preferences.quietStart} — {loaded.preferences.quietEnd}
+            </strong>
+            <span>Seu período de silêncio</span>
           </div>
-        </section>
+        </div>
       </div>
-      {settingsOpen ? (
-        <CustomerDialog title="Envios e horários do Radar" onClose={() => setSettingsOpen(false)}>
-          <section className="ac-radar-settings" aria-labelledby="radar-preferences">
-            <div>
-              <h2 id="radar-preferences">Resumos e avisos no WhatsApp</h2>
-              <p>
-                Ative ou pause todos os envios do Radar. O horário do resumo vale só para os
-                assuntos marcados como resumo diário; os avisos individuais seguem seus próprios
-                horários. Você também pode ajustar pelo WhatsApp.
-              </p>
-            </div>
-            <form onSubmit={savePrefs}>
-              <label className="ac-radar-optin">
-                <input
-                  type="checkbox"
-                  checked={prefs.enabled}
-                  disabled={busy !== null || (!customer.access.canWrite && !prefs.enabled)}
-                  onChange={(e) => {
-                    setPrefs({ ...prefs, enabled: e.target.checked });
-                    setDirty(true);
-                  }}
-                />
-                <span>
-                  <strong>Receber todos os envios do Radar</strong>
-                  <small>Ao desativar, você pausa resumos e avisos individuais.</small>
-                </span>
-              </label>
-              <div className="ac-radar-times">
-                <label>
-                  Horário do resumo
-                  <input
-                    type="time"
-                    value={prefs.time}
-                    required
-                    disabled={!customer.access.canWrite || busy !== null}
-                    onChange={(e) => {
-                      setPrefs({ ...prefs, time: e.target.value });
-                      setDirty(true);
-                    }}
-                  />
-                </label>
-                <label>
-                  Silêncio a partir de
-                  <input
-                    type="time"
-                    value={prefs.quietStart}
-                    required
-                    disabled={!customer.access.canWrite || busy !== null}
-                    onChange={(e) => {
-                      setPrefs({ ...prefs, quietStart: e.target.value });
-                      setDirty(true);
-                    }}
-                  />
-                </label>
-                <label>
-                  Voltar a receber às
-                  <input
-                    type="time"
-                    value={prefs.quietEnd}
-                    required
-                    disabled={!customer.access.canWrite || busy !== null}
-                    onChange={(e) => {
-                      setPrefs({ ...prefs, quietEnd: e.target.value });
-                      setDirty(true);
-                    }}
-                  />
-                </label>
-              </div>
-              <div className="ac-radar-settings-footer">
-                <span>
-                  O período de silêncio vale para todos os envios. Horários em{' '}
-                  {loaded.timeZone.replaceAll('_', ' ')}. Alertas vencidos não são enviados depois.
-                </span>
-                <button
-                  className="ac-button ac-button--secondary"
-                  disabled={!dirty || busy !== null}
-                  type="submit"
-                >
-                  {busy === 'preferences' ? 'Salvando…' : 'Salvar preferências'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </CustomerDialog>
-      ) : null}
+      <div className="life-radar-tabs">
+        <div className="segmented-control tabs" role="group" aria-label="Seções do Radar">
+          {(
+            [
+              ['overview', 'Meus assuntos'],
+              ['preferences', 'Preferências'],
+              ['history', 'Histórico'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              type="button"
+              key={key}
+              className={tab === key ? 'active' : ''}
+              aria-pressed={tab === key}
+              onClick={() => setTab(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="text-button"
+          disabled={busy !== null || (!customer.access.canWrite && !loaded.preferences.enabled)}
+          onClick={pauseAll}
+        >
+          {loaded.preferences.enabled ? <Pause size={15} /> : <Play size={15} />}
+          {loaded.preferences.enabled ? 'Pausar todos' : 'Retomar todos'}
+        </button>
+      </div>
       {error && !deleting ? <CustomerError error={error} /> : null}
       {data.error ? <CustomerError error={data.error} onRetry={data.retry} /> : null}
-      <section className="ac-card ac-card--flush" aria-labelledby="radar-following">
-        <div className="ac-radar-section-head">
-          <div>
-            <h2 id="radar-following">Meus acompanhamentos</h2>
-            <p>
-              {loaded.interests.filter((i) => i.active).length}{' '}
-              {loaded.interests.filter((i) => i.active).length === 1 ? 'ativo' : 'ativos'} · você
-              escolhe quais manter.
-            </p>
-          </div>
-          <Bell aria-hidden="true" />
-        </div>
-        {!loaded.interests.length ? (
-          <CustomerEmpty
-            title="Seu Radar começa pelos seus interesses"
-            action={
-              customer.access.canWrite ? (
-                <button
-                  className="ac-button ac-button--secondary"
-                  type="button"
-                  onClick={() => setAdding(true)}
-                >
-                  Explorar assuntos
-                </button>
-              ) : undefined
-            }
-          >
-            Escolha uma cidade, um time, uma série ou outro assunto para acompanhar.
-          </CustomerEmpty>
-        ) : (
-          <div className="ac-radar-list">
-            {loaded.interests.map((i) => {
-              const source = loaded.catalog.find((s) => s.id === i.source),
-                fresh = !!i.snapshot && Date.parse(i.snapshot.expiresAt) > clock;
-              const status = !i.active
+      {tab === 'overview' ? (
+        <>
+          <div className="life-topic-grid">
+            {loaded.interests.map((interest) => {
+              const source = loaded.catalog.find((item) => item.id === interest.source),
+                appearance = topicAppearance[interest.source] || { Icon: Globe2, color: '#0061fd' },
+                Icon = appearance.Icon;
+              const fresh = !!interest.snapshot && Date.parse(interest.snapshot.expiresAt) > clock,
+                paused = !interest.active || !loaded.preferences.enabled;
+              const status = paused
                 ? 'Pausado'
-                : !i.snapshot
-                  ? i.errorCode
-                    ? 'Fonte indisponível'
-                    : 'Aguardando primeira atualização'
+                : interest.errorCode && !interest.snapshot
+                  ? 'Fonte indisponível'
                   : fresh
                     ? 'Atualizado'
-                    : 'Sem atualização recente';
+                    : interest.snapshot
+                      ? 'Sem atualização recente'
+                      : 'Aguardando atualização';
               return (
-                <article key={i.id} className="ac-radar-follow" aria-label={i.label}>
-                  <div className="ac-radar-follow-heading">
-                    <div className="ac-radar-follow-title">
-                      <span
-                        className={'ac-radar-topic-icon ac-radar-topic-' + i.source}
-                        aria-hidden="true"
-                      >
-                        {
-                          {
-                            weather: '🌤️',
-                            ptax: '💵',
-                            currency: '💱',
-                            football: '⚽',
-                            news: '📰',
-                            series: '🎬',
-                            gazettes: '📋',
-                            energy: '💡',
-                            releases: '🚀',
-                          }[i.source]
-                        }
-                      </span>
-                      <div>
-                        <span className="ac-radar-category">{source?.name}</span>
-                        <h3>{i.label}</h3>
-                        <p>
-                          {deliveryLabel(i)}
-                          {i.delivery === 'threshold'
-                            ? ' · ' +
-                              (i.comparison === 'above' ? 'acima de R$ ' : 'abaixo de R$ ') +
-                              i.threshold
-                            : ''}
-                        </p>
-                      </div>
-                    </div>
-                    <span className={'ac-radar-status' + (i.active && fresh ? ' is-current' : '')}>
-                      {status}
+                <article
+                  key={interest.id}
+                  className="panel life-topic-card"
+                  aria-label={interest.label}
+                >
+                  <div className="life-topic-top">
+                    <span
+                      className="life-app-icon"
+                      style={{
+                        color: appearance.color,
+                        background: `color-mix(in srgb, ${appearance.color} 9%, transparent)`,
+                      }}
+                    >
+                      <Icon size={25} />
+                    </span>
+                    <span className={`badge ${paused ? 'neutral' : 'success'}`}>{status}</span>
+                  </div>
+                  <h2>{interest.label}</h2>
+                  <p>
+                    {deliveryLabel(interest)}
+                    {interest.delivery === 'threshold'
+                      ? ' · ' +
+                        (interest.comparison === 'above' ? 'acima de R$ ' : 'abaixo de R$ ') +
+                        interest.threshold
+                      : ''}
+                  </p>
+                  <div className="life-topic-source">
+                    <span className="life-dot" />
+                    <span>
+                      {source?.provider ||
+                        interest.snapshot?.sourceLabel ||
+                        'Fonte aguardando consulta'}
                     </span>
                   </div>
-                  {i.snapshot ? (
-                    <div className="ac-radar-preview">
-                      {i.snapshot.items.slice(0, 3).map((item) => (
-                        <div key={item.id} className="ac-radar-preview-item">
-                          <strong>{item.title}</strong>
-                          {item.at ? (
-                            <span>{dateTimeLabel(item.at, customer.timeZone)}</span>
-                          ) : null}
-                          {item.text ? <p>{item.text}</p> : null}
-                          {i.source !== 'football' && item.url?.startsWith('https://') ? (
-                            <a href={item.url} target="_blank" rel="noopener noreferrer">
-                              Ver na fonte <ExternalLink aria-hidden="true" />
-                            </a>
-                          ) : null}
-                        </div>
-                      ))}
-                      {!i.snapshot.items.length ? (
-                        <p>
-                          {i.source === 'news'
-                            ? 'Nenhuma publicação desse assunto nos últimos 30 dias do Global Voices.'
-                            : 'Nenhuma atualização informada para essa escolha no período consultado.'}
-                        </p>
-                      ) : null}
-                      <details className="ac-radar-source-details">
-                        <summary>Fonte e atualização</summary>
-                        <small>
-                          Consultado em {dateTimeLabel(i.snapshot.observedAt, customer.timeZone)}
-                          {i.snapshot.sourceUpdatedAt
-                            ? ' · Dados da fonte: ' +
-                              (/^\d{4}-\d{2}-\d{2}$/.test(i.snapshot.sourceUpdatedAt)
-                                ? i.snapshot.sourceUpdatedAt.split('-').reverse().join('/')
-                                : dateTimeLabel(i.snapshot.sourceUpdatedAt, customer.timeZone))
-                            : ''}
-                          {i.snapshot.notice ? ' · ' + i.snapshot.notice : ''}
-                        </small>
-                      </details>
-                    </div>
-                  ) : (
-                    <p className="ac-radar-wait">
-                      {i.errorCode
-                        ? 'Não foi possível consultar esta fonte agora. O Astra tentará novamente.'
-                        : 'A primeira consulta está agendada. Você pode continuar usando o Astra.'}
-                    </p>
-                  )}
-                  <div className="ac-radar-follow-footer">
-                    {i.source === 'football' ? (
-                      <span className="ac-radar-calendar-note">Calendário previsto</span>
-                    ) : (
-                      <a href={source?.url} target="_blank" rel="noopener noreferrer">
-                        {source?.provider}
-                        <ExternalLink aria-hidden="true" />
-                      </a>
-                    )}
-                    <div>
+                  <div className="life-topic-footer">
+                    <button
+                      className="text-button"
+                      type="button"
+                      disabled={busy !== null || (!customer.access.canWrite && !interest.active)}
+                      aria-label={(interest.active ? 'Pausar ' : 'Ativar ') + interest.label}
+                      onClick={() =>
+                        void mutate(
+                          interest.id,
+                          () =>
+                            customerApi.radarChange(customer.accountId, interest.id, {
+                              active: !interest.active,
+                            }),
+                          interest.active ? 'Acompanhamento pausado.' : 'Acompanhamento ativado.'
+                        )
+                      }
+                    >
+                      {interest.active ? <Pause size={15} /> : <Play size={15} />}
+                      {interest.active ? 'Pausar' : 'Ativar'}
+                    </button>
+                    <div className="approved-radar-item-actions">
                       <button
-                        className="ac-text-button"
-                        type="button"
-                        disabled={busy !== null || (!customer.access.canWrite && !i.active)}
-                        onClick={() =>
-                          void mutate(
-                            i.id,
-                            () =>
-                              customerApi.radarChange(customer.accountId, i.id, {
-                                active: !i.active,
-                              }),
-                            i.active ? 'Acompanhamento pausado.' : 'Acompanhamento ativado.'
-                          )
-                        }
-                        aria-label={(i.active ? 'Pausar ' : 'Ativar ') + i.label}
-                      >
-                        {i.active ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-                        {i.active ? 'Pausar' : 'Ativar'}
-                      </button>
-                      <button
-                        className="ac-icon-button"
+                        className="icon-button"
                         type="button"
                         disabled={busy !== null || !customer.access.canWrite}
-                        aria-label={'Editar ' + i.label}
-                        onClick={() => setEditing(i)}
+                        aria-label={'Editar ' + interest.label}
+                        onClick={() => setEditing(interest)}
                       >
-                        <Settings aria-hidden="true" />
+                        <Settings size={16} />
                       </button>
                       <button
-                        className="ac-icon-button"
+                        className="icon-button"
                         type="button"
                         disabled={busy !== null}
-                        aria-label={'Excluir ' + i.label}
+                        aria-label={'Excluir ' + interest.label}
                         onClick={() => {
                           setError(null);
-                          setDeleting(i);
+                          setDeleting(interest);
                         }}
                       >
-                        <Trash2 aria-hidden="true" />
+                        <Trash2 size={16} />
                       </button>
                     </div>
                   </div>
                 </article>
               );
             })}
+            <button
+              type="button"
+              className="life-topic-add"
+              disabled={!customer.access.canWrite}
+              onClick={() => setAdding(true)}
+            >
+              <span>
+                <Plus size={24} />
+              </span>
+              <strong>Seu próximo interesse</strong>
+              <p>Descubra mais assuntos para acompanhar.</p>
+            </button>
           </div>
-        )}
-      </section>
-      <section className="ac-card ac-card--flush" aria-labelledby="radar-history">
-        <div className="ac-radar-section-head">
+          <section className="panel life-radar-updates">
+            <div className="section-heading">
+              <div>
+                <h2>Últimas atualizações</h2>
+                <p>Informação com contexto e origem.</p>
+              </div>
+              <span className="badge">
+                {snapshots.length ? 'Fontes conectadas' : 'Aguardando consulta'}
+              </span>
+            </div>
+            {snapshots.length ? (
+              <div className="approved-radar-updates">
+                {snapshots.map((interest) => {
+                  const snapshot = interest.snapshot!;
+                  return (
+                    <article key={interest.id} className="approved-radar-update">
+                      <div className="section-heading">
+                        <h3>{interest.label}</h3>
+                        <span className="badge">
+                          {Date.parse(snapshot.expiresAt) > clock
+                            ? 'Atualizado'
+                            : 'Sem atualização recente'}
+                        </span>
+                      </div>
+                      {snapshot.items.length ? (
+                        snapshot.items.slice(0, 3).map((item) => (
+                          <div key={item.id}>
+                            <strong>{item.title}</strong>
+                            {item.at ? (
+                              <small>{dateTimeLabel(item.at, customer.timeZone)}</small>
+                            ) : null}
+                            {item.text ? <p>{item.text}</p> : null}
+                            {interest.source !== 'football' && item.url?.startsWith('https://') ? (
+                              <a
+                                className="text-button"
+                                href={item.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                Ver na fonte
+                                <ExternalLink size={14} />
+                              </a>
+                            ) : null}
+                          </div>
+                        ))
+                      ) : (
+                        <p>
+                          {interest.source === 'football'
+                            ? 'Nenhuma partida prevista para os próximos dias.'
+                            : 'Nenhuma nova informação para este acompanhamento.'}
+                        </p>
+                      )}
+                      <details>
+                        <summary>Fonte e atualização</summary>
+                        <p>
+                          {snapshot.sourceLabel} · Consultado em{' '}
+                          {dateTimeLabel(snapshot.observedAt, customer.timeZone)}
+                          {snapshot.sourceUpdatedAt
+                            ? ' · Dados da fonte: ' +
+                              (/^\d{4}-\d{2}-\d{2}$/.test(snapshot.sourceUpdatedAt)
+                                ? snapshot.sourceUpdatedAt.split('-').reverse().join('/')
+                                : dateTimeLabel(snapshot.sourceUpdatedAt, customer.timeZone))
+                            : ''}
+                          {snapshot.notice ? ' · ' + snapshot.notice : ''}
+                        </p>
+                        {interest.source === 'football' ? (
+                          <span>Calendário previsto</span>
+                        ) : snapshot.sourceUrl?.startsWith('https://') ? (
+                          <a
+                            className="text-button"
+                            href={snapshot.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Consultar fonte
+                            <ExternalLink size={14} />
+                          </a>
+                        ) : null}
+                      </details>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <CustomerEmpty title="Suas atualizações aparecerão aqui">
+                {loaded.interests.some((interest) => interest.errorCode)
+                  ? 'Uma fonte está indisponível. Seus acompanhamentos permanecem salvos e o Astra tentará novamente.'
+                  : 'Escolha seus assuntos. As informações serão mostradas com a origem e o horário da consulta.'}
+              </CustomerEmpty>
+            )}
+          </section>
+        </>
+      ) : tab === 'preferences' ? (
+        <section className="panel life-preferences-panel" aria-labelledby="radar-preferences">
           <div>
-            <h2 id="radar-history">Histórico de avisos</h2>
-            <p>Envios, cancelamentos e alertas que perderam a validade.</p>
+            <h2 id="radar-preferences">O essencial, na sua hora.</h2>
+            <p>
+              Ative ou pause todos os envios do Radar. O horário do resumo vale só para os assuntos
+              marcados como resumo diário; os avisos individuais seguem seus próprios horários. Você
+              também pode ajustar pelo WhatsApp.
+            </p>
           </div>
-        </div>
-        {loaded.history.length ? (
-          <ul className="ac-radar-history">
-            {loaded.history.map((row) => (
-              <li key={row.id}>
-                <div>
-                  <strong>{row.label || 'Resumo do Radar'}</strong>
-                  <span>{dateTimeLabel(row.sent_at ?? row.created_at, customer.timeZone)}</span>
+          <form onSubmit={savePrefs}>
+            <label className="life-check-row">
+              <input
+                type="checkbox"
+                checked={prefs.enabled}
+                disabled={busy !== null || (!customer.access.canWrite && !prefs.enabled)}
+                onChange={(e) => {
+                  setPrefs({ ...prefs, enabled: e.target.checked });
+                  setDirty(true);
+                }}
+              />
+              <span>
+                <strong>Receber todos os envios do Radar</strong>
+                <small>Ao desativar, você pausa resumos e avisos individuais.</small>
+              </span>
+            </label>
+            <label className="field">
+              Horário do resumo
+              <input
+                type="time"
+                value={prefs.time}
+                required
+                disabled={!customer.access.canWrite || busy !== null}
+                onChange={(e) => {
+                  setPrefs({ ...prefs, time: e.target.value });
+                  setDirty(true);
+                }}
+              />
+            </label>
+            <div className="form-grid">
+              <label className="field">
+                Silêncio a partir de
+                <input
+                  type="time"
+                  value={prefs.quietStart}
+                  required
+                  disabled={!customer.access.canWrite || busy !== null}
+                  onChange={(e) => {
+                    setPrefs({ ...prefs, quietStart: e.target.value });
+                    setDirty(true);
+                  }}
+                />
+              </label>
+              <label className="field">
+                Voltar a receber às
+                <input
+                  type="time"
+                  value={prefs.quietEnd}
+                  required
+                  disabled={!customer.access.canWrite || busy !== null}
+                  onChange={(e) => {
+                    setPrefs({ ...prefs, quietEnd: e.target.value });
+                    setDirty(true);
+                  }}
+                />
+              </label>
+            </div>
+            <div className="approved-radar-settings-footer">
+              <span>
+                O período de silêncio vale para todos os envios. Horários em{' '}
+                {loaded.timeZone.replaceAll('_', ' ')}. Alertas vencidos não são enviados depois.
+              </span>
+              <button className="primary-button" disabled={!dirty || busy !== null} type="submit">
+                {busy === 'preferences' ? 'Salvando…' : 'Salvar preferências'}
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : (
+        <section className="panel life-preferences-panel">
+          <div className="section-heading">
+            <div>
+              <h2>Histórico de avisos</h2>
+              <p>Envios, cancelamentos e alertas que perderam a validade.</p>
+            </div>
+            <Clock3 size={22} />
+          </div>
+          {loaded.history.length ? (
+            <div className="approved-radar-history">
+              {loaded.history.map((row) => (
+                <div key={row.id}>
+                  <span>
+                    <strong>{row.label || 'Resumo do Radar'}</strong>
+                    <small>{dateTimeLabel(row.sent_at ?? row.created_at, customer.timeZone)}</small>
+                  </span>
+                  <span className="badge">{states[row.status] || 'Em processamento'}</span>
                 </div>
-                <span>{states[row.status] ?? 'Em processamento'}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="ac-radar-wait">Seus avisos aparecem aqui quando forem agendados.</p>
-        )}
-      </section>
-      <p className="ac-radar-footnote">
-        Fontes gratuitas têm cobertura e frequência próprias. Cotações são referências, previsões
-        são estimativas e informações podem chegar com atraso.
-      </p>
+              ))}
+            </div>
+          ) : (
+            <CustomerEmpty title="Seu histórico começa aqui">
+              Seus avisos aparecem aqui quando forem agendados.
+            </CustomerEmpty>
+          )}
+        </section>
+      )}
       {adding || editing ? (
         <RadarForm
           key={editing?.id ?? 'new'}
@@ -732,16 +845,11 @@ function RadarForm({
       footer={
         source ? (
           <>
-            <button
-              className="ac-button ac-button--secondary"
-              type="button"
-              disabled={busy}
-              onClick={onClose}
-            >
+            <button className="secondary-button" type="button" disabled={busy} onClick={onClose}>
               Cancelar
             </button>
             <button
-              className="ac-button"
+              className="primary-button"
               type="submit"
               form={id}
               disabled={busy || searching || !source.available}
@@ -808,7 +916,7 @@ function RadarForm({
                   }}
                 />
                 <button
-                  className="ac-button ac-button--secondary"
+                  className="secondary-button"
                   type="submit"
                   disabled={searching || q.trim().length < 3}
                 >
@@ -845,7 +953,7 @@ function RadarForm({
                 <strong>{editing.label}</strong>
               </p>
             ) : !source.needsSearch && source.id !== 'energy' ? (
-              <label>
+              <label className="field">
                 {source.hint}
                 {['currency', 'ptax'].includes(source.id) ? (
                   <select
@@ -868,7 +976,7 @@ function RadarForm({
               </label>
             ) : null}
             {source.id === 'gazettes' && !editing ? (
-              <label>
+              <label className="field">
                 Assunto que deseja encontrar
                 <input
                   required
@@ -880,7 +988,7 @@ function RadarForm({
                 />
               </label>
             ) : null}
-            <label>
+            <label className="field">
               Como quer receber?
               <select
                 value={input.delivery}
@@ -899,7 +1007,7 @@ function RadarForm({
               </select>
             </label>
             {input.delivery === 'matchday' ? (
-              <label>
+              <label className="field">
                 Horário do aviso no dia do jogo
                 <input
                   type="time"
@@ -910,7 +1018,7 @@ function RadarForm({
               </label>
             ) : null}
             {input.delivery === 'before' ? (
-              <label>
+              <label className="field">
                 Antecedência
                 <select
                   value={input.leadMinutes}
@@ -926,7 +1034,7 @@ function RadarForm({
             ) : null}
             {input.delivery === 'threshold' ? (
               <div className="ac-radar-threshold">
-                <label>
+                <label className="field">
                   Condição
                   <select
                     value={input.comparison ?? 'above'}
@@ -938,7 +1046,7 @@ function RadarForm({
                     <option value="below">Abaixo de</option>
                   </select>
                 </label>
-                <label>
+                <label className="field">
                   Valor em reais
                   <input
                     type="text"

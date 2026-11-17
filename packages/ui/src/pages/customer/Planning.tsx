@@ -1,17 +1,15 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { ChevronRight, Edit3, Plus, Trash2 } from '../../components/icons';
+import { Flag, ArrowRight, Check } from 'lucide-react';
 import {
-  Calendar,
-  ChevronRight,
-  Edit3,
-  Plus,
-  Receipt,
-  Repeat,
-  Target,
-  Trash2,
-} from '../../components/icons';
+  ApprovedHeading,
+  ApprovedCategoryIcon,
+  ApprovedBadge,
+  ApprovedEmpty,
+} from './approved-finance-ui';
 import { customerApi } from './api';
-import { CustomerDialog, CustomerError } from './components';
-import { amountInput, money, parseAmount } from './helpers';
+import { CustomerDialog, CustomerError, CustomerTabs } from './components';
+import { amountInput, money, parseAmount, dateLabel } from './helpers';
 import type {
   CustomerCategory,
   CustomerFinanceSummary,
@@ -84,6 +82,10 @@ export function CustomerPlanning({
   error,
   onChanged,
   openSignal = 0,
+  standalone = false,
+  periodControl,
+  summaryError,
+  onRetrySummary,
 }: {
   plans: CustomerPlan[];
   summary: CustomerFinanceSummary | null | undefined;
@@ -94,8 +96,13 @@ export function CustomerPlanning({
   error?: Error;
   onChanged: (message: string) => void;
   openSignal?: number;
+  standalone?: boolean;
+  periodControl?: ReactNode;
+  summaryError?: Error;
+  onRetrySummary?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [periodOpen, setPeriodOpen] = useState(false);
   const [selectedKind, setSelectedKind] = useState<CustomerPlanKind>('goal');
   const [editing, setEditing] = useState<CustomerPlan | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -110,6 +117,7 @@ export function CustomerPlanning({
   const [paidInstallments, setPaidInstallments] = useState('0');
   const [nextDueDate, setNextDueDate] = useState('');
   const [notes, setNotes] = useState('');
+  const [goalIcon, setGoalIcon] = useState<NonNullable<CustomerPlanInput['icon']>>('flag');
   const formId = useId();
   const lock = useRef(false);
   useEffect(() => {
@@ -137,6 +145,7 @@ export function CustomerPlanning({
     setPaidInstallments(String(plan?.installmentsPaid ?? 0));
     setNextDueDate(plan?.nextDueDate ?? '');
     setNotes(plan?.notes ?? '');
+    setGoalIcon(plan?.icon ?? 'flag');
     setMessage(null);
     setShowForm(true);
     setOpen(false);
@@ -195,6 +204,7 @@ export function CustomerPlanning({
       installmentsPaid: selectedKind === 'installment' ? paid : null,
       nextDueDate: nextDueDate || null,
       notes: notes.trim() || null,
+      ...(selectedKind === 'goal' ? { icon: goalIcon } : {}),
     };
     lock.current = true;
     setBusy(true);
@@ -233,228 +243,516 @@ export function CustomerPlanning({
     }
   }
 
+  const cardControls = (plan: CustomerPlan) => (
+    <div className="finance-card-controls">
+      <button
+        className="icon-button"
+        type="button"
+        aria-label={`Editar planejamento ${plan.title}`}
+        disabled={!canWrite}
+        onClick={() => startEdit(plan.kind, plan)}
+      >
+        <Edit3 size={15} />
+      </button>
+      <button
+        className="icon-button"
+        type="button"
+        aria-label={`Excluir planejamento ${plan.title}`}
+        disabled={!canWrite}
+        onClick={() => {
+          setMessage(null);
+          setRemoving(plan);
+          setOpen(false);
+        }}
+      >
+        <Trash2 size={15} />
+      </button>
+    </div>
+  );
+  const markInstallmentPaid = async (plan: CustomerPlan) => {
+    if (!canWrite || lock.current || (plan.installmentsPaid ?? 0) >= (plan.installmentsTotal ?? 0))
+      return;
+    lock.current = true;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await customerApi.updatePlan(plan.id, {
+        kind: plan.kind,
+        title: plan.title,
+        amount: plan.amount,
+        progress: plan.progress,
+        categoryId: plan.categoryId,
+        installmentsTotal: plan.installmentsTotal,
+        installmentsPaid: (plan.installmentsPaid ?? 0) + 1,
+        nextDueDate: plan.nextDueDate,
+        notes: plan.notes,
+      });
+      onChanged('Parcela marcada como paga. Nenhuma transação foi criada.');
+    } catch (failure) {
+      setMessage(
+        failure instanceof Error ? failure.message : 'Não foi possível atualizar a parcela.'
+      );
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  };
+  const planningContent = (
+    <>
+      <div className="panel finance-planning-intro">
+        <div className="finance-planning-intro-icon">
+          <Flag size={24} />
+        </div>
+        <div>
+          <h2>Seu futuro começa com os planos de hoje.</h2>
+          <p>Metas, limites e compromissos que ajudam você a se organizar.</p>
+        </div>
+        <span className="finance-manual-label">
+          <Check size={14} />
+          Você no controle
+        </span>
+      </div>
+      <CustomerTabs
+        id="customer-planning"
+        label="Áreas de planejamento"
+        panelId="customer-planning-panel"
+        items={KINDS.map((item) => ({ id: item.kind, label: item.label }))}
+        value={selectedKind}
+        onChange={(value) => {
+          setSelectedKind(value);
+          setMessage(null);
+        }}
+      />
+      <div
+        id="customer-planning-panel"
+        role="tabpanel"
+        aria-labelledby={`customer-planning-tab-${selectedKind}`}
+      >
+        {selectedKind === 'budget' && summaryError ? (
+          <CustomerError error={summaryError} onRetry={onRetrySummary} />
+        ) : null}
+        {message && !showForm && !removing ? <CustomerError error={message} /> : null}
+        <div className="finance-section-intro">
+          <div>
+            <h2>
+              {selectedKind === 'goal'
+                ? 'Suas próximas conquistas'
+                : selectedKind === 'budget'
+                  ? 'Mais intenção, menos surpresas'
+                  : selectedKind === 'installment'
+                    ? 'Uma parcela de cada vez'
+                    : 'O que se repete merece atenção'}
+            </h2>
+            <p>
+              {selectedKind === 'goal'
+                ? 'Valores acompanhados manualmente. Nenhum dinheiro é movimentado.'
+                : selectedKind === 'budget'
+                  ? 'Limites comparados com as despesas realizadas no período selecionado.'
+                  : selectedKind === 'installment'
+                    ? 'Acompanhamento manual. As parcelas não geram transações automaticamente.'
+                    : 'Organização manual das suas assinaturas. Nenhuma cobrança automática.'}
+            </p>
+            {selectedKind === 'budget' && periodControl ? (
+              <button className="text-button" type="button" onClick={() => setPeriodOpen(true)}>
+                Alterar período
+              </button>
+            ) : null}
+          </div>
+          {selectedKind === 'goal' ? (
+            <span>
+              {selected.length} {selected.length === 1 ? 'meta' : 'metas'}
+            </span>
+          ) : selectedKind === 'subscription' ? (
+            <strong>
+              {money(
+                selected.reduce((total, plan) => total + plan.amount, 0),
+                hidden
+              )}{' '}
+              <small>/ mês</small>
+            </strong>
+          ) : null}
+        </div>
+        {selectedKind === 'subscription' ? (
+          <section className="panel finance-subscriptions">
+            {selected.map((plan) => (
+              <div className="finance-subscription-row" key={plan.id}>
+                <ApprovedCategoryIcon name="Assinatura" />
+                <div className="finance-subscription-name">
+                  <strong>{plan.title}</strong>
+                  <span>
+                    {plan.nextDueDate
+                      ? `Próxima renovação ${dateLabel(plan.nextDueDate)}`
+                      : 'Renovação acompanhada manualmente'}{' '}
+                    · mensal
+                  </span>
+                </div>
+                <ApprovedBadge tone="success">Em acompanhamento</ApprovedBadge>
+                <strong>{money(plan.amount, hidden)}</strong>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={!canWrite}
+                  onClick={() => startEdit(plan.kind, plan)}
+                >
+                  Atualizar
+                </button>
+                {cardControls(plan)}
+              </div>
+            ))}
+            {!selected.length ? (
+              <ApprovedEmpty
+                title="Suas recorrências em um só lugar"
+                description="Adicione suas assinaturas para acompanhar seus compromissos mensais."
+                action={
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={!canWrite}
+                    onClick={() => startEdit('subscription')}
+                  >
+                    Adicionar assinatura
+                  </button>
+                }
+              />
+            ) : null}
+          </section>
+        ) : (
+          <div className="finance-planning-grid">
+            {selected.map((plan) => {
+              const value = planProgress(plan, summary),
+                percent = value ? planPercentage(value.current, value.maximum) : undefined,
+                category = categories.find((item) => item.id === plan.categoryId),
+                current = selectedKind === 'goal' ? plan.progress : value?.current;
+              return (
+                <article key={plan.id} className="panel finance-goal-card">
+                  <div className="finance-category-top">
+                    <ApprovedCategoryIcon
+                      name={
+                        selectedKind === 'goal'
+                          ? (plan.icon ?? 'flag')
+                          : selectedKind === 'budget'
+                            ? category?.name
+                            : 'Parcela'
+                      }
+                      color={category?.color}
+                    />
+                    {cardControls(plan)}
+                  </div>
+                  <h3>{selectedKind === 'budget' ? category?.name || plan.title : plan.title}</h3>
+                  <div className="finance-goal-values">
+                    <strong>
+                      {selectedKind === 'installment'
+                        ? money(plan.amount, hidden)
+                        : current === undefined
+                          ? '—'
+                          : money(current, hidden)}
+                    </strong>
+                    <span>
+                      {selectedKind === 'installment'
+                        ? 'por parcela'
+                        : `de ${money(plan.amount, hidden)}`}
+                    </span>
+                  </div>
+                  {value ? (
+                    <div
+                      className={`finance-progress ${selectedKind === 'budget' && value && value.current >= value.maximum ? 'over' : ''}`}
+                      role="progressbar"
+                      aria-label={plan.title}
+                      aria-valuenow={percent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
+                      <span style={{ width: `${percent ?? 0}%` }} />
+                    </div>
+                  ) : null}
+
+                  {selectedKind === 'goal' ? (
+                    <>
+                      <div className="finance-goal-meta">
+                        <span>{hidden ? '••%' : `${percent ?? 0}%`} da meta</span>
+                        <span>
+                          {plan.progress >= plan.amount
+                            ? 'Conquistada!'
+                            : `Faltam ${money(plan.amount - plan.progress, hidden)}`}
+                        </span>
+                      </div>
+                      <button
+                        className="secondary-button finance-full-button"
+                        type="button"
+                        disabled={!canWrite}
+                        onClick={() => startEdit(plan.kind, plan)}
+                      >
+                        Atualizar progresso
+                        <ArrowRight size={16} />
+                      </button>
+                    </>
+                  ) : selectedKind === 'budget' ? (
+                    <>
+                      <div className="finance-goal-meta">
+                        <span>
+                          {!value
+                            ? 'Gasto indisponível'
+                            : hidden
+                              ? '••%'
+                              : `${Math.round((value.current / value.maximum) * 100)}% utilizado`}
+                        </span>
+                        <span
+                          className={
+                            value && value.current >= value.maximum ? 'negative' : 'positive'
+                          }
+                        >
+                          {!value
+                            ? 'Atualize os dados'
+                            : value.current >= value.maximum
+                              ? `Excedeu ${money(value.current - value.maximum, hidden)}`
+                              : `Restam ${money(value.maximum - value.current, hidden)}`}
+                        </span>
+                      </div>
+                      <small className="finance-card-note">
+                        Pendências não entram neste cálculo.
+                      </small>
+                    </>
+                  ) : (
+                    <>
+                      <div className="finance-goal-meta">
+                        <span>
+                          {plan.installmentsPaid ?? 0} de {plan.installmentsTotal ?? 0} pagas
+                        </span>
+                        <span>
+                          {plan.nextDueDate
+                            ? `Vence em ${dateLabel(plan.nextDueDate)}`
+                            : 'Sem vencimento definido'}
+                        </span>
+                      </div>
+                      <div className="finance-installment-footer">
+                        <span>
+                          Restante{' '}
+                          <strong>
+                            {money(
+                              Math.max(
+                                0,
+                                (plan.installmentsTotal ?? 0) - (plan.installmentsPaid ?? 0)
+                              ) * plan.amount,
+                              hidden
+                            )}
+                          </strong>
+                        </span>
+                        <button
+                          className="text-button"
+                          type="button"
+                          disabled={
+                            !canWrite ||
+                            busy ||
+                            (plan.installmentsPaid ?? 0) >= (plan.installmentsTotal ?? 0)
+                          }
+                          onClick={() => void markInstallmentPaid(plan)}
+                        >
+                          {(plan.installmentsPaid ?? 0) >= (plan.installmentsTotal ?? 0)
+                            ? 'Concluído'
+                            : 'Marcar parcela paga'}
+                          <Check size={14} />
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+        {!selected.length && selectedKind !== 'subscription' ? (
+          <div className="panel">
+            <ApprovedEmpty
+              title={
+                selectedKind === 'goal'
+                  ? 'Qual será sua próxima conquista?'
+                  : selectedKind === 'budget'
+                    ? 'Dê um destino ao seu dinheiro'
+                    : 'Parcelas organizadas, mente tranquila'
+              }
+              description={
+                selectedKind === 'goal'
+                  ? 'Crie uma meta e acompanhe cada passo até chegar lá.'
+                  : selectedKind === 'budget'
+                    ? 'Defina um limite por categoria e acompanhe os gastos realizados.'
+                    : 'Cadastre uma compra para acompanhar quanto já pagou e o que falta.'
+              }
+              action={
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={!canWrite}
+                  onClick={() => startEdit(selectedKind)}
+                >
+                  {selectedKind === 'goal'
+                    ? 'Criar primeira meta'
+                    : selectedKind === 'budget'
+                      ? 'Criar orçamento'
+                      : 'Adicionar compra'}
+                </button>
+              }
+            />
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+
   const preview = plans
     .filter((plan) => plan.kind === 'goal' || plan.kind === 'budget')
     .slice(0, 2);
   return (
     <>
-      <section className="ac-card ac-plan-hub" aria-label="Planejamento pessoal">
-        <div className="ac-card-heading">
-          <div>
-            <p className="ac-eyebrow">UM PASSO DE CADA VEZ</p>
-            <h2>Meu planejamento</h2>
-            <p>Metas, limites, parcelas e assinaturas em um só espaço.</p>
+      {!standalone ? (
+        <section className="ac-card ac-plan-hub" aria-label="Planejamento pessoal">
+          <div className="ac-card-heading">
+            <div>
+              <p className="ac-eyebrow">UM PASSO DE CADA VEZ</p>
+              <h2>Meu planejamento</h2>
+              <p>Metas, limites, parcelas e assinaturas em um só espaço.</p>
+            </div>
+            <Flag aria-hidden="true" />
           </div>
-          <Target aria-hidden="true" />
-        </div>
-        {error ? <CustomerError error={error} /> : null}
-        {loading && !plans.length ? (
-          <p className="ac-muted">Carregando seus planejamentos…</p>
-        ) : null}
-        {preview.length ? (
-          <div className="ac-plan-preview">
-            {preview.map((plan) => {
-              const value = planProgress(plan, summary);
-              return (
-                <button
-                  type="button"
-                  className="ac-plan-preview-item"
-                  key={plan.id}
-                  onClick={() => {
-                    setSelectedKind(plan.kind);
-                    setOpen(true);
-                  }}
-                >
-                  <span className="ac-plan-preview-title">
-                    <strong>{plan.title}</strong>
-                    <ChevronRight aria-hidden="true" />
-                  </span>
-                  {value && (
-                    <span className="ac-plan-preview-progress">
-                      <span style={{ width: planPercentage(value.current, value.maximum) + '%' }} />
-                    </span>
-                  )}
-                  <small>
-                    {hidden ? 'Valores ocultos' : planDescription(plan, summary, false)}
-                  </small>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="ac-plan-hub-empty">
-            {plans.length
-              ? 'Seus parcelamentos e assinaturas já estão organizados.'
-              : 'Comece com uma meta ou um orçamento para acompanhar sua evolução.'}
-          </p>
-        )}
-        <button
-          type="button"
-          className="ac-button ac-button--secondary ac-plan-hub-button"
-          onClick={() => {
-            setMessage(null);
-            setOpen(true);
-          }}
-        >
-          {plans.length ? 'Ver meus planejamentos' : 'Organizar meus objetivos'}
-          <ChevronRight aria-hidden="true" />
-        </button>
-      </section>
-
-      {open && !showForm && !removing ? (
-        <CustomerDialog title="Meu planejamento" onClose={() => setOpen(false)} wide>
-          <p className="ac-muted ac-plan-intro">
-            Acompanhe seus objetivos sem alterar o saldo financeiro automaticamente.
-          </p>
-          <div className="ac-plan-tabs" aria-label="Tipos de planejamento">
-            {KINDS.map((item) => (
-              <button
-                key={item.kind}
-                type="button"
-                className={selectedKind === item.kind ? 'is-active' : ''}
-                aria-pressed={selectedKind === item.kind}
-                onClick={() => {
-                  setSelectedKind(item.kind);
-                  setMessage(null);
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <div className="ac-plan-actions">
-            <strong>{KINDS.find((item) => item.kind === selectedKind)?.label}</strong>
-            <button
-              type="button"
-              className="ac-button"
-              disabled={!canWrite || plans.length >= 80}
-              onClick={() => startEdit(selectedKind)}
-            >
-              <Plus aria-hidden="true" />
-              Adicionar
-            </button>
-          </div>
-          {selected.length ? (
-            <div className="ac-plan-list">
-              {selected.map((plan) => {
+          {error ? <CustomerError error={error} /> : null}
+          {loading && !plans.length ? (
+            <p className="ac-muted">Carregando seus planejamentos…</p>
+          ) : null}
+          {preview.length ? (
+            <div className="ac-plan-preview">
+              {preview.map((plan) => {
                 const value = planProgress(plan, summary);
-                const percent = value ? planPercentage(value.current, value.maximum) : undefined;
                 return (
-                  <div key={plan.id} className="ac-plan-row">
-                    <div className="ac-plan-row-heading">
+                  <button
+                    type="button"
+                    className="ac-plan-preview-item"
+                    key={plan.id}
+                    onClick={() => {
+                      setSelectedKind(plan.kind);
+                      setOpen(true);
+                    }}
+                  >
+                    <span className="ac-plan-preview-title">
                       <strong>{plan.title}</strong>
-                      <span>
-                        {plan.kind === 'goal' ? (
-                          <Target aria-hidden="true" />
-                        ) : plan.kind === 'subscription' ? (
-                          <Repeat aria-hidden="true" />
-                        ) : plan.kind === 'installment' ? (
-                          <Receipt aria-hidden="true" />
-                        ) : (
-                          <Calendar aria-hidden="true" />
-                        )}
+                      <ChevronRight aria-hidden="true" />
+                    </span>
+                    {value && (
+                      <span className="ac-plan-preview-progress">
+                        <span
+                          style={{ width: planPercentage(value.current, value.maximum) + '%' }}
+                        />
                       </span>
-                    </div>
-                    <p>{hidden ? 'Valores ocultos' : planDescription(plan, summary, false)}</p>
-                    {value && plan.kind !== 'subscription' ? (
-                      <div
-                        className="ac-plan-progress"
-                        role="progressbar"
-                        aria-label={value.label}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={percent}
-                      >
-                        <span style={{ width: percent + '%' }} />
-                      </div>
-                    ) : null}
+                    )}
                     <small>
-                      {plan.kind === 'budget'
-                        ? 'Gasto do período atual, sem lançamentos pendentes'
-                        : plan.kind === 'goal'
-                          ? 'O valor guardado é informado por você.'
-                          : plan.kind === 'installment'
-                            ? 'Atualize a quantidade paga quando quiser.'
-                            : 'Controle manual de renovação. Nenhuma cobrança automática.'}
+                      {hidden ? 'Valores ocultos' : planDescription(plan, summary, false)}
                     </small>
-                    <div className="ac-plan-row-actions">
-                      <button
-                        type="button"
-                        className="ac-button ac-button--secondary"
-                        disabled={!canWrite}
-                        onClick={() => startEdit(plan.kind, plan)}
-                      >
-                        <Edit3 aria-hidden="true" />
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        className="ac-icon-button"
-                        aria-label={'Excluir planejamento ' + plan.title}
-                        disabled={!canWrite}
-                        onClick={() => {
-                          setMessage(null);
-                          setRemoving(plan);
-                          setOpen(false);
-                        }}
-                      >
-                        <Trash2 aria-hidden="true" />
-                      </button>
-                    </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           ) : (
-            <p className="ac-plan-empty">
-              Nenhum registro nesta área ainda.{' '}
-              {canWrite ? 'Use Adicionar para começar.' : 'Sua conta está em modo de consulta.'}
+            <p className="ac-plan-hub-empty">
+              {plans.length
+                ? 'Seus parcelamentos e assinaturas já estão organizados.'
+                : 'Comece com uma meta ou um orçamento para acompanhar sua evolução.'}
             </p>
           )}
+          <button
+            type="button"
+            className="secondary-button ac-plan-hub-button"
+            onClick={() => {
+              setMessage(null);
+              setOpen(true);
+            }}
+          >
+            {plans.length ? 'Ver meus planejamentos' : 'Organizar meus objetivos'}
+            <ChevronRight aria-hidden="true" />
+          </button>
+        </section>
+      ) : (
+        <div className="finance-page">
+          <ApprovedHeading
+            eyebrow="UM PLANO PARA CADA CONQUISTA"
+            title="Planejamento"
+            description="Transforme seus próximos passos em planos possíveis."
+            action={
+              <button
+                className="primary-button"
+                type="button"
+                disabled={!canWrite || plans.length >= 80}
+                onClick={() => startEdit(selectedKind)}
+              >
+                <Plus size={18} />
+                {selectedKind === 'goal'
+                  ? 'Nova meta'
+                  : selectedKind === 'budget'
+                    ? 'Novo orçamento'
+                    : selectedKind === 'installment'
+                      ? 'Nova compra'
+                      : 'Nova assinatura'}
+              </button>
+            }
+          />
+          {error ? <CustomerError error={error} /> : null}
+          {loading && !plans.length ? (
+            <p role="status" className="ac-muted">
+              Carregando seus planejamentos…
+            </p>
+          ) : null}
+          {planningContent}
+        </div>
+      )}
+
+      {!standalone && open && !showForm && !removing ? (
+        <CustomerDialog title="Meu planejamento" onClose={() => setOpen(false)} wide>
+          {planningContent}
         </CustomerDialog>
       ) : null}
 
+      {periodOpen && periodControl ? (
+        <CustomerDialog title="Período dos orçamentos" onClose={() => setPeriodOpen(false)}>
+          {periodControl}
+          <div className="modal-actions">
+            <button className="primary-button" type="button" onClick={() => setPeriodOpen(false)}>
+              Concluir
+            </button>
+          </div>
+        </CustomerDialog>
+      ) : null}
       {showForm ? (
         <CustomerDialog
-          title={editing ? 'Editar planejamento' : 'Novo planejamento'}
+          title={`${editing ? 'Editar' : selectedKind === 'budget' ? 'Novo' : 'Nova'} ${selectedKind === 'goal' ? 'meta' : selectedKind === 'budget' ? 'orçamento' : selectedKind === 'installment' ? 'compra' : 'assinatura'}`}
+
           onClose={closeForm}
           busy={busy}
           footer={
             <>
               <button
                 type="button"
-                className="ac-button ac-button--secondary"
+                className="secondary-button"
                 disabled={busy}
                 onClick={closeForm}
               >
                 Cancelar
               </button>
-              <button type="submit" form={formId} className="ac-button" disabled={busy}>
-                {busy ? 'Salvando…' : 'Salvar'}
+              <button
+                type="submit"
+                form={formId}
+                className="primary-button"
+                disabled={busy || !canWrite}
+              >
+                {busy
+                  ? 'Salvando…'
+                  : `Salvar ${selectedKind === 'goal' ? 'meta' : selectedKind === 'budget' ? 'orçamento' : selectedKind === 'installment' ? 'compra' : 'assinatura'}`}
               </button>
             </>
           }
         >
-          <form id={formId} className="ac-form ac-plan-form" onSubmit={(event) => void save(event)}>
-            <label>
-              Tipo
-              <select
-                aria-label="Tipo de planejamento"
-                value={selectedKind}
-                disabled={busy || !!editing}
-                onChange={(event) => {
-                  setSelectedKind(event.target.value as CustomerPlanKind);
-                  setMessage(null);
-                }}
-              >
-                {KINDS.map((item) => (
-                  <option value={item.kind} key={item.kind}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
+          <form
+            id={formId}
+            className="approved-finance-form"
+            onSubmit={(event) => void save(event)}
+          >
+            <label className="field">
               Nome
               <input
                 required
@@ -473,37 +771,58 @@ export function CustomerPlanning({
                 }
               />
             </label>
-            <label>
-              {selectedKind === 'goal'
-                ? 'Meta (R$)'
-                : selectedKind === 'budget'
-                  ? 'Limite por período (R$)'
-                  : selectedKind === 'installment'
-                    ? 'Valor de cada parcela (R$)'
-                    : 'Valor mensal (R$)'}
-              <input
-                required
-                inputMode="decimal"
-                value={amount}
-                disabled={busy}
-                placeholder="0,00"
-                onChange={(event) => setAmount(event.target.value)}
-              />
-            </label>
-            {selectedKind === 'goal' ? (
-              <label>
-                Valor já guardado (R$)
+            <div className={selectedKind === 'goal' ? 'form-grid' : undefined}>
+              <label className="field">
+                {selectedKind === 'goal'
+                  ? 'Valor da meta (R$)'
+                  : selectedKind === 'budget'
+                    ? 'Limite mensal (R$)'
+                    : selectedKind === 'installment'
+                      ? 'Valor por parcela (R$)'
+                      : 'Valor mensal (R$)'}
                 <input
+                  required
                   inputMode="decimal"
-                  value={progress}
+                  value={amount}
                   disabled={busy}
                   placeholder="0,00"
-                  onChange={(event) => setProgress(event.target.value)}
+                  onChange={(event) => setAmount(event.target.value)}
                 />
+              </label>
+              {selectedKind === 'goal' ? (
+                <label className="field">
+                  Valor guardado (R$)
+                  <input
+                    inputMode="decimal"
+                    value={progress}
+                    disabled={busy}
+                    placeholder="0,00"
+                    onChange={(event) => setProgress(event.target.value)}
+                  />
+                </label>
+              ) : null}
+            </div>
+            {selectedKind === 'goal' ? (
+              <label className="field">
+                Símbolo da meta
+                <select
+                  disabled={busy}
+                  value={goalIcon}
+                  onChange={(event) =>
+                    setGoalIcon(event.target.value as NonNullable<CustomerPlanInput['icon']>)
+                  }
+                >
+                  <option value="flag">Conquista</option>
+                  <option value="shield">Reserva e segurança</option>
+                  <option value="plane">Viagem</option>
+                  <option value="laptop">Tecnologia</option>
+                  <option value="home">Moradia</option>
+                  <option value="education">Educação</option>
+                </select>
               </label>
             ) : null}
             {selectedKind === 'budget' ? (
-              <label>
+              <label className="field">
                 Categoria de despesas
                 <select
                   required
@@ -522,7 +841,7 @@ export function CustomerPlanning({
             ) : null}
             {selectedKind === 'installment' ? (
               <div className="ac-plan-form-pair">
-                <label>
+                <label className="field">
                   Total de parcelas
                   <input
                     type="number"
@@ -534,7 +853,7 @@ export function CustomerPlanning({
                     onChange={(event) => setTotalInstallments(event.target.value)}
                   />
                 </label>
-                <label>
+                <label className="field">
                   Já pagas
                   <input
                     type="number"
@@ -549,7 +868,7 @@ export function CustomerPlanning({
               </div>
             ) : null}
             {selectedKind === 'installment' || selectedKind === 'subscription' ? (
-              <label>
+              <label className="field">
                 Próxima data (opcional)
                 <input
                   type="date"
@@ -559,7 +878,7 @@ export function CustomerPlanning({
                 />
               </label>
             ) : null}
-            <label>
+            <label className="field">
               Observações (opcional)
               <textarea
                 rows={2}
@@ -594,7 +913,7 @@ export function CustomerPlanning({
             <>
               <button
                 type="button"
-                className="ac-button ac-button--secondary"
+                className="secondary-button"
                 disabled={busy}
                 onClick={() => {
                   setRemoving(null);
@@ -605,7 +924,7 @@ export function CustomerPlanning({
               </button>
               <button
                 type="button"
-                className="ac-button ac-button--danger"
+                className="primary-button danger-button"
                 disabled={busy}
                 onClick={() => void remove()}
               >

@@ -11,10 +11,11 @@ on:
         required: false
         type: boolean
         default: false
+  workflow_call:
 permissions:
   contents: read
 concurrency:
-  group: astra-customer-premium-${{ github.ref }}
+  group: astra-customer-premium-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   verify:
@@ -40,10 +41,23 @@ jobs:
         env:
           ASTRA_AXE_SCRIPT: ${{ github.workspace }}/landing/node_modules/axe-core/axe.min.js
         run: |
-          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.refresh_visual_baselines }}" = "true" ] || [ ! -d packages/ui/e2e/customer-premium-snapshots ]; then
-            pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts --update-snapshots
+          # Explicit review opt-in only: manual dispatch or a marked pull request.
+          # Reusable runs inherit the caller's github.workflow, so publication
+          # cannot refresh references. Generated Linux PNGs remain review artifacts:
+          # review and commit them, then remove the PR marker before publication.
+          if [ "${{ github.workflow == 'Astra customer portal verification' && ((github.event_name == 'workflow_dispatch' && inputs.refresh_visual_baselines) || (github.event_name == 'pull_request' && contains(github.event.pull_request.body, '[refresh-approved-visuals]'))) }}" = "true" ]; then
+            pnpm --filter @ownpilot/ui exec playwright test customer-premium.spec.ts --config=e2e/customer-premium.config.ts --update-snapshots
+          elif [ ! -d packages/ui/e2e/customer-premium-snapshots ] || ! find packages/ui/e2e/customer-premium-snapshots -name '*.png' -print -quit | grep -q .; then
+            echo 'Committed Linux visual references are required. Refresh them explicitly, review and commit them before publishing.'
+            exit 1
           fi
           pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-premium.config.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: astra-customer-visual-references
+          path: packages/ui/e2e/customer-premium-snapshots
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -32,19 +32,30 @@ const mount = () =>
       <CustomerRoutes />
     </MemoryRouter>
   );
+async function openDetails(name: string) {
+  const card = dom.container.querySelector(`article[aria-label="${name}"]`);
+  expect(card).toBeTruthy();
+  await dom.click(card!.querySelector('button')!);
+  const dialog = dom.container.querySelector('[role="dialog"]');
+  expect(dialog?.textContent).toContain(name);
+  return dialog!;
+}
 describe('customer connection cards', () => {
-  it('puts the app status and refresh controls in its own card', async () => {
+  it('puts status on the app card and its refresh controls in the app detail', async () => {
     await mount();
     const card = dom.container.querySelector('article[aria-label="Google Agenda"]');
     expect(card?.textContent).toContain('Conectado');
-    expect(card?.textContent).toContain('09:00');
-    expect(card?.textContent).toContain('Atualizar agora');
-    expect(dom.container.querySelector('#conexoes')?.parentElement?.className).toBe('ac-page');
+    expect(card?.textContent).toContain('Ver detalhes');
+    const detail = await openDetails('Google Agenda');
+    expect(detail.textContent).toContain('09:00');
+    expect(detail.textContent).toContain('Atualizar agora');
+    expect(dom.container.querySelector('.life-app-grid')).toBeTruthy();
   });
   it('locks repeated refreshes while one is pending', async () => {
     const pending = deferred<{ updated: boolean }>();
     api.syncApp.mockReturnValue(pending.promise);
     await mount();
+    await openDetails('Google Agenda');
     await dom.click(dom.button('Atualizar agora'));
     expect(api.syncApp).toHaveBeenCalledTimes(1);
     expect(dom.button('Atualizando…').disabled).toBe(true);
@@ -52,26 +63,28 @@ describe('customer connection cards', () => {
   it('keeps the error beside the app that failed', async () => {
     api.syncApp.mockRejectedValue(new Error('Não foi possível atualizar agora.'));
     await mount();
+    await openDetails('Google Agenda');
     await dom.click(dom.button('Atualizar agora'));
-    expect(
-      dom.container.querySelector('article[aria-label="Google Agenda"] [role="alert"]')?.textContent
-    ).toContain('atualizar');
+    expect(dom.container.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+      'atualizar'
+    );
     expect(dom.container.querySelector('article[aria-label="Gmail"] [role="alert"]')).toBeNull();
   });
   it('does not turn an in-progress sync into a false success', async () => {
     api.syncApp.mockResolvedValue({ updated: false, cached: true });
     await mount();
+    await openDetails('Google Agenda');
     await dom.click(dom.button('Atualizar agora'));
-    expect(
-      dom.container.querySelector('article[aria-label="Google Agenda"] [role="status"]')
-        ?.textContent
-    ).toContain('em andamento');
+    expect(dom.container.querySelector('[role="dialog"] [role="status"]')?.textContent).toContain(
+      'em andamento'
+    );
   });
   it('offers a private Telegram linking command with its expiry explained', async () => {
     await mount();
+    await openDetails('Telegram');
     await dom.click(dom.button('Gerar código de vínculo'));
     expect(api.telegramLink).toHaveBeenCalledTimes(1);
     expect(dom.container.textContent).toContain('/connect TESTE-FICTICIO');
-    expect(dom.container.textContent).toContain('10 minutos');
+    expect(dom.container.querySelector('[role="dialog"]')?.textContent).toContain('Válido até');
   });
 });

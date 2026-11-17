@@ -130,7 +130,7 @@ const enableFootball = () => {
 const chooseFootball = async () => {
   enableFootball();
   await mount();
-  await dom.click(dom.button('Adicionar assunto'));
+  await dom.click(dom.button('Acompanhar assunto'));
   await dom.click(source('Futebol'));
   await dom.fill(dom.field('Time'), 'Vasco');
   await dom.click(dom.button('Buscar'));
@@ -154,9 +154,9 @@ describe('native customer Radar opt-in and navigation', () => {
     const card = dom.container.querySelector('article[aria-label="Vasco"]')!;
     expect(card.textContent).toContain('Só nos dias de jogo · às 09:00');
     expect(card.textContent).not.toContain('No resumo diário');
-    const summary = dom.container.querySelector('.ac-radar-summary')!;
-    expect(summary.querySelector('h2')?.textContent).toBe('Só nos dias de jogo');
-    expect(summary.textContent).not.toContain('07:00');
+    const summary = dom.container.querySelector('.life-radar-summary')!;
+    expect(summary.textContent).toContain('Só nos dias de jogo');
+    expect(dom.container.querySelector('.life-radar-preview strong')?.textContent).toBe('09:00');
     expect(summary.textContent).not.toContain('Todo dia');
   });
   it('uses the daily summary clock only when an active digest follow exists', async () => {
@@ -164,8 +164,9 @@ describe('native customer Radar opt-in and navigation', () => {
     data.preferences.time = '08:30';
     data.interests = [interest()];
     await mount();
-    const summary = dom.container.querySelector('.ac-radar-summary')!;
-    expect(summary.querySelector('h2')?.textContent).toBe('Todo dia, às 08:30');
+    const summary = dom.container.querySelector('.life-radar-summary')!;
+    expect(summary.textContent).toContain('Resumo às 08:30');
+    expect(dom.container.querySelector('.life-radar-preview strong')?.textContent).toBe('08:30');
     expect(summary.textContent).not.toContain('avisos individuais');
   });
   it('explains when daily summaries and individual alerts are both active', async () => {
@@ -184,9 +185,14 @@ describe('native customer Radar opt-in and navigation', () => {
       },
     ];
     await mount();
-    const summary = dom.container.querySelector('.ac-radar-summary')!;
-    expect(summary.querySelector('h2')?.textContent).toBe('Todo dia, às 07:00');
-    expect(summary.textContent).toContain('resumo diário e avisos individuais');
+    const summary = dom.container.querySelector('.life-radar-summary')!;
+    expect(summary.textContent).toContain('Resumo às 07:00');
+    expect(dom.container.querySelector('article[aria-label="USD"]')?.textContent).toContain(
+      'No resumo diário'
+    );
+    expect(dom.container.querySelector('article[aria-label="Vasco"]')?.textContent).toContain(
+      'Só nos dias de jogo · às 09:00'
+    );
   });
   it('does not describe individual alerts as daily summaries or count paused digests', async () => {
     data.preferences.enabled = true;
@@ -195,10 +201,12 @@ describe('native customer Radar opt-in and navigation', () => {
       { ...interest(), id: 'value-alert', delivery: 'threshold', threshold: '5' },
     ];
     await mount();
-    const summary = dom.container.querySelector('.ac-radar-summary')!;
-    expect(summary.querySelector('h2')?.textContent).toBe('Avisos nos dias escolhidos');
-    expect(summary.textContent).not.toContain('07:00');
-    expect(summary.textContent).toContain('1 assunto escolhido');
+    const summary = dom.container.querySelector('.life-radar-summary')!;
+    expect(summary.textContent).toContain('Avisos nos dias escolhidos');
+    expect(dom.container.querySelector('.life-radar-preview strong')?.textContent).toBe(
+      'No seu ritmo'
+    );
+    expect(summary.textContent).toContain('1 acompanhamentos ativos');
   });
   it('creates a game-day follow at the chosen local time without enabling all notifications', async () => {
     await chooseFootball();
@@ -321,7 +329,9 @@ describe('native customer Radar opt-in and navigation', () => {
       },
     ];
     await mount();
-    const team = dom.container.querySelector('article[aria-label="Flamengo"]')!;
+    const team = Array.from(dom.container.querySelectorAll('.approved-radar-update')).find(
+      (item) => item.querySelector('h3')?.textContent === 'Flamengo'
+    )!;
     expect(team.textContent).toContain('Flamengo × Palmeiras');
     expect(team.textContent).toContain('Calendário previsto');
     expect(team.querySelector('a')).toBeNull();
@@ -331,18 +341,19 @@ describe('native customer Radar opt-in and navigation', () => {
   });
   it('opens natively without loading finance or creating unwanted subscriptions', async () => {
     await mount();
-    expect(dom.container.textContent).toContain('Seu Radar começa pelos seus interesses');
+    expect(dom.container.textContent).toContain('Seu próximo interesse');
+    expect(dom.container.textContent).toContain('Suas atualizações aparecerão aqui');
     expect(create).not.toHaveBeenCalled();
     expect(prefs).not.toHaveBeenCalled();
     expect(baseApi.summary).not.toHaveBeenCalled();
     expect(dom.container.querySelector('input[type="checkbox"]')).toBeNull();
-    expect(dom.container.textContent).toContain('É só me pedir no WhatsApp');
-    expect(dom.container.textContent).toContain('Me avise sempre que tiver jogo do Vasco');
-    expect(dom.container.textContent).not.toContain('Acompanhe o Flamengo no meu resumo das 7h');
-    await dom.click(dom.button('Ajustar horários e notificações'));
+    expect(dom.button('WhatsApp indisponível').disabled).toBe(true);
+    expect(dom.container.querySelectorAll('.life-topic-card')).toHaveLength(0);
+    expect(dom.container.querySelectorAll('.approved-radar-update')).toHaveLength(0);
+    await dom.click(dom.button('Preferências'));
     expect((dom.field('Receber todos os envios do Radar') as HTMLInputElement).checked).toBe(false);
-    const settings = dom.container.querySelector('[role="dialog"]')!;
-    expect(settings.textContent).toContain('Resumos e avisos no WhatsApp');
+    const settings = dom.container.querySelector('.life-preferences-panel')!;
+    expect(settings.textContent).toContain('O essencial, na sua hora.');
     expect(settings.textContent).toContain('os avisos individuais seguem seus próprios horários');
     expect(settings.textContent).toContain('O período de silêncio vale para todos os envios');
     expect(settings.textContent).toContain('Ao desativar, você pausa resumos e avisos individuais');
@@ -350,14 +361,14 @@ describe('native customer Radar opt-in and navigation', () => {
   });
   it('shows the unavailable football source honestly rather than creating a fake follow', async () => {
     await mount();
-    await dom.click(dom.button('Adicionar assunto'));
+    await dom.click(dom.button('Acompanhar assunto'));
     expect(source('Futebol').disabled).toBe(true);
     expect(dom.container.textContent).toContain('ainda está sendo configurada');
     expect(create).not.toHaveBeenCalled();
   });
   it('adds only the selected source without silently enabling WhatsApp', async () => {
     await mount();
-    await dom.click(dom.button('Adicionar assunto'));
+    await dom.click(dom.button('Acompanhar assunto'));
     await dom.click(source('Moedas'));
     await submitInterest();
     expect(create).toHaveBeenCalledWith(
@@ -370,7 +381,7 @@ describe('native customer Radar opt-in and navigation', () => {
   it('keeps a failed save open and never claims success', async () => {
     create.mockRejectedValue(new Error('Fonte indisponível'));
     await mount();
-    await dom.click(dom.button('Adicionar assunto'));
+    await dom.click(dom.button('Acompanhar assunto'));
     await dom.click(source('Moedas'));
     await submitInterest();
     expect(dom.container.querySelector('[role="dialog"]')).toBeTruthy();
@@ -383,7 +394,7 @@ describe('native customer Radar opt-in and navigation', () => {
     const pending = deferred<unknown>();
     create.mockReturnValue(pending.promise);
     await mount();
-    await dom.click(dom.button('Adicionar assunto'));
+    await dom.click(dom.button('Acompanhar assunto'));
     await dom.click(source('Moedas'));
     await submitInterest();
     await submitInterest();
@@ -393,7 +404,7 @@ describe('native customer Radar opt-in and navigation', () => {
   });
   it('requires selecting a returned city instead of accepting an unverified name', async () => {
     await mount();
-    await dom.click(dom.button('Adicionar assunto'));
+    await dom.click(dom.button('Acompanhar assunto'));
     await dom.click(source('Clima'));
     await submitInterest();
     expect(create).not.toHaveBeenCalled();
@@ -401,7 +412,7 @@ describe('native customer Radar opt-in and navigation', () => {
   });
   it('searches a city only after an explicit search action', async () => {
     await mount();
-    await dom.click(dom.button('Adicionar assunto'));
+    await dom.click(dom.button('Acompanhar assunto'));
     await dom.click(source('Clima'));
     await dom.fill(dom.field('Cidade e estado'), 'Aquidauana');
     expect(search).not.toHaveBeenCalled();
@@ -418,7 +429,7 @@ describe('native customer Radar opt-in and navigation', () => {
     const pending = deferred<{ choices: Array<{ id: string; label: string }> }>();
     search.mockReturnValue(pending.promise);
     await mount();
-    await dom.click(dom.button('Adicionar assunto'));
+    await dom.click(dom.button('Acompanhar assunto'));
     await dom.click(source('Clima'));
     await dom.fill(dom.field('Cidade e estado'), 'Cidade antiga');
     await dom.click(dom.button('Buscar'));
@@ -428,7 +439,7 @@ describe('native customer Radar opt-in and navigation', () => {
   });
   it('saves the explicit WhatsApp opt-in and preserves the chosen time', async () => {
     await mount();
-    await dom.click(dom.button('Ajustar horários e notificações'));
+    await dom.click(dom.button('Preferências'));
     await dom.click(dom.field('Receber todos os envios do Radar') as HTMLElement);
     await dom.fill(dom.field('Horário do resumo'), '08:30');
     await dom.click(dom.button('Salvar preferências'));
@@ -466,6 +477,7 @@ describe('native customer Radar opt-in and navigation', () => {
       },
     ];
     await mount();
+    await dom.click(dom.button('Histórico'));
     expect(dom.container.textContent).toContain('Enviado');
     expect(dom.container.textContent).not.toContain('Entregue');
   });
@@ -478,7 +490,7 @@ describe('native customer Radar opt-in and navigation', () => {
     });
     data.interests = [interest()];
     await mount();
-    expect(dom.button('Adicionar assunto').disabled).toBe(true);
+    expect(dom.button('Acompanhar assunto').disabled).toBe(true);
     expect(dom.button('Pausar USD').disabled).toBe(false);
     expect(dom.button('Excluir USD').disabled).toBe(false);
   });
@@ -487,7 +499,7 @@ describe('native customer Radar opt-in and navigation', () => {
     vi.useFakeTimers();
     try {
       await mount();
-      await dom.click(dom.button('Ajustar horários e notificações'));
+      await dom.click(dom.button('Preferências'));
       await dom.fill(dom.field('Horário do resumo'), '09:15');
       const reads = read.mock.calls.length;
       await act(async () => {

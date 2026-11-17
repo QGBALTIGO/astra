@@ -1,3 +1,5 @@
+import './approved-life-details.css';
+import { CalendarDays, CreditCard, ListTodo } from 'lucide-react';
 import { useId, useRef, useState, type FormEvent } from 'react';
 import {
   Bell,
@@ -8,7 +10,6 @@ import {
   ChevronRight,
   Clock,
   Edit3,
-  ListChecks,
   Plus,
   Receipt,
   Trash2,
@@ -48,7 +49,7 @@ const KIND_LABELS: Record<AgendaKind, string> = {
   reminder: 'Lembrete',
   bill: 'Vencimento',
 };
-const KIND_ICONS = { event: Calendar, task: ListChecks, reminder: Bell, bill: Receipt };
+const KIND_ICONS = { event: CalendarDays, task: ListTodo, reminder: Bell, bill: CreditCard };
 const WEEK_DAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 function itemDate(item: CustomerAgendaItem, zone: string) {
   return item.startAt ? dateInZone(new Date(item.startAt), zone) : item.dueDate || '';
@@ -83,49 +84,133 @@ export function CustomerAgenda({
 }) {
   const today = dateInZone(new Date(), customer.timeZone);
   const [baseDate, setBaseDate] = useState(today);
-  const [view, setView] = useState<'list' | 'week' | 'month'>(() =>
-    window.matchMedia?.('(min-width: 1100px)').matches ? 'week' : 'list'
-  );
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [view, setView] = useState<'list' | 'week' | 'month'>('month');
+  const [filter, setFilter] = useState<'all' | AgendaKind>('all');
+  const [selectedDay, setSelectedDay] = useState<string | null>(today);
   const [editor, setEditor] = useState<{ item?: CustomerAgendaItem } | null>(null);
   const [selected, setSelected] = useState<CustomerAgendaItem | null>(null);
+  const [deleting, setDeleting] = useState<CustomerAgendaItem | null>(null);
   const [completing, setCompleting] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const completingRef = useRef(false);
+  const calendarMonth = monthPeriod('UTC', 0, new Date(baseDate + 'T12:00:00Z'));
+  const monthStart = monday(calendarMonth.from);
+  const numberOfDays =
+    Math.ceil(
+      (Number(calendarMonth.to.slice(8)) +
+        (Date.parse(calendarMonth.from) - Date.parse(monthStart)) / 86400000) /
+        7
+    ) * 7;
+  const monthDates = Array.from({ length: numberOfDays }, (_, index) =>
+    dayOffset(monthStart, index)
+  );
+  const weekDates = Array.from({ length: 7 }, (_, index) => dayOffset(monday(baseDate), index));
   const period =
     view === 'month'
-      ? monthPeriod('UTC', 0, new Date(baseDate + 'T12:00:00Z'))
-      : {
-          from: view === 'week' ? monday(baseDate) : baseDate,
-          to: dayOffset(view === 'week' ? monday(baseDate) : baseDate, 6),
-        };
+      ? { from: monthStart, to: monthDates.at(-1)! }
+      : view === 'week'
+        ? { from: weekDates[0]!, to: weekDates[6]! }
+        : calendarMonth;
   const response = useCustomerQuery(
-    `agenda:${period.from}:${period.to}:${customer.timeZone}`,
+    `agenda:${period.from}:${period.to}:${customer.timeZone}:${customer.accountId}`,
     (signal) => customerApi.agenda(period, signal),
     active,
     revision
   );
-  const items = response.data?.items ?? [];
-  const dates = Array.from({ length: 7 }, (_, index) => dayOffset(period.from, index));
-  const monthStart = monday(period.from);
-  const monthDates = Array.from({ length: 42 }, (_, index) => dayOffset(monthStart, index));
-  const visibleItems = items.filter(
-    (item) => !selectedDay || itemDate(item, customer.timeZone) === selectedDay
+  const hasToday = today >= period.from && today <= period.to;
+  const focusResponse = useCustomerQuery(
+    `agenda-focus:${today}:${customer.accountId}`,
+    (signal) => customerApi.agenda({ from: today, to: today }, signal),
+    active && !hasToday,
+    revision
   );
-  const groupedDates = [
-    ...new Set(visibleItems.map((item) => itemDate(item, customer.timeZone))),
-  ].sort();
+  const allItems = response.data?.items ?? [];
+  const todayItems = hasToday ? allItems : (focusResponse.data?.items ?? []);
+  const items = allItems
+    .filter((item) => filter === 'all' || item.kind === filter)
+    .sort((a, b) =>
+      ((a.startAt || a.dueDate || '') + a.id).localeCompare((b.startAt || b.dueDate || '') + b.id)
+    );
+  const visibleItems =
+    view === 'list'
+      ? items.filter(
+          (item) =>
+            !itemDate(item, customer.timeZone) ||
+            itemDate(item, customer.timeZone).slice(0, 7) === baseDate.slice(0, 7)
+        )
+      : items.filter((item) => itemDate(item, customer.timeZone) === selectedDay);
+  const monthTitle = new Intl.DateTimeFormat('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(baseDate + 'T12:00:00Z'));
+  const fullDate = (date: string) =>
+    new Intl.DateTimeFormat('pt-BR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(new Date(date + 'T12:00:00Z'));
+  const eventTime = (item: CustomerAgendaItem) =>
+    item.startAt
+      ? new Intl.DateTimeFormat('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: customer.timeZone,
+        }).format(new Date(item.startAt))
+      : 'Dia todo';
+  const cssKind = (kind: AgendaKind) =>
+    kind === 'event' ? 'appointment' : kind === 'bill' ? 'due' : kind;
+  const move = (direction: number) => {
+    setBaseDate(
+      view === 'week'
+        ? dayOffset(baseDate, direction * 7)
+        : monthPeriod('UTC', direction, new Date(baseDate + 'T12:00:00Z')).from
+    );
+    setSelectedDay(null);
+  };
+  const openBill = (item: CustomerAgendaItem) => {
+    const date = item.dueDate || today;
+    onShowTransactions({
+      from: date,
+      to: date,
+      type: 'expense',
+      status: undefined,
+      categoryId: undefined,
+      search: item.title,
+    });
+  };
   const complete = async (item: CustomerAgendaItem) => {
-    if (completingRef.current || !customer.access.canWrite || item.kind !== 'task') return;
+    if (completingRef.current || !customer.access.canWrite || !['task', 'bill'].includes(item.kind))
+      return;
     completingRef.current = true;
     setCompleting(item.id);
     setActionError(null);
     try {
-      await customerApi.completeTask(item.id, !item.completed);
-      onChanged(item.completed ? 'Tarefa marcada como pendente.' : 'Tarefa concluída.');
+      if (item.kind === 'bill') await customerApi.completeBill(item.id, !item.completed);
+      else await customerApi.completeTask(item.id, !item.completed);
+      onChanged(item.completed ? 'Item marcado como pendente.' : 'Item concluído.');
     } catch (failure) {
       setActionError(
-        failure instanceof Error ? failure.message : 'Não foi possível atualizar a tarefa.'
+        failure instanceof Error ? failure.message : 'Não foi possível atualizar este item.'
+      );
+    } finally {
+      completingRef.current = false;
+      setCompleting(null);
+    }
+  };
+  const remove = async () => {
+    if (!deleting || completingRef.current || !customer.access.canWrite) return;
+    completingRef.current = true;
+    setCompleting(deleting.id);
+    setActionError(null);
+    try {
+      await customerApi.deleteAgenda(deleting.kind, deleting.id);
+      setDeleting(null);
+      onChanged('Item excluído da agenda.');
+    } catch (failure) {
+      setActionError(
+        failure instanceof Error ? failure.message : 'Não foi possível excluir o item.'
       );
     } finally {
       completingRef.current = false;
@@ -135,313 +220,336 @@ export function CustomerAgenda({
   const eventCard = (item: CustomerAgendaItem) => {
     const Icon = KIND_ICONS[item.kind];
     return (
-      <article
+      <div
+        className={`life-event-row ${item.completed ? 'is-done' : ''}`}
         key={item.kind + ':' + item.id}
-        className={
-          'ac-agenda-item ac-agenda-item--' +
-          item.kind +
-          (item.completed ? ' ac-agenda-item--completed' : '')
-        }
       >
-        <button className="ac-agenda-item-main" type="button" onClick={() => setSelected(item)}>
-          <span className="ac-agenda-icon">
-            <Icon aria-hidden="true" />
-          </span>
-          <span>
-            <small>
-              {KIND_LABELS[item.kind]}
-              {item.completed ? ' · Concluído' : ''}
-            </small>
-            <strong>{item.title}</strong>
-            <span>
-              {item.startAt
-                ? dateTimeLabel(item.startAt, customer.timeZone)
-                : item.dueDate
-                  ? dateLabel(item.dueDate)
-                  : 'Sem data definida'}
-              {syncLabel(item.syncStatus) ? ` · ${syncLabel(item.syncStatus)}` : ''}
-            </span>
-          </span>
-        </button>
-        {item.kind === 'task' ? (
+        {item.kind === 'task' || item.kind === 'bill' ? (
           <button
-            className={'ac-icon-button ac-task-check' + (item.completed ? ' is-completed' : '')}
             type="button"
-            aria-label={(item.completed ? 'Reabrir tarefa ' : 'Concluir tarefa ') + item.title}
-            aria-pressed={item.completed}
+            className={`life-complete ${item.completed ? 'checked' : ''}`}
             disabled={!customer.access.canWrite || Boolean(completing)}
+            aria-label={`${item.completed ? 'Reabrir' : 'Concluir'} ${item.title}`}
+            aria-pressed={item.completed}
             onClick={() => void complete(item)}
           >
-            {completing === item.id ? <Clock aria-hidden="true" /> : <Check aria-hidden="true" />}
+            {item.completed ? <Check size={14} /> : <span />}
           </button>
-        ) : null}
-      </article>
+        ) : (
+          <span className="life-complete" aria-hidden="true">
+            <span />
+          </span>
+        )}
+        <span className={`life-event-symbol ${cssKind(item.kind)}`}>
+          <Icon size={19} />
+        </span>
+        <button
+          type="button"
+          className="life-event-copy life-event-open"
+          onClick={() => setSelected(item)}
+        >
+          <strong>{item.title}</strong>
+          <span>
+            {itemDate(item, customer.timeZone)
+              ? dateLabel(itemDate(item, customer.timeZone))
+              : 'Sem data'}{' '}
+            · {eventTime(item)} · {KIND_LABELS[item.kind]}
+          </span>
+          {syncLabel(item.syncStatus) ? <small>{syncLabel(item.syncStatus)}</small> : null}
+        </button>
+        <div className="life-event-actions">
+          {item.kind === 'bill' ? (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={`Ver transação ${item.title}`}
+              onClick={() => openBill(item)}
+            >
+              <ChevronRight size={18} />
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="icon-button"
+                disabled={!customer.access.canWrite}
+                aria-label={`Editar ${item.title}`}
+                onClick={() => setEditor({ item })}
+              >
+                <Edit3 size={16} />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                disabled={!customer.access.canWrite}
+                aria-label={`Excluir ${item.title}`}
+                onClick={() => {
+                  setActionError(null);
+                  setDeleting(item);
+                }}
+              >
+                <Trash2 size={16} />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     );
   };
   return (
-    <div className="ac-page">
-      <header className="ac-page-heading">
+    <div className="approved-life-page">
+      <div className="page-heading">
         <div>
-          <p className="ac-eyebrow">ESPAÇO PARA O QUE IMPORTA</p>
-          <h1>Agenda</h1>
-          <p>Compromissos, tarefas e lembretes no mesmo lugar.</p>
+          <div className="eyebrow">UM DIA MAIS LEVE</div>
+          <h1>Sua agenda, em sintonia.</h1>
+          <p>Compromissos, tarefas e lembretes. Tudo no seu tempo.</p>
         </div>
         <button
-          className="ac-button"
+          className="primary-button"
           type="button"
           disabled={!customer.access.canWrite}
           onClick={() => setEditor({})}
         >
-          <Plus aria-hidden="true" />
-          Criar item
+          <Plus size={17} />
+          Novo compromisso
         </button>
-      </header>
-      <section className="ac-agenda-toolbar">
-        <div className="ac-agenda-date-nav">
-          <button
-            type="button"
-            className="ac-icon-button"
-            aria-label="Período anterior da agenda"
-            onClick={() => {
-              setBaseDate(
-                view === 'month'
-                  ? monthPeriod('UTC', -1, new Date(baseDate + 'T12:00:00Z')).from
-                  : dayOffset(baseDate, -7)
-              );
-              setSelectedDay(null);
-            }}
-          >
-            <ChevronLeft aria-hidden="true" />
-          </button>
-          <label>
-            <span className="ac-sr-only">Data da agenda</span>
-            <input
-              type="date"
-              value={baseDate}
-              onChange={(event) => {
-                if (validDate(event.target.value)) {
-                  setBaseDate(event.target.value);
-                  setSelectedDay(null);
-                }
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            className="ac-icon-button"
-            aria-label="Próximo período da agenda"
-            onClick={() => {
-              setBaseDate(
-                view === 'month'
-                  ? monthPeriod('UTC', 1, new Date(baseDate + 'T12:00:00Z')).from
-                  : dayOffset(baseDate, 7)
-              );
-              setSelectedDay(null);
-            }}
-          >
-            <ChevronRight aria-hidden="true" />
-          </button>
-          <button
-            className="ac-text-button"
-            type="button"
-            onClick={() => {
-              setBaseDate(today);
-              setSelectedDay(null);
-            }}
-          >
-            Hoje
-          </button>
-        </div>
-        <div className="ac-segmented ac-segmented--compact" aria-label="Visualização da agenda">
-          {(
-            [
-              ['list', 'Lista'],
-              ['week', 'Semana'],
-              ['month', 'Mês'],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={view === value}
-              onClick={() => {
-                setView(value);
-                setSelectedDay(null);
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
-      <p className="ac-timezone-note">
-        <Clock aria-hidden="true" />
-        Horários em {timeZoneLabel(customer.timeZone)} <span>({customer.timeZone})</span>
-      </p>
-      {actionError ? <CustomerError error={actionError} /> : null}
-      {response.error ? <CustomerError error={response.error} onRetry={response.retry} /> : null}
-      {response.loading && !response.data ? (
-        <CustomerSkeleton label="Carregando sua agenda…" />
-      ) : response.data ? (
-        <>
-          {view === 'month' ? (
-            <section className="ac-card ac-calendar-card">
+      </div>
+      {actionError && !deleting ? <CustomerError error={actionError} /> : null}
+      <div className="life-agenda-layout">
+        <section className="panel life-calendar">
+          <div className="life-calendar-toolbar">
+            <div className="life-date-controls">
+              <button
+                className="icon-button"
+                aria-label="Período anterior da agenda"
+                onClick={() => move(-1)}
+              >
+                <ChevronLeft size={19} />
+              </button>
               <h2>
-                {new Intl.DateTimeFormat('pt-BR', {
-                  month: 'long',
-                  year: 'numeric',
-                  timeZone: 'UTC',
-                }).format(new Date(baseDate + 'T12:00:00Z'))}
+                {view === 'week'
+                  ? `${dateLabel(weekDates[0]!)} — ${dateLabel(weekDates[6]!)}`
+                  : monthTitle}
               </h2>
-              <table className="ac-month-calendar" aria-label="Calendário mensal">
-                <thead>
-                  <tr>
-                    {WEEK_DAYS.map((day) => (
-                      <th key={day} scope="col">
-                        {day}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {Array.from({ length: 6 }, (_, week) => (
-                    <tr key={week}>
-                      {monthDates.slice(week * 7, week * 7 + 7).map((date) => {
-                        const count = items.filter(
-                          (item) => itemDate(item, customer.timeZone) === date
-                        ).length;
-                        return (
-                          <td key={date}>
-                            <button
-                              type="button"
-                              className={
-                                (date.slice(0, 7) !== baseDate.slice(0, 7) ? 'is-outside ' : '') +
-                                (date === selectedDay ? 'is-selected ' : '') +
-                                (date === today ? 'is-today' : '')
-                              }
-                              aria-label={`${dateLabel(date)}, ${count} ${count === 1 ? 'item' : 'itens'}`}
-                              aria-pressed={date === selectedDay}
-                              onClick={() => {
-                                setSelectedDay(date);
-                                if (date < period.from || date > period.to) setBaseDate(date);
-                              }}
-                            >
-                              <time dateTime={date}>{Number(date.slice(8))}</time>
-                              {count ? (
-                                <span className="ac-calendar-count">
-                                  {count}
-                                  <span className="ac-sr-only"> itens</span>
-                                </span>
-                              ) : null}
-                            </button>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          ) : view === 'list' ? (
-            <div className="ac-day-strip" aria-label="Dias da agenda">
-              {dates.map((date) => (
+              <button
+                className="icon-button"
+                aria-label="Próximo período da agenda"
+                onClick={() => move(1)}
+              >
+                <ChevronRight size={19} />
+              </button>
+              <button
+                className="secondary-button life-today"
+                onClick={() => {
+                  setBaseDate(today);
+                  setSelectedDay(today);
+                }}
+              >
+                Hoje
+              </button>
+            </div>
+            <div
+              className="segmented-control tabs"
+              role="group"
+              aria-label="Visualização da agenda"
+            >
+              {(
+                [
+                  ['list', 'Lista'],
+                  ['week', 'Semana'],
+                  ['month', 'Mês'],
+                ] as const
+              ).map(([value, label]) => (
                 <button
-                  key={date}
+                  key={value}
                   type="button"
-                  aria-pressed={selectedDay === date}
-                  className={date === today ? 'is-today' : ''}
-                  onClick={() => setSelectedDay((value) => (value === date ? null : date))}
+                  className={view === value ? 'active' : ''}
+                  aria-pressed={view === value}
+                  onClick={() => {
+                    setView(value);
+                    if (value === 'week' && selectedDay) setBaseDate(selectedDay);
+                    setSelectedDay(selectedDay || baseDate);
+                  }}
                 >
-                  <small>
-                    {new Intl.DateTimeFormat('pt-BR', { weekday: 'short', timeZone: 'UTC' })
-                      .format(new Date(date + 'T12:00:00Z'))
-                      .replace('.', '')}
-                  </small>
-                  <strong>{Number(date.slice(8))}</strong>
+                  {label}
                 </button>
               ))}
             </div>
+          </div>
+          <div className="life-agenda-filter">
+            <label>
+              <span className="sr-only">Tipo de registro</span>
+              <select
+                value={filter}
+                onChange={(event) => setFilter(event.target.value as typeof filter)}
+              >
+                <option value="all">Todos os registros</option>
+                <option value="event">Compromissos</option>
+                <option value="task">Tarefas</option>
+                <option value="reminder">Lembretes</option>
+                <option value="bill">Vencimentos</option>
+              </select>
+            </label>
+            <span>
+              <span className="life-dot blue" />
+              Compromisso <span className="life-dot amber" />
+              Lembrete <span className="life-dot green" />
+              Tarefa
+            </span>
+          </div>
+          {response.error ? (
+            <CustomerError error={response.error} onRetry={response.retry} />
           ) : null}
-          {view === 'week' ? (
-            <div className="ac-week-grid">
-              {dates.map((date) => (
-                <section key={date} className={date === today ? 'is-today' : ''}>
-                  <header>
-                    <span>
-                      {new Intl.DateTimeFormat('pt-BR', {
-                        weekday: 'short',
-                        timeZone: 'UTC',
-                      }).format(new Date(date + 'T12:00:00Z'))}
-                    </span>
-                    <strong>{Number(date.slice(8))}</strong>
-                  </header>
-                  <div>
-                    {items
-                      .filter((item) => itemDate(item, customer.timeZone) === date)
-                      .map(eventCard)}
-                    {!items.some((item) => itemDate(item, customer.timeZone) === date) ? (
-                      <p className="ac-week-empty">Livre</p>
+          {response.loading && !response.data ? (
+            <CustomerSkeleton label="Carregando sua agenda…" />
+          ) : response.data ? (
+            view !== 'list' ? (
+              <>
+                <div className="life-weekday-row">
+                  {WEEK_DAYS.map((day) => (
+                    <span key={day}>{day}</span>
+                  ))}
+                </div>
+                <div className={`life-calendar-grid ${view === 'week' ? 'week-view' : ''}`}>
+                  {(view === 'month' ? monthDates : weekDates).map((date) => {
+                    const dayItems = items.filter(
+                      (item) => itemDate(item, customer.timeZone) === date
+                    );
+                    return (
+                      <button
+                        key={date}
+                        type="button"
+                        className={`life-calendar-day ${date.slice(0, 7) !== baseDate.slice(0, 7) ? 'outside' : ''} ${date === today ? 'today' : ''} ${date === selectedDay ? 'selected' : ''}`}
+                        onClick={() => setSelectedDay(date)}
+                        aria-label={`${fullDate(date)}, ${dayItems.length} registros`}
+                        aria-pressed={date === selectedDay}
+                      >
+                        <span className="life-day-number">{Number(date.slice(8))}</span>
+                        <span className="life-day-events">
+                          {dayItems.slice(0, 2).map((item) => (
+                            <span
+                              key={item.kind + item.id}
+                              className={`life-calendar-event ${cssKind(item.kind)} ${item.completed ? 'is-done' : ''}`}
+                            >
+                              <i />
+                              {eventTime(item)}
+                              <span>{item.title}</span>
+                            </span>
+                          ))}
+                          {dayItems.length > 2 ? (
+                            <small>+{dayItems.length - 2} registros</small>
+                          ) : null}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="life-selected-day">
+                  <div className="section-heading">
+                    <h3>{selectedDay ? fullDate(selectedDay) : 'Selecione um dia'}</h3>
+                    {selectedDay ? (
+                      <span>
+                        {visibleItems.length} {visibleItems.length === 1 ? 'registro' : 'registros'}
+                      </span>
                     ) : null}
                   </div>
-                </section>
-              ))}
-            </div>
-          ) : (
-            <section className="ac-agenda-list">
-              {selectedDay ? (
-                <div className="ac-card-heading">
-                  <h2>{dateLabel(selectedDay)}</h2>
-                  <button
-                    className="ac-text-button"
-                    type="button"
-                    onClick={() => setSelectedDay(null)}
-                  >
-                    Todos os dias
-                  </button>
+                  {visibleItems.length ? (
+                    visibleItems.map(eventCard)
+                  ) : (
+                    <div className="life-no-events">
+                      <Calendar size={19} />
+                      <span>
+                        {selectedDay
+                          ? 'Um espaço livre no seu dia.'
+                          : 'Toque em uma data para ver seus compromissos.'}
+                      </span>
+                      {selectedDay ? (
+                        <button
+                          className="text-button"
+                          disabled={!customer.access.canWrite}
+                          onClick={() => setEditor({})}
+                        >
+                          Adicionar
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
-              ) : null}
-              {visibleItems.length ? (
-                groupedDates.map((date) => (
-                  <section key={date || 'undated'}>
-                    <h2 className="ac-agenda-day-title">
-                      {date === today
-                        ? 'Hoje'
-                        : date === dayOffset(today, 1)
-                          ? 'Amanhã'
-                          : date
-                            ? dateLabel(date)
-                            : 'Sem data'}
-                    </h2>
-                    {visibleItems
-                      .filter((item) => itemDate(item, customer.timeZone) === date)
-                      .map(eventCard)}
-                  </section>
-                ))
-              ) : (
-                <div className="ac-card">
-                  <CustomerEmpty
-                    title={
-                      selectedDay ? 'Nenhum item neste dia' : 'Sua agenda está livre neste período'
-                    }
-                  >
-                    Peça ao Astra pelo WhatsApp ou crie seu próximo compromisso aqui.
+              </>
+            ) : (
+              <div className="life-agenda-list">
+                {visibleItems.length ? (
+                  visibleItems.map(eventCard)
+                ) : (
+                  <CustomerEmpty title="Sua agenda está livre">
+                    Crie um compromisso ou mude o período para encontrar outros registros.
                   </CustomerEmpty>
-                </div>
-              )}
-            </section>
-          )}
-          {view === 'week' && items.some((item) => !itemDate(item, customer.timeZone)) ? (
-            <section className="ac-card">
-              <h2>Sem data</h2>
-              {items.filter((item) => !itemDate(item, customer.timeZone)).map(eventCard)}
-            </section>
+                )}
+              </div>
+            )
           ) : null}
-        </>
-      ) : null}
+        </section>
+        <aside className="life-agenda-aside">
+          <section className="panel life-focus-card">
+            <span className="life-hero-icon">
+              <Calendar size={24} />
+            </span>
+            <span className="eyebrow">SEU DIA EM FOCO</span>
+            <h2>Um passo de cada vez.</h2>
+            <p>
+              Você tem{' '}
+              <strong>
+                {
+                  todayItems.filter(
+                    (item) => itemDate(item, customer.timeZone) === today && !item.completed
+                  ).length
+                }{' '}
+                pendências
+              </strong>{' '}
+              para hoje, {dateLabel(today)}.
+            </p>
+            <div className="life-focus-stats">
+              <div>
+                <strong>
+                  {
+                    todayItems.filter(
+                      (item) => itemDate(item, customer.timeZone) === today && item.completed
+                    ).length
+                  }
+                </strong>
+                <span>Concluídos</span>
+              </div>
+              <div>
+                <strong>
+                  {
+                    todayItems.filter(
+                      (item) => itemDate(item, customer.timeZone) === today && !item.completed
+                    ).length
+                  }
+                </strong>
+                <span>Para fazer</span>
+              </div>
+            </div>
+          </section>
+          <section className="panel life-quiet-card">
+            <Clock size={22} />
+            <h3>No seu fuso horário</h3>
+            <p>
+              Seus compromissos usam <strong>{timeZoneLabel(customer.timeZone)}</strong>. Ajuste
+              quando precisar no seu perfil.
+            </p>
+            <a className="text-button" href="/cliente/perfil">
+              Ver preferências
+              <ChevronRight size={15} />
+            </a>
+          </section>
+        </aside>
+      </div>
       {editor ? (
         <AgendaEditor
           customer={customer}
           item={editor.item}
+          initialDate={selectedDay || baseDate}
           onClose={() => setEditor(null)}
           onSaved={() => {
             setEditor(null);
@@ -462,23 +570,30 @@ export function CustomerAgenda({
             setEditor({ item: selected });
             setSelected(null);
           }}
-          onChanged={(message) => {
+          onChanged={(text) => {
             setSelected(null);
-            onChanged(message);
+            onChanged(text);
           }}
           onOpenBill={() => {
-            const date = selected.dueDate || dateInZone(new Date(), customer.timeZone);
-            onShowTransactions({
-              from: date,
-              to: date,
-              type: 'expense',
-              status: undefined,
-              categoryId: undefined,
-              search: selected.title,
-            });
+            openBill(selected);
             setSelected(null);
           }}
         />
+      ) : null}
+      {deleting ? (
+        <CustomerConfirm
+          title="Excluir este item?"
+          action="Excluir"
+          busy={Boolean(completing)}
+          error={actionError}
+          onClose={() => setDeleting(null)}
+          onConfirm={() => void remove()}
+        >
+          O item será removido da sua agenda.
+          {deleting.reminderAt || deleting.kind === 'reminder'
+            ? ' O lembrete vinculado também será cancelado.'
+            : ''}
+        </CustomerConfirm>
       ) : null}
     </div>
   );
@@ -644,12 +759,14 @@ function AgendaDetail({
 function AgendaEditor({
   customer,
   item,
+  initialDate,
   onClose,
   onSaved,
   onAddBill,
 }: {
   customer: Customer;
   item?: CustomerAgendaItem;
+  initialDate?: string;
   onClose: () => void;
   onSaved: () => void;
   onAddBill: () => void;
@@ -657,9 +774,15 @@ function AgendaEditor({
   const id = useId();
   const [kind, setKind] = useState<AgendaKind>(item?.kind ?? 'event');
   const [title, setTitle] = useState(item?.title ?? '');
-  const [start, setStart] = useState(localDateTime(item?.startAt, customer.timeZone));
+  const [start, setStart] = useState(
+    item?.startAt
+      ? localDateTime(item.startAt, customer.timeZone)
+      : initialDate
+        ? initialDate + 'T09:00'
+        : ''
+  );
   const [end, setEnd] = useState(localDateTime(item?.endAt, customer.timeZone));
-  const [due, setDue] = useState(item?.dueDate ?? '');
+  const [due, setDue] = useState(item?.dueDate ?? initialDate ?? '');
   const [reminder, setReminder] = useState(localDateTime(item?.reminderAt, customer.timeZone));
   const [description, setDescription] = useState(item?.description ?? '');
   const [busy, setBusy] = useState(false);
@@ -748,7 +871,7 @@ function AgendaEditor({
     >
       <form id={id} className="ac-form" onSubmit={submit} noValidate aria-busy={busy}>
         <fieldset disabled={busy || !customer.access.canWrite}>
-          <label>
+          <label className="field">
             Tipo
             <select
               value={kind}
@@ -772,7 +895,7 @@ function AgendaEditor({
             </div>
           ) : (
             <>
-              <label>
+              <label className="field">
                 Título
                 <input
                   value={title}
@@ -789,12 +912,12 @@ function AgendaEditor({
                 />
               </label>
               {kind === 'task' ? (
-                <label>
+                <label className="field">
                   Data da tarefa <span className="ac-label-optional">(opcional)</span>
                   <input type="date" value={due} onChange={(event) => setDue(event.target.value)} />
                 </label>
               ) : (
-                <label>
+                <label className="field">
                   {kind === 'event' ? 'Início' : 'Quando lembrar'}
                   <input
                     type="datetime-local"
@@ -805,7 +928,7 @@ function AgendaEditor({
                 </label>
               )}
               {kind === 'event' ? (
-                <label>
+                <label className="field">
                   Término <span className="ac-label-optional">(opcional)</span>
                   <input
                     type="datetime-local"
@@ -815,7 +938,7 @@ function AgendaEditor({
                 </label>
               ) : null}
               {kind !== 'reminder' ? (
-                <label>
+                <label className="field">
                   Avisar em <span className="ac-label-optional">(opcional)</span>
                   <input
                     type="datetime-local"
@@ -828,7 +951,7 @@ function AgendaEditor({
                 <Clock aria-hidden="true" />
                 Horários em {timeZoneLabel(customer.timeZone)} ({customer.timeZone}).
               </p>
-              <label>
+              <label className="field">
                 Observações <span className="ac-label-optional">(opcional)</span>
                 <textarea
                   value={description}

@@ -37,16 +37,66 @@ function visiblePanel() {
 }
 
 describe('customer financial workspace', () => {
+  it('keeps an incomplete custom period editable until a valid period is confirmed', async () => {
+    await mount();
+    const reads = api.summary.mock.calls.length;
+    await dom.click(dom.button('Alterar mês do resumo'));
+    await dom.fill(dom.field('Período'), 'custom');
+    await dom.fill(dom.field('Data inicial'), '');
+    expect(dom.container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(dom.button('Concluir').disabled).toBe(true);
+    expect(api.summary).toHaveBeenCalledTimes(reads);
+    await dom.fill(dom.field('Data inicial'), '2026-10-05');
+    await dom.fill(dom.field('Data final'), '2026-10-10');
+    await dom.click(dom.button('Concluir'));
+    expect(dom.container.querySelector('[role="dialog"]')).toBeNull();
+    expect(api.summary).toHaveBeenLastCalledWith(
+      { from: '2026-10-05', to: '2026-10-10' },
+      expect.any(AbortSignal)
+    );
+  });
+  it('labels sparse financial bars with their actual dates', async () => {
+    api.summary.mockResolvedValue({
+      ...summaryFixture,
+      series: [
+        { date: '2026-11-05', income: 500, expenses: 20 },
+        { date: '2026-11-10', income: 100, expenses: 30 },
+      ],
+    });
+    await mount();
+    const labels = Array.from(dom.container.querySelectorAll('.bar-column > span')).map(
+      (node) => node.textContent
+    );
+    expect(labels).toEqual(['05 de nov.', '10 de nov.']);
+  });
+  it('opens global Home totals without carrying a previous transaction filter', async () => {
+    await mount('/cliente/transacoes');
+    await dom.click(dom.button('Despesas'));
+    await dom.click(dom.button('Filtros'));
+    await dom.fill(dom.field('Categoria'), 'food');
+    await dom.fill(dom.field('Buscar transações'), 'almoço');
+    await dom.navigate('Início');
+    await dom.click(dom.button('Ver transações'));
+    expect(api.transactions).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ categoryId: 'food' }),
+      expect.any(AbortSignal)
+    );
+    const finalFilters = api.transactions.mock.calls.at(-1)?.[0];
+    expect(finalFilters?.type).toBeUndefined();
+    expect(finalFilters?.status).toBeUndefined();
+    expect(finalFilters?.search).toBeUndefined();
+    expect(dom.field('Buscar transações').value).toBe('');
+  });
   it('only claims the agenda is empty after a successful read of the schedule', async () => {
     const request = deferred<{ items: [] }>();
     api.agenda.mockReturnValueOnce(request.promise).mockResolvedValue({ items: [] });
     await mount();
-    expect(visiblePanel().textContent).not.toContain('Sem compromissos nos próximos dias');
+    expect(visiblePanel().textContent).not.toContain('Agenda em dia');
     await act(async () => request.reject(new Error('Agenda fora do ar')));
     expect(visiblePanel().textContent).toContain('Agenda fora do ar');
-    expect(visiblePanel().textContent).not.toContain('Sem compromissos nos próximos dias');
+    expect(visiblePanel().textContent).not.toContain('Agenda em dia');
     await dom.click(dom.button('Tentar novamente'));
-    expect(visiblePanel().textContent).toContain('Sem compromissos nos próximos dias');
+    expect(visiblePanel().textContent).toContain('Agenda em dia');
   });
   it('shows unknown budget spending without inventing a zero, then shows the verified zero on retry', async () => {
     api.plans.mockResolvedValue({
@@ -68,28 +118,27 @@ describe('customer financial workspace', () => {
       ],
     });
     api.summary.mockRejectedValueOnce(new Error('Resumo fora do ar'));
-    await mount();
-    const preview = dom.container.querySelector<HTMLButtonElement>('.ac-plan-preview-item')!;
-    expect(preview.textContent).toContain('Gasto do período indisponível');
-    expect(preview.querySelector('.ac-plan-preview-progress')).toBeNull();
-    await dom.click(preview);
-    const dialog = dom.container.querySelector('[role="dialog"]')!;
-    expect(dialog.textContent).toContain('Gasto do período indisponível');
-    expect(dialog.querySelector('[role="progressbar"]')).toBeNull();
-    await dom.click(dom.button('Fechar'));
+    await mount('/cliente/planejamento');
+    await dom.click(dom.button('Orçamentos'));
+    const card = () => dom.container.querySelector('.finance-goal-card')!;
+    expect(card().textContent).toContain('Gasto indisponível');
+    expect(card().textContent).not.toContain('R$ 0,00');
+    expect(card().querySelector('[role="progressbar"]')).toBeNull();
     await dom.click(dom.button('Tentar novamente'));
-    expect(preview.textContent?.replaceAll('\u00a0', ' ')).toContain('R$ 0,00 de R$ 500,00');
+    expect(card().textContent?.replaceAll('\u00a0', ' ')).toContain('R$ 0,00');
+    expect(card().textContent?.replaceAll('\u00a0', ' ')).toContain('de R$ 500,00');
+    expect(card().querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0');
   });
   it('shows realized totals separately from pending values and hides amounts in summary, chart and recent list', async () => {
     await mount();
     expect(visiblePanel().textContent).toContain('4.963,61');
     expect(visiblePanel().textContent).toContain('150,00');
-    expect(dom.container.querySelector('.ac-chart')).not.toBeNull();
+    expect(dom.container.querySelector('.bar-chart')).not.toBeNull();
     await dom.click(dom.button('Ocultar valores'));
     expect(api.updateProfile).toHaveBeenCalledWith({ hideAmounts: true });
     expect(visiblePanel().textContent).not.toMatch(/4\.963,61|5\.000,00|36,39|150,00|200,00/);
-    expect(dom.container.querySelector('.ac-chart')).toBeNull();
-    await dom.click(dom.container.querySelector<HTMLButtonElement>('.ac-transaction')!);
+    expect(dom.container.querySelector('.bar-chart')).toBeNull();
+    await dom.click(dom.container.querySelector<HTMLButtonElement>('.transaction-row')!);
     expect(dom.container.querySelector('[role="dialog"]')?.textContent).not.toContain('36,39');
     expect(dom.button('Editar e mostrar valor')).toBeDefined();
   });
@@ -97,7 +146,7 @@ describe('customer financial workspace', () => {
     await mount('/cliente/transacoes');
     await dom.fill(dom.field('Buscar transações'), 'almoço');
     await dom.click(dom.button('Despesas'));
-    const content = dom.container.querySelector<HTMLElement>('main.ac-content')!;
+    const content = dom.container.querySelector<HTMLElement>('main.approved-content')!;
     content.scrollTop = 328;
     await act(async () => content.dispatchEvent(new Event('scroll', { bubbles: true })));
     await dom.navigate('Agenda');
@@ -110,12 +159,15 @@ describe('customer financial workspace', () => {
       expect.objectContaining({ search: 'almoço', type: 'expense', page: 1 }),
       expect.any(AbortSignal)
     );
-    expect(dom.container.querySelectorAll('nav a')).toHaveLength(7);
+    expect(dom.container.querySelectorAll('nav[aria-label="Navegação do cliente"] a')).toHaveLength(
+      9
+    );
+    expect(dom.container.querySelectorAll('.ac-release-mobile-nav a')).toHaveLength(4);
     expect(dom.container.querySelector('nav a[href="/cliente/radar"]')).toBeTruthy();
   });
   it('creates an exact decimal expense once and reuses the same idempotency key after a lost response', async () => {
     await mount('/cliente/transacoes');
-    await dom.click(dom.button('Adicionar'));
+    await dom.click(dom.button('Nova transação'));
     await dom.fill(dom.field('Descrição'), 'Almoço do trabalho');
     await dom.fill(dom.field('Valor (R$)'), '36,39');
     const pending = deferred<{ transaction: CustomerTransaction }>();
@@ -145,7 +197,7 @@ describe('customer financial workspace', () => {
   });
   it('rejects malformed amounts before any mutation', async () => {
     await mount('/cliente/transacoes');
-    await dom.click(dom.button('Adicionar'));
+    await dom.click(dom.button('Nova transação'));
     await dom.fill(dom.field('Descrição'), 'Almoço');
     await dom.fill(dom.field('Valor (R$)'), '36,399');
     await dom.submit();
@@ -193,18 +245,28 @@ describe('customer financial workspace', () => {
     api.session.mockResolvedValue({ customer: expired });
     api.profile.mockResolvedValue({ profile: expired });
     await mount('/cliente/transacoes');
-    expect(dom.button('Adicionar').disabled).toBe(true);
+    expect(dom.button('Nova transação').disabled).toBe(true);
     expect(visiblePanel().textContent).toContain('36,39');
     await dom.navigate('Categorias');
     expect(dom.button('Nova categoria').disabled).toBe(true);
     await dom.navigate('Agenda');
-    expect(dom.button('Criar item').disabled).toBe(true);
+    expect(dom.button('Novo compromisso').disabled).toBe(true);
     await dom.navigate('Perfil');
     expect(dom.button('Alterar telefone').disabled).toBe(true);
-    expect(dom.button('Editar preferências').disabled).toBe(false);
+    await dom.click(dom.button('Preferências'));
+    expect(dom.button('Ocultar valores financeiros').disabled).toBe(false);
+    await dom.click(dom.button('Privacidade'));
+    await dom.click(dom.button('Exportar meus dados'));
     expect(dom.button('Exportar CSV').disabled).toBe(false);
-    expect(dom.container.textContent).toContain('Acesso vencido');
-    expect(dom.container.querySelector('a[href="https://astraacessor.pro/"]')).not.toBeNull();
+    await dom.click(dom.button('Fechar'));
+    await dom.click(dom.button('Plano e acesso'));
+    expect(dom.container.querySelector('[data-status="expired"]')).not.toBeNull();
+    expect(dom.container.textContent).toContain('Acesso somente leitura');
+    const renewal = Array.from(dom.container.querySelectorAll('a')).find(
+      (link) => link.textContent?.trim() === 'Renovar meu plano'
+    );
+    expect(renewal).toBeDefined();
+    expect(renewal?.href).toMatch(/^https:\/\//);
   });
   it('shows actual read failures with retry, not a fabricated empty dashboard', async () => {
     api.summary.mockRejectedValueOnce(new Error('Não foi possível carregar seu resumo.'));
@@ -220,7 +282,7 @@ describe('customer refresh and session changes', () => {
   it('remounts account-scoped state if another tab replaces the customer cookie', async () => {
     await mount('/cliente/transacoes');
     await dom.fill(dom.field('Buscar transações'), 'private filter');
-    await dom.click(dom.button('Adicionar'));
+    await dom.click(dom.button('Nova transação'));
     await dom.fill(dom.field('Descrição'), 'Draft from previous account');
     api.session.mockResolvedValue({
       customer: {
@@ -252,7 +314,7 @@ describe('customer refresh and session changes', () => {
   it('reloads on focus and manually, preserves the visible list and keeps an in-progress form', async () => {
     await mount('/cliente/transacoes');
     await dom.fill(dom.field('Buscar transações'), 'almoço');
-    await dom.click(dom.button('Adicionar'));
+    await dom.click(dom.button('Nova transação'));
     await dom.fill(dom.field('Descrição'), 'Rascunho em andamento');
     const next = deferred<{ customer: Customer }>();
     api.session.mockReturnValueOnce(next.promise);
@@ -276,14 +338,14 @@ describe('customer refresh and session changes', () => {
       },
     });
     await mount('/cliente/transacoes');
-    expect(dom.button('Adicionar').disabled).toBe(true);
+    expect(dom.button('Nova transação').disabled).toBe(true);
     await dom.fill(dom.field('Buscar transações'), 'mercado');
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     await act(async () => vi.advanceTimersByTime(60_000));
     expect(api.session).toHaveBeenCalledTimes(1);
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     await act(async () => document.dispatchEvent(new Event('visibilitychange')));
-    expect(dom.button('Adicionar').disabled).toBe(false);
+    expect(dom.button('Nova transação').disabled).toBe(false);
     expect(dom.field('Buscar transações').value).toBe('mercado');
     await act(async () => vi.advanceTimersByTime(60_000));
     expect(api.session).toHaveBeenCalledTimes(3);
@@ -309,8 +371,8 @@ describe('customer refresh and session changes', () => {
   });
   it('uses new server data after refresh without mutating the stored fixture', async () => {
     await mount();
-    await dom.click(dom.container.querySelectorAll<HTMLButtonElement>('.ac-chart-button')[1]!);
-    expect(dom.container.querySelector('.ac-chart-insight')?.textContent).toContain('36,39');
+    await act(async () => dom.container.querySelector<HTMLButtonElement>('.bar-column')!.focus());
+    expect(dom.container.querySelector('.chart-tooltip')?.textContent).toContain('36,39');
     api.summary.mockResolvedValue({
       ...summaryFixture,
       expenses: 72.78,
@@ -319,12 +381,49 @@ describe('customer refresh and session changes', () => {
     });
     await dom.click(dom.button('Atualizar meus dados'));
     expect(visiblePanel().textContent).toContain('4.927,22');
-    expect(dom.container.querySelector('.ac-chart-insight')?.textContent).toContain('72,78');
+    expect(dom.container.querySelector('.chart-tooltip')?.textContent).toContain('72,78');
     expect(summaryFixture.result).toBe(4963.61);
   });
 });
 
 describe('customer header actions and shared photo', () => {
+  it('keeps values hidden when an older profile read arrives afterward', async () => {
+    const profileResponse = deferred<{ profile: Customer }>();
+    api.profile.mockReturnValueOnce(profileResponse.promise);
+    await mount('/cliente/perfil');
+    await dom.click(dom.button('Ocultar valores'));
+    expect(dom.button('Mostrar valores')).toBeDefined();
+    await act(async () => profileResponse.resolve({ profile: customerFixture }));
+    expect(dom.button('Mostrar valores')).toBeDefined();
+  });
+  it('keeps values hidden when an older session refresh arrives afterward', async () => {
+    await mount();
+    const sessionResponse = deferred<{ customer: Customer }>();
+    api.session.mockReturnValueOnce(sessionResponse.promise);
+    await dom.click(dom.button('Atualizar meus dados'));
+    await dom.click(dom.button('Ocultar valores'));
+    expect(dom.button('Mostrar valores')).toBeDefined();
+    await act(async () => sessionResponse.resolve({ customer: customerFixture }));
+    expect(dom.button('Mostrar valores')).toBeDefined();
+  });
+  it('keeps values hidden when an older theme response arrives afterward', async () => {
+    await mount();
+    const themeResponse = deferred<{ profile: Customer }>();
+    api.updateProfile
+      .mockReturnValueOnce(themeResponse.promise)
+      .mockResolvedValueOnce({ profile: { ...customerFixture, hideAmounts: true } });
+    await dom.click(dom.button('Ativar tema escuro'));
+    await dom.click(dom.button('Ocultar valores'));
+    expect(dom.button('Mostrar valores')).toBeDefined();
+    await act(async () =>
+      themeResponse.resolve({ profile: { ...customerFixture, theme: 'dark', hideAmounts: false } })
+    );
+    expect(dom.button('Mostrar valores')).toBeDefined();
+    expect(dom.container.querySelector('.home-summary-balance')?.textContent).toContain('••••');
+    expect(
+      dom.container.querySelector('#astra-approved-dashboard')?.getAttribute('data-theme')
+    ).toBe('dark');
+  });
   it('shares one private photo across header, sidebar and profile', async () => {
     const createObjectURL = vi
       .fn()
@@ -342,14 +441,16 @@ describe('customer header actions and shared photo', () => {
     try {
       api.avatar.mockResolvedValue(new Blob(['synthetic-image'], { type: 'image/png' }));
       await mount();
-      const actions = dom.container.querySelector('.ac-topbar-actions')!;
+      const actions = dom.container.querySelector('.topbar-actions')!;
       expect(actions.querySelector('[aria-label="Atualizar meus dados"]')).not.toBeNull();
-      expect(actions.querySelector('[aria-label="Abrir meu perfil"]')).not.toBeNull();
+      expect(actions.querySelector('[aria-label="Abrir perfil"]')).not.toBeNull();
       expect(api.avatar).toHaveBeenCalledTimes(1);
-      expect(dom.container.querySelectorAll('.ac-avatar img')).toHaveLength(2);
+      expect(dom.container.querySelectorAll('.ac-avatar img')).toHaveLength(3);
 
       await dom.click(dom.button('Abrir meu perfil'));
-      expect(dom.container.querySelectorAll('.ac-avatar img')).toHaveLength(3);
+      expect(
+        dom.container.querySelector('.approved-profile .settings-panel .ac-avatar img')
+      ).not.toBeNull();
       expect(api.avatar).toHaveBeenCalledTimes(1);
       for (const image of dom.container.querySelectorAll('.ac-avatar img')) {
         expect(image.getAttribute('src')).toBe('blob:customer-photo');

@@ -35,11 +35,12 @@ const customerPath = customerEntryPath(window.location);
 if (customerPath && customerPath !== window.location.pathname) {
   window.history.replaceState(window.history.state, '', customerPath);
 }
-const Application = lazy(() =>
-  customerPath
-    ? import('./pages/customer/CustomerApp').then((module) => ({ default: module.CustomerApp }))
-    : import('./AdminApp').then((module) => ({ default: module.AdminApp }))
-);
+// Separate lazy imports keep each route's CSS in Vite's production preload list.
+const Application = customerPath
+  ? lazy(() =>
+      import('./pages/customer/CustomerApp').then((module) => ({ default: module.CustomerApp }))
+    )
+  : lazy(() => import('./AdminApp').then((module) => ({ default: module.AdminApp })));
 
 // A PWA antiga pode solicitar um chunk removido apos um deploy.
 // Recarregue so uma vez para recuperar o HTML atual, sem loops.

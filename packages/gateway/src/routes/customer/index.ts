@@ -7,6 +7,8 @@ import { customerPlanningRoutes } from './planning.js';
 import { customerDataRoutes } from './data.js';
 import { customerConnectedAppsRoutes } from './connected-apps.js';
 import { customerRadarRoutes } from './radar.js';
+import { customerInvestmentRoutes } from './investments.js';
+import { publicCustomerReferralRoutes, customerReferralRoutes } from './referrals.js';
 import { requireCustomerSession } from '../../middleware/customer-session.js';
 import { apiError } from '../helpers.js';
 import { admitCustomerRequest } from '../../middleware/customer-admission.js';
@@ -15,6 +17,7 @@ import { admitCustomerRequest } from '../../middleware/customer-admission.js';
 export const customerRoutes = new Hono();
 customerRoutes.use('*', admitCustomerRequest);
 customerRoutes.route('/auth', customerAuthRoutes);
+customerRoutes.route('/', publicCustomerReferralRoutes);
 customerRoutes.use('*', requireCustomerSession);
 customerRoutes.route('/', customerAccountRoutes);
 customerRoutes.route('/finance', customerFinanceRoutes);
@@ -22,6 +25,8 @@ customerRoutes.route('/planning', customerPlanningRoutes);
 customerRoutes.route('/agenda', customerAgendaRoutes);
 customerRoutes.route('/connected-apps', customerConnectedAppsRoutes);
 customerRoutes.route('/radar', customerRadarRoutes);
+customerRoutes.route('/investments', customerInvestmentRoutes);
+customerRoutes.route('/referrals', customerReferralRoutes);
 customerRoutes.route('/', customerDataRoutes);
 customerRoutes.all('*', (c) =>
   apiError(c, { code: 'NOT_FOUND', message: 'Página não encontrada.' }, 404)

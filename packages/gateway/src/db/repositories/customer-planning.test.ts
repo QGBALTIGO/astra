@@ -16,7 +16,8 @@ class MemoryPlanning extends CustomerPlanningRepository {
     if (sql.startsWith('SELECT type, archived FROM customer_categories'))
       return { type: 'expense', archived: false } as T;
     if (sql.includes('RETURNING')) {
-      const [id, , kind, title, amount, progress, category, total, paid, due, notes] = params!;
+      const [id, , kind, title, amount, progress, category, total, paid, due, notes, icon] =
+        params!;
       return {
         id,
         kind,
@@ -28,6 +29,7 @@ class MemoryPlanning extends CustomerPlanningRepository {
         installments_paid: paid,
         next_due_date: due,
         notes,
+        icon: icon ?? 'flag',
         created_at: '2026-11-11T12:00:00Z',
         updated_at: '2026-11-11T12:00:00Z',
       } as T;
@@ -53,6 +55,22 @@ describe('isolated customer planning records', () => {
     expect(write?.params?.[1]).toBe('whatsapp:test-a');
     expect(write?.params?.[4]).toBe(200000);
     expect(write?.params?.[5]).toBe(0);
+  });
+
+  it('persists an allowed goal symbol and rejects arbitrary values', async () => {
+    const repo = new MemoryPlanning('whatsapp:synthetic-goal-icons');
+    const plan = await repo.create({
+      kind: 'goal',
+      title: 'Viagem',
+      amount: 2000,
+      progress: 10,
+      icon: 'plane',
+    });
+    expect(plan.icon).toBe('plane');
+    expect(repo.calls.find((call) => call.sql.includes('INSERT INTO'))?.params?.[11]).toBe('plane');
+    await expect(
+      repo.create({ kind: 'goal', title: 'Invalid', amount: 10, icon: '<svg>' as never })
+    ).rejects.toThrow(/Símbolo/);
   });
 
   it('validates realistic budgets and installment progress', async () => {
