@@ -141,6 +141,37 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)(
       );
       expect((await onboardingProbe()).overdue_welcome).toBe(false);
     });
+    it('does not mistake a pre-send welcome claim marker for a delivery receipt', async () => {
+      const id = await overdueTrial();
+      await clients[0]!.query(
+        `UPDATE channel_users SET metadata=metadata ||
+        '{"astraAccessNotices":{"firstAuthorized":true,"firstAuthorizedAsTrial":true,"firstAuthorizedClaimToken":"synthetic-lease"}}'::jsonb WHERE id=$1`,
+        [id]
+      );
+      for (const status of ['claimed', 'sending', 'failed', 'cancelled']) {
+        await clients[0]!.query(
+          `UPDATE channel_access_notifications SET status=$2,delivery_id=NULL
+          WHERE channel_user_id=$1 AND kind='approved'`,
+          [id, status]
+        );
+        expect((await onboardingProbe()).overdue_welcome, status).toBe(true);
+      }
+      for (const emptyReceipt of ['', '   ']) {
+        await clients[0]!.query(
+          `UPDATE channel_access_notifications SET status='delivered',delivery_id=$2
+          WHERE channel_user_id=$1 AND kind='approved'`,
+          [id, emptyReceipt]
+        );
+        expect((await onboardingProbe()).overdue_welcome).toBe(true);
+      }
+      await clients[0]!.query(
+        `UPDATE channel_access_notifications SET status='delivered',delivery_id='synthetic-confirmed'
+        WHERE channel_user_id=$1 AND kind='approved'`,
+        [id]
+      );
+      expect((await onboardingProbe()).overdue_welcome).toBe(false);
+    });
+
     it.each(['blocked', 'revoked', 'expired'])(
       'does not alert for an intentionally inactive trial: %s',
       async (reason) => {
