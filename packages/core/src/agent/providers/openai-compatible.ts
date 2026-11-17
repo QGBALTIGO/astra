@@ -39,6 +39,13 @@ import {
 import { getAuthHeader, type ResolvedAuth } from './configs/types.js';
 import { readSseData, runProviderHealthCheck, approximateTokenCount } from './shared.js';
 import { getLog } from '../../services/get-log.js';
+import {
+  fetchGroqPool,
+  groqPoolKeys,
+  groqPoolRead,
+  isOfficialProviderBase,
+} from './groq-key-pool.js';
+import { groqResponseOptions } from './groq-response-options.js';
 
 const log = getLog('OpenAICompatible');
 
@@ -150,6 +157,7 @@ export class OpenAICompatibleProvider implements IProvider {
   private readonly config: ResolvedProviderConfig;
   private abortController: AbortController | null = null;
   private requestTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private readonly pooledRequests = new Set<AbortController>();
 
   constructor(config: ResolvedProviderConfig) {
     this.config = config;
@@ -262,12 +270,16 @@ export class OpenAICompatibleProvider implements IProvider {
     }
 
     const body = this.buildRequestBody(request, model, false);
+    let finish: (() => void) | undefined;
 
     try {
-      const { response, errorText: rateLimitErrorText } = await this.fetchChatCompletion(
-        body,
-        request
-      );
+      const {
+        response,
+        errorText: rateLimitErrorText,
+        finish: cleanup,
+        signal,
+      } = await this.fetchChatCompletion(body, request);
+      finish = cleanup;
 
       if (!response.ok) {
         const errorText = rateLimitErrorText ?? (await response.text());
@@ -276,7 +288,9 @@ export class OpenAICompatibleProvider implements IProvider {
         );
       }
 
-      const data = (await response.json()) as OpenAIResponse;
+      const data = (await (signal
+        ? groqPoolRead(response.json(), signal)
+        : response.json())) as OpenAIResponse;
       const choice = data.choices?.[0];
 
       if (!choice) {
@@ -315,6 +329,8 @@ export class OpenAICompatibleProvider implements IProvider {
         return err(new TimeoutError(`${this.providerId} request`, this.config.timeout ?? 300000));
       }
       return err(new InternalError(`${this.providerId} request failed: ${getErrorMessage(error)}`));
+    } finally {
+      finish?.();
     }
   }
 
@@ -333,12 +349,16 @@ export class OpenAICompatibleProvider implements IProvider {
     }
 
     const body = this.buildRequestBody(request, model, true);
+    let finish: (() => void) | undefined;
 
     try {
-      const { response, errorText: rateLimitErrorText } = await this.fetchChatCompletion(
-        body,
-        request
-      );
+      const {
+        response,
+        errorText: rateLimitErrorText,
+        finish: cleanup,
+        signal,
+      } = await this.fetchChatCompletion(body, request);
+      finish = cleanup;
 
       if (!response.ok || !response.body) {
         const errorText = rateLimitErrorText ?? (await response.text().catch(() => ''));
@@ -358,6 +378,8 @@ export class OpenAICompatibleProvider implements IProvider {
       let reasoningDone = false;
 
       for await (const data of readSseData(response.body)) {
+        if (signal?.aborted)
+          throw new DOMException('Groq request cancelled or timed out', 'AbortError');
         if (process.env.OWNPILOT_DEBUG_STREAM) {
           log.debug(`[stream:${this.providerId}] ${data.slice(0, 500)}`);
         }
@@ -441,6 +463,8 @@ export class OpenAICompatibleProvider implements IProvider {
       // `await fetch` resolves we'd otherwise leak the 5-minute timeout.
       this.clearRequestTimeout();
       yield err(new InternalError(`${this.providerId} stream failed: ${getErrorMessage(error)}`));
+    } finally {
+      finish?.();
     }
   }
 
@@ -500,6 +524,7 @@ export class OpenAICompatibleProvider implements IProvider {
    * Cancel ongoing request
    */
   cancel(): void {
+    for (const controller of this.pooledRequests) controller.abort();
     this.clearRequestTimeout();
     if (this.abortController) {
       this.abortController.abort();
@@ -524,6 +549,12 @@ export class OpenAICompatibleProvider implements IProvider {
       messages: this.buildMessages(request.messages),
       stream,
     };
+    if (
+      this.providerId === 'openrouter' &&
+      isOfficialProviderBase(this.config.baseUrl, 'https://openrouter.ai/api/v1')
+    ) {
+      body.provider = { data_collection: 'deny', require_parameters: true };
+    }
 
     // Optional parameters
     if (request.model.maxTokens) {
@@ -571,6 +602,9 @@ export class OpenAICompatibleProvider implements IProvider {
       body.stream_options = { include_usage: true };
     }
 
+    if (this.providerId === 'groq') {
+      Object.assign(body, groqResponseOptions(this.config.baseUrl, model, request.model.maxTokens));
+    }
     return body;
   }
 
@@ -688,9 +722,53 @@ export class OpenAICompatibleProvider implements IProvider {
   private async fetchChatCompletion(
     body: unknown,
     request: CompletionRequest
-  ): Promise<{ response: Response; errorText?: string }> {
-    await this.assertBaseUrlSafe();
+  ): Promise<{
+    response: Response;
+    errorText?: string;
+    finish?: () => void;
+    signal?: AbortSignal;
+  }> {
     const url = `${this.config.baseUrl}${this.config.endpoint ?? '/chat/completions'}`;
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: authHeader(this.config),
+      ...this.config.headers,
+      ...(request.metadata?.conversationId
+        ? { 'X-Conversation-Id': request.metadata.conversationId }
+        : {}),
+    };
+    const keys = groqPoolKeys({
+      providerId: this.providerId,
+      baseUrl: this.config.baseUrl,
+      endpoint: this.config.endpoint,
+      authorization: new Headers(headers).get('authorization') ?? '',
+    });
+    if (keys) {
+      const controller = new AbortController();
+      this.pooledRequests.add(controller);
+      try {
+        const pooled = await fetchGroqPool({
+          keys,
+          url,
+          model: String((body as { model: string }).model),
+          options: { method: 'POST', headers, body: JSON.stringify(body) },
+          timeoutMs: this.config.timeout ?? 120_000,
+          controller,
+          beforeFetch: () => this.assertBaseUrlSafe(),
+        });
+        return {
+          ...pooled,
+          finish: () => {
+            pooled.finish();
+            this.pooledRequests.delete(controller);
+          },
+        };
+      } catch (error) {
+        this.pooledRequests.delete(controller);
+        throw error;
+      }
+    }
+    await this.assertBaseUrlSafe();
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const fetchOptions = this.createFetchOptions(body);

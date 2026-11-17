@@ -109,7 +109,13 @@ export default defineConfig(({ mode }) => {
       customerReleasePointer(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['logo.svg', 'ownpilot-logo.jpeg'],
+        includeAssets: [
+          'astra-icons/*',
+          'apple-touch-icon.png',
+          'favicon.ico',
+          'logo.svg',
+          'ownpilot-logo.jpeg',
+        ],
         manifest: {
           name: 'Astra',
           short_name: 'Astra',
@@ -118,21 +124,29 @@ export default defineConfig(({ mode }) => {
           background_color: '#0f172a',
           display: 'standalone',
           display_override: ['window-controls-overlay', 'standalone'],
-          start_url: '/',
+          // Preserve the installed app's original identity while opening the customer portal.
+          id: '/',
+          start_url: '/cliente',
           scope: '/',
-          categories: ['productivity', 'ai', 'developer-tools'],
+          categories: ['productivity', 'finance'],
           icons: [
             {
-              src: 'logo.svg',
-              sizes: 'any',
-              type: 'image/svg+xml',
-              purpose: 'any maskable',
+              src: '/astra-icons/astra-192-v1.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any',
             },
             {
-              src: 'ownpilot-logo.jpeg',
-              sizes: '256x256',
-              type: 'image/jpeg',
+              src: '/astra-icons/astra-512-v1.png',
+              sizes: '512x512',
+              type: 'image/png',
               purpose: 'any',
+            },
+            {
+              src: '/astra-icons/astra-maskable-512-v1.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
             },
           ],
         },
@@ -150,6 +164,7 @@ export default defineConfig(({ mode }) => {
               manifest: entries.filter(
                 ({ url }) =>
                   customerShellAssets.has(url) ||
+                  url.startsWith('astra-icons/') ||
                   url.endsWith('.css') ||
                   [
                     'index.html',
@@ -157,6 +172,8 @@ export default defineConfig(({ mode }) => {
                     'poppins.woff2',
                     'logo.svg',
                     'ownpilot-logo.jpeg',
+                    'apple-touch-icon.png',
+                    'favicon.ico',
                     'astra-approved-logo.svg',
                     'astra-approved-logo-light.svg',
                     'astra-logo.svg',

@@ -10,6 +10,12 @@ export interface AstraFallbackRoute {
   model: string;
 }
 
+// The installed private relay measured about 12 seconds. Only an explicitly
+// selected last resort gets this allowance; healthy cloud calls never wait for it.
+export const ASTRA_LOCAL_FALLBACK_TIMEOUT_MS = 16_000;
+export const ASTRA_LOCAL_FALLBACK_MAX_TOKENS = 768;
+export const ASTRA_CHANNEL_FALLBACK_WITH_LOCAL_BUDGET_MS = 26_000;
+
 const ALLOWED_FREE_MODELS: Readonly<Record<string, ReadonlySet<string>>> = {
   zai: new Set(['glm-4.7-flash', 'glm-4.5-flash']),
   openrouter: new Set(['openrouter/free']),
@@ -17,6 +23,9 @@ const ALLOWED_FREE_MODELS: Readonly<Record<string, ReadonlySet<string>>> = {
   // Groq Free Plan includes these models within rate limits. Explicit opt-in
   // only: API keys may also belong to paid Developer plans.
   groq: new Set(['openai/gpt-oss-20b', 'openai/gpt-oss-120b']),
+  // Operator-hosted, not a hosted paid tier. Keep the installed model exact
+  // and require its own configured credential and guarded loopback relay.
+  'ollama-local': new Set(['qwen3:4b-instruct']),
 };
 
 function isAllowedFreeRoute(route: AstraFallbackRoute): boolean {
@@ -39,7 +48,12 @@ export function parseAstraFallbackChain(
   primaryProvider: string,
   explicitFallback?: AstraFallbackRoute
 ): AstraFallbackRoute[] {
-  if (!chain?.trim()) return explicitFallback ? [explicitFallback] : [];
+  if (!chain?.trim()) {
+    return explicitFallback &&
+      (explicitFallback.provider !== 'ollama-local' || isAllowedFreeRoute(explicitFallback))
+      ? [explicitFallback]
+      : [];
+  }
 
   const entries = [
     ...(explicitFallback ? [explicitFallback] : []),
@@ -55,13 +69,16 @@ export function parseAstraFallbackChain(
     }),
   ];
   const routes: AstraFallbackRoute[] = [];
+  let localReserve: AstraFallbackRoute | undefined;
   const seen = new Set<string>([primaryProvider]);
   for (const candidate of entries) {
     // Never allow two provider slots for the same key/rate-limit pool.
     if (seen.has(candidate.provider) || !isAllowedFreeRoute(candidate)) continue;
     seen.add(candidate.provider);
-    routes.push(candidate);
-    if (routes.length === 5) break;
+    if (candidate.provider === 'ollama-local') localReserve = candidate;
+    else if (routes.length < 5) routes.push(candidate);
   }
-  return routes;
+  // Local inference must never displace a healthy cloud attempt, even if a
+  // stored explicit fallback or the environment lists it first.
+  return localReserve ? [...routes.slice(0, 4), localReserve] : routes;
 }

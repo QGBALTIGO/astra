@@ -88,4 +88,42 @@ describe('Astra free-only fallback policy', () => {
       })
     ).toEqual([{ provider: 'zai', model: 'glm-4.7-flash' }]);
   });
+
+  it('allows only the installed local model as an explicitly selected last resort', () => {
+    expect(
+      parseAstraFallbackChain(
+        'ollama-local=qwen3:4b-instruct,openrouter=openrouter/free,groq=openai/gpt-oss-20b',
+        'groq'
+      )
+    ).toEqual([
+      { provider: 'openrouter', model: 'openrouter/free' },
+      { provider: 'ollama-local', model: 'qwen3:4b-instruct' },
+    ]);
+    expect(
+      parseAstraFallbackChain('ollama-local=other-model,ollama=qwen3:4b-instruct', 'groq')
+    ).toEqual([]);
+    expect(
+      parseAstraFallbackChain(undefined, 'groq', { provider: 'ollama-local', model: 'other-model' })
+    ).toEqual([]);
+    expect(
+      parseAstraFallbackChain(undefined, 'groq', {
+        provider: 'ollama-local',
+        model: 'qwen3:4b-instruct',
+      })
+    ).toEqual([{ provider: 'ollama-local', model: 'qwen3:4b-instruct' }]);
+  });
+
+  it('never promotes a stored local fallback ahead of explicitly chosen cloud routes', () => {
+    expect(
+      parseAstraFallbackChain('openrouter=openrouter/free,ollama-local=qwen3:4b-instruct', 'groq', {
+        provider: 'ollama-local',
+        model: 'qwen3:4b-instruct',
+      })
+    ).toEqual([
+      { provider: 'openrouter', model: 'openrouter/free' },
+      { provider: 'ollama-local', model: 'qwen3:4b-instruct' },
+    ]);
+    expect(parseAstraFallbackChain('ollama-local=qwen3:4b-instruct', 'ollama-local')).toEqual([]);
+    expect(parseAstraFallbackChain(undefined, 'groq')).toEqual([]);
+  });
 });

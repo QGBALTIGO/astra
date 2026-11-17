@@ -513,6 +513,84 @@ describe('agent-runner-utils', () => {
       }
     );
 
+    it('keeps the configured custom provider identity and wire type for the guarded local relay', async () => {
+      const core = await import('@ownpilot/core/agent');
+      mockLoadProviderConfig.mockReturnValueOnce({
+        type: 'openai-compatible',
+        baseUrl: 'http://127.0.0.1:3000/_internal/astra-ollama/v1',
+      });
+      await createConfiguredAgent({
+        name: 'Synthetic local runner',
+        provider: 'ollama-local',
+        model: 'qwen3:4b-instruct',
+        systemPrompt: 'Synthetic',
+        userId: 'synthetic',
+        conversationId: 'synthetic-local',
+      });
+      expect(core.Agent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: expect.objectContaining({
+            id: 'ollama-local',
+            provider: 'openai-compatible',
+            baseUrl: 'http://127.0.0.1:3000/_internal/astra-ollama/v1',
+          }),
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('keeps the explicit local runner reserve last and bounds its relay and output budget', async () => {
+      const core = await import('@ownpilot/core/agent');
+      const constructed = vi.spyOn(core, 'createFallbackProvider');
+      vi.stubEnv(
+        'ASTRA_FALLBACK_CHAIN',
+        'ollama-local=qwen3:4b-instruct,openrouter=openrouter/free'
+      );
+      mockLoadProviderConfig.mockImplementation((id: string) => ({
+        type: 'openai-compatible',
+        baseUrl:
+          id === 'ollama-local'
+            ? 'http://127.0.0.1:3000/_internal/astra-ollama/v1'
+            : id === 'openrouter'
+              ? 'https://openrouter.ai/api/v1'
+              : 'https://api.openai.com/v1',
+      }));
+      try {
+        await createConfiguredAgent({
+          name: 'Synthetic reserve runner',
+          provider: 'openai',
+          model: 'synthetic-primary-model',
+          systemPrompt: 'Synthetic',
+          userId: 'synthetic',
+          conversationId: 'synthetic-reserve',
+          maxTokens: 256,
+        });
+        expect(constructed).toHaveBeenCalledWith(
+          expect.objectContaining({
+            primary: expect.objectContaining({ id: 'openai' }),
+            fallbacks: [
+              expect.objectContaining({
+                id: 'openrouter',
+                defaultModel: { model: 'openrouter/free' },
+              }),
+              expect.objectContaining({
+                id: 'ollama-local',
+                provider: 'openai-compatible',
+                timeout: 16000,
+                headers: expect.objectContaining({ 'X-Astra-Timeout-Ms': '16000' }),
+                defaultModel: { model: 'qwen3:4b-instruct', maxTokens: 256 },
+                maxRetries: 0,
+              }),
+            ],
+          })
+        );
+      } finally {
+        constructed.mockRestore();
+        vi.unstubAllEnvs();
+        mockLoadProviderConfig.mockReturnValue(null);
+      }
+    });
+
     it('resolves the fallback provider key when fallback options are given', async () => {
       await createConfiguredAgent({
         name: 'TestAgent',
