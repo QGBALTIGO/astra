@@ -10,7 +10,9 @@ import { CUSTOMER_PORTAL_TABLES_SQL } from '../schema/customer-portal.js';
 import { CustomerPlanningRepository } from './customer-planning.js';
 import { CustomerPlanActions } from './customer-plan-actions.js';
 import { CustomerFinanceRepository } from './customer-finance.js';
+import { CustomerReceivablesRepository } from './customer-receivables.js';
 import { tryCustomerPlanningChannelReply } from '../../channels/customer-planning-routing.js';
+import { executeCustomerPlanningTool } from '../../tools/customer-planning-tools.js';
 import { tryExpenseRecordChannelReply } from '../../channels/finance-routing.js';
 import { customerFinanceRoutes } from '../../routes/customer/finance.js';
 import { customerPlanningRoutes } from '../../routes/customer/planning.js';
@@ -110,9 +112,13 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         [user]
       );
       await tryExpenseRecordChannelReply(message('new-visible-income', 'Ganhei 5 reais'), user);
+      await fixture.adapter.execute(
+        "INSERT INTO expenses(id,user_id,date,amount,description,status,transaction_type,created_at,updated_at) VALUES('legacy-without-time',$1,'2026-11-30',3,'Legacy without timestamp','pending','income',NULL,NULL)",
+        [user]
+      );
       const list = await (
         await api().request(
-          '/finance/transactions?from=2026-11-01&to=2026-11-30&pageSize=8&sort=created'
+          '/finance/transactions?from=2026-11-01&to=2026-11-30&pageSize=8&sort=activity'
         )
       ).json();
       expect(
@@ -187,6 +193,23 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(
         await tryCustomerPlanningChannelReply(message('goals-list', 'Minhas metas') as never, user)
       ).toContain('200,00');
+      expect(
+        await executeCustomerPlanningTool(
+          'list_customer_planning',
+          { kind: 'goal', search: 'viagem' },
+          user
+        )
+      ).toMatchObject({
+        success: true,
+        result: { plans: [{ id: goal.id, saved: 200, remaining: 7800 }], total: 1 },
+      });
+      expect(
+        await executeCustomerPlanningTool(
+          'list_customer_planning',
+          { kind: 'goal', search: 'viagem' },
+          'foreign'
+        )
+      ).toMatchObject({ success: true, result: { plans: [], total: 0 } });
       await expect(finance.deleteTransaction(expense.transactions[0]!.id)).rejects.toMatchObject({
         status: 409,
       });
@@ -272,6 +295,109 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(receipt.plan.installmentsPaid).toBe(11);
       const finance = new CustomerFinanceRepository(user);
       expect((await finance.listTransactions({ search: 'Compra compartilhada' })).total).toBe(1);
+    });
+    it('settles the next incoming installment once and exposes it ahead of future pending installments', async () => {
+      const repo = new CustomerReceivablesRepository(user);
+      const [plan] = await repo.create(
+        [
+          {
+            borrower: 'Cliente recebível',
+            principal: 150,
+            total: 165,
+            installments: 3,
+            startDate: '2026-11-18',
+            localTime: '18:00',
+            skipSunday: false,
+          },
+        ],
+        {
+          pluginId: 'channel.whatsapp',
+          chatId: 'synthetic-private-chat',
+          timeZone: 'America/Cuiaba',
+        }
+      );
+      const incoming = message('receive-next-once', 'Mais uma parcela de Cliente recebível paga');
+      expect(await tryCustomerPlanningChannelReply(incoming as never, user)).toContain(
+        'Parcela recebida'
+      );
+      expect(await tryCustomerPlanningChannelReply(incoming as never, user)).toContain(
+        'Parcela recebida'
+      );
+      const balance = (await repo.list()).find((p) => p.id === plan!.id)!;
+      expect(Number(balance.paid_cents)).toBe(5500);
+      expect(Number(balance.remaining_cents)).toBe(11000);
+      const list = (
+        await (
+          await api().request(
+            '/finance/transactions?from=2026-11-01&to=2026-11-30&sort=activity&pageSize=8'
+          )
+        ).json()
+      ).data;
+      expect(list.transactions[0]).toMatchObject({
+        type: 'income',
+        status: 'settled',
+        amount: 55,
+        date: '2026-11-17',
+      });
+      const matching = await new CustomerPlanningRepository(user).create({
+        kind: 'installment',
+        title: 'Cliente recebível',
+        amount: 55,
+        installmentsTotal: 3,
+        installmentsPaid: 0,
+      });
+      expect(
+        await tryCustomerPlanningChannelReply(
+          message('ambiguous-next', incoming.text) as never,
+          user
+        )
+      ).toContain('mais de um controle');
+      expect((await new CustomerPlanningRepository(user).get(matching.id))?.installmentsPaid).toBe(
+        0
+      );
+      expect(Number((await repo.list()).find((p) => p.id === plan!.id)?.paid_cents)).toBe(5500);
+    });
+    it('creates the same financial plans visible in the dashboard without turning opening balances into cash movements', async () => {
+      const finance = new CustomerFinanceRepository(user);
+      const totalBefore = (await finance.listTransactions()).total;
+      const input = message(
+        'create-goal-once',
+        'Crie uma meta Notebook de R$ 8000 com R$ 100 guardados'
+      );
+      expect(await tryCustomerPlanningChannelReply(input as never, user)).toContain(
+        'Planejamento registrado'
+      );
+      expect(await tryCustomerPlanningChannelReply(input as never, user)).toContain(
+        'já registrado'
+      );
+      const plans = new CustomerPlanningRepository(user);
+      const goal = (await plans.list()).filter((p) => p.title === 'Notebook');
+      expect(goal).toHaveLength(1);
+      expect(goal[0]).toMatchObject({ kind: 'goal', amount: 8000, progress: 100 });
+      expect(
+        await tryCustomerPlanningChannelReply(
+          message('create-budget', 'Defina um orçamento de Alimentação de R$ 500') as never,
+          user
+        )
+      ).toContain('Planejamento registrado');
+      expect(
+        await tryCustomerPlanningChannelReply(
+          message(
+            'create-purchase',
+            'Cadastre compra Computador em 12 parcelas de R$ 300, com 2 pagas'
+          ) as never,
+          user
+        )
+      ).toContain('Planejamento registrado');
+      expect((await plans.list()).find((p) => p.title === 'Computador')).toMatchObject({
+        amount: 300,
+        installmentsTotal: 12,
+        installmentsPaid: 2,
+      });
+      expect((await finance.listTransactions()).total).toBe(totalBefore);
+      await plans.delete(goal[0]!.id);
+      expect(await tryCustomerPlanningChannelReply(input as never, user)).toContain('foi excluído');
+      expect((await plans.list()).some((p) => p.title === 'Notebook')).toBe(false);
     });
     it('keeps the audit scoped and read-only and detects a foreign suffix without disclosing it', async () => {
       const sql = customerSyncAuditSql('1111:2026-11-17:500');

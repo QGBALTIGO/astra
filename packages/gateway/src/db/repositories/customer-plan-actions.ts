@@ -9,6 +9,7 @@ import {
 import {
   CustomerFinanceError,
   CustomerFinanceRepository,
+  customerMoneyCents,
   validateCustomerFinanceDate,
 } from './customer-finance.js';
 
@@ -63,7 +64,11 @@ export class CustomerPlanActions extends BaseRepository {
         throw new CustomerFinanceError(
           'Esse valor ultrapassa o total da meta. Confira o valor guardado antes de atualizar.'
         );
-      const updated = await plans.update(id, { ...plan, progress });
+      await this.execute(
+        "UPDATE customer_plans SET progress_cents=$3,updated_at=NOW() WHERE user_id=$1 AND id=$2 AND kind='goal'",
+        [this.userId, id, Math.round(progress * 100)]
+      );
+      const updated = await plans.get(id);
       if (!updated) throw new Error('Goal update not persisted');
       await this.execute(
         'INSERT INTO customer_planning_requests (user_id, request_key, fingerprint, plan_id) VALUES ($1, $2, $3, $4)',
@@ -74,36 +79,7 @@ export class CustomerPlanActions extends BaseRepository {
   }
 
   async createPlan(input: CustomerPlanInput, requestKey: string) {
-    if (!/^[a-f0-9]{64}$/.test(requestKey)) throw new CustomerFinanceError('Pedido inválido.');
-    const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
-    const plans = new CustomerPlanningRepository(this.userId);
-    return this.transaction(async () => {
-      for (const scope of ['customer-finance:', 'customer-plans:'])
-        await this.queryOne('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [
-          scope + this.userId,
-        ]);
-      const replay = await this.queryOne<{ fingerprint: string; plan_id: string }>(
-        'SELECT fingerprint, plan_id FROM customer_planning_requests WHERE user_id=$1 AND request_key=$2',
-        [this.userId, requestKey]
-      );
-      if (replay) {
-        if (replay.fingerprint !== fingerprint)
-          throw new CustomerFinanceError('Esse pedido já foi usado.', 409);
-        const plan = await plans.get(replay.plan_id);
-        if (!plan)
-          throw new CustomerFinanceError(
-            'Esse planejamento foi excluído. Não recriei o registro por uma mensagem repetida.',
-            409
-          );
-        return { plan, duplicate: true };
-      }
-      const plan = await plans.create(input);
-      await this.execute(
-        'INSERT INTO customer_planning_requests (user_id,request_key,fingerprint,plan_id) VALUES ($1,$2,$3,$4)',
-        [this.userId, requestKey, fingerprint, plan.id]
-      );
-      return { plan, duplicate: false };
-    });
+    return new CustomerPlanningRepository(this.userId).createFromChannel(input, requestKey);
   }
 
   async payInstallment(
@@ -129,7 +105,7 @@ export class CustomerPlanActions extends BaseRepository {
       )
       .digest('hex');
     const finance = new CustomerFinanceRepository(this.userId);
-    const categories = await finance.listCategories();
+    await finance.listCategories();
     const plans = new CustomerPlanningRepository(this.userId);
     return this.transaction(async () => {
       // Same order as category transfers and plan edits; no lost increments.
@@ -176,27 +152,39 @@ export class CustomerPlanActions extends BaseRepository {
         );
       if (paid >= (plan.installmentsTotal ?? 0))
         throw new CustomerFinanceError('Todas as parcelas já estão pagas.', 409);
-      const category =
-        categories.find((c) => c.id === plan.categoryId && c.type === 'expense' && !c.archived) ??
-        categories.find((c) => c.legacyKey === 'other' && c.type === 'expense' && !c.archived);
-      if (!category) throw new CustomerFinanceError('Escolha uma categoria de despesa ativa.');
-      const transaction = await finance.createTransaction(
-        {
-          description: `${plan.title} · parcela ${paid + 1}/${plan.installmentsTotal}`.slice(
-            0,
-            160
-          ),
-          amount: plan.amount,
-          type: 'expense',
-          status: 'settled',
-          categoryId: category.id,
-          date,
-          notes: null,
-        },
-        'planning-payment_' + requestKey
+      const category = await this.queryOne<{ id: string; name: string; legacy_key: string | null }>(
+        "SELECT id,name,legacy_key FROM customer_categories WHERE user_id=$1 AND type='expense' AND NOT archived AND (id=$2 OR legacy_key='other') ORDER BY CASE WHEN id=$2 THEN 0 ELSE 1 END LIMIT 1 FOR SHARE",
+        [this.userId, plan.categoryId]
       );
-      const updated = await plans.update(id, { ...plan, installmentsPaid: paid + 1 });
-      if (!updated) throw new Error('Payment progress not persisted');
+      if (!category) throw new CustomerFinanceError('Escolha uma categoria de despesa ativa.');
+      const transactionId =
+        'exp_plan_' +
+        createHash('sha256')
+          .update(JSON.stringify([this.userId, requestKey]))
+          .digest('hex');
+      // Execute all three writes on this transaction's existing connection.
+      // Repository.transaction() starts a new connection, so composing those
+      // wrappers here would wait on the advisory lock held by this operation.
+      await this.execute(
+        `INSERT INTO expenses(id,user_id,date,amount,currency,category,category_id,description,source,transaction_type,status)
+        VALUES($1,$2,$3,$4::numeric,'BRL',$5,$6,$7,'customer','expense','settled')`,
+        [
+          transactionId,
+          this.userId,
+          date,
+          (customerMoneyCents(plan.amount) / 100).toFixed(2),
+          category.legacy_key ?? category.name,
+          category.id,
+          `${plan.title} · parcela ${paid + 1}/${plan.installmentsTotal}`.slice(0, 160),
+        ]
+      );
+      await this.execute(
+        "UPDATE customer_plans SET installments_paid=$3,updated_at=NOW() WHERE user_id=$1 AND id=$2 AND kind='installment'",
+        [this.userId, id, paid + 1]
+      );
+      const updated = await plans.get(id);
+      const transaction = await finance.getTransaction(transactionId);
+      if (!updated || !transaction) throw new Error('Payment progress not persisted');
       await this.execute(
         'INSERT INTO customer_planning_requests (user_id, request_key, fingerprint, plan_id, transaction_id) VALUES ($1, $2, $3, $4, $5)',
         [this.userId, requestKey, fingerprint, id, transaction.id]

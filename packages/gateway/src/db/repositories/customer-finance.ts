@@ -42,7 +42,7 @@ export interface CustomerTransactionInput {
 }
 
 export interface CustomerTransactionQuery {
-  sort?: 'created' | 'date';
+  sort?: 'activity' | 'created' | 'date';
   from?: string;
   to?: string;
   type?: CustomerTransactionType | 'all';
@@ -763,7 +763,7 @@ export class CustomerFinanceRepository extends BaseRepository {
       );
       const rows = await this.query<TransactionRow>(
         `${TRANSACTION_SELECT} WHERE ${where}
-        ORDER BY ${query.sort === 'created' ? 'e.created_at DESC, e.id DESC' : 'e.date DESC, e.created_at DESC, e.id DESC'} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        ORDER BY ${query.sort === 'activity' ? 'COALESCE(e.updated_at, e.created_at) DESC NULLS LAST, e.created_at DESC NULLS LAST, e.id DESC' : query.sort === 'created' ? 'e.created_at DESC NULLS LAST, e.id DESC' : 'e.date DESC, e.created_at DESC NULLS LAST, e.id DESC'} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
         [...params, pageSize, (page - 1) * pageSize]
       );
       return {
@@ -838,7 +838,7 @@ export class CustomerFinanceRepository extends BaseRepository {
       const recent = await this.query<TransactionRow>(
         // Recent activity means the latest recorded or settled movements, not
         // the furthest future due dates of scheduled receivables.
-        `${TRANSACTION_SELECT} WHERE ${base} ORDER BY e.updated_at DESC, e.created_at DESC, e.id DESC LIMIT 8`,
+        `${TRANSACTION_SELECT} WHERE ${base} ORDER BY COALESCE(e.updated_at, e.created_at) DESC NULLS LAST, e.created_at DESC NULLS LAST, e.id DESC LIMIT 8`,
         params
       );
       const income = moneyFromCents(totals?.income ?? '0');

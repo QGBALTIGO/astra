@@ -7,6 +7,7 @@ import { createCalendarRepository } from '../db/repositories/calendar.js';
 import { CUSTOMER_PORTAL_TABLES_SQL } from '../db/schema/customer-portal.js';
 import { CUSTOMER_ACCOUNTS_TABLES_SQL } from '../db/schema/customer-accounts.js';
 import { PERSONAL_DATA_TABLES_SQL } from '../db/schema/personal-data.js';
+import { FINANCE_TABLES_SQL } from '../db/schema/finance.js';
 import { processDirectAgent, processViaBus } from './channel-ai-routing.js';
 import { tryChannelCalendarMutation } from './calendar-mutation.js';
 
@@ -78,6 +79,7 @@ describe.skipIf(!port)(
       await db.initialize();
       await db.exec('CREATE SCHEMA ' + schema);
       await db.exec(PERSONAL_DATA_TABLES_SQL);
+      await db.exec(FINANCE_TABLES_SQL);
       await db.exec(CUSTOMER_PORTAL_TABLES_SQL);
       await db.exec('CREATE TABLE channel_users (id TEXT PRIMARY KEY)');
       await db.exec(CUSTOMER_ACCOUNTS_TABLES_SQL);

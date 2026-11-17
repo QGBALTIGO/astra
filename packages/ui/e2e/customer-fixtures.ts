@@ -479,9 +479,11 @@ export async function mockCustomerApi(
       const entries = selectedTransactions(url);
       if (options.futureDueDates)
         entries.sort((a, b) =>
-          url.searchParams.get('sort') === 'created'
-            ? b.createdAt.localeCompare(a.createdAt)
-            : b.date.localeCompare(a.date)
+          url.searchParams.get('sort') === 'activity'
+            ? b.updatedAt.localeCompare(a.updatedAt)
+            : url.searchParams.get('sort') === 'created'
+              ? b.createdAt.localeCompare(a.createdAt)
+              : b.date.localeCompare(a.date)
         );
       const number = Number(url.searchParams.get('page') ?? 1);
       const pageSize = Number(url.searchParams.get('pageSize') ?? 20);

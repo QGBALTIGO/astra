@@ -169,7 +169,7 @@ export function CustomerTransactions({
   const [moreFilters, setMoreFilters] = useState(false);
   const response = useCustomerQuery(
     `transactions:${JSON.stringify(filters)}`,
-    (signal) => customerApi.transactions({ sort: 'created', ...filters, pageSize: 8 }, signal),
+    (signal) => customerApi.transactions({ sort: 'activity', ...filters, pageSize: 8 }, signal),
     active && validPeriod(filters),
     revision
   );
@@ -406,10 +406,10 @@ export function CustomerTransactions({
             <label className="field">
               Ordenar por
               <select
-                value={filters.sort ?? 'created'}
-                onChange={(event) => setFilter({ sort: event.target.value as 'created' | 'date' })}
+                value={filters.sort ?? 'activity'}
+                onChange={(event) => setFilter({ sort: event.target.value as 'activity' | 'date' })}
               >
-                <option value="created">Registro mais recente</option>
+                <option value="activity">Atividade mais recente</option>
                 <option value="date">Data da movimentação</option>
               </select>
             </label>

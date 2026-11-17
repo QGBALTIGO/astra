@@ -1,7 +1,11 @@
 /** Private personal planning records. No automatic financial transactions are created. */
 import { createHash, randomUUID } from 'node:crypto';
 import { BaseRepository } from './base.js';
-import { customerMoneyCents, validateCustomerFinanceDate } from './customer-finance.js';
+import {
+  customerMoneyCents,
+  validateCustomerFinanceDate,
+  CustomerFinanceError,
+} from './customer-finance.js';
 
 export type PlanIcon = 'flag' | 'shield' | 'plane' | 'laptop' | 'home' | 'education';
 
@@ -279,6 +283,38 @@ export class CustomerPlanningRepository extends BaseRepository {
       await this.lockPlans();
       if (await this.atLimit()) throw new Error('Limite de 80 planejamentos por conta.');
       return this.insert(value);
+    });
+  }
+
+  async createFromChannel(input: CustomerPlanInput, requestKey: string) {
+    if (!/^[a-f0-9]{64}$/.test(requestKey)) throw new CustomerFinanceError('Pedido inválido.');
+    const value = validate(input);
+    const fingerprint = createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    return this.transaction(async () => {
+      await this.lockPlans();
+      const replay = await this.queryOne<{ fingerprint: string; plan_id: string }>(
+        'SELECT fingerprint,plan_id FROM customer_planning_requests WHERE user_id=$1 AND request_key=$2',
+        [this.userId, requestKey]
+      );
+      if (replay) {
+        if (replay.fingerprint !== fingerprint)
+          throw new CustomerFinanceError('Esse pedido já foi usado.', 409);
+        const plan = await this.get(replay.plan_id);
+        if (!plan)
+          throw new CustomerFinanceError(
+            'Esse planejamento foi excluído. Não recriei o registro por uma mensagem repetida.',
+            409
+          );
+        return { plan, duplicate: true };
+      }
+      if (await this.atLimit())
+        throw new CustomerFinanceError('Limite de 80 planejamentos por conta.');
+      const plan = await this.insert(value);
+      await this.execute(
+        'INSERT INTO customer_planning_requests(user_id,request_key,fingerprint,plan_id) VALUES ($1,$2,$3,$4)',
+        [this.userId, requestKey, fingerprint, plan.id]
+      );
+      return { plan, duplicate: false };
     });
   }
 

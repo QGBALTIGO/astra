@@ -68,7 +68,7 @@ const listQuery = z
     search: z.string().max(160).optional(),
     page: z.coerce.number().int().min(1).max(100_000).optional(),
     pageSize: z.coerce.number().int().min(1).max(100).optional(),
-    sort: z.enum(['created', 'date']).optional(),
+    sort: z.enum(['activity', 'created', 'date']).optional(),
   })
   .strict();
 
