@@ -1,5 +1,55 @@
 import { describe, expect, it } from 'vitest';
-import { explicitRadarTime, gameAlertRequest, footballTimingReply } from './chat-intent.js';
+import {
+  explicitRadarTime,
+  gameAlertRequest,
+  footballTimingReply,
+  radarPreviewRequest,
+} from './chat-intent.js';
+
+describe('immediate Radar lookups', () => {
+  it.each([
+    'Quando o Vasco joga dnv?',
+    'Quando o Vasco joga de novo?',
+    'Qual é o próximo jogo do Vasco?',
+    'Mostre o próximo jogo do Vasco',
+  ])('reads the named team without recurring consent: %s', (text) => {
+    expect(radarPreviewRequest(text)).toEqual({
+      action: 'preview',
+      source: 'football',
+      subject: 'Vasco',
+    });
+    expect(gameAlertRequest(text)).toBe(false);
+  });
+  it.each(['Quais as últimas notícias', 'Me mostre as notícias', 'notícias'])(
+    'uses an immediate general news preview: %s',
+    (text) => {
+      expect(radarPreviewRequest(text)).toEqual({
+        action: 'preview',
+        source: 'news',
+        subject: 'mundo',
+      });
+    }
+  );
+  it('keeps a news topic in the lookup', () => {
+    expect(radarPreviewRequest('Quais são as últimas notícias sobre tecnologia?')).toEqual({
+      action: 'preview',
+      source: 'news',
+      subject: 'tecnologia',
+    });
+  });
+  it.each([
+    'Me avise sempre que tiver jogo do Vasco',
+    'Todos do Vasco',
+    'Antes do jogo começar',
+    'Como faço frango?',
+    'Quais as últimas notícias e apague meus gastos',
+    'Quando o Vasco joga e me lembre amanhã',
+    'Meu amigo disse: quando o Vasco joga dnv?',
+    'Quando o time desconhecido joga?',
+  ])('leaves other intents intact: %s', (text) => {
+    expect(radarPreviewRequest(text)).toBeUndefined();
+  });
+});
 
 describe('explicit recurring football consent without a model', () => {
   it.each([

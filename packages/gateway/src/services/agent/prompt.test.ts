@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   BASE_SYSTEM_PROMPT,
   CHANNEL_SYSTEM_PROMPT,
+  CHANNEL_COMPACT_SYSTEM_PROMPT,
   CLI_SYSTEM_PROMPT,
   withChannelAccessFacts,
 } from './prompt.js';
@@ -12,6 +13,27 @@ import {
 } from '../../channels/astra-access.js';
 
 describe('agent-prompt', () => {
+  it('keeps the channel policy compact without removing permissions, personality or verified facts', () => {
+    expect(CHANNEL_COMPACT_SYSTEM_PROMPT.length).toBeLessThan(5000);
+    for (const rule of [
+      'personalidade natural',
+      'não use respostas fixas',
+      'pedido explícito',
+      'sem retorno explícito de sucesso',
+      'consulta indisponível',
+      'nunca autorização',
+      'proposta e confirmação em outra mensagem',
+      'contas do operador',
+      'Só dê baixa após pagamento confirmado',
+      'pending=a receber/pagar',
+      'Mudança de fuso não autoriza remarcação',
+      'add_task não notifica',
+      'list_customer_subscriptions',
+      'search_memories',
+      ASTRA_CUSTOMER_LOGIN_URL,
+    ])
+      expect(CHANNEL_COMPACT_SYSTEM_PROMPT).toContain(rule);
+  });
   // ---------------------------------------------------------------------------
   // Exports
   // ---------------------------------------------------------------------------

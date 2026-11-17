@@ -238,7 +238,9 @@ export class FallbackProvider implements IProvider {
       this.config.sharedCircuitBreaker &&
       error &&
       (error instanceof ValidationError ||
-        /\b400\b|context[_ -]length[_ -]exceeded|maximum context length/i.test(error.message))
+        /\b400\b|context[_ -]length[_ -]exceeded|maximum context length|\b413\b.*\brequest_too_large: groq_local_admission\b/i.test(
+          error.message
+        ))
     )
       return;
     const circuit = this.getCircuit(provider);

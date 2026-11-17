@@ -1,4 +1,6 @@
 import { tryQuickFinanceReply } from './quick-finance.js';
+import { tryPendingFinanceDeletion } from './finance-bulk-routing.js';
+import { isBulkFinanceDeletionRequest } from './finance-bulk-intent.js';
 import { tryReceivableChannelReply } from './receivable-routing.js';
 import { tryCustomerPlanningChannelReply } from './customer-planning-routing.js';
 /**
@@ -381,6 +383,10 @@ function tryAuthorizedChannelShortcut(
       return null;
     const passwordAdvice = channelPasswordAdvice(message.platform, message.text);
     if (passwordAdvice) return passwordAdvice;
+    const deletion = await tryPendingFinanceDeletion(message, userId, () =>
+      canProcessChannelMessage(message, isAccessAllowed)
+    );
+    if (deletion) return deletion;
     return (
       financialCapabilityReply(message.platform, message.text) ??
       tryAstraAccessReply(message.text) ??
@@ -630,6 +636,11 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
     ? await tryAstraScopeReply(message.channelPluginId, interpreted.userSpeech)
     : null;
   if (speechScope) return speechScope;
+
+  // Forwarding provenance is not retained by every adapter. Speech can deny a
+  // destructive bulk action, but cannot provide its confirmation authority.
+  if (interpreted.userSpeech && isBulkFinanceDeletionRequest(interpreted.userSpeech))
+    return 'Para revisar a exclusão dos pendentes com segurança, escreva o pedido nesta conversa. Vou mostrar a seleção antes de pedir sua confirmação.';
 
   // Build NormalizedMessage from normalized incoming
   const normalized: NormalizedMessage = {

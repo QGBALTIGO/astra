@@ -139,9 +139,32 @@ export function isConversationalOnlyChannelQuestion(text: string): boolean {
   );
 }
 
+/** Cooking advice is conversation, even after a financial thread used "receita" as income. */
+export function isCulinaryChannelAdvice(text: string): boolean {
+  const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  if (
+    /\b(?:registr[ae]|anot[ae]|salv[ae]|agend[ae]|lembre|avis[ae]|cancele|exclua|apag[ae]|pague|transfira|corrija|atualize|altere)\b/u.test(
+      input
+    ) ||
+    /\b(?:quanto (?:gastei|paguei|recebi)|meus? gastos?|meu saldo|meus? lancamentos?|minhas despesas)\b/u.test(
+      input
+    )
+  )
+    return false;
+  return (
+    /\b(?:frango|feijao|arroz|carne|macarrao|ovo|ovos|bolo|pao|pudim|sopa|legumes|batata|peixe|cozinhar|frigideira|cozimento)\b/u.test(
+      input
+    ) &&
+    /\b(?:receitas?|dicas?|como (?:faco|fazer|preparo|preparar|cozinho|cozinhar)|tempero|cozimento|frigideira|macio)\b/u.test(
+      input
+    )
+  );
+}
+
 /** Ask the model to write or advise, never to execute a payment or write data. */
 export function isConversationalOnlyChannelRequest(text: string): boolean {
   if (isAstraAccessAnswerRequested(text) || isConversationalOnlyChannelQuestion(text)) return true;
+  if (isCulinaryChannelAdvice(text)) return true;
   const input = text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -211,7 +234,15 @@ export function needsConversationalRewrite(text: string): boolean {
 /** Small native tool set per intent; discovery remains available for everything else. */
 export function channelToolsForMessage(text: string, previousText = ''): string[] {
   if (isConversationalOnlyChannelRequest(text)) return [];
-  const input = `${text}\n${previousText.slice(-2500)}`
+  // Explicit current subjects choose their own schemas. Old email/finance
+  // replies must not attach unrelated action schemas to a new weather request.
+  // Elliptical follow-ups still use recent conversation for intent resolution.
+  const current = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const explicitSubject =
+    /\b(?:assinaturas?|mensalidades?|temperatura|clima|chuva|previsao|cidade|moro|google|gmail|drive|planilh\w*|todoist|notion|trello|conexo\w*|integra\w*|sincroniz\w*|e-?mails?|lembre\w*|avis\w*|alarme|reagend\w*|financeiro|financas|reais|recebi|receber|ganhei|gastei|gastos?|paguei|pagamentos?|saldo|lancamentos?|faturas?|metas?|objetivos?|financiamentos?|tarefas?|afazeres?|dentista|reuniao|compromisso|calendario|agenda|memoria|memorize|radar|noticias?|jogos?|futebol)\b|r\s*\$/u.test(
+      current
+    );
+  const input = (explicitSubject ? text : `${text}\n${previousText.slice(-2500)}`)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();

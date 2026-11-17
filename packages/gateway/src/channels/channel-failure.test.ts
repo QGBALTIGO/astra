@@ -1,6 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { channelFailureKind, channelFailureReply, presentChannelReply } from './channel-failure.js';
 
+describe('culinary requests remain conversations during a provider failure', () => {
+  it.each([
+    'Como faço um frango simples na frigideira? Quero uma receita rápida.',
+    'Quero uma receita de feijão',
+    'Me dá uma receita de bolo',
+  ])('never invents an uncertain financial write: %s', (text) => {
+    const reply = channelFailureReply(text, 'timeout');
+    expect(reply).not.toMatch(/gasto|lançamento|Transações|registrad|confirmar esse/i);
+  });
+  it('keeps an explicit financial request financial', () => {
+    expect(channelFailureReply('Registre uma receita de R$ 500', 'timeout')).toMatch(
+      /lançamento|gasto|Transações/i
+    );
+  });
+});
+
 describe('financial reads survive a later provider rate limit', () => {
   const read = {
     name: 'core.list_transactions',

@@ -11,6 +11,7 @@ import { formatAstraMessage } from './response-presentation.js';
 import { isGeneralReceivableQuery } from './finance-intent.js';
 import { receivableBalanceFields } from './receivable-presentation.js';
 import { customerChannelAccess } from './customer-channel-access.js';
+import { rememberFinanceRead } from './finance-read-context.js';
 const fold = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 const money = (cents: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100);
@@ -170,6 +171,8 @@ export async function tryReceivableChannelReply(
     if (generalQuery) {
       const totals = await repo.pendingTotals();
       if (!(await stillAllowed())) return denied;
+      await rememberFinanceRead(message, userId, { type: 'income' }, account);
+      if (!(await stillAllowed())) return denied;
       if (!totals.length)
         return formatAstraMessage(
           '📒 Valores pendentes registrados',
@@ -252,9 +255,16 @@ export async function tryReceivableChannelReply(
         '✅ Recebimento confirmado'
       );
     }
-    return plans.length
-      ? summary(matching.length ? matching : plans, '📒 Valores a receber')
-      : null;
+    if (!plans.length) return null;
+    const selected = matching.length ? matching : plans;
+    await rememberFinanceRead(
+      message,
+      userId,
+      { type: 'income', planIds: selected.map((plan) => plan.id) },
+      account
+    );
+    if (!(await stillAllowed())) return denied;
+    return summary(selected, '📒 Valores a receber');
   } catch (error) {
     if (error instanceof CustomerFinanceError) return error.message;
     if (generalQuery)

@@ -15,7 +15,9 @@ import {
   gameAlertRequest,
   explicitRadarTime,
   footballTimingReply,
+  radarPreviewRequest,
 } from '../services/radar/chat-intent.js';
+import { customerAccountBinding } from './customer-channel-access.js';
 import { isConversationalOnlyChannelRequest } from './tool-selection.js';
 
 /** Narrow, zero-inference intents. Ordinary reminders and unrelated messages are untouched. */
@@ -41,6 +43,7 @@ export async function tryRadarChannelReply(
       text
     );
   const gameAlert = gameAlertRequest(message.text);
+  const preview = radarPreviewRequest(message.text);
   const conversationOnly = isConversationalOnlyChannelRequest(message.text);
   if (!stop && !list && conversationOnly) return null;
   const footballTiming = footballTimingReply(message.text);
@@ -68,7 +71,15 @@ export async function tryRadarChannelReply(
       (cancelText || !!footballTiming)
     );
   });
-  if (!stop && !list && !gameAlert && !footballFollowUp && !pendingCandidate && !contextCandidate)
+  if (
+    !stop &&
+    !list &&
+    !preview &&
+    !gameAlert &&
+    !footballFollowUp &&
+    !pendingCandidate &&
+    !contextCandidate
+  )
     return null;
   if (
     !stop &&
@@ -81,6 +92,7 @@ export async function tryRadarChannelReply(
     const identity = await resolveCustomerPhone(message.sender.platformUserId);
     if (!identity || identity.retired || !identity.isCurrent) return null;
     const account = await customerAccountsRepo.getById(identity.accountId);
+    const binding = customerAccountBinding(account);
     if (
       !account ||
       account.phoneNumber !== message.sender.platformUserId ||
@@ -118,6 +130,7 @@ export async function tryRadarChannelReply(
     if (
       !stop &&
       !list &&
+      !preview &&
       !gameAlert &&
       !footballFollowUp &&
       !contextualReply &&
@@ -141,7 +154,13 @@ export async function tryRadarChannelReply(
         ASTRA_CUSTOMER_ORIGIN +
         '/cliente/radar'
       );
-    if (gameAlert || footballFollowUp || contextualReply || (pendingReply && validPending)) {
+    if (
+      preview ||
+      gameAlert ||
+      footballFollowUp ||
+      contextualReply ||
+      (pendingReply && validPending)
+    ) {
       if (!message.id || !message.channelPluginId || message.metadata?.fromMe !== false)
         return null;
       const current = await resolveCustomerPhone(message.sender.platformUserId);
@@ -172,9 +191,24 @@ export async function tryRadarChannelReply(
         () =>
           manageRadarChat(
             account.dataUserId,
-            gameAlert ? { action: 'follow', ...(time && { time }) } : { action: 'status' }
+            preview ??
+              (gameAlert ? { action: 'follow', ...(time && { time }) } : { action: 'status' })
           )
       );
+      const fresh = await customerAccountsRepo.getById(account.id);
+      const freshIdentity = await resolveCustomerPhone(message.sender.platformUserId);
+      if (
+        !freshIdentity?.isCurrent ||
+        freshIdentity.retired ||
+        freshIdentity.accountId !== account.id ||
+        customerAccountBinding(fresh) !== binding ||
+        (!pendingCancel && !(await hasAccess()))
+      )
+        return (
+          'Sua identificação ou acesso mudou. Confira seu Radar no painel: ' +
+          ASTRA_CUSTOMER_ORIGIN +
+          '/cliente/radar'
+        );
       return result.reply;
     }
     const [interests, pref] = await Promise.all([repo.list(), repo.preferences()]);

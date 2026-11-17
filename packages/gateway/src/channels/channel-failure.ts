@@ -13,7 +13,7 @@ import {
   verifiedWriteDetails,
   type ChannelToolReceipt,
 } from './response-safety.js';
-import { isConversationalOnlyChannelRequest } from './tool-selection.js';
+import { isConversationalOnlyChannelRequest, isCulinaryChannelAdvice } from './tool-selection.js';
 import { verifiedReadChannelFacts } from './verified-facts.js';
 
 /** Technical categories stay in diagnostics. Never copy the provider body into a channel reply. */
@@ -180,15 +180,16 @@ function classifyRequest(text: string) {
   const listedDomain = domains.find((entry) => entry.words.test(s))?.name;
   // Ordinary activities become calendar candidates only when the speaker asks
   // to check an arrangement on a date. A reminder needs a future memory cue.
-  const domain =
-    listedDomain ??
-    (/\b(?:pra|para)(?: eu)? nao (?:me )?esquecer\b/.test(s)
-      ? 'reminder'
-      : readRequest &&
-          /\b(?:almoco|jantar|cafe|aula|encontro)\b/.test(s) &&
-          /\b(?:hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(s)
-        ? 'calendar'
-        : undefined);
+  const domain = isCulinaryChannelAdvice(text)
+    ? undefined
+    : (listedDomain ??
+      (/\b(?:pra|para)(?: eu)? nao (?:me )?esquecer\b/.test(s)
+        ? 'reminder'
+        : readRequest &&
+            /\b(?:almoco|jantar|cafe|aula|encontro)\b/.test(s) &&
+            /\b(?:hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(s)
+          ? 'calendar'
+          : undefined));
   const conversion =
     query &&
     /\b(?:fuso|brasilia|cuiaba|horario de)\b/.test(s) &&

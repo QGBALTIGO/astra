@@ -6,6 +6,7 @@ const f = vi.hoisted(() => ({
     channelMessageId: 'synthetic-message',
     channelMessageTimestamp: Date.parse('2026-11-11T02:00:00Z'),
     channelRequestText: undefined as string | undefined,
+    channelIsPrivate: false,
   },
   account: vi.fn(),
   owner: vi.fn(),
@@ -16,10 +17,20 @@ const f = vi.hoisted(() => ({
   remove: vi.fn(),
   summary: vi.fn(),
   categories: vi.fn(),
+  hasPreview: vi.fn(),
+  invalidateRead: vi.fn(),
+  remember: vi.fn(),
 }));
 vi.mock('@ownpilot/core/agent', () => ({ getExecContext: () => f.ctx }));
 vi.mock('../db/repositories/customer-accounts.js', () => ({
   customerAccountsRepo: { getByDataUserId: f.account },
+}));
+vi.mock('../db/repositories/finance-bulk-selection.js', () => ({
+  financeBulkSelectionRepo: {
+    hasPreview: f.hasPreview,
+    invalidateRead: f.invalidateRead,
+    remember: f.remember,
+  },
 }));
 vi.mock('../db/repositories/customer-finance.js', async (original) => ({
   ...(await original<typeof import('../db/repositories/customer-finance.js')>()),
@@ -49,6 +60,8 @@ beforeEach(() => {
   f.ctx.channelMessageId = 'synthetic-message';
   f.ctx.channelMessageTimestamp = Date.parse('2026-11-11T02:00:00Z');
   f.ctx.channelRequestText = undefined;
+  f.ctx.channelIsPrivate = false;
+  f.hasPreview.mockResolvedValue(false);
   f.account.mockResolvedValue({ timeZone: 'America/Campo_Grande' });
   f.categories.mockResolvedValue([
     { id: 'in', name: 'Outras entradas', type: 'income', archived: false },
@@ -65,7 +78,93 @@ beforeEach(() => {
   f.update.mockImplementation(async (id, value) => ({ id, ...value }));
   f.remove.mockResolvedValue(true);
 });
+it.each([
+  'Remova todos',
+  'Quero remover todos que estão pendentes',
+  'Remova todos os lançamentos pendentes',
+  'confirmo excluir os pendentes',
+  'Remova todos os meus lançamentos pendentes',
+  'Apaga todos os lançamentos pendentes',
+  'Exclua tudo que está pendente',
+  'Remova todos os registros que estão pendentes',
+  'Apaga tudo que estiver pendente',
+  'Exclua em lote os valores a receber de novembro',
+  'Remova todos os registros do cliente sintético',
+])('does not let single-record model calls bypass bulk confirmation: %s', async (request) => {
+  f.ctx.channelRequestText = request;
+  const result = await executeCustomerFinanceTool(
+    'delete_transaction',
+    { transaction_id: 'fixture-item' },
+    'fixture-user'
+  );
+  expect(result.success).toBe(false);
+  expect(result.error).toContain('confirmação');
+  expect(f.remove).not.toHaveBeenCalled();
+});
 describe('same-ledger finance tools', () => {
+  it('blocks an ambiguous individual delete continuation while the same chat has a bulk preview', async () => {
+    f.ctx.channelIsPrivate = true;
+    f.ctx.channelRequestText = 'Faça o que pedi';
+    f.hasPreview.mockResolvedValue(true);
+    const result = await executeCustomerFinanceTool(
+      'delete_transaction',
+      { transaction_id: 'saved' },
+      'fixture-user'
+    );
+    expect(result).toMatchObject({
+      success: false,
+      error: expect.stringContaining('aguardando confirmação'),
+    });
+    expect(f.hasPreview).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'fixture-user', senderId: 'synthetic-chat' }),
+      expect.any(String)
+    );
+    expect(f.remove).not.toHaveBeenCalled();
+  });
+  it('does not let a model lookup replace an outstanding review before deletion', async () => {
+    f.ctx.channelIsPrivate = true;
+    f.ctx.channelMessageTimestamp = Date.now();
+    f.hasPreview.mockResolvedValue(true);
+    f.list.mockResolvedValue({ transactions: [], total: 0 });
+    expect(
+      (await executeCustomerFinanceTool('list_transactions', {}, 'fixture-user')).success
+    ).toBe(true);
+    expect(f.remember).not.toHaveBeenCalled();
+    expect(
+      (
+        await executeCustomerFinanceTool(
+          'delete_transaction',
+          { transaction_id: 'saved' },
+          'fixture-user'
+        )
+      ).success
+    ).toBe(false);
+    expect(f.remove).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['list_transactions', { category: 'Alimentação' }],
+    ['list_transactions', { currency: 'USD' }],
+    ['financial_summary', { from: '2026-11-01', to: '2026-11-30', type: 'income' }],
+  ])(
+    'rejects unimplemented filters and invalidates the same-turn selection for %s',
+    async (name, args) => {
+      f.ctx.channelIsPrivate = true;
+      f.ctx.channelMessageTimestamp = Date.now();
+      const result = await executeCustomerFinanceTool(
+        name as string,
+        args as Record<string, unknown>,
+        'fixture-user'
+      );
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.stringContaining('todos os filtros'),
+      });
+      expect(f.invalidateRead).toHaveBeenCalledTimes(1);
+      expect(f.list).not.toHaveBeenCalled();
+      expect(f.summary).not.toHaveBeenCalled();
+      expect(f.remember).not.toHaveBeenCalled();
+    }
+  );
   it.each(['record_transaction', 'update_transaction', 'delete_transaction'])(
     'blocks %s when the original channel message only requested a lookup',
     async (name) => {
