@@ -514,6 +514,7 @@ export class ChannelServiceImpl implements IChannelService {
         message.platform === 'whatsapp' && process.env.ASTRA_WHATSAPP_MULTIUSER === 'true';
       let authenticatedWhatsAppSelfChat = false;
       let returningWhatsAppGuest = false;
+      let newWhatsAppTrialGuest = false;
       if (
         message.platform === 'whatsapp' &&
         ownerUserId === null &&
@@ -528,9 +529,10 @@ export class ChannelServiceImpl implements IChannelService {
           Boolean(botPhone) &&
           message.sender.platformUserId === botPhone;
 
-        // Ownership setup must not interrupt already approved customers. Only
-        // an existing, independently scoped customer can use this exception;
-        // never create a default user or auto-enroll an unknown sender here.
+        // Administrative pairing is separate from opted-in customer trials.
+        // Existing access still has to be active and independently scoped; new
+        // contacts may only reach the transactional, first-contact-only trial
+        // repository, never the default/admin identity or ownership claim.
         if (
           !authenticatedWhatsAppSelfChat &&
           whatsappMultiUser &&
@@ -547,9 +549,19 @@ export class ChannelServiceImpl implements IChannelService {
             isChannelUserAccessActive(existing) &&
             existing.ownpilotUserId === `whatsapp:${message.sender.platformUserId}`
           );
+          newWhatsAppTrialGuest = Boolean(
+            existing === null &&
+            process.env.ASTRA_WHATSAPP_AUTO_ENROLL === 'true' &&
+            api?.getPlatform() === 'whatsapp' &&
+            api.getStatus() === 'connected' &&
+            botPhone &&
+            /^[1-9][0-9]{9,14}$/.test(botPhone) &&
+            api.getBotInfo?.()?.username === botPhone &&
+            !whatsappPhoneSpellings(botPhone).includes(message.sender.platformUserId)
+          );
         }
 
-        if (!authenticatedWhatsAppSelfChat && !returningWhatsAppGuest) {
+        if (!authenticatedWhatsAppSelfChat && !returningWhatsAppGuest && !newWhatsAppTrialGuest) {
           log.debug('Dropping unapproved WhatsApp sender while ownership is unclaimed');
           return;
         }
@@ -557,6 +569,7 @@ export class ChannelServiceImpl implements IChannelService {
       const isWhatsAppGuest =
         whatsappMultiUser &&
         (returningWhatsAppGuest ||
+          newWhatsAppTrialGuest ||
           (ownerUserId !== null && ownerUserId !== message.sender.platformUserId)) &&
         message.metadata?.isGroup !== true;
       const customerUserId = isWhatsAppGuest
@@ -795,8 +808,8 @@ export class ChannelServiceImpl implements IChannelService {
         }
       } else {
         // No owner claimed yet.
-        // Only a live authenticated self-chat can claim ownership. Previously
-        // approved, isolated customers may continue without claiming anything.
+        // Only a live authenticated self-chat can claim ownership. Independently
+        // authorized customers (including a new trial) never claim anything.
         if (message.platform === 'whatsapp') {
           if (authenticatedWhatsAppSelfChat) {
             await autoClaimOwnership(
@@ -810,7 +823,7 @@ export class ChannelServiceImpl implements IChannelService {
               userId: message.sender.platformUserId,
             });
             // Fall through — process this message normally
-          } else if (!returningWhatsAppGuest) {
+          } else if (!returningWhatsAppGuest && !newWhatsAppTrialGuest) {
             return;
           }
         } else {
