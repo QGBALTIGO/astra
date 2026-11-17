@@ -17,6 +17,11 @@ import { ChannelSendNotAttemptedError } from '../channels/send-not-attempted.js'
 import { getWhatsAppAccessMessageSettings } from '../channels/channel-access-message-settings.js';
 import { getOwnerUserId } from './pairing-service.js';
 import { getLog } from './log.js';
+import {
+  markAccessWorkerStarted,
+  markAccessWorkerCompleted,
+  markAccessWorkerStopped,
+} from './whatsapp-onboarding-health.js';
 import { recoverWhatsAppFirstContact } from './whatsapp-first-contact-recovery.js';
 
 const log = getLog('ChannelAccessNotificationWorker');
@@ -358,6 +363,9 @@ export class ChannelAccessNotificationWorker {
       });
     } finally {
       this.running = false;
+      // A skipped overlapping dispatch is not a heartbeat. Only a completed
+      // real cycle of the production singleton demonstrates worker progress.
+      if (this === worker) markAccessWorkerCompleted();
     }
     return result;
   }
@@ -370,13 +378,15 @@ export function dispatchDueChannelAccessNotifications(): Promise<AccessNotificat
 }
 export function startChannelAccessNotificationWorker(): void {
   if (timer) return;
-  void worker.dispatch();
+  markAccessWorkerStarted();
+  void dispatchDueChannelAccessNotifications();
   timer = setInterval(() => {
-    void worker.dispatch();
+    void dispatchDueChannelAccessNotifications();
   }, 60_000);
   timer.unref?.();
 }
 export function stopChannelAccessNotificationWorker(): void {
+  markAccessWorkerStopped();
   if (timer) clearInterval(timer);
   timer = null;
 }

@@ -5,6 +5,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 
+const mockOnboarding = vi.hoisted(() => vi.fn());
+vi.mock('../services/whatsapp-onboarding-health.js', () => ({
+  checkWhatsAppOnboarding: mockOnboarding,
+}));
 // Mocks
 const mockGetSandboxStatus = vi.fn();
 const mockResetSandboxCache = vi.fn();
@@ -111,6 +115,11 @@ describe('Health Routes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockOnboarding.mockResolvedValue({
+      probe: 'astra-whatsapp-onboarding-v1',
+      status: 'ready',
+      reasons: [],
+    });
     app = createApp();
     mockGetDatabaseConfig.mockReturnValue({
       postgresHost: 'localhost',
@@ -127,6 +136,32 @@ describe('Health Routes', () => {
       dockerAvailable: false,
       dockerVersion: null,
       relaxedSecurityRequired: false,
+    });
+  });
+
+  describe('GET /health/onboarding', () => {
+    it('returns the protocol and aggregate readiness without private diagnostics', async () => {
+      const res = await createApp({ authenticated: false }).request('/health/onboarding');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Cache-Control')).toBe('no-store');
+      expect((await res.json()).data).toEqual({
+        probe: 'astra-whatsapp-onboarding-v1',
+        status: 'ready',
+      });
+    });
+    it('returns 503 rather than a false healthy result when onboarding is blocked', async () => {
+      mockOnboarding.mockResolvedValue({
+        probe: 'astra-whatsapp-onboarding-v1',
+        status: 'not_ready',
+        reasons: ['welcome_overdue'],
+      });
+      const publicResponse = await createApp({ authenticated: false }).request(
+        '/health/onboarding'
+      );
+      expect(publicResponse.status).toBe(503);
+      expect((await publicResponse.json()).data).not.toHaveProperty('reasons');
+      const privateResponse = await app.request('/health/onboarding');
+      expect((await privateResponse.json()).data.reasons).toEqual(['welcome_overdue']);
     });
   });
 

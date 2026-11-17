@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { ONBOARDING_BACKLOG_SQL } from '../../services/whatsapp-onboarding-health.js';
 import { Client } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { DatabaseAdapter } from '../adapters/types.js';
@@ -92,6 +93,77 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)(
         await clients[0]!.query('SELECT * FROM channel_users WHERE platform_user_id=$1', [phone])
       ).rows[0];
     }
+    async function onboardingProbe() {
+      return (await clients[0]!.query(ONBOARDING_BACKLOG_SQL)).rows[0];
+    }
+    async function overdueTrial() {
+      const id = await repos[0]!.createNewContact(input);
+      await clients[0]!.query(
+        `UPDATE channel_users SET
+        access_granted_at=access_granted_at-INTERVAL '11 minutes',
+        access_expires_at=access_expires_at-INTERVAL '11 minutes' WHERE id=$1`,
+        [id]
+      );
+      await clients[0]!.query(
+        `UPDATE channel_access_notifications n SET
+        access_granted_at=u.access_granted_at,access_expires_at=u.access_expires_at
+        FROM channel_users u WHERE n.channel_user_id=u.id AND u.id=$1`,
+        [id]
+      );
+      return id;
+    }
+    it('read-only readiness detects a late welcome but not a fresh trial', async () => {
+      expect(await onboardingProbe()).toEqual({ ledger_ready: true, overdue_welcome: false });
+      await repos[0]!.createNewContact(input);
+      expect(await onboardingProbe()).toEqual({ ledger_ready: true, overdue_welcome: false });
+      await clients[0]!.query(
+        `UPDATE channel_users SET access_granted_at=access_granted_at-INTERVAL '11 minutes'`
+      );
+      expect(await onboardingProbe()).toEqual({ ledger_ready: true, overdue_welcome: true });
+    });
+    it('flags uncertain delivery without retrying it and accepts a persisted receipt', async () => {
+      const id = await overdueTrial();
+      await clients[0]!.query(
+        `UPDATE channel_access_notifications SET status='failed' WHERE channel_user_id=$1 AND kind='approved'`,
+        [id]
+      );
+      expect((await onboardingProbe()).overdue_welcome).toBe(true);
+      const before = (
+        await clients[0]!.query('SELECT * FROM channel_access_notifications ORDER BY id')
+      ).rows;
+      await onboardingProbe();
+      expect(
+        (await clients[0]!.query('SELECT * FROM channel_access_notifications ORDER BY id')).rows
+      ).toEqual(before);
+      await clients[0]!.query(
+        `UPDATE channel_access_notifications SET status='delivered',delivery_id='synthetic-receipt' WHERE channel_user_id=$1 AND kind='approved'`,
+        [id]
+      );
+      expect((await onboardingProbe()).overdue_welcome).toBe(false);
+    });
+    it.each(['blocked', 'revoked', 'expired'])(
+      'does not alert for an intentionally inactive trial: %s',
+      async (reason) => {
+        const id = await overdueTrial();
+        const mutations: Record<string, string> = {
+          blocked: 'is_blocked=TRUE',
+          revoked: 'is_verified=FALSE',
+          expired: "access_expires_at=NOW()-INTERVAL '1 minute'",
+        };
+        await clients[0]!.query('UPDATE channel_users SET ' + mutations[reason] + ' WHERE id=$1', [
+          id,
+        ]);
+        expect((await onboardingProbe()).overdue_welcome).toBe(false);
+      }
+    );
+    it('does not mistake another access cycle receipt for a current welcome', async () => {
+      const id = await overdueTrial();
+      await clients[0]!.query(
+        `UPDATE channel_access_notifications SET status='delivered',delivery_id='old-receipt',access_granted_at=access_granted_at-INTERVAL '1 day' WHERE channel_user_id=$1 AND kind='approved'`,
+        [id]
+      );
+      expect((await onboardingProbe()).overdue_welcome).toBe(true);
+    });
     const recovery = { requestId: 'recovery-synthetic-request', phone, botPhone: '5567988880000' };
     async function discovered() {
       await clients[0]!.query(
