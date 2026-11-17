@@ -685,6 +685,7 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
         channelRequestText: message.text,
         channelIsPrivate: integrationPrivateChat(message),
         channelConversationOnly: isConversationalOnlyChannelRequest(message.text),
+        channelFinanceDeletes: new Map(),
         externalContentGuard: { seen: false },
       },
       () =>
@@ -881,6 +882,7 @@ async function processDirectAgentInSession(
         onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
         channelIsPrivate: integrationPrivateChat(message),
         channelConversationOnly: conversationOnly,
+        channelFinanceDeletes: new Map(),
         externalContentGuard: { seen: false },
       },
       () =>

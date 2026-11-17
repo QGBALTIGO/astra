@@ -212,7 +212,7 @@ describe('API transport', () => {
     expect(await transcribeWhatsAppAudio(voice, 'audio/ogg; codecs=opus')).toBe('Me lembre amanhã');
     const options = fetcher.mock.calls[0][1] as RequestInit;
     expect(fetcher.mock.calls[0][0]).toContain('/audio/transcriptions');
-    expect(options.headers).toEqual(expect.objectContaining({ Authorization: 'Bearer test-key' }));
+    expect(new Headers(options.headers).get('authorization')).toBe('Bearer test-key');
     const form = options.body as FormData;
     expect(form.get('model')).toBe('whisper-large-v3-turbo');
     expect(form.get('language')).toBe('pt');

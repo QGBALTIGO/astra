@@ -7,6 +7,7 @@ const f = vi.hoisted(() => ({
     channelMessageTimestamp: Date.parse('2026-11-11T02:00:00Z'),
     channelRequestText: undefined as string | undefined,
     channelIsPrivate: false,
+    channelFinanceDeletes: undefined as Map<string, Promise<boolean>> | undefined,
   },
   account: vi.fn(),
   owner: vi.fn(),
@@ -61,6 +62,7 @@ beforeEach(() => {
   f.ctx.channelMessageTimestamp = Date.parse('2026-11-11T02:00:00Z');
   f.ctx.channelRequestText = undefined;
   f.ctx.channelIsPrivate = false;
+  f.ctx.channelFinanceDeletes = undefined;
   f.hasPreview.mockResolvedValue(false);
   f.account.mockResolvedValue({ timeZone: 'America/Campo_Grande' });
   f.categories.mockResolvedValue([
@@ -90,6 +92,9 @@ it.each([
   'Apaga tudo que estiver pendente',
   'Exclua em lote os valores a receber de novembro',
   'Remova todos os registros do cliente sintético',
+  'Apague esses pendentes',
+  'Exclua esses lançamentos',
+  'Remova os recebimentos do cliente sintético',
 ])('does not let single-record model calls bypass bulk confirmation: %s', async (request) => {
   f.ctx.channelRequestText = request;
   const result = await executeCustomerFinanceTool(
@@ -102,6 +107,34 @@ it.each([
   expect(f.remove).not.toHaveBeenCalled();
 });
 describe('same-ledger finance tools', () => {
+  it('leases at most one individual ID per channel turn, including concurrent meta-tool calls and replay', async () => {
+    f.ctx.channelFinanceDeletes = new Map();
+    f.ctx.channelRequestText = 'Apague esse gasto';
+    const [first, replay, second] = await Promise.all([
+      executeCustomerFinanceTool('delete_transaction', { transaction_id: 'first' }, 'fixture-user'),
+      executeCustomerFinanceTool('delete_transaction', { transaction_id: 'first' }, 'fixture-user'),
+      executeCustomerFinanceTool(
+        'delete_transaction',
+        { transaction_id: 'second' },
+        'fixture-user'
+      ),
+    ]);
+    expect(first.success).toBe(true);
+    expect(replay.success).toBe(true);
+    expect(second).toMatchObject({ success: false, error: expect.stringContaining('em lote') });
+    expect(f.remove).toHaveBeenCalledExactlyOnceWith('first');
+    f.ctx.channelFinanceDeletes = new Map();
+    expect(
+      (
+        await executeCustomerFinanceTool(
+          'delete_transaction',
+          { transaction_id: 'second' },
+          'fixture-user'
+        )
+      ).success
+    ).toBe(true);
+    expect(f.remove).toHaveBeenCalledTimes(2);
+  });
   it('blocks an ambiguous individual delete continuation while the same chat has a bulk preview', async () => {
     f.ctx.channelIsPrivate = true;
     f.ctx.channelRequestText = 'Faça o que pedi';

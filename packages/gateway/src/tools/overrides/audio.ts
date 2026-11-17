@@ -646,11 +646,13 @@ export async function callWhisperTranscribe(
   filename: string,
   opts: { language?: string; prompt?: string; responseFormat?: string }
 ): Promise<WhisperResult> {
-  const url = `${baseUrl}/v1/audio/transcriptions`;
+  const endpoint = baseUrl.replace(/\/+$/, '');
+  const url = `${endpoint}${endpoint.endsWith('/v1') ? '' : '/v1'}/audio/transcriptions`;
+  const managedGroq = endpoint === 'https://api.groq.com/openai/v1' && !!apiKey;
 
   const formData = new FormData();
   formData.append('file', new Blob([new Uint8Array(audioBuffer)]), filename);
-  formData.append('model', 'whisper-1');
+  formData.append('model', managedGroq ? 'whisper-large-v3-turbo' : 'whisper-1');
   if (opts.language) formData.append('language', opts.language);
   if (opts.prompt) formData.append('prompt', opts.prompt);
 
@@ -658,10 +660,25 @@ export async function callWhisperTranscribe(
   const format = opts.responseFormat === 'text' ? 'text' : 'verbose_json';
   formData.append('response_format', format);
 
+  if (managedGroq) {
+    const { groqAudioTranscription } = await import('../../services/groq-audio-transport.js');
+    const data = (await groqAudioTranscription(formData, apiKey!, format)) as WhisperResult;
+    if (!data || typeof data.text !== 'string')
+      throw new Error('Audio transcription returned an invalid result');
+    return {
+      text: data.text,
+      language: data.language,
+      duration: data.duration,
+      segments: data.segments?.map((s) => ({ start: s.start, end: s.end, text: s.text })),
+    };
+  }
+
   const response = await fetch(url, {
     method: 'POST',
     headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
     body: formData,
+    signal: AbortSignal.timeout(20_000),
+    redirect: 'error',
   });
 
   if (!response.ok) {
