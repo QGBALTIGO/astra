@@ -20,6 +20,7 @@ const POLICY: Record<string, { interval: number; ttl: number }> = {
   'api.queridodiario.ok.org.br': { interval: 1500, ttl: 14400 },
   'dadosabertos.aneel.gov.br': { interval: 1500, ttl: 86400 },
   'api.github.com': { interval: 65000, ttl: 3600 },
+  'futapi.p.rapidapi.com': { interval: 0, ttl: 1200 },
 };
 const PATHS: Record<string, RegExp> = {
   'api.frankfurter.dev': /^\/v2\/rates$/,
@@ -32,6 +33,7 @@ const PATHS: Record<string, RegExp> = {
   'dadosabertos.aneel.gov.br':
     /^\/dataset\/[a-f0-9-]+\/resource\/[a-f0-9-]+\/download\/bandeira-tarifaria-acionamento\.csv$/,
   'api.github.com': /^\/repos\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/releases\/latest$/,
+  'futapi.p.rapidapi.com': /^\/v1\/competitions(?:\/cp_[A-Za-z0-9]{12}\/(?:teams|matches))?$/,
 };
 function record(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
@@ -110,6 +112,26 @@ export function minimizeRadarJson(url: URL, value: unknown): unknown {
         'draft',
         'prerelease',
       ]);
+    case 'futapi.p.rapidapi.com': {
+      const envelope = record(value);
+      if (!Array.isArray(envelope.data) || envelope.data.length > 100)
+        throw new RadarSourceError('invalid_response');
+      const paging = envelope.paging == null ? null : record(envelope.paging);
+      return {
+        data: envelope.data.map((row) =>
+          url.pathname.endsWith('/matches')
+            ? {
+                ...pick(row, ['id', 'season', 'round', 'kickoff_at', 'status']),
+                competition: pick(record(row).competition, ['id', 'name']),
+                home_team: pick(record(row).home_team, ['id', 'name', 'short_name']),
+                away_team: pick(record(row).away_team, ['id', 'name', 'short_name']),
+                score: record(row).score == null ? null : pick(record(row).score, ['home', 'away']),
+              }
+            : pick(row, ['id', 'name', 'short_name', 'country_code', 'current_season'])
+        ),
+        paging: paging ? pick(paging, ['next_cursor']) : null,
+      };
+    }
     default:
       throw new RadarSourceError('invalid_source');
   }
@@ -119,6 +141,17 @@ export interface RadarFetchMetadata {
   expiresAt: string;
 }
 class RadarHttpRepository extends BaseRepository {
+  async reserveFootballAttempt(): Promise<boolean> {
+    const count =
+      "CASE WHEN radar_http_cache.body ~ '^[0-9]{1,3}$' THEN radar_http_cache.body::integer ELSE 90 END";
+    return !!(await this.queryOne(
+      `INSERT INTO radar_http_cache(key,body,expires_at,touched_at)
+       VALUES('budget:futapi:' || to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD'),'1',
+         (date_trunc('day',NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')+INTERVAL '1 day',NOW())
+       ON CONFLICT(key) DO UPDATE SET body=((${count})+1)::text,touched_at=NOW()
+       WHERE (${count})<90 RETURNING key`
+    ));
+  }
   async cached(
     key: string
   ): Promise<{ body: string; touched_at: Date | string; expires_at: Date | string } | null> {
@@ -150,6 +183,9 @@ class RadarHttpRepository extends BaseRepository {
   }
 }
 const cache = new RadarHttpRepository();
+export function reserveFootballDataAttempt(): Promise<boolean> {
+  return cache.reserveFootballAttempt();
+}
 export function validateRadarUrl(raw: string): URL {
   const url = new URL(raw);
   if (
@@ -161,14 +197,55 @@ export function validateRadarUrl(raw: string): URL {
     !PATHS[url.hostname]?.test(url.pathname)
   )
     throw new RadarSourceError('invalid_source', 86400);
+  if (url.hostname === 'futapi.p.rapidapi.com') {
+    const names = [...url.searchParams.keys()];
+    const match = url.pathname.endsWith('/matches');
+    const team = url.pathname.endsWith('/teams');
+    const allowed = match
+      ? ['season', 'from', 'to', 'timezone', 'limit', 'cursor']
+      : team
+        ? ['season']
+        : [];
+    if (
+      url.hash ||
+      new Set(names).size !== names.length ||
+      names.some((name) => !allowed.includes(name))
+    )
+      throw new RadarSourceError('invalid_source', 86400);
+    if ((match || team) && !/^20\d{2}$/.test(url.searchParams.get('season') ?? ''))
+      throw new RadarSourceError('invalid_source', 86400);
+    if (match) {
+      const from = url.searchParams.get('from') ?? '',
+        to = url.searchParams.get('to') ?? '';
+      const validDay = (day: string) =>
+        /^20\d{2}-\d{2}-\d{2}$/.test(day) &&
+        Number.isFinite(Date.parse(day)) &&
+        new Date(day).toISOString().slice(0, 10) === day;
+      if (
+        !validDay(from) ||
+        !validDay(to) ||
+        Date.parse(to) < Date.parse(from) ||
+        Date.parse(to) - Date.parse(from) > 6 * 86400000 ||
+        url.searchParams.get('timezone') !== 'America/Sao_Paulo' ||
+        url.searchParams.get('limit') !== '100' ||
+        (url.searchParams.has('cursor') &&
+          !/^[A-Za-z0-9_+/=-]{1,64}$/.test(url.searchParams.get('cursor')!))
+      )
+        throw new RadarSourceError('invalid_source', 86400);
+    }
+  }
   return url;
 }
+export interface RadarTextOptions {
+  ttl?: number;
+  json?: boolean;
+  meta?: (metadata: RadarFetchMetadata) => void;
+}
 /** Fixed allowlist, no redirects, bounded streaming, distributed cache and provider budget. */
-export async function radarText(
-  raw: string,
-  options: { ttl?: number; json?: boolean; meta?: (metadata: RadarFetchMetadata) => void } = {}
-): Promise<string> {
+async function loadRadarText(raw: string, options: RadarTextOptions = {}): Promise<string> {
   const url = validateRadarUrl(raw);
+  if (url.hostname === 'futapi.p.rapidapi.com' && options.json === false)
+    throw new RadarSourceError('invalid_source', 86400);
   const policy = POLICY[url.hostname]!;
   const key = createHash('sha256').update(url.href).digest('hex');
   const cached = await cache.cached(key);
@@ -184,7 +261,10 @@ export async function radarText(
   try {
     // Customer Radar never inherits an operator credential with private repository access.
     if (!(await radarRepo.reserveProvider(url.hostname, policy.interval)))
-      throw new RadarSourceError('rate_wait', Math.ceil(policy.interval / 1000));
+      throw new RadarSourceError(
+        'rate_wait',
+        url.hostname === 'futapi.p.rapidapi.com' ? 60 : Math.ceil(policy.interval / 1000)
+      );
     const headers: Record<string, string> = {
       'User-Agent': 'Astra-Radar/1.0 (+https://astraacessor.pro)',
       Accept: options.json === false ? 'text/plain,text/csv' : 'application/json',
@@ -192,11 +272,28 @@ export async function radarText(
     if (url.hostname === 'api.github.com') {
       headers['X-GitHub-Api-Version'] = '2022-11-28';
     }
-    const res = await fetch(url.href, {
-      headers,
-      redirect: 'error',
-      signal: AbortSignal.timeout(15000),
-    });
+    if (url.hostname === 'futapi.p.rapidapi.com') {
+      const key = process.env.ASTRA_FOOTBALL_DATA_KEY?.trim();
+      if (!key || key.length > 512 || /[^\x21-\x7e]/.test(key))
+        throw new RadarSourceError('source_not_configured', 3600);
+      if (!(await cache.reserveFootballAttempt())) throw new RadarSourceError('daily_budget', 3600);
+      headers['x-rapidapi-host'] = 'futapi.p.rapidapi.com';
+      headers['x-rapidapi-key'] = key;
+    }
+    let res: Response;
+    try {
+      res = await fetch(url.href, {
+        headers,
+        redirect: 'error',
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (error) {
+      // An authenticated public-data call must not carry request details into
+      // a channel error, telemetry or a later model turn.
+      if (url.hostname === 'futapi.p.rapidapi.com')
+        throw new RadarSourceError('provider_unavailable');
+      throw error;
+    }
     if (res.status === 429 || (res.status === 403 && url.hostname === 'api.github.com')) {
       const retry = res.headers.get('retry-after');
       const until =
@@ -217,7 +314,8 @@ export async function radarText(
         res.status === 404 ? 3600 : 300
       );
     }
-    if (Number(res.headers.get('content-length')) > 1_500_000) {
+    const bodyLimit = url.hostname === 'futapi.p.rapidapi.com' ? 512 * 1024 : 1_500_000;
+    if (Number(res.headers.get('content-length')) > bodyLimit) {
       await res.body?.cancel();
       throw new RadarSourceError('response_too_large', 3600);
     }
@@ -229,7 +327,7 @@ export async function radarText(
       const part = await reader.read();
       if (part.done) break;
       length += part.value.length;
-      if (length > 1_500_000) {
+      if (length > bodyLimit) {
         await reader.cancel();
         throw new RadarSourceError('response_too_large', 3600);
       }
@@ -246,11 +344,14 @@ export async function radarText(
     }
     const expires = Date.parse(res.headers.get('expires') ?? '');
     const maxAge = res.headers.get('cache-control')?.match(/(?:^|,)\s*max-age=(\d+)/i)?.[1];
-    const seconds = Math.max(
-      options.ttl ?? policy.ttl,
-      Number.isFinite(expires) ? Math.ceil((expires - Date.now()) / 1000) : 0,
-      Number(maxAge) || 0
-    );
+    const seconds =
+      url.hostname === 'futapi.p.rapidapi.com'
+        ? Math.min(options.ttl ?? policy.ttl, url.pathname.endsWith('/matches') ? 1200 : 86400)
+        : Math.max(
+            options.ttl ?? policy.ttl,
+            Number.isFinite(expires) ? Math.ceil((expires - Date.now()) / 1000) : 0,
+            Number(maxAge) || 0
+          );
     const saved = await cache.finish(key, token, body, Math.min(seconds, 7 * 86400));
     if (!saved) throw new RadarSourceError('fetch_pending', 30);
     options.meta?.({
@@ -261,6 +362,31 @@ export async function radarText(
   } finally {
     await cache.release(key, token);
   }
+}
+const flights = new Map<string, Promise<{ body: string; metadata?: RadarFetchMetadata }>>();
+/** Coalesce same-process readers; the PostgreSQL lease also fences other collectors. */
+export async function radarText(raw: string, options: RadarTextOptions = {}): Promise<string> {
+  const url = validateRadarUrl(raw);
+  const key = JSON.stringify([url.href, options.json !== false, options.ttl ?? null]);
+  let flight = flights.get(key);
+  if (!flight) {
+    let metadata: RadarFetchMetadata | undefined;
+    const started = loadRadarText(raw, {
+      ...options,
+      meta: (value) => {
+        metadata = value;
+      },
+    })
+      .then((body) => ({ body, metadata }))
+      .finally(() => {
+        if (flights.get(key) === started) flights.delete(key);
+      });
+    flights.set(key, started);
+    flight = started;
+  }
+  const result = await flight;
+  if (result.metadata) options.meta?.(result.metadata);
+  return result.body;
 }
 export async function radarJson(
   raw: string,

@@ -8,7 +8,7 @@ vi.mock('../../db/adapters/index.js', () => ({
   },
 }));
 import { radarTestDatabase } from '../../db/repositories/radar-pg-fixture.js';
-import { radarJson, radarText, validateRadarUrl } from './http.js';
+import { radarJson, radarText, validateRadarUrl, reserveFootballDataAttempt } from './http.js';
 
 describe('Radar source destination restrictions', () => {
   it.each([
@@ -37,7 +37,10 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       fetchMock.mockResolvedValue(new Response(JSON.stringify(quote)));
       vi.stubGlobal('fetch', fetchMock);
     });
-    afterEach(() => vi.unstubAllGlobals());
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    });
     afterAll(async () => {
       state.adapter = null;
       await fixture?.close();
@@ -163,6 +166,88 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       ).rejects.toMatchObject({ code: 'source_not_found' });
       expect(fetchMock.mock.calls[0]![1].headers.Authorization).toBeUndefined();
       vi.unstubAllEnvs();
+    });
+    const footballUrl =
+      'https://futapi.p.rapidapi.com/v1/competitions/cp_000000000001/matches?season=2026&from=2026-11-16&to=2026-11-22&timezone=America%2FSao_Paulo&limit=100';
+    it('shares one football call and one quota slot among 500 concurrent customers', async () => {
+      vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-football-read-key');
+      vi.stubEnv('GROQ_API_KEY', 'synthetic-unrelated-operator-key');
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ data: [], paging: null, private: 'SECRET' }))
+      );
+      const replies = await Promise.all(Array.from({ length: 500 }, () => radarJson(footballUrl)));
+      expect(replies).toHaveLength(500);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const request = fetchMock.mock.calls[0]!;
+      expect(request[0]).toBe(footballUrl);
+      expect(request[0]).not.toContain('synthetic-football');
+      expect(request[1].headers['x-rapidapi-key']).toBe('synthetic-football-read-key');
+      expect(request[1].headers['x-rapidapi-host']).toBe('futapi.p.rapidapi.com');
+      expect(request[1].headers.Authorization).toBeUndefined();
+      const rows = await fixture.adapter.query<{ key: string; body: string }>(
+        'SELECT key,body FROM radar_http_cache WHERE body IS NOT NULL'
+      );
+      expect(rows.find((row) => row.key.startsWith('budget:futapi:'))!.body).toBe('1');
+      expect(JSON.stringify(rows)).not.toMatch(/synthetic-football|synthetic-unrelated|SECRET/);
+    });
+    it('atomically caps attempts at 90 for 500 contenders, independent of cache keys and restarts', async () => {
+      const reservations = await Promise.all(
+        Array.from({ length: 500 }, () => reserveFootballDataAttempt())
+      );
+      expect(reservations.filter(Boolean)).toHaveLength(90);
+      expect(await reserveFootballDataAttempt()).toBe(false);
+      vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-football-read-key');
+      await expect(radarJson(footballUrl)).rejects.toMatchObject({ code: 'daily_budget' });
+      expect(fetchMock).not.toHaveBeenCalled();
+      const row = await fixture.adapter.queryOne<{ body: string }>(
+        "SELECT body FROM radar_http_cache WHERE key LIKE 'budget:futapi:%'"
+      );
+      expect(row!.body).toBe('90');
+    });
+    it('uses a new UTC day slot rather than clearing prior reservations', async () => {
+      await fixture.adapter.execute(
+        "INSERT INTO radar_http_cache(key,body,expires_at) VALUES('budget:futapi:2000-01-01','90',NOW()-INTERVAL '1 day')"
+      );
+      expect(await reserveFootballDataAttempt()).toBe(true);
+      const rows = await fixture.adapter.query<{ body: string }>(
+        "SELECT body FROM radar_http_cache WHERE key LIKE 'budget:futapi:%' ORDER BY key"
+      );
+      expect(rows.map((row) => row.body)).toEqual(['90', '1']);
+    });
+    it('counts failed attempts and sanitizes authenticated request failures', async () => {
+      vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-football-read-key');
+      fetchMock.mockRejectedValue(new Error('synthetic-football-read-key failure details'));
+      await expect(radarJson(footballUrl)).rejects.toMatchObject({ code: 'provider_unavailable' });
+      await expect(radarJson(footballUrl)).rejects.not.toThrow('synthetic-football-read-key');
+      const row = await fixture.adapter.queryOne<{ body: string }>(
+        "SELECT body FROM radar_http_cache WHERE key LIKE 'budget:futapi:%'"
+      );
+      expect(row!.body).toBe('2');
+    });
+    it('caps football cache freshness even when upstream advertises a much longer TTL', async () => {
+      vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-football-read-key');
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ data: [], paging: null }), {
+          headers: {
+            'Cache-Control': 'max-age=31536000',
+            Expires: 'Wed, 01 Jan 2031 00:00:00 GMT',
+          },
+        })
+      );
+      const observation = vi.fn();
+      await radarJson(footballUrl, undefined, observation);
+      const meta = observation.mock.calls[0]![0];
+      expect(Date.parse(meta.expiresAt) - Date.parse(meta.fetchedAt)).toBeLessThanOrEqual(1201000);
+      expect(Date.parse(meta.expiresAt) - Date.parse(meta.fetchedAt)).toBeGreaterThan(1190000);
+    });
+    it('bounds football bodies and rejects an unminimized text read before any request', async () => {
+      vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-football-read-key');
+      await expect(radarText(footballUrl, { json: false })).rejects.toMatchObject({
+        code: 'invalid_source',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      fetchMock.mockResolvedValue(new Response('x'.repeat(512 * 1024 + 1)));
+      await expect(radarJson(footballUrl)).rejects.toMatchObject({ code: 'response_too_large' });
     });
   }
 );

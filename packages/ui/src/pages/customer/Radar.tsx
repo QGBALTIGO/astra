@@ -38,11 +38,17 @@ const defaults: RadarPreferences = {
 };
 const message = (e: unknown) =>
   e instanceof Error ? e.message : 'Não foi possível concluir. Tente novamente.';
+const leadLabel = (minutes: number) =>
+  minutes === 1440
+    ? '1 dia'
+    : minutes % 60 === 0
+      ? `${minutes / 60} ${minutes === 60 ? 'hora' : 'horas'}`
+      : `${minutes} minutos`;
 const deliveryLabel = (i: RadarInterest) =>
   i.delivery === 'matchday'
     ? `Só nos dias de jogo${i.notifyTime ? ` · às ${i.notifyTime}` : ''}`
     : i.delivery === 'before'
-      ? 'Aviso antes do evento'
+      ? `Aviso ${leadLabel(i.leadMinutes)} antes do ${i.source === 'football' ? 'jogo' : 'evento'}`
       : i.delivery === 'threshold'
         ? 'Alerta de valor'
         : 'No resumo diário';
@@ -368,7 +374,11 @@ export function CustomerRadar({
           <div className="ac-radar-list">
             {loaded.interests.map((i) => {
               const source = loaded.catalog.find((s) => s.id === i.source),
-                fresh = !!i.snapshot && Date.parse(i.snapshot.expiresAt) > clock;
+                fresh = !!i.snapshot && Date.parse(i.snapshot.expiresAt) > clock,
+                beforeUnavailable =
+                  i.source === 'football' &&
+                  i.delivery === 'before' &&
+                  source?.supportsBefore !== true;
               const status = !i.active
                 ? 'Pausado'
                 : !i.snapshot
@@ -461,6 +471,12 @@ export function CustomerRadar({
                         : 'A primeira consulta está agendada. Você pode continuar usando o Astra.'}
                     </p>
                   )}
+                  {beforeUnavailable ? (
+                    <p className="ac-radar-wait">
+                      Os avisos antes dos jogos estão indisponíveis no momento. Você pode pausar ou
+                      escolher outra forma de receber.
+                    </p>
+                  ) : null}
                   <div className="ac-radar-follow-footer">
                     {i.source === 'football' ? (
                       <span className="ac-radar-calendar-note">Calendário previsto</span>
@@ -474,7 +490,11 @@ export function CustomerRadar({
                       <button
                         className="ac-text-button"
                         type="button"
-                        disabled={busy !== null || (!customer.access.canWrite && !i.active)}
+                        disabled={
+                          busy !== null ||
+                          (!customer.access.canWrite && !i.active) ||
+                          (!i.active && beforeUnavailable)
+                        }
                         onClick={() =>
                           void mutate(
                             i.id,
@@ -628,6 +648,9 @@ function RadarForm({
         }
       : { source: 'weather', target: '', delivery: 'digest', leadMinutes: 60 }
   );
+  const beforeSupported =
+    source?.id === 'series' ||
+    (source?.id === 'football' && source.available && source.supportsBefore === true);
   useEffect(
     () => () => {
       seq.current++;
@@ -680,6 +703,10 @@ function RadarForm({
     if (lock.current || !source || !source.available) return;
     if (source.needsSearch && !editing && !choice) {
       setError('Selecione um resultado da busca.');
+      return;
+    }
+    if (input.delivery === 'before' && !beforeSupported) {
+      setError('Os avisos antes dos jogos estão indisponíveis. Escolha outra forma de receber.');
       return;
     }
     if (
@@ -744,7 +771,12 @@ function RadarForm({
               className="ac-button"
               type="submit"
               form={id}
-              disabled={busy || searching || !source.available}
+              disabled={
+                busy ||
+                searching ||
+                !source.available ||
+                (input.delivery === 'before' && !beforeSupported)
+              }
             >
               {busy ? 'Salvando…' : editing ? 'Salvar alterações' : 'Adicionar ao Radar'}
             </button>
@@ -892,7 +924,15 @@ function RadarForm({
                   <option value="matchday">Só nos dias de jogo</option>
                 ) : null}
                 <option value="digest">Junto no resumo diário</option>
-                {source.id === 'series' ? <option value="before">Antes do evento</option> : null}
+                {beforeSupported ? (
+                  <option value="before">
+                    {source.id === 'football' ? 'Antes do jogo' : 'Antes do evento'}
+                  </option>
+                ) : input.delivery === 'before' ? (
+                  <option value="before" disabled>
+                    Antes do jogo · indisponível
+                  </option>
+                ) : null}
                 {['currency', 'ptax'].includes(source.id) ? (
                   <option value="threshold">Quando passar de um valor</option>
                 ) : null}
@@ -916,6 +956,9 @@ function RadarForm({
                   value={input.leadMinutes}
                   onChange={(e) => setInput({ ...input, leadMinutes: Number(e.target.value) })}
                 >
+                  {![15, 30, 60, 120, 1440].includes(input.leadMinutes) ? (
+                    <option value={input.leadMinutes}>{leadLabel(input.leadMinutes)}</option>
+                  ) : null}
                   <option value={15}>15 minutos</option>
                   <option value={30}>30 minutos</option>
                   <option value={60}>1 hora</option>
@@ -956,9 +999,13 @@ function RadarForm({
             <p className="ac-radar-source-note">
               {source.provider} · {source.license}.{' '}
               {source.id === 'football'
-                ? input.delivery === 'matchday'
-                  ? 'Você recebe no horário escolhido, só nos dias com jogo previsto. A data pode mudar e o horário de início pode não estar confirmado. Sem placar ao vivo.'
-                  : 'Jogos previstos no seu resumo diário. A data pode mudar e o horário de início pode não estar confirmado. Sem placar ao vivo.'
+                ? input.delivery === 'before'
+                  ? beforeSupported
+                    ? 'O aviso usa o horário de início informado para cada partida. Jogos sem horário confirmado aguardam atualização.'
+                    : 'Os avisos antes dos jogos estão indisponíveis no momento. Escolha avisos no dia de jogo ou o resumo diário.'
+                  : input.delivery === 'matchday'
+                    ? 'Você recebe no horário escolhido, só nos dias com jogo previsto. A data pode mudar e o horário de início pode não estar confirmado. Sem placar ao vivo.'
+                    : 'Jogos previstos no seu resumo diário. A data pode mudar e o horário de início pode não estar confirmado. Sem placar ao vivo.'
                 : source.id === 'series'
                   ? 'A data da fonte não confirma estreia no Brasil.'
                   : source.id === 'ptax' || source.id === 'currency'

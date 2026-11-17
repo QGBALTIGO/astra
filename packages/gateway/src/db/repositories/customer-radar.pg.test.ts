@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, afterAll, describe, it, expect } from 'vitest';
+import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest';
 import { CustomerRadarRepository, RadarRepository } from './customer-radar.js';
 import { radarTestDatabase, seedRadarAccounts } from './radar-pg-fixture.js';
 import type { PostgresAdapter } from '../adapters/postgres-adapter.js';
@@ -20,6 +20,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       db = fixture.adapter;
     });
     beforeEach(async () => {
+      vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
       await db.exec(
         'TRUNCATE customer_radar_outbox,customer_radar_interests,customer_radar_preferences,radar_resources,radar_provider_limits,customer_phone_aliases,customer_accounts,channel_users CASCADE'
       );
@@ -30,6 +31,7 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
     });
     afterAll(async () => {
       await fixture?.close();
+      vi.unstubAllEnvs();
     });
     const create = () =>
       a.create({ source: 'currency', target: 'USD', delivery: 'digest', leadMinutes: 60 }, 'USD');
@@ -266,6 +268,315 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
     it('starts every account with explicit opt-in disabled', async () => {
       expect((await a.preferences()).preferences.enabled).toBe(false);
       expect(await publicRepo.activeAccounts('')).toEqual([]);
+    });
+    const kickoffInput = {
+      source: 'football' as const,
+      target: 'br:cr-vasco-da-gama',
+      delivery: 'before' as const,
+      leadMinutes: 60,
+    };
+    async function queuedKickoff() {
+      const followed = await a.followFromChat(kickoffInput, 'Vasco', '07:00');
+      const row = (await a.get(followed.interest.id))!;
+      const instant = new Date();
+      const snapshot: RadarSnapshot = {
+        observedAt: instant.toISOString(),
+        expiresAt: new Date(instant.getTime() + 20 * 60000).toISOString(),
+        sourceLabel: 'DadosFutebol',
+        sourceUrl: 'https://example.org/',
+        items: [
+          {
+            id: 'legacy-match',
+            title: 'Vasco × Bahia',
+            at: new Date(instant.getTime() + 45 * 60000).toISOString(),
+            provider: 'football-data',
+            providerMatchId: 'mt_synthetic',
+            status: 'scheduled',
+          },
+        ],
+      };
+      await db.execute('UPDATE radar_resources SET snapshot=$2::jsonb WHERE id=$1', [
+        row.resource_id,
+        JSON.stringify(snapshot),
+      ]);
+      const current = (await a.get(row.id))!;
+      const pref = await a.preferences();
+      const [decision] = interestDecisions(current, instant, 'America/Cuiaba');
+      expect(
+        await publicRepo.queue(
+          userA,
+          current,
+          pref.revision,
+          decision!.key,
+          decision!.payload,
+          decision!.expiresAt
+        )
+      ).toBe(true);
+      return {
+        current,
+        pref,
+        instant,
+        snapshot,
+        decision: decision!,
+        job: (await publicRepo.claimDeliveries())[0]!,
+      };
+    }
+    async function rescheduledKickoff(state: Awaited<ReturnType<typeof queuedKickoff>>) {
+      state.snapshot.items[0]!.at = new Date(state.instant.getTime() + 10 * 60000).toISOString();
+      await db.execute('UPDATE radar_resources SET snapshot=$2::jsonb WHERE id=$1', [
+        state.current.resource_id,
+        JSON.stringify(state.snapshot),
+      ]);
+      await a.change(state.current.id, { leadMinutes: 15 });
+      const current = (await a.get(state.current.id))!;
+      const [decision] = interestDecisions(current, state.instant, 'America/Cuiaba');
+      expect(decision!.key).not.toBe(state.decision.key);
+      return { current, decision: decision! };
+    }
+    it.each(['sent', 'unknown', 'sending'] as const)(
+      'does not create another event for a %s match after a kickoff and lead change',
+      async (status) => {
+        const state = await queuedKickoff();
+        expect(await publicRepo.beginDelivery(state.job)).toBe(true);
+        if (status !== 'sending')
+          await publicRepo.finishDelivery(
+            state.job,
+            status,
+            status === 'sent' ? 'synthetic-receipt' : undefined
+          );
+        const next = await rescheduledKickoff(state);
+        expect(
+          await publicRepo.queue(
+            userA,
+            next.current,
+            state.pref.revision,
+            next.decision.key,
+            next.decision.payload,
+            next.decision.expiresAt
+          )
+        ).toBe(false);
+        expect(await publicRepo.claimDeliveries()).toEqual([]);
+        expect((await a.history())[0]!.status).toBe(status);
+        expect(await a.history()).toHaveLength(1);
+      }
+    );
+    it.each(['transport', 'part'] as const)(
+      'retains the one-match fence for a cancelled job with a %s receipt',
+      async (receipt) => {
+        const state = await queuedKickoff();
+        expect(await publicRepo.beginDelivery(state.job)).toBe(true);
+        if (receipt === 'part')
+          expect(await publicRepo.recordDeliveryPart(state.job, 0, 'synthetic-receipt', 1)).toBe(
+            true
+          );
+        await publicRepo.finishDelivery(
+          state.job,
+          'cancelled',
+          receipt === 'transport' ? 'synthetic-receipt' : undefined
+        );
+        const next = await rescheduledKickoff(state);
+        expect(
+          await publicRepo.queue(
+            userA,
+            next.current,
+            state.pref.revision,
+            next.decision.key,
+            next.decision.payload,
+            next.decision.expiresAt
+          )
+        ).toBe(false);
+        expect(await a.history()).toHaveLength(1);
+      }
+    );
+    it('allows a new schedule after a provably unsent delivery was released and cancelled', async () => {
+      const state = await queuedKickoff();
+      expect(await publicRepo.beginDelivery(state.job)).toBe(true);
+      await publicRepo.deferDelivery(state.job, 0, true);
+      const next = await rescheduledKickoff(state);
+      expect(
+        await publicRepo.queue(
+          userA,
+          next.current,
+          state.pref.revision,
+          next.decision.key,
+          next.decision.payload,
+          next.decision.expiresAt
+        )
+      ).toBe(true);
+      const job = (await publicRepo.claimDeliveries())[0]!;
+      expect(job.event_key).toBe(next.decision.key);
+      expect(await publicRepo.beginDelivery(state.job)).toBe(false);
+    });
+    it('allows only one prequeued version of a match to cross the send boundary concurrently', async () => {
+      const state = await queuedKickoff();
+      state.snapshot.items[0]!.at = new Date(state.instant.getTime() + 50 * 60000).toISOString();
+      await db.execute('UPDATE radar_resources SET snapshot=$2::jsonb WHERE id=$1', [
+        state.current.resource_id,
+        JSON.stringify(state.snapshot),
+      ]);
+      const row = (await a.get(state.current.id))!;
+      const [next] = interestDecisions(row, state.instant, 'America/Cuiaba');
+      expect(
+        await publicRepo.queue(
+          userA,
+          row,
+          state.pref.revision,
+          next!.key,
+          next!.payload,
+          next!.expiresAt
+        )
+      ).toBe(true);
+      const newer = (await publicRepo.claimDeliveries())[0]!;
+      const allowed = await Promise.all([
+        publicRepo.beginDelivery(state.job),
+        publicRepo.beginDelivery(newer),
+      ]);
+      expect(allowed.filter(Boolean)).toHaveLength(1);
+      const winner = allowed[0] ? state.job : newer;
+      const blocked = allowed[0] ? newer : state.job;
+      await publicRepo.finishDelivery(winner, 'sent', 'synthetic-receipt');
+      expect(await publicRepo.beginDelivery(blocked)).toBe(false);
+      expect((await a.history()).filter((entry) => entry.status === 'sent')).toHaveLength(1);
+    });
+    it('can pause an existing kickoff subscription after the key is removed but cannot resume or edit it', async () => {
+      const followed = await a.followFromChat(kickoffInput, 'Vasco', '07:00');
+      vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', '');
+      expect(await a.change(followed.interest.id, { active: false })).toMatchObject({
+        active: false,
+      });
+      const paused = await a.get(followed.interest.id);
+      await expect(a.change(followed.interest.id, { active: true })).rejects.toThrow();
+      await expect(
+        a.change(followed.interest.id, { active: false, leadMinutes: 15 })
+      ).rejects.toThrow();
+      expect(await a.get(followed.interest.id)).toEqual(paused);
+    });
+    it('keeps the global clock and other queued topics when following before football kickoff', async () => {
+      const { i, row, revision, payload } = await prepare();
+      const pref = await a.preferences();
+      const other = (await publicRepo.claimDeliveries())[0]!;
+      const result = await a.followFromChat(kickoffInput, 'Vasco', '19:45');
+      expect(result.interest).toMatchObject({ delivery: 'before', leadMinutes: 60, active: true });
+      expect(await a.preferences()).toEqual(pref);
+      expect((await a.get(i.id))!.input).toEqual(row.input);
+      expect((await a.get(i.id))!.active).toBe(true);
+      expect(await publicRepo.deliveryCurrent(other)).toBe(true);
+      expect(await b.list()).toEqual([]);
+      expect(result.keptPaused).toBe(0);
+      expect(
+        await publicRepo.queue(
+          userA,
+          row,
+          revision,
+          other.event_key,
+          payload,
+          new Date(Date.now() + 3600000)
+        )
+      ).toBe(false);
+    });
+    it('activates only the requested before topic from a globally paused account', async () => {
+      const old = await create();
+      await a.savePreferences({ ...RADAR_DEFAULT_PREFERENCES, enabled: false, time: '08:15' });
+      const result = await a.followFromChat(kickoffInput, 'Vasco', '19:45');
+      expect(result.keptPaused).toBe(1);
+      expect((await a.get(old.id))!.active).toBe(false);
+      expect((await a.preferences()).preferences).toMatchObject({ enabled: true, time: '08:15' });
+      expect(result.interest).toMatchObject({ active: true, delivery: 'before' });
+      expect((await b.preferences()).preferences.enabled).toBe(false);
+    });
+    it('explicitly replaces only the same team mode and cancels its old unsent day notice', async () => {
+      await create();
+      await enable();
+      const day = await a.followFromChat(
+        { ...kickoffInput, delivery: 'matchday', notifyTime: '09:00' },
+        'Vasco',
+        '09:00'
+      );
+      const old = (await a.get(day.interest.id))!;
+      const pref = await a.preferences();
+      await publicRepo.queue(
+        userA,
+        old,
+        pref.revision,
+        'old-day-notice',
+        { title: 'Vasco', text: '', source: '', url: '' },
+        new Date(Date.now() + 3600000)
+      );
+      const leased = (await publicRepo.claimDeliveries())[0]!;
+      const next = await a.followFromChat(kickoffInput, 'Vasco', '19:45');
+      expect(next.interest.id).toBe(day.interest.id);
+      expect(next.interest).toMatchObject({ delivery: 'before' });
+      expect(next.interest).not.toHaveProperty('notifyTime');
+      expect((await a.list()).filter((topic) => topic.source === 'football')).toHaveLength(1);
+      expect((await a.list()).find((topic) => topic.source === 'currency')!.active).toBe(true);
+      expect(await a.preferences()).toEqual(pref);
+      expect(await publicRepo.beginDelivery(leased)).toBe(false);
+    });
+    it('serializes duplicate kickoff evaluation, fences a reschedule and creates one new event', async () => {
+      const followed = await a.followFromChat(kickoffInput, 'Vasco', '07:00');
+      const interest = (await a.get(followed.interest.id))!;
+      const instant = new Date();
+      const snapshot: RadarSnapshot = {
+        observedAt: instant.toISOString(),
+        expiresAt: new Date(instant.getTime() + 20 * 60000).toISOString(),
+        sourceLabel: 'DadosFutebol',
+        sourceUrl: 'https://example.org/',
+        items: [
+          {
+            id: 'legacy-match',
+            title: 'Vasco × Bahia',
+            at: new Date(instant.getTime() + 45 * 60000).toISOString(),
+            provider: 'football-data',
+            providerMatchId: 'mt_synthetic',
+            status: 'scheduled',
+          },
+        ],
+      };
+      await db.execute('UPDATE radar_resources SET snapshot=$2::jsonb WHERE id=$1', [
+        interest.resource_id,
+        JSON.stringify(snapshot),
+      ]);
+      const current = (await a.get(interest.id))!;
+      const pref = await a.preferences();
+      const [decision] = interestDecisions(current, instant, 'America/Cuiaba');
+      const results = await Promise.all(
+        Array.from({ length: 12 }, () =>
+          publicRepo.queue(
+            userA,
+            current,
+            pref.revision,
+            decision!.key,
+            decision!.payload,
+            decision!.expiresAt
+          )
+        )
+      );
+      expect(results.filter(Boolean)).toHaveLength(1);
+      const old = (await publicRepo.claimDeliveries())[0]!;
+      snapshot.items[0]!.at = new Date(instant.getTime() + 50 * 60000).toISOString();
+      await db.execute('UPDATE radar_resources SET snapshot=$2::jsonb WHERE id=$1', [
+        interest.resource_id,
+        JSON.stringify(snapshot),
+      ]);
+      const changed = (await a.get(interest.id))!;
+      expect(stillMatchesDelivery(changed, old, instant, 'America/Cuiaba')).toBe(false);
+      await publicRepo.finishDelivery(old, 'cancelled');
+      const [next] = interestDecisions(changed, instant, 'America/Cuiaba');
+      expect(next!.key).not.toBe(decision!.key);
+      expect(
+        await publicRepo.queue(
+          userA,
+          changed,
+          pref.revision,
+          next!.key,
+          next!.payload,
+          next!.expiresAt
+        )
+      ).toBe(true);
+      const fresh = (await publicRepo.claimDeliveries())[0]!;
+      expect(fresh.event_key).toBe(next!.key);
+      expect(await publicRepo.beginDelivery(old)).toBe(false);
+      expect(await publicRepo.beginDelivery(fresh)).toBe(true);
     });
     it('queues one explicit extra digest without replaying an uncertain daily delivery', async () => {
       await create();
@@ -648,6 +959,106 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect((await a.preferences()).preferences.enabled).toBe(false);
       expect((await b.preferences()).preferences.enabled).toBe(false);
       expect(await publicRepo.claimResources()).toHaveLength(1);
+    });
+    it.each([true, false])(
+      'refreshes football toward the configured provider=%s without touching private state or healthy news',
+      async (enabled) => {
+        vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', enabled ? 'synthetic-test-key' : '');
+        const expected = enabled ? 'API Dados Futebol' : 'openfootball';
+        const previous = enabled ? 'openfootball' : 'API Dados Futebol';
+        const topic = await a.create(
+          {
+            source: 'football',
+            target: 'br:cr-vasco-da-gama',
+            delivery: 'digest',
+            leadMinutes: 60,
+          },
+          'Vasco'
+        );
+        const revision = await enable();
+        const interest = (await a.get(topic.id))!;
+        await publicRepo.queue(
+          userA,
+          interest,
+          revision,
+          'preserve-football-receipt',
+          { title: 'Vasco', text: '', source: previous, url: '' },
+          new Date(Date.now() + 3600000)
+        );
+        const job = (await publicRepo.claimDeliveries())[0]!;
+        expect(await publicRepo.beginDelivery(job)).toBe(true);
+        await publicRepo.finishDelivery(job, 'sent', 'synthetic-receipt');
+        const preferences = await a.preferences();
+        const receipt = await db.queryOne('SELECT * FROM customer_radar_outbox WHERE id=$1', [
+          job.id,
+        ]);
+        await db.execute(
+          "UPDATE radar_resources SET snapshot=$2::jsonb,error_code=NULL,failures=4,next_poll_at=NOW()+INTERVAL '6 hours' WHERE id=$1",
+          [interest.resource_id, JSON.stringify({ sourceLabel: previous })]
+        );
+        for (const [id, source, label, error] of [
+          ['expected-football', 'football', expected, null],
+          ['failed-football', 'football', expected, 'provider_unavailable'],
+          ['retired-football', 'football', 'football-data.org', null],
+          ['healthy-news', 'news', 'Global Voices', null],
+        ] as const)
+          await db.execute(
+            "INSERT INTO radar_resources(id,source,target,label,snapshot,error_code,failures,next_poll_at) VALUES($1,$2,$1,$1,$3::jsonb,$4,4,NOW()+INTERVAL '6 hours')",
+            [id, source, JSON.stringify({ sourceLabel: label }), error]
+          );
+        const expectedBefore = await db.queryOne('SELECT * FROM radar_resources WHERE id=$1', [
+          'expected-football',
+        ]);
+        const newsBefore = await db.queryOne('SELECT * FROM radar_resources WHERE id=$1', [
+          'healthy-news',
+        ]);
+        await publicRepo.refreshReplacedSources();
+        for (const id of [interest.resource_id, 'failed-football', 'retired-football']) {
+          expect(
+            await db.queryOne(
+              'SELECT snapshot,error_code,failures,next_poll_at<=NOW() AS due FROM radar_resources WHERE id=$1',
+              [id]
+            )
+          ).toEqual({ snapshot: null, error_code: null, failures: 0, due: true });
+        }
+        expect(
+          await db.queryOne('SELECT * FROM radar_resources WHERE id=$1', ['expected-football'])
+        ).toEqual(expectedBefore);
+        expect(
+          await db.queryOne('SELECT * FROM radar_resources WHERE id=$1', ['healthy-news'])
+        ).toEqual(newsBefore);
+        expect(await a.preferences()).toEqual(preferences);
+        expect(
+          await db.queryOne('SELECT * FROM customer_radar_outbox WHERE id=$1', [job.id])
+        ).toEqual(receipt);
+        expect(await a.get(topic.id)).toMatchObject({
+          revision: interest.revision,
+          active: true,
+          input: interest.input,
+        });
+      }
+    );
+    it('preserves an active resource lease while refreshing replaced football adapters', async () => {
+      await db.execute(
+        "INSERT INTO radar_resources(id,source,target,label,snapshot,next_poll_at,lease_token,leased_until) VALUES('leased-football','football','br:cr-vasco-da-gama','Vasco','{\"sourceLabel\":\"openfootball\"}'::jsonb,NOW()-INTERVAL '1 second','active-lease',NOW()+INTERVAL '3 minutes')"
+      );
+      const before = await db.queryOne('SELECT * FROM radar_resources WHERE id=$1', [
+        'leased-football',
+      ]);
+      await publicRepo.refreshReplacedSources();
+      expect(
+        await db.queryOne('SELECT * FROM radar_resources WHERE id=$1', ['leased-football'])
+      ).toEqual(before);
+      await db.execute(
+        "UPDATE radar_resources SET leased_until=NOW()-INTERVAL '1 second' WHERE id='leased-football'"
+      );
+      await publicRepo.refreshReplacedSources();
+      expect(
+        await db.queryOne(
+          'SELECT snapshot,next_poll_at<=NOW() AS due FROM radar_resources WHERE id=$1',
+          ['leased-football']
+        )
+      ).toEqual({ snapshot: null, due: true });
     });
     it('serializes duplicate subscription creation', async () => {
       const results = await Promise.allSettled([create(), create(), create()]);

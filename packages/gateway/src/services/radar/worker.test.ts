@@ -124,6 +124,124 @@ beforeEach(() => {
   m.send.mockResolvedValue('receipt');
 });
 describe('Radar final delivery authorization and failures', () => {
+  function prepareKickoff() {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    const interest = {
+      ...followed(),
+      label: 'Vasco',
+      input: {
+        source: 'football',
+        target: 'br:cr-vasco-da-gama',
+        delivery: 'before',
+        leadMinutes: 60,
+      },
+      snapshot: {
+        ...followed().snapshot,
+        sourceLabel: 'DadosFutebol',
+        sourceUrl: 'https://example.org/',
+        items: [
+          {
+            id: 'legacy-match',
+            title: 'Vasco × Bahia',
+            at: '2026-11-16T12:00:00Z',
+            provider: 'football-data',
+            providerMatchId: 'mt_synthetic',
+            status: 'scheduled',
+          },
+        ],
+      },
+    };
+    const [decision] = interestDecisions(interest as never, now, account.timeZone);
+    m.raw.mockResolvedValue([interest]);
+    m.claim.mockResolvedValue([
+      {
+        ...job,
+        interest_id: interest.id,
+        payload: decision!.payload,
+        event_key: decision!.key,
+        expires_at: decision!.expiresAt.toISOString(),
+      },
+    ]);
+    return interest;
+  }
+  it('fences an informed kickoff at the transport deadline and refreshes its schedule just before sending', async () => {
+    prepareKickoff();
+    expect(await dispatchRadar(now, () => now)).toBe(1);
+    expect(m.raw).toHaveBeenCalledTimes(2);
+    expect(m.send.mock.calls[0]![1]).toMatchObject({
+      sendBefore: new Date('2026-11-16T11:30:00Z'),
+    });
+    expect(m.send.mock.calls[0]![1].text).toContain('08:00');
+    expect(m.send.mock.calls[0]![1].text).not.toContain('Fonte:');
+  });
+  it.each([
+    'remarcado',
+    'live',
+    'cancelled',
+    'finished',
+    'unknown',
+    'stale',
+    'provider-id',
+    'missing',
+    'revoked',
+  ] as const)(
+    'does not transmit a kickoff changed to %s after the durable boundary',
+    async (change) => {
+      const interest = prepareKickoff();
+      const latest = structuredClone(interest);
+      if (change === 'remarcado') latest.snapshot.items[0]!.at = '2026-11-16T13:00:00Z';
+      if (['live', 'cancelled', 'finished', 'unknown'].includes(change))
+        latest.snapshot.items[0]!.status = change;
+      if (change === 'stale') latest.snapshot.observedAt = '2026-11-16T10:29:59Z';
+      if (change === 'provider-id') latest.snapshot.items[0]!.providerMatchId = 'mt_other';
+      if (change === 'missing') latest.snapshot.items = [];
+      if (change === 'revoked') latest.active = false;
+      m.raw.mockResolvedValueOnce([interest]).mockResolvedValueOnce([latest]);
+      expect(await dispatchRadar(now, () => now)).toBe(0);
+      expect(m.begin).toHaveBeenCalled();
+      expect(m.send).not.toHaveBeenCalled();
+      expect(m.finish).toHaveBeenCalledWith(expect.anything(), 'cancelled');
+    }
+  );
+  it('uses a fresh clock instead of the tick start after waiting on the delivery boundary', async () => {
+    prepareKickoff();
+    expect(await dispatchRadar(now, () => new Date('2026-11-16T12:00:00Z'))).toBe(0);
+    expect(m.send).not.toHaveBeenCalled();
+    expect(m.finish).toHaveBeenCalledWith(expect.anything(), 'cancelled');
+  });
+  it('uses an earlier snapshot expiry as the transport deadline', async () => {
+    const interest = prepareKickoff();
+    interest.snapshot.expiresAt = '2026-11-16T11:10:00Z';
+    expect(await dispatchRadar(now, () => now)).toBe(1);
+    expect(m.send.mock.calls[0]![1].sendBefore).toEqual(new Date('2026-11-16T11:10:00Z'));
+  });
+  it.each(['freshness', 'kickoff'] as const)(
+    'does not invoke the transport if the clock crosses the %s deadline after revalidation',
+    async (deadline) => {
+      const interest = prepareKickoff();
+      const tick = deadline === 'kickoff' ? new Date('2026-11-16T11:59:00Z') : now;
+      interest.snapshot.observedAt = tick.toISOString();
+      interest.snapshot.expiresAt = '2026-11-16T12:30:00Z';
+      const clock = vi
+        .fn()
+        .mockReturnValueOnce(
+          new Date(deadline === 'kickoff' ? '2026-11-16T11:59:59Z' : '2026-11-16T11:29:59Z')
+        )
+        .mockReturnValue(
+          new Date(deadline === 'kickoff' ? '2026-11-16T12:00:00Z' : '2026-11-16T11:30:00Z')
+        );
+      expect(await dispatchRadar(tick, clock)).toBe(0);
+      expect(clock).toHaveBeenCalledTimes(2);
+      expect(m.send).not.toHaveBeenCalled();
+      expect(m.finish).toHaveBeenCalledWith(expect.anything(), 'cancelled');
+    }
+  );
+  it('cancels queued kickoff jobs when the configured source key is removed', async () => {
+    prepareKickoff();
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', '');
+    expect(await dispatchRadar(now, () => now)).toBe(0);
+    expect(m.send).not.toHaveBeenCalled();
+  });
   it('delivers a matchday alert at the account-local clock without technical URLs', async () => {
     const team = {
       ...followed(),

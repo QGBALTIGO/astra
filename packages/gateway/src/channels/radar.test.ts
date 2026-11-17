@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   list: vi.fn(),
   context: vi.fn(),
   follow: vi.fn(),
+  fetch: vi.fn(),
   search: vi.fn(),
   remember: vi.fn(),
   scope: vi.fn(),
@@ -37,7 +38,7 @@ vi.mock('../db/repositories/customer-radar.js', () => ({
 }));
 vi.mock('../services/radar/providers.js', () => ({
   searchRadar: m.search,
-  fetchRadarResource: vi.fn(),
+  fetchRadarResource: m.fetch,
 }));
 import { tryRadarChannelReply } from './radar.js';
 import { processViaBus, processDirectAgent } from './channel-ai-routing.js';
@@ -59,6 +60,7 @@ const message = (text: string) =>
     metadata: { isGroup: false, fromMe: false },
   }) as ChannelIncomingMessage;
 beforeEach(() => {
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
   radarChatPending.clear();
   radarChatContext.clear();
@@ -86,8 +88,44 @@ beforeEach(() => {
   m.list.mockResolvedValue([{ label: 'USD', active: true }]);
   m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
   m.follow.mockResolvedValue({ keptPaused: 0 });
+  m.fetch.mockResolvedValue({ items: [], sourceLabel: 'API Dados Futebol' });
 });
 describe('WhatsApp Radar privacy and opt-out', () => {
+  it.each(['bus', 'direct'] as const)(
+    'handles a before-kickoff continuation through %s without provider AI or daily-clock mutation',
+    async (path) => {
+      vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+      const model = vi.fn().mockRejectedValue(new Error('Synthetic AI outage'));
+      const route = (msg: ChannelIncomingMessage) =>
+        path === 'bus'
+          ? processViaBus(
+              { process: model } as never,
+              msg,
+              { sessionId: 's', conversationId: null },
+              { ownpilotUserId: user },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : processDirectAgent(msg, user, async () => true);
+      expect(await route(message('Me avise sempre que tiver jogo do Vasco'))).toContain(
+        'horário do dia'
+      );
+      const reply = await route(message('1h30min antes'));
+      expect(reply).toContain('90 minutos');
+      expect(reply).toContain('Brasileirão Série A');
+      expect(m.follow).toHaveBeenCalledWith(
+        expect.objectContaining({ delivery: 'before', leadMinutes: 90 }),
+        'Vasco',
+        '07:00'
+      );
+      expect(m.save).not.toHaveBeenCalled();
+      expect(model).not.toHaveBeenCalled();
+      expect(m.fetch).toHaveBeenCalledTimes(1);
+    }
+  );
   it.each(['bus', 'direct'] as const)(
     'clarifies game timing and all-team replies without RAM context or a provider in %s',
     async (path) => {

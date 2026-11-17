@@ -8,6 +8,7 @@ import {
   inQuietHours,
   normalizeRadarTarget,
   resourceId,
+  footballKickoffConfigured,
   type RadarInput,
   type RadarInterest,
   type RadarPreferences,
@@ -45,6 +46,8 @@ export interface RadarDeliveryRow {
     url: string;
     itemId?: string;
     at?: string;
+    provider?: 'football-data';
+    providerMatchId?: string;
     matchDate?: string;
     newsPreview?: boolean;
     cards?: RadarNewsCard[];
@@ -132,6 +135,7 @@ export class CustomerRadarRepository extends BaseRepository {
       input.delivery === 'matchday' ? { ...input, notifyTime: time } : input
     );
     input.target = normalizeRadarTarget(input.source, input.target);
+    const perEvent = input.delivery === 'matchday' || input.delivery === 'before';
     const rid = resourceId(input.source, input.target, input.query);
     return this.transaction(async () => {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
@@ -141,9 +145,9 @@ export class CustomerRadarRepository extends BaseRepository {
       validateMatchdayTime(input, pref.preferences);
       const nextPreferences = radarPreferencesSchema.parse({
         ...pref.preferences,
-        // Matchday uses its own validated clock; a paused digest keeps its clock unchanged.
-        enabled: input.delivery !== 'matchday',
-        time: input.delivery === 'matchday' ? pref.preferences.time : time,
+        // Per-event alerts do not move the shared daily digest clock.
+        enabled: !perEvent,
+        time: perEvent ? pref.preferences.time : time,
       });
       nextPreferences.enabled = true;
       await this.execute(
@@ -165,7 +169,7 @@ export class CustomerRadarRepository extends BaseRepository {
           )
         ).changes;
       }
-      if (input.delivery === 'matchday' && pref.preferences.enabled)
+      if (perEvent && pref.preferences.enabled)
         await this.execute(
           "UPDATE customer_radar_outbox SET status='cancelled' WHERE user_id=$1 AND interest_id=$2 AND status IN ('pending','leased')",
           [this.userId, row!.id]
@@ -228,7 +232,10 @@ export class CustomerRadarRepository extends BaseRepository {
       const { active, ...rest } = patch;
       const updated = { ...old.input, ...rest };
       if (rest.delivery !== undefined && rest.delivery !== 'matchday') delete updated.notifyTime;
-      const input = radarInputSchema.parse(updated);
+      const input =
+        active === false && Object.keys(rest).length === 0
+          ? old.input
+          : radarInputSchema.parse(updated);
       if (input.delivery === 'matchday' && (active ?? old.active)) {
         const { preferences } = await this.preferences();
         validateMatchdayTime(input, preferences);
@@ -279,11 +286,16 @@ export class CustomerRadarRepository extends BaseRepository {
 }
 export class RadarRepository extends BaseRepository {
   async refreshReplacedSources(): Promise<void> {
-    await this
-      .execute(`UPDATE radar_resources SET snapshot=NULL,error_code=NULL,failures=0,next_poll_at=NOW()
+    const expectedFootballProvider = footballKickoffConfigured()
+      ? 'API Dados Futebol'
+      : 'openfootball';
+    await this.execute(
+      `UPDATE radar_resources SET snapshot=NULL,error_code=NULL,failures=0,next_poll_at=NOW()
       WHERE (leased_until IS NULL OR leased_until<NOW()) AND (
         (source='news' AND (snapshot->>'sourceLabel'='GDELT' OR error_code IS NOT NULL)) OR
-        (source='football' AND snapshot->>'sourceLabel'='football-data.org'))`);
+        (source='football' AND (snapshot->>'sourceLabel' IS DISTINCT FROM $1 OR error_code IS NOT NULL)))`,
+      [expectedFootballProvider]
+    );
   }
   async rememberChoices(source: RadarSourceId, choices: Array<{ id: string; label: string }>) {
     for (const c of choices.slice(0, 8))
@@ -401,6 +413,15 @@ export class RadarRepository extends BaseRepository {
     thresholdState?: boolean
   ) {
     if (interest.user_id !== userId) return false;
+    const footballBefore =
+      interest.input.source === 'football' && interest.input.delivery === 'before';
+    if (
+      footballBefore &&
+      (payload.provider !== 'football-data' ||
+        !payload.providerMatchId ||
+        !/^[A-Za-z0-9_:.-]{1,160}$/.test(payload.providerMatchId))
+    )
+      return false;
     return this.transaction(async () => {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
         'radar:' + userId,
@@ -411,6 +432,20 @@ export class RadarRepository extends BaseRepository {
         [userId, interest.id, interest.revision, prefRevision]
       );
       if (!current) return false;
+      if (
+        footballBefore &&
+        (await this.queryOne(
+          `SELECT id FROM customer_radar_outbox
+         WHERE user_id=$1 AND interest_id=$2
+           AND payload->>'provider'=$3 AND payload->>'providerMatchId'=$4
+           AND (status IN ('sending','sent','unknown') OR sent_at IS NOT NULL
+             OR transport_id IS NOT NULL
+             OR COALESCE(payload->'deliveredParts','[]'::jsonb)<>'[]'::jsonb)
+         LIMIT 1`,
+          [userId, interest.id, payload.provider, payload.providerMatchId]
+        ))
+      )
+        return false;
       const changed = await this.execute(
         `INSERT INTO customer_radar_outbox(id,user_id,interest_id,interest_revision,preference_revision,event_key,payload,expires_at)
     VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8)
@@ -645,6 +680,14 @@ export class RadarRepository extends BaseRepository {
         `UPDATE customer_radar_outbox o SET status='sending'
    FROM customer_radar_preferences p
    WHERE o.id=$1 AND o.lease_token=$2 AND o.user_id=$3 AND o.status='leased' AND o.leased_until>NOW() AND o.expires_at>NOW()
+     AND (o.payload->>'provider' IS DISTINCT FROM 'football-data' OR NOT EXISTS(
+       SELECT 1 FROM customer_radar_outbox prior
+       WHERE prior.id<>o.id AND prior.user_id=o.user_id AND prior.interest_id=o.interest_id
+         AND prior.payload->>'provider'=o.payload->>'provider'
+         AND prior.payload->>'providerMatchId'=o.payload->>'providerMatchId'
+         AND (prior.status IN ('sending','sent','unknown') OR prior.sent_at IS NOT NULL
+           OR prior.transport_id IS NOT NULL
+           OR COALESCE(prior.payload->'deliveredParts','[]'::jsonb)<>'[]'::jsonb)))
      AND (o.interest_id IS NULL OR EXISTS(SELECT 1 FROM customer_radar_interests i WHERE i.id=o.interest_id AND i.user_id=o.user_id AND i.active AND i.revision=o.interest_revision))
      AND p.user_id=o.user_id AND p.revision=o.preference_revision
      AND (p.preferences->>'enabled'='true' OR (o.payload->>'newsPreview'='true' AND o.event_key LIKE 'preview:%')) RETURNING o.id`,

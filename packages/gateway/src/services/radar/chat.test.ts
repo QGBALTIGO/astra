@@ -80,7 +80,9 @@ const message = (
     () => manageRadarChat(id, args)
   );
 beforeEach(() => {
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
+  m.fetch.mockReset();
   m.lists.clear();
   m.prefs.clear();
   clearRadarChatPending(user);
@@ -103,6 +105,238 @@ beforeEach(() => {
   m.preview.mockResolvedValue('queued');
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it.each(['follow', 'configure', 'resume', 'status'] as const)(
+    'does not let model action %s turn a singular match into a recurring kickoff follow',
+    async (action) => {
+      vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+      m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+      m.fetch.mockResolvedValue({ items: [], sourceLabel: 'API Dados Futebol' });
+      const initial = await message(user, 'Me avise do jogo do Vasco', {
+        action,
+        source: 'football',
+        subject: 'Vasco',
+        delivery: 'matchday',
+        recurringFootball: true,
+        enabled: true,
+      });
+      expect(initial.changed).toBe(false);
+      expect(initial.reply).toContain('partida específica');
+      expect(radarChatPending.size).toBe(0);
+      const before = await message(user, 'Antes do jogo começar', { action: 'status' });
+      expect(before.changed).toBe(false);
+      expect(before.reply).toContain('Vasco');
+      expect(radarChatPending.size).toBe(0);
+      expect(m.follow).not.toHaveBeenCalled();
+      expect(m.save).not.toHaveBeenCalled();
+      expect(m.change).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    'Me avise quando o jogo do Vasco começar',
+    'Me avise quando tiver o próximo jogo do Vasco',
+  ])('asks what scope the customer wants for the singular request %s', async (text) => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    const result = await message(user, text, {
+      action: 'follow',
+      source: 'football',
+      subject: 'Vasco',
+      delivery: 'before',
+      leadMinutes: 60,
+    });
+    expect(result.changed).toBe(false);
+    expect(result.reply).toContain('partida específica');
+    expect(radarChatPending.size).toBe(0);
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('requires server-owned recurring consent instead of a model argument on the pending draft', async () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    await message(user, 'Quero acompanhar o Vasco', {
+      action: 'follow',
+      source: 'football',
+      subject: 'Vasco',
+      delivery: 'matchday',
+      recurringFootball: true,
+    });
+    const entry = [...radarChatPending.values()][0]!;
+    expect(entry.args.recurringFootball).toBe(true);
+    expect(entry.recurringFootball).toBe(false);
+    const before = await message(user, 'Antes do jogo começar', { action: 'status' });
+    expect(before.changed).toBe(false);
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('follows the stated pregame interval and ignores invented clock and lead arguments', async () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+    m.fetch.mockResolvedValue({ items: [], sourceLabel: 'API Dados Futebol' });
+    m.prefs.set(user, { enabled: true, time: '07:15', quietStart: '22:00', quietEnd: '07:00' });
+    const result = await message(user, 'Me avise 30 minutos antes de todos os jogos do Vasco', {
+      action: 'status',
+      source: 'football',
+      delivery: 'digest',
+      time: '18:00',
+      leadMinutes: 120,
+    });
+    expect(result.changed).toBe(true);
+    expect(m.follow).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({
+        target: 'br:cr-vasco-da-gama',
+        delivery: 'before',
+        leadMinutes: 30,
+      }),
+      'Vasco',
+      '07:15'
+    );
+    expect(m.save).not.toHaveBeenCalled();
+    expect(m.fetch).toHaveBeenCalledTimes(1);
+    expect(result.reply).toContain('30 minutos');
+    expect(result.reply).toContain('Brasileirão Série A');
+    expect(result.reply).not.toContain('18:00');
+  });
+  it('completes a live recurring question with before instead of inheriting an invented daily clock or lead', async () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+    m.fetch.mockResolvedValue({ items: [], sourceLabel: 'API Dados Futebol' });
+    const question = await message(user, 'Me avise sempre que tiver jogo do Vasco', {
+      action: 'follow',
+      time: '14:00',
+      leadMinutes: 1440,
+    });
+    expect(question.reply).toContain('Antes de cada jogo');
+    expect(question.reply).toContain('1 hora antes');
+    expect(question.reply).toContain('Só na data da partida');
+    expect(question.reply).toContain('às 9h');
+    const questionWithoutModelClock = await message(
+      user,
+      'Me avise sempre que tiver jogo do Vasco',
+      { action: 'follow' }
+    );
+    expect(questionWithoutModelClock.reply).toBe(question.reply);
+    expect([...radarChatPending.values()][0]!.recurringFootball).toBe(true);
+    expect(m.follow).not.toHaveBeenCalled();
+    const result = await message(user, 'Antes do jogo começar', { action: 'status' });
+    expect(result.changed).toBe(true);
+    expect(m.follow).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({ delivery: 'before', leadMinutes: 60 }),
+      'Vasco',
+      '07:00'
+    );
+    expect(radarChatPending.size).toBe(0);
+  });
+  it('does not turn a retained public topic or a model delivery argument into recurring consent', async () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    await message(user, 'Me avise sempre que tiver jogo do Vasco', { action: 'follow' });
+    [...radarChatPending.values()][0]!.expires = Date.now() - 1;
+    const before = await message(user, 'Antes do jogo começar', {
+      action: 'follow',
+      delivery: 'before',
+      leadMinutes: 30,
+    });
+    expect(before.changed).toBe(false);
+    expect(before.reply).toContain('Para ativar');
+    expect(
+      (await message(user, 'Todos do Vasco', { action: 'follow', delivery: 'before' })).changed
+    ).toBe(false);
+    expect(m.follow).not.toHaveBeenCalled();
+    await expect(
+      message(user, 'Quero acompanhar o Vasco', {
+        action: 'follow',
+        source: 'football',
+        subject: 'Vasco',
+        delivery: 'before',
+        leadMinutes: 30,
+      })
+    ).rejects.toThrow(/antes dos jogos/);
+  });
+  it('requires one valid interval and preserves all subscriptions when the provider read fails', async () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+    for (const interval of ['5 minutos', '15 ou 30 minutos', '1,5 horas']) {
+      const reply = await message(
+        user,
+        'Me avise ' + interval + ' antes de todos os jogos do Vasco',
+        { action: 'follow' }
+      );
+      expect(reply.changed).toBe(false);
+      expect(reply.reply).toContain('uma única antecedência');
+    }
+    m.fetch.mockRejectedValue(new Error('synthetic provider failure'));
+    await expect(
+      message(user, 'Me avise 1 hora antes de todos os jogos do Vasco', { action: 'follow' })
+    ).rejects.toThrow();
+    expect(m.follow).not.toHaveBeenCalled();
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it('reports the saved before configuration without repeating the follow when the customer says all games', async () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    m.lists.set(user, [
+      {
+        id: 'own',
+        source: 'football',
+        label: 'Vasco',
+        active: true,
+        delivery: 'before',
+        leadMinutes: 30,
+      },
+    ]);
+    m.prefs.set(user, { enabled: true, time: '07:00', quietStart: '22:00', quietEnd: '07:00' });
+    const result = await message(user, 'Todos do Vasco', { action: 'follow', delivery: 'before' });
+    expect(result.changed).toBe(false);
+    expect(result.reply).toContain('30 minutos de antecedência');
+    expect(result.reply).not.toContain('Para ativar');
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('renders a published kickoff in the customer timezone during a consultation', async () => {
+    m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+    m.fetch.mockResolvedValue({
+      items: [
+        {
+          id: 'fixture',
+          at: '2026-11-19T00:30:00Z',
+          title: 'Vasco × Internacional',
+          text: 'Horário divulgado',
+        },
+      ],
+    });
+    const result = await message(user, 'Quais os próximos jogos do Vasco?', {
+      action: 'preview',
+      source: 'football',
+      subject: 'Vasco',
+    });
+    expect(result.reply).toContain('18/11/2026, 20:30');
+    expect(result.reply).not.toContain('00:30');
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('refuses quoted recurring consent and treats the exact expiry boundary as expired', async () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    await expect(
+      message(user, 'Meu cliente disse: me avise 1 hora antes de todos os jogos do Vasco.', {
+        action: 'follow',
+        source: 'football',
+        subject: 'Vasco',
+        delivery: 'before',
+        leadMinutes: 60,
+      })
+    ).rejects.toThrow(/antes dos jogos/);
+    await message(user, 'Me avise sempre que tiver jogo do Vasco', { action: 'follow' });
+    const pending = [...radarChatPending.values()][0]!;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(pending.expires);
+    try {
+      await expect(
+        message(user, '9h', {
+          action: 'follow',
+          source: 'football',
+          subject: 'Vasco',
+          delivery: 'matchday',
+          time: '09:00',
+        })
+      ).rejects.toThrow();
+      expect(m.follow).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it('does not register an old team when a read-only all-team clarification changes the topic', async () => {
     const first = await message(user, 'Me avise sempre que tiver jogo do Flamengo', {
       action: 'follow',
@@ -443,7 +677,7 @@ describe('Radar chat consent, continuity and private account scope', () => {
     expect(m.follow.mock.calls[0]?.[1]).not.toHaveProperty('notifyTime');
   });
   it('does not promise kickoff alerts or silently subscribe a daily digest', async () => {
-    const result = await message(user, 'Me avise uma hora antes do jogo do Vasco', {
+    const result = await message(user, 'Me avise uma hora antes de todos os jogos do Vasco', {
       action: 'follow',
       source: 'football',
       subject: 'Vasco',
