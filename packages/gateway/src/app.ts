@@ -564,7 +564,12 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
           '/registerSW.js',
           '/manifest.webmanifest',
           '/astra-release.json',
-        ].includes(c.req.path)
+          '/logo.svg',
+          '/ownpilot-logo.jpeg',
+          '/apple-touch-icon.png',
+          '/favicon.ico',
+        ].includes(c.req.path) ||
+        c.req.path.startsWith('/astra-icons/')
       )
         c.header('Cache-Control', 'no-cache, max-age=0, must-revalidate');
     });

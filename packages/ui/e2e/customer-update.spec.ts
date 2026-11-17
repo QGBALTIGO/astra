@@ -18,6 +18,8 @@ const types: Record<string, string> = {
   '.html': 'text/html',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpeg': 'image/jpeg',
+  '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.json': 'application/json',
   '.webmanifest': 'application/manifest+json',
@@ -98,6 +100,86 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => {
   await new Promise<void>((done) => server.close(() => done()));
+});
+
+test('serves Astra install icons for iOS and Android, including legacy URLs and offline cache', async ({
+  page,
+  context,
+}) => {
+  phase = 1;
+  await mockCustomerApi(page);
+  await page.goto(origin + '/cliente/entrar');
+  await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute(
+    'content',
+    'Astra'
+  );
+  const touchPath = await page.locator('link[rel="apple-touch-icon"]').getAttribute('href');
+  expect(touchPath).toMatch(/^\/astra-icons\/.*\.png$/);
+  const cdp = await context.newCDPSession(page);
+  const browserManifest = await cdp.send('Page.getAppManifest');
+  expect(browserManifest.errors).toEqual([]);
+  const manifest = JSON.parse(browserManifest.data!);
+  expect(manifest.name).toBe('Astra');
+  expect(manifest.id).toBe('/');
+  expect(manifest.start_url).toBe('/cliente');
+  expect(manifest.icons.some((icon: { purpose: string }) => icon.purpose === 'maskable')).toBe(
+    true
+  );
+  expect(
+    manifest.icons.every((icon: { src: string }) => icon.src.startsWith('/astra-icons/'))
+  ).toBe(true);
+  const icons: Array<{ src: string; size: number }> = [
+    ...manifest.icons.map((icon: { src: string; sizes: string }) => ({
+      src: icon.src,
+      size: Number(icon.sizes.split('x')[0]),
+    })),
+    { src: touchPath!, size: 180 },
+    { src: '/apple-touch-icon.png', size: 180 },
+    { src: '/ownpilot-logo.jpeg', size: 256 },
+    { src: '/logo.svg', size: 512 },
+  ];
+  const decoded = await page.evaluate(
+    async (entries) =>
+      Promise.all(
+        entries.map(async ({ src, size }) => {
+          const image = new Image();
+          image.src = src;
+          await image.decode();
+          return { src, size, width: image.naturalWidth, height: image.naturalHeight };
+        })
+      ),
+    icons
+  );
+  for (const icon of decoded) {
+    expect(icon.width, icon.src).toBe(icon.size);
+    expect(icon.height, icon.src).toBe(icon.size);
+  }
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await expect
+    .poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)))
+    .toBe(true);
+  const cached = await page.evaluate(async () => {
+    const paths = [];
+    for (const name of await caches.keys()) {
+      for (const request of await (await caches.open(name)).keys())
+        paths.push(new URL(request.url).pathname);
+    }
+    return paths;
+  });
+  for (const icon of icons) expect(cached, icon.src).toContain(icon.src);
+  await context.setOffline(true);
+  try {
+    const offlineIcon = await page.evaluate(async (src) => {
+      const response = await fetch(src!);
+      return { status: response.status, type: response.headers.get('Content-Type') };
+    }, touchPath);
+    expect(offlineIcon).toEqual({ status: 200, type: 'image/png' });
+  } finally {
+    await context.setOffline(false);
+    await cdp.detach();
+  }
 });
 
 test('upgrades a cached legacy app and thereafter fetches current navigation HTML', async ({
