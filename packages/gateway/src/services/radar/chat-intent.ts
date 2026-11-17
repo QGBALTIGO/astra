@@ -86,8 +86,10 @@ export function gameAlertRequest(s: string): boolean {
     /\b(?:sempre|quando|cada|toda vez|todos os jogos|todas as partidas|nos dias de jogo|dos jogos|das partidas)\b/.test(
       text
     ) &&
-    (!/\b(?:hoje|amanha|essa partida|esse jogo|nesta partida|neste jogo|dia \d)\b/.test(text) ||
-      /\b(?:sempre|cada|todos os jogos|todas as partidas)\b/.test(text)) &&
+    (!/\b(?:hoje|amanha|essa partida|esse jogo|nesta partida|neste jogo|dia \d|(?:o|do|a|da) (?:proxim[oa] )?(?:jogo|partida)|proxim[oa] (?:jogo|partida))\b/.test(
+      text
+    ) ||
+      /\b(?:sempre|cada|toda vez|todos os jogos|todas as partidas)\b/.test(text)) &&
     !/\b(?:resumo diario|todo dia|todos os dias|diariamente)\b/.test(text)
   );
 }

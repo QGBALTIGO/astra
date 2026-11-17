@@ -73,6 +73,9 @@ describe('explicit recurring football consent without a model', () => {
     'Me avise antes dos jogos do Vasco',
   ])('recognizes the customer request: %s', (text) => expect(gameAlertRequest(text)).toBe(true));
   it.each([
+    'Me avise do jogo do Vasco',
+    'Me avise quando o jogo do Vasco começar',
+    'Me avise quando tiver o próximo jogo do Vasco',
     'Qual o próximo jogo do Vasco?',
     'Me lembre do jogo do Vasco amanhã às 9h',
     'Me avise uma hora antes do jogo de hoje',

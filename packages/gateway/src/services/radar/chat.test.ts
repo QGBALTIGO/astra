@@ -105,6 +105,65 @@ beforeEach(() => {
   m.preview.mockResolvedValue('queued');
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it.each(['follow', 'configure', 'resume', 'status'] as const)(
+    'does not let model action %s turn a singular match into a recurring kickoff follow',
+    async (action) => {
+      vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+      m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
+      m.fetch.mockResolvedValue({ items: [], sourceLabel: 'API Dados Futebol' });
+      const initial = await message(user, 'Me avise do jogo do Vasco', {
+        action,
+        source: 'football',
+        subject: 'Vasco',
+        delivery: 'matchday',
+        recurringFootball: true,
+        enabled: true,
+      });
+      expect(initial.changed).toBe(false);
+      expect(initial.reply).toContain('partida específica');
+      expect(radarChatPending.size).toBe(0);
+      const before = await message(user, 'Antes do jogo começar', { action: 'status' });
+      expect(before.changed).toBe(false);
+      expect(before.reply).toContain('Vasco');
+      expect(radarChatPending.size).toBe(0);
+      expect(m.follow).not.toHaveBeenCalled();
+      expect(m.save).not.toHaveBeenCalled();
+      expect(m.change).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    'Me avise quando o jogo do Vasco começar',
+    'Me avise quando tiver o próximo jogo do Vasco',
+  ])('asks what scope the customer wants for the singular request %s', async (text) => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    const result = await message(user, text, {
+      action: 'follow',
+      source: 'football',
+      subject: 'Vasco',
+      delivery: 'before',
+      leadMinutes: 60,
+    });
+    expect(result.changed).toBe(false);
+    expect(result.reply).toContain('partida específica');
+    expect(radarChatPending.size).toBe(0);
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it('requires server-owned recurring consent instead of a model argument on the pending draft', async () => {
+    vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
+    await message(user, 'Quero acompanhar o Vasco', {
+      action: 'follow',
+      source: 'football',
+      subject: 'Vasco',
+      delivery: 'matchday',
+      recurringFootball: true,
+    });
+    const entry = [...radarChatPending.values()][0]!;
+    expect(entry.args.recurringFootball).toBe(true);
+    expect(entry.recurringFootball).toBe(false);
+    const before = await message(user, 'Antes do jogo começar', { action: 'status' });
+    expect(before.changed).toBe(false);
+    expect(m.follow).not.toHaveBeenCalled();
+  });
   it('follows the stated pregame interval and ignores invented clock and lead arguments', async () => {
     vi.stubEnv('ASTRA_FOOTBALL_DATA_KEY', 'synthetic-test-key');
     m.search.mockResolvedValue([{ id: 'br:cr-vasco-da-gama', label: 'Vasco' }]);
@@ -143,6 +202,7 @@ describe('Radar chat consent, continuity and private account scope', () => {
       time: '14:00',
       leadMinutes: 1440,
     });
+    expect([...radarChatPending.values()][0]!.recurringFootball).toBe(true);
     expect(m.follow).not.toHaveBeenCalled();
     const result = await message(user, 'Antes do jogo começar', { action: 'status' });
     expect(result.changed).toBe(true);
@@ -607,7 +667,7 @@ describe('Radar chat consent, continuity and private account scope', () => {
     expect(m.follow.mock.calls[0]?.[1]).not.toHaveProperty('notifyTime');
   });
   it('does not promise kickoff alerts or silently subscribe a daily digest', async () => {
-    const result = await message(user, 'Me avise uma hora antes do jogo do Vasco', {
+    const result = await message(user, 'Me avise uma hora antes de todos os jogos do Vasco', {
       action: 'follow',
       source: 'football',
       subject: 'Vasco',

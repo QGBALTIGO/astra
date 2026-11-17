@@ -9,6 +9,7 @@ export const radarChatPending = new Map<
     needs: 'time' | 'subject';
     expires: number;
     messageId: string;
+    recurringFootball?: boolean;
   }
 >();
 

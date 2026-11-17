@@ -161,6 +161,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       prior?.accountId === account!.id &&
       prior.messageId !== ctx.channelMessageId &&
       prior.expires > Date.now() &&
+      prior.recurringFootball === true &&
       prior.args.action === 'follow' &&
       prior.args.source === 'football' &&
       ((timing.kind === 'before' && prior.needs === 'time' && prior.args.delivery === 'matchday') ||
@@ -304,6 +305,10 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
       needs,
       expires: Date.now() + 10 * 60000,
       messageId: ctx.channelMessageId!,
+      recurringFootball:
+        args.source === 'football' &&
+        (gameAlertRequest(ctx.channelRequestText ?? '') ||
+          (continuing && prior?.recurringFootball === true)),
     });
     if (args.source === 'football') rememberFootball(args.subject);
     return {
@@ -318,6 +323,24 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   let action = String(args.action);
   const requestText = fold(ctx.channelRequestText ?? '');
   const wantsGameAlerts = gameAlertRequest(requestText);
+  if (
+    !continuing &&
+    !wantsGameAlerts &&
+    /^(?:(?:oi|ola)[,!]?\s+)?(?:astra[,!]?\s+)?(?:por favor[,]?\s+)?(?:me (?:avise|lembre|notifique)|avisa)\b/.test(
+      requestText
+    ) &&
+    /\b(?:jogo|partida)\b/.test(requestText)
+  ) {
+    pending.delete(key);
+    const teams = namedFootballTeams(requestText);
+    if (teams.length === 1) rememberFootball(teams[0]![1]);
+    return {
+      kind: 'radar',
+      changed: false,
+      reply:
+        '⚽ Você quer um aviso para *uma partida específica* ou para *todos os jogos*?\n\nNão ativei avisos recorrentes. Para uma partida, me diga o dia e o horário; para acompanhar sempre, faça um pedido com o time e a antecedência.',
+    };
+  }
   if (
     (action === 'follow' &&
       !wantsGameAlerts &&
