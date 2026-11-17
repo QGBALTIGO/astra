@@ -91,7 +91,7 @@ for (const theme of ['light', 'dark'] as const)
         expect(action.width).toBeGreaterThanOrEqual(width - 60);
       }
       await expect(page.getByRole('heading', { name: 'É só me pedir no WhatsApp' })).toBeVisible();
-      await expect(page.getByLabel('Receber meu Radar no WhatsApp')).toHaveCount(0);
+      await expect(page.getByLabel('Receber todos os envios do Radar')).toHaveCount(0);
       await expect(page.locator('.ac-navigation a:visible')).toHaveCount(width <= 767 ? 6 : 7);
       if (width <= 767)
         await expect(page.getByRole('button', { name: 'Abrir meu Radar' })).toBeVisible();
@@ -130,8 +130,8 @@ for (const theme of ['light', 'dark'] as const)
       await page
         .getByRole('button', { name: 'Ajustar horários e notificações', exact: true })
         .click();
-      await expect(page.getByLabel('Receber meu Radar no WhatsApp')).not.toBeChecked();
-      await page.getByLabel('Receber meu Radar no WhatsApp').check();
+      await expect(page.getByLabel('Receber todos os envios do Radar')).not.toBeChecked();
+      await page.getByLabel('Receber todos os envios do Radar').check();
       await page.getByRole('button', { name: 'Salvar preferências', exact: true }).click();
       await expect(page.getByText('Preferências do Radar salvas.', { exact: true })).toBeVisible();
       expect(mutations).toEqual(['preferences']);

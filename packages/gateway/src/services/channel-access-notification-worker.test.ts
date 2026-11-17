@@ -123,6 +123,58 @@ describe('ChannelAccessNotificationWorker', () => {
     expect(channels.send).toHaveBeenCalledOnce();
     expect(notifications.markTrialWelcomeDelivered).toHaveBeenCalledWith(entry.id, user.id);
   });
+  it('delivers an operator-authorized recovery without inventing an inbound interaction', async () => {
+    user.accessSource = 'trial';
+    user.metadata = {
+      hasInteracted: false,
+      astraFirstContactRecovery: {
+        requestId: 'synthetic-recovery-01',
+        source: 'authorized_first_contact',
+        confirmedIncoming: false,
+        accessGrantedAt: user.accessGrantedAt!.toISOString(),
+        accessExpiresAt: user.accessExpiresAt!.toISOString(),
+      },
+    };
+    entry = makeEntry(user);
+    expect((await worker.dispatch()).delivered).toBe(1);
+    expect(channels.send).toHaveBeenCalledOnce();
+    expect(user.metadata.hasInteracted).toBe(false);
+    expect(notifications.markTrialWelcomeDelivered).toHaveBeenCalledWith(entry.id, user.id);
+  });
+  it.each(['renewed', 'expiring', 'trial_expired'])(
+    'does not extend recovery consent to %s notices',
+    async (kind) => {
+      user.accessSource = 'trial';
+      user.metadata = {
+        hasInteracted: false,
+        astraFirstContactRecovery: {
+          requestId: 'synthetic-recovery-01',
+          source: 'authorized_first_contact',
+          accessGrantedAt: user.accessGrantedAt!.toISOString(),
+          accessExpiresAt: user.accessExpiresAt!.toISOString(),
+        },
+      };
+      entry = { ...makeEntry(user), kind: kind as ChannelAccessNotification['kind'] };
+      await worker.dispatch();
+      expect(channels.send).not.toHaveBeenCalled();
+      expect(api.sendMessage).not.toHaveBeenCalled();
+    }
+  );
+  it('invalidates an administrative recovery if the access cycle changes', async () => {
+    user.accessSource = 'trial';
+    user.metadata = {
+      hasInteracted: false,
+      astraFirstContactRecovery: {
+        requestId: 'synthetic-recovery-01',
+        source: 'authorized_first_contact',
+        accessGrantedAt: user.accessGrantedAt!.toISOString(),
+        accessExpiresAt: '1999-01-01T00:00:00Z',
+      },
+    };
+    entry = makeEntry(user);
+    await worker.dispatch();
+    expect(channels.send).not.toHaveBeenCalled();
+  });
   it('sends the trusted trial expiry template through the private transport only', async () => {
     user.accessSource = 'trial';
     user.accessExpiresAt = new Date(now.getTime() - 1);
@@ -615,7 +667,7 @@ describe('ChannelAccessNotificationWorker', () => {
       cancelled: 0,
       failed: 0,
     });
-    expect(notifications.queueExpiringWithin24Hours).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(notifications.queueExpiringWithin24Hours).toHaveBeenCalledOnce());
     gate.resolve(1);
     expect((await first).delivered).toBe(1);
     await worker.dispatch();

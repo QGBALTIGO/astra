@@ -6,6 +6,7 @@ import {
   hasTrialWelcome,
   isProactivePaidCaktoNotice,
   isSameAccessNotificationCycle,
+  isAuthorizedFirstContactRecoveryNotice,
   type ChannelAccessNotification,
   type ChannelAccessNotificationsRepository,
 } from '../db/repositories/channel-access-notifications.js';
@@ -16,6 +17,7 @@ import { ChannelSendNotAttemptedError } from '../channels/send-not-attempted.js'
 import { getWhatsAppAccessMessageSettings } from '../channels/channel-access-message-settings.js';
 import { getOwnerUserId } from './pairing-service.js';
 import { getLog } from './log.js';
+import { recoverWhatsAppFirstContact } from './whatsapp-first-contact-recovery.js';
 
 const log = getLog('ChannelAccessNotificationWorker');
 const RETRY_DELAY_MS = 60_000;
@@ -37,6 +39,7 @@ interface WorkerDependencies {
   settings: typeof getWhatsAppAccessMessageSettings;
   render: typeof buildAccessMessage;
   now: () => Date;
+  recoverFirstContact: () => Promise<unknown>;
 }
 
 export interface AccessNotificationDispatchResult {
@@ -93,7 +96,11 @@ function ineligibleReason(
     )
       return 'not_expired_trial';
   } else if (!isChannelUserAccessActive(user, now)) return 'access_inactive';
-  if (!hasChannelUserInteracted(user) && !isProactivePaidCaktoNotice(user, entry.kind))
+  if (
+    !hasChannelUserInteracted(user) &&
+    !isProactivePaidCaktoNotice(user, entry.kind) &&
+    !isAuthorizedFirstContactRecoveryNotice(user, entry.kind)
+  )
     return 'no_interaction';
   // Do not surprise buyers with a second welcome if they already wrote first.
   const inbound = user.metadata.astraAccessNotices;
@@ -130,6 +137,7 @@ export class ChannelAccessNotificationWorker {
       settings: getWhatsAppAccessMessageSettings,
       render: buildAccessMessage,
       now: () => new Date(),
+      recoverFirstContact: recoverWhatsAppFirstContact,
       ...dependencies,
     };
   }
@@ -147,6 +155,9 @@ export class ChannelAccessNotificationWorker {
     this.running = true;
     const d = this.dependencies;
     try {
+      // The recovery only queues the standard durable welcome after all eligibility checks.
+      // A recovery outage must not stop ordinary access notices.
+      await d.recoverFirstContact().catch(() => undefined);
       result.queued = await d.notifications.queueExpiringWithin24Hours(d.now());
       const channels = d.channels();
       // Offline events stay pending; reconnecting does not create a new event.
@@ -296,6 +307,14 @@ export class ChannelAccessNotificationWorker {
             }
           }
           result.delivered++;
+          if (isAuthorizedFirstContactRecoveryNotice(freshUser!, entry.kind)) {
+            const recovery = freshUser!.metadata.astraFirstContactRecovery as { requestId: string };
+            log.info('Boas-vindas de recuperação transmitidas', {
+              requestId: recovery.requestId,
+              notificationId: entry.id,
+              deliveryId,
+            });
+          }
         } catch (error) {
           // The service can prove that its authorization guard failed before transport.
           if (error instanceof ChannelSendNotAttemptedError) transportInvoked = false;

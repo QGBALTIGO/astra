@@ -90,6 +90,46 @@ export function hasTrialWelcome(user: ChannelUserEntity): boolean {
   );
 }
 
+/** The operator's named recovery grants one standard welcome, without inventing an inbound chat. */
+export function isAuthorizedFirstContactRecoveryNotice(
+  user: ChannelUserEntity,
+  kind: ChannelAccessNotificationKind
+): boolean {
+  const value = user.metadata.astraFirstContactRecovery;
+  if (
+    kind !== 'approved' ||
+    user.accessSource !== 'trial' ||
+    hasTrialWelcome(user) ||
+    value === null ||
+    typeof value !== 'object' ||
+    Array.isArray(value)
+  )
+    return false;
+  const recovery = value as Record<string, unknown>;
+  return (
+    recovery.source === 'authorized_first_contact' &&
+    typeof recovery.requestId === 'string' &&
+    /^[A-Za-z0-9_-]{8,80}$/.test(recovery.requestId) &&
+    !!user.accessGrantedAt &&
+    Number.isFinite(user.accessGrantedAt.getTime()) &&
+    !!user.accessExpiresAt &&
+    Number.isFinite(user.accessExpiresAt.getTime()) &&
+    recovery.accessGrantedAt === user.accessGrantedAt.toISOString() &&
+    recovery.accessExpiresAt === user.accessExpiresAt.toISOString()
+  );
+}
+
+// Expressions are internal constants, never client input. Compare JSON to canonical
+// timestamps rather than casting untrusted JSON strings in the send authorization query.
+function firstContactRecoverySql(kind: string): string {
+  return `(${kind}='approved' AND u.access_source='trial'
+    AND u.metadata->'astraFirstContactRecovery'->>'source'='authorized_first_contact'
+    AND u.metadata->'astraFirstContactRecovery'->>'requestId' ~ '^[A-Za-z0-9_-]{8,80}$'
+    AND u.metadata->'astraFirstContactRecovery'->>'accessGrantedAt'=to_char(u.access_granted_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+    AND u.metadata->'astraFirstContactRecovery'->>'accessExpiresAt'=to_char(u.access_expires_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+    AND u.metadata->'astraAccessNotices'->>'firstAuthorizedAsTrial' IS DISTINCT FROM 'true')`;
+}
+
 /** Paid Cakto confirmations may reach buyers who have never messaged the bot. */
 export function isProactivePaidCaktoNotice(
   user: ChannelUserEntity,
@@ -115,7 +155,9 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
       user.platform !== 'whatsapp' ||
       !/^[1-9]\d{9,14}$/.test(user.platformUserId) ||
       user.ownpilotUserId !== `whatsapp:${user.platformUserId}` ||
-      (!hasChannelUserInteracted(user) && !isProactivePaidCaktoNotice(user, kind))
+      (!hasChannelUserInteracted(user) &&
+        !isProactivePaidCaktoNotice(user, kind) &&
+        !isAuthorizedFirstContactRecoveryNotice(user, kind))
     )
       return null;
     const grantedAt = timestampOrNull(user.accessGrantedAt);
@@ -141,7 +183,7 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
          AND u.is_verified = TRUE AND u.is_blocked = FALSE AND u.status = 'active'
          AND ((u.metadata->'hasInteracted' IS NULL OR u.metadata->'hasInteracted' = 'true'::jsonb)
            OR (u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'
-             AND $2::text IN ('approved','renewed')))
+             AND $2::text IN ('approved','renewed')) OR ${firstContactRecoverySql('$2::text')})
          AND u.access_granted_at IS NOT DISTINCT FROM $9::timestamptz
          AND u.access_expires_at IS NOT DISTINCT FROM $10::timestamptz
          AND (u.access_expires_at IS NULL OR u.access_expires_at > $5::timestamptz)
@@ -300,7 +342,7 @@ export class ChannelAccessNotificationsRepository extends BaseRepository {
            AND u.is_verified = TRUE AND u.is_blocked = FALSE AND u.status = 'active'
            AND ((u.metadata->'hasInteracted' IS NULL OR u.metadata->'hasInteracted' = 'true'::jsonb)
              OR (u.access_source='cakto' AND u.metadata->>'caktoManaged'='true'
-               AND notice.kind IN ('approved','renewed')))
+               AND notice.kind IN ('approved','renewed')) OR ${firstContactRecoverySql('notice.kind')})
            AND (notice.kind <> 'approved' OR u.access_source <> 'cakto'
              OR u.metadata->'astraAccessNotices'->>'firstAuthorized' IS DISTINCT FROM 'true'
              OR u.metadata->'astraAccessNotices'->>'firstAuthorizedAsTrial' = 'true')

@@ -45,10 +45,11 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)(
       }
       await clients[0]!.query('CREATE SCHEMA ' + schema);
       for (const c of clients) await c.query('SET search_path TO ' + schema);
-      await clients[0]!.query(`CREATE TABLE conversations(id TEXT PRIMARY KEY);
+      await clients[0]!.query(`CREATE TABLE conversations(id TEXT PRIMARY KEY,user_id TEXT);
       CREATE TABLE system_settings(key TEXT PRIMARY KEY,value TEXT);
       CREATE TABLE customer_phone_aliases(phone_number TEXT PRIMARY KEY,retired_at TIMESTAMPTZ);
-      CREATE TABLE channel_messages(id TEXT PRIMARY KEY,direction TEXT,sender_id TEXT)`);
+      CREATE TABLE customer_accounts(current_phone TEXT,data_user_id TEXT);
+      CREATE TABLE channel_messages(id TEXT PRIMARY KEY,direction TEXT,sender_id TEXT,metadata JSONB DEFAULT '{}')`);
       await clients[0]!.query(CHANNELS_TABLES_SQL);
       await clients[0]!.query(CHANNELS_MIGRATIONS_SQL);
       await clients[0]!.query(CHANNELS_INDEXES_SQL);
@@ -80,7 +81,7 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)(
     });
     beforeEach(async () => {
       await clients[0]!.query(`TRUNCATE channel_users CASCADE;
-    TRUNCATE whatsapp_trial_claims,system_settings,customer_phone_aliases,channel_messages`);
+    TRUNCATE whatsapp_trial_claims,system_settings,customer_phone_aliases,channel_messages,conversations,customer_accounts,channel_assets CASCADE`);
     });
     afterAll(async () => {
       if (clients[0]) await clients[0].query('DROP SCHEMA IF EXISTS ' + schema + ' CASCADE');
@@ -91,6 +92,228 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)(
         await clients[0]!.query('SELECT * FROM channel_users WHERE platform_user_id=$1', [phone])
       ).rows[0];
     }
+    const recovery = { requestId: 'recovery-synthetic-request', phone, botPhone: '5567988880000' };
+    async function discovered() {
+      await clients[0]!.query(
+        `INSERT INTO channel_users(id,ownpilot_user_id,platform,platform_user_id,status,metadata)
+        VALUES('discovered',$1,'whatsapp',$2,'pending','{"hasInteracted":true,"discoveredFromHistory":true,"preserve":true}')`,
+        [input.ownpilotUserId, phone]
+      );
+    }
+    it('queues a privileged first-contact recovery without inventing an inbound interaction', async () => {
+      const result = await repos[0]!.recoverFirstContactTrial(recovery);
+      expect(result).toMatchObject({ outcome: 'queued' });
+      const user = await row();
+      expect(user).toMatchObject({
+        id: result.userId,
+        is_verified: true,
+        access_source: 'trial',
+        status: 'active',
+      });
+      expect(user.metadata).toMatchObject({
+        hasInteracted: false,
+        accessWelcomePending: true,
+        astraFirstContactRecovery: {
+          requestId: recovery.requestId,
+          source: 'authorized_first_contact',
+          confirmedIncoming: false,
+          accessGrantedAt: user.access_granted_at.toISOString(),
+          accessExpiresAt: user.access_expires_at.toISOString(),
+        },
+      });
+      expect(user.access_expires_at.getTime() - user.access_granted_at.getTime()).toBe(
+        72 * 3600_000
+      );
+      expect((await clients[0]!.query('SELECT * FROM channel_messages')).rows).toHaveLength(0);
+      expect((await clients[0]!.query('SELECT * FROM whatsapp_trial_claims')).rows).toHaveLength(2);
+      const queuedNotices = (await clients[0]!.query('SELECT * FROM channel_access_notifications'))
+        .rows;
+      expect(queuedNotices).toHaveLength(2);
+      expect(queuedNotices.find((n) => n.kind === 'approved')).toMatchObject({
+        status: 'pending',
+        channel_user_id: user.id,
+      });
+      const [welcome] = await notices[0]!.claimDue();
+      expect(welcome?.kind).toBe('approved');
+      expect(
+        await notices[0]!.beginSend(
+          welcome!.id,
+          welcome!.leaseToken!,
+          'channel.whatsapp',
+          new Date(),
+          recovery.botPhone
+        )
+      ).toBe(true);
+      expect((await row()).metadata.hasInteracted).toBe(false);
+      expect(await repos[1]!.recoverFirstContactTrial(recovery)).toMatchObject({
+        outcome: 'skipped',
+      });
+      expect((await row()).access_expires_at).toEqual(user.access_expires_at);
+      expect(
+        (await clients[0]!.query('SELECT * FROM channel_access_notifications')).rows
+      ).toHaveLength(2);
+    });
+    it('recovers only a pure unanswered discovery in place and preserves its original history metadata', async () => {
+      await discovered();
+      const before = await row();
+      expect(await repos[0]!.recoverFirstContactTrial(recovery)).toMatchObject({
+        outcome: 'queued',
+        userId: 'discovered',
+      });
+      const user = await row();
+      expect(user.first_seen_at).toEqual(before.first_seen_at);
+      expect(user.last_seen_at).toEqual(before.last_seen_at);
+      expect(user.metadata).toMatchObject({
+        hasInteracted: true,
+        discoveredFromHistory: true,
+        preserve: true,
+        astraFirstContactRecovery: { confirmedIncoming: true },
+      });
+    });
+    it('serializes two recovery processors against a real first-contact enrollment', async () => {
+      const results = await Promise.all([
+        repos[0]!.recoverFirstContactTrial(recovery),
+        repos[1]!.createNewContact(input),
+      ]);
+      expect(
+        results.filter(
+          (r) => typeof r === 'string' || (r && typeof r === 'object' && r.outcome === 'queued')
+        )
+      ).toHaveLength(1);
+      expect((await clients[0]!.query('SELECT * FROM channel_users')).rows).toHaveLength(1);
+      expect(
+        (await clients[0]!.query('SELECT * FROM channel_access_notifications')).rows
+      ).toHaveLength(2);
+      expect((await clients[0]!.query('SELECT * FROM whatsapp_trial_claims')).rows).toHaveLength(2);
+    });
+    it('rejects a bot spelling and malformed recovery inputs before writing anything', async () => {
+      for (const invalid of [
+        { ...recovery, requestId: 'bad' },
+        { ...recovery, phone: 'temporary@lid' },
+        { ...recovery, botPhone: 'invalid' },
+        { ...recovery, botPhone: phone },
+        { ...recovery, botPhone: '556799981234' },
+        { ...recovery, displayName: '\u0000' },
+      ])
+        expect(await repos[0]!.recoverFirstContactTrial(invalid)).toMatchObject({
+          outcome: 'skipped',
+        });
+      expect((await clients[0]!.query('SELECT * FROM channel_users')).rows).toHaveLength(0);
+    });
+    it.each([
+      'owner',
+      'alias',
+      'account',
+      'claim',
+      'inbound',
+      'outbound',
+      'conversation',
+      'session',
+      'asset',
+      'notice',
+      'notice_metadata',
+      'active',
+      'blocked',
+      'expired',
+      'paid',
+      'unconfirmed',
+      'alternate',
+    ] as const)('does not recover a contact with existing %s evidence', async (kind) => {
+      await discovered();
+      if (kind === 'owner')
+        await clients[0]!.query("INSERT INTO system_settings VALUES('owner_whatsapp',$1)", [phone]);
+      if (kind === 'alias')
+        await clients[0]!.query('INSERT INTO customer_phone_aliases VALUES($1,NULL)', [phone]);
+      if (kind === 'account')
+        await clients[0]!.query('INSERT INTO customer_accounts VALUES($1,$2)', [
+          phone,
+          input.ownpilotUserId,
+        ]);
+      if (kind === 'claim')
+        await clients[0]!.query(
+          "INSERT INTO whatsapp_trial_claims VALUES($1,NOW()-INTERVAL '4 days',NOW()-INTERVAL '1 day')",
+          [phone]
+        );
+      if (kind === 'inbound')
+        await clients[0]!.query(
+          "INSERT INTO channel_messages(id,direction,sender_id) VALUES('prior','inbound',$1)",
+          [phone]
+        );
+      if (kind === 'outbound')
+        await clients[0]!.query(
+          "INSERT INTO channel_messages VALUES('prior','outbound','assistant',$1::jsonb)",
+          [JSON.stringify({ platformChatId: phone })]
+        );
+      if (kind === 'conversation')
+        await clients[0]!.query("INSERT INTO conversations VALUES('prior',$1)", [
+          input.ownpilotUserId,
+        ]);
+      if (kind === 'session')
+        await clients[0]!.query(
+          "INSERT INTO channel_sessions(id,channel_user_id,channel_plugin_id,platform_chat_id) VALUES('prior','discovered','channel.whatsapp',$1)",
+          [phone]
+        );
+      if (kind === 'asset')
+        await clients[0]!.query(
+          "INSERT INTO channel_assets(id,channel_message_id,channel_plugin_id,platform,platform_chat_id,type,storage_path,sha256,expires_at) VALUES('prior','prior','channel.whatsapp','whatsapp',$1,'image','synthetic','synthetic',NOW()+INTERVAL '1 hour')",
+          [phone]
+        );
+      if (kind === 'notice')
+        await clients[0]!.query(
+          "INSERT INTO channel_access_notifications(id,channel_user_id,ownpilot_user_id,platform_user_id,kind,cycle_key,status) VALUES('prior','discovered',$1,$2,'approved','prior','failed')",
+          [input.ownpilotUserId, phone]
+        );
+      if (kind === 'notice_metadata')
+        await clients[0]!.query(
+          'UPDATE channel_users SET metadata=metadata || \'{"astraAccessNotices":{"firstAuthorized":true}}\''
+        );
+      if (kind === 'active')
+        await clients[0]!.query("UPDATE channel_users SET is_verified=TRUE,status='active'");
+      if (kind === 'blocked') await clients[0]!.query('UPDATE channel_users SET is_blocked=TRUE');
+      if (kind === 'expired')
+        await clients[0]!.query(
+          "UPDATE channel_users SET access_source='trial',access_expires_at=NOW()-INTERVAL '1 day'"
+        );
+      if (kind === 'paid')
+        await clients[0]!.query("UPDATE channel_users SET access_source='cakto'");
+      if (kind === 'unconfirmed')
+        await clients[0]!.query(
+          'UPDATE channel_users SET metadata=\'{"hasInteracted":false,"discoveredFromLinkedSession":true}\''
+        );
+      if (kind === 'alternate')
+        await clients[0]!.query(
+          "INSERT INTO channel_users(id,ownpilot_user_id,platform,platform_user_id,status) VALUES('alternate','whatsapp:556799981234','whatsapp','556799981234','pending')"
+        );
+      const before = await row();
+      expect(await repos[0]!.recoverFirstContactTrial(recovery)).toMatchObject({
+        outcome: 'skipped',
+      });
+      expect(await row()).toEqual(before);
+    });
+    it('rolls back the recovery grant when durable lifecycle insertion fails', async () => {
+      await discovered();
+      await clients[0]!.query(
+        "ALTER TABLE channel_access_notifications ADD CONSTRAINT reject_recovery_notice CHECK(kind <> 'approved')"
+      );
+      try {
+        await expect(repos[0]!.recoverFirstContactTrial(recovery)).rejects.toMatchObject({
+          code: '23514',
+        });
+        expect(await row()).toMatchObject({
+          id: 'discovered',
+          is_verified: false,
+          status: 'pending',
+          access_source: null,
+        });
+        expect((await clients[0]!.query('SELECT * FROM whatsapp_trial_claims')).rows).toHaveLength(
+          0
+        );
+      } finally {
+        await clients[0]!.query(
+          'ALTER TABLE channel_access_notifications DROP CONSTRAINT reject_recovery_notice'
+        );
+      }
+    });
     async function prepareUnsentWelcome() {
       await repos[0]!.createNewContact(input);
       const user = await row();

@@ -1807,6 +1807,111 @@ describe('ChannelServiceImpl', () => {
         }
       );
 
+      const onboardingOnlyInteractions = [
+        { kind: 'sticker', text: '' },
+        { kind: 'contact', text: '[Contato compartilhado]' },
+        { kind: 'location', text: '[Localização compartilhada]' },
+        { kind: 'poll', text: '[Enquete recebida]' },
+        { kind: 'reaction', text: '👍' },
+      ];
+      it.each([
+        ...onboardingOnlyInteractions,
+        { kind: 'unavailable attachment', text: '[Anexo indisponível]' },
+      ])(
+        'welcomes a new trial once after a $kind without interpreting unsupported content',
+        async ({ text }) => {
+          customer = {
+            ...customer,
+            isVerified: true,
+            status: 'active',
+            firstInteraction: true,
+            accessSource: 'trial',
+            accessExpiresAt: new Date('2099-01-01T16:00:00Z'),
+          };
+          reserve('first_authorized');
+          message.text = text;
+          message.metadata = { ...message.metadata, whatsappOnboardingOnly: true };
+          await service.processIncomingMessage(message);
+          expect(mockUsersRepo.findOrCreate).toHaveBeenCalledWith(
+            expect.objectContaining({ startWhatsAppTrial: true })
+          );
+          expect(mockAccessNoticeClaim).toHaveBeenCalledWith(
+            customer.id,
+            message.id,
+            'first_authorized'
+          );
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ text: expect.stringContaining('3 dias grátis') })
+          );
+          expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+          expect(mockResolveForProcess).not.toHaveBeenCalled();
+          expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        }
+      );
+      it.each(onboardingOnlyInteractions)(
+        'does not reinterpret a $kind or repeat onboarding for an active customer',
+        async ({ text }) => {
+          customer = {
+            ...customer,
+            isVerified: true,
+            status: 'active',
+            firstInteraction: false,
+            accessSource: 'trial',
+            accessExpiresAt: new Date('2099-01-01T16:00:00Z'),
+            metadata: {
+              hasInteracted: true,
+              accessWelcomePending: false,
+              astraAccessNotices: { firstAuthorized: true },
+            },
+          };
+          message.text = text;
+          message.metadata = { ...message.metadata, whatsappOnboardingOnly: true };
+          await service.processIncomingMessage(message);
+          expect(mockUsersRepo.findOrCreate).toHaveBeenCalledOnce();
+          expect(mockAccessNoticeClaim).not.toHaveBeenCalled();
+          expect(channelPlugin.api.sendMessage).not.toHaveBeenCalled();
+          expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+          expect(mockResolveForProcess).not.toHaveBeenCalled();
+          expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        }
+      );
+
+      it('gives unreadable-attachment feedback once without AI or restarting an active trial', async () => {
+        const deadline = new Date('2099-01-01T16:00:00Z');
+        customer = {
+          ...customer,
+          isVerified: true,
+          status: 'active',
+          firstInteraction: false,
+          accessSource: 'trial',
+          accessExpiresAt: deadline,
+          metadata: {
+            hasInteracted: true,
+            accessWelcomePending: false,
+            astraAccessNotices: { firstAuthorized: true },
+          },
+        };
+        message.text = '[Anexo indisponível]';
+        message.metadata = { ...message.metadata, whatsappOnboardingOnly: true };
+        mockMessagesRepo.createIfNew.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+        await service.processIncomingMessage(message);
+        await service.processIncomingMessage(message);
+        expect(mockAccessNoticeClaim).not.toHaveBeenCalled();
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            text: 'Não consegui abrir esse anexo. Pode reenviar ou me contar por texto?',
+            replyToId: message.id,
+          })
+        );
+        expect(mockMessagesRepo.createIfNew).toHaveBeenCalledTimes(2);
+        expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+        expect(mockResolveForProcess).not.toHaveBeenCalled();
+        expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        expect(customer.accessExpiresAt).toBe(deadline);
+      });
+
       it('answers a repeat trial request from an active trial without AI or resetting the deadline', async () => {
         const deadline = new Date('2099-01-01T16:00:00Z');
         customer = {
