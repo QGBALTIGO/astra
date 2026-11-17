@@ -544,7 +544,11 @@ function CustomerPortal({ initialCustomer }: { initialCustomer: Customer }) {
               />
             </button>
             <div className="topbar-actions">
-              <button className="search-trigger global-search" onClick={() => setCommandOpen(true)}>
+              <button
+                className="search-trigger global-search"
+                aria-label="Buscar no seu espaço"
+                onClick={() => setCommandOpen(true)}
+              >
                 <Search size={17} />
                 <span>Buscar no seu espaço</span>
                 <kbd>⌘ K</kbd>

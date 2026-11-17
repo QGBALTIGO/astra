@@ -38,7 +38,7 @@ async function shot(page: Page, info: TestInfo, screen: string, state: string) {
 async function expectHeaderLayout(page: Page) {
   const header = page.locator('.topbar');
   const actions = header.locator('.topbar-actions');
-  const buttons = actions.getByRole('button');
+  const buttons = actions.locator('button.icon-button:visible, button.top-avatar:visible');
   await expect(buttons).toHaveCount(page.viewportSize()!.width <= 650 ? 4 : 5);
   const boxes = await Promise.all((await buttons.all()).map((button) => button.boundingBox()));
   for (let index = 0; index < boxes.length; index++) {
@@ -53,6 +53,23 @@ async function expectHeaderLayout(page: Page) {
     ).toBeLessThanOrEqual(1);
     if (index) expect(box.x).toBeGreaterThanOrEqual(boxes[index - 1]!.x + boxes[index - 1]!.width);
   }
+  const search = actions.getByRole('button', { name: /^Buscar no seu espaço/ });
+  if (page.viewportSize()!.width > 1050) {
+    await expect(search).toBeVisible();
+    await expect(search).toHaveCSS('display', 'flex');
+    const searchBox = (await search.boundingBox())!;
+    expect(
+      Math.abs(searchBox.y + searchBox.height / 2 - boxes[0]!.y - boxes[0]!.height / 2)
+    ).toBeLessThanOrEqual(1);
+    const label = search.locator('span');
+    if (await label.isVisible()) {
+      const iconBox = (await search.locator('svg').boundingBox())!;
+      const labelBox = (await label.boundingBox())!;
+      expect(
+        Math.abs(iconBox.y + iconBox.height / 2 - labelBox.y - labelBox.height / 2)
+      ).toBeLessThanOrEqual(1);
+    }
+  } else await expect(search).toBeHidden();
   if (page.viewportSize()!.width <= 650)
     await expect(page.getByRole('button', { name: 'Ver meu perfil', exact: true })).toBeVisible();
   else
