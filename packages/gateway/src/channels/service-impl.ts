@@ -502,6 +502,10 @@ export class ChannelServiceImpl implements IChannelService {
     // progress placeholder with the error message instead of orphaning it.
     let progress: ChannelProgressManager | null = null;
     let whatsappUserId: string | undefined;
+    const whatsappOnboardingOnly =
+      message.platform === 'whatsapp' && message.metadata?.whatsappOnboardingOnly === true;
+    const unavailableWhatsAppAttachment =
+      whatsappOnboardingOnly && message.text === '[Anexo indisponível]';
     try {
       // Resolve channel ownership before choosing a data scope. The connected WhatsApp
       // account is the administrator; each external phone gets a separate identity.
@@ -681,11 +685,12 @@ export class ChannelServiceImpl implements IChannelService {
           // Real requests on the first interaction still run normally. A plain
           // greeting needs only the personalized welcome, without a second reply.
           if (
-            !message.attachments?.length &&
-            (/^(?:oi|ol[aá]|opa|e\s*a[ií]|bom\s+dia|boa\s+(?:tarde|noite)|hello|hi|\/start)[\s!?.]*$/iu.test(
-              message.text.trim()
-            ) ||
-              isTrialStartMessage(message.text))
+            whatsappOnboardingOnly ||
+            (!message.attachments?.length &&
+              (/^(?:oi|ol[aá]|opa|e\s*a[ií]|bom\s+dia|boa\s+(?:tarde|noite)|hello|hi|\/start)[\s!?.]*$/iu.test(
+                message.text.trim()
+              ) ||
+                isTrialStartMessage(message.text)))
           )
             return;
         }
@@ -737,6 +742,10 @@ export class ChannelServiceImpl implements IChannelService {
         });
         return;
       }
+
+      // Unsupported, authenticated WhatsApp interactions may start onboarding,
+      // but must never become a command, invented interpretation or AI request.
+      if (whatsappOnboardingOnly && !unavailableWhatsAppAttachment) return;
 
       // 3. Handle /connect — pairing key claim takes priority over everything
       if (message.text.startsWith('/connect ')) {
@@ -1059,6 +1068,17 @@ export class ChannelServiceImpl implements IChannelService {
       });
 
       if (greetingBurst.suppressReply) return;
+
+      // Keep unreadable-attachment feedback behind durable inbound deduplication.
+      // First contacts received only their welcome above; existing users can retry.
+      if (unavailableWhatsAppAttachment) {
+        await this.send(message.channelPluginId, {
+          platformChatId: message.platformChatId,
+          replyToId: message.id,
+          text: 'Não consegui abrir esse anexo. Pode reenviar ou me contar por texto?',
+        });
+        return;
+      }
 
       // A landing trial request is an account operation, not a question for the
       // LLM. New customers have already been enrolled/welcomed above. For an
@@ -1612,11 +1632,12 @@ export class ChannelServiceImpl implements IChannelService {
         )
           return;
         const welcomeOnly =
-          !incoming.attachments?.length &&
-          (/^(?:oi|ol[aá]|opa|e\s*a[ií]|bom\s+dia|boa\s+(?:tarde|noite)|hello|hi|\/start)[\s!?.]*$/iu.test(
-            incoming.text.trim()
-          ) ||
-            isTrialStartMessage(incoming.text));
+          incoming.metadata?.whatsappOnboardingOnly === true ||
+          (!incoming.attachments?.length &&
+            (/^(?:oi|ol[aá]|opa|e\s*a[ií]|bom\s+dia|boa\s+(?:tarde|noite)|hello|hi|\/start)[\s!?.]*$/iu.test(
+              incoming.text.trim()
+            ) ||
+              isTrialStartMessage(incoming.text)));
         const notice =
           mode === 'first_authorized' && !welcomeOnly
             ? await channelAccessInboundNoticesRepo.claim(

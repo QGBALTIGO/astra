@@ -63,6 +63,11 @@ jobs:
           src/channels/plugins/whatsapp/libsignal-logging.test.ts
           src/services/channel-reminder-worker.test.ts
           src/services/daily-greeting-worker.test.ts
+          src/channels/service-impl.test.ts
+          src/channels/trial-entry.test.ts
+          src/services/channel-access-notification-worker.test.ts
+          src/services/whatsapp-first-contact-recovery.test.ts
+          src/db/repositories/channel-access-notifications.test.ts
       - name: Lint core and gateway
         run: pnpm --filter @ownpilot/core --filter @ownpilot/gateway lint
       - name: Archive tested source

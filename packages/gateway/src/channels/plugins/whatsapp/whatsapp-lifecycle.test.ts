@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   emit: vi.fn(),
   warn: vi.fn(),
   info: vi.fn(),
+  downloadMedia: vi.fn(),
+  persistAttachments: vi.fn(),
 }));
 
 vi.mock('@whiskeysockets/baileys', async (importOriginal) => ({
@@ -25,7 +27,7 @@ vi.mock('@whiskeysockets/baileys', async (importOriginal) => ({
   makeCacheableSignalKeyStore: mocks.cacheKeys,
   DisconnectReason: { loggedOut: 401, restartRequired: 515 },
   fetchLatestBaileysVersion: mocks.fetchVersion,
-  downloadMediaMessage: vi.fn(),
+  downloadMediaMessage: mocks.downloadMedia,
   generateWAMessageFromContent: mocks.generateMessage,
   generateMessageIDV2: mocks.generateMessageId,
   Browsers: { appropriate: vi.fn() },
@@ -42,7 +44,9 @@ vi.mock('./session-store.js', () => ({
   clearSession: mocks.clearSession,
 }));
 vi.mock('../../../ws/server.js', () => ({ wsGateway: { broadcast: vi.fn() } }));
-vi.mock('../../../services/channel-asset-store.js', () => ({ channelAssetStore: {} }));
+vi.mock('../../../services/channel-asset-store.js', () => ({
+  channelAssetStore: { persistIncomingAttachments: mocks.persistAttachments },
+}));
 vi.mock('@ownpilot/core/events', () => ({
   getEventBus: () => ({ emit: mocks.emit }),
   createEvent: (_name: string, _source: string, _pluginId: string, data: unknown) => data,
@@ -177,6 +181,7 @@ describe('WhatsApp connection lifecycle', () => {
     mocks.saveCreds.mockResolvedValue(undefined);
     mocks.clearSession.mockResolvedValue(undefined);
     mockHistoricalContacts.mockResolvedValue(1);
+    mocks.persistAttachments.mockImplementation(async ({ attachments }) => attachments);
     mocks.generateMessageId.mockReturnValue('native-copy-id');
     mocks.generateMessage.mockImplementation(
       (jid: string, content: proto.IMessage, options: { messageId: string }) => ({
@@ -607,6 +612,9 @@ describe('WhatsApp connection lifecycle', () => {
     { messageStubType: 2 },
     { message: {} },
     { message: { protocolMessage: { type: 3, ephemeralExpiration: 7776000 } } },
+    { message: { messageContextInfo: { deviceListMetadataVersion: 2 } } },
+    { message: { senderKeyDistributionMessage: { groupId: 'synthetic' } } },
+    { message: { stickerMessage: {} } },
   ])(
     'does not consume a message ID before its readable content arrives: %j',
     async (placeholder) => {
@@ -651,6 +659,168 @@ describe('WhatsApp connection lifecycle', () => {
       });
     }
   );
+  it.each([
+    { stickerMessage: { mimetype: 'image/webp', url: 'https://invalid.example/private' } },
+    { lottieStickerMessage: { message: { stickerMessage: { mimetype: 'image/webp' } } } },
+    { contactMessage: { displayName: 'Synthetic Contact', vcard: 'BEGIN:VCARD\nEND:VCARD' } },
+    { contactsArrayMessage: { contacts: [{ displayName: 'Synthetic Contact' }] } },
+    { locationMessage: { degreesLatitude: 0, degreesLongitude: 0, name: 'Synthetic Place' } },
+    { liveLocationMessage: { degreesLatitude: 0, degreesLongitude: 0 } },
+    { templateButtonReplyMessage: { selectedId: 'synthetic-selection' } },
+    { listResponseMessage: { title: 'Synthetic Selection' } },
+    { buttonsResponseMessage: { selectedButtonId: 'synthetic-selection' } },
+    { interactiveResponseMessage: { body: { text: 'Synthetic Selection' } } },
+    { pollCreationMessage: { name: 'Synthetic Poll' } },
+    { pollCreationMessageV2: { name: 'Synthetic Poll' } },
+    { pollCreationMessageV3: { name: 'Synthetic Poll' } },
+    { pollCreationMessageV4: { message: { pollCreationMessage: { name: 'Synthetic Poll' } } } },
+    { pollCreationMessageV5: { name: 'Synthetic Poll' } },
+    { pollUpdateMessage: { pollCreationMessageKey: { id: 'synthetic-poll' } } },
+    { eventMessage: { name: 'Synthetic Event' } },
+    { reactionMessage: { text: '👍', key: { id: 'synthetic-message' } } },
+    { groupInviteMessage: { groupName: 'Synthetic Group' } },
+    { productMessage: { product: { title: 'Synthetic Product' } } },
+    { orderMessage: { orderId: 'synthetic-order' } },
+  ])(
+    'routes an unparsed human message once for onboarding without private content: %j',
+    async (content) => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      const api = newApi();
+      await api.connect();
+      sockets[0]!.emit('connection.update', { connection: 'open' });
+      const incoming = {
+        type: 'notify',
+        messages: [
+          {
+            key: { remoteJid: '5511988880101@s.whatsapp.net', id: 'human-content', fromMe: false },
+            message: { ephemeralMessage: { message: content } },
+          },
+        ],
+      };
+      sockets[0]!.emit('messages.upsert', incoming);
+      sockets[0]!.emit('messages.upsert', incoming);
+      await vi.waitFor(() => expect(receivedMessages()).toHaveLength(1));
+      const delivered = receivedMessages()[0]!.message;
+      expect(delivered).toMatchObject({
+        metadata: { whatsappOnboardingOnly: true, fromMe: false, isGroup: false },
+      });
+      expect(delivered).toHaveProperty('attachments', undefined);
+      expect(JSON.stringify(delivered)).not.toMatch(
+        /Synthetic|BEGIN:VCARD|degreesLatitude|invalid\.example|synthetic-selection|synthetic-poll|synthetic-message|synthetic-order/
+      );
+      expect(mocks.downloadMedia).not.toHaveBeenCalled();
+      expect(mocks.persistAttachments).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['imageMessage', 'documentMessage', 'audioMessage', 'videoMessage'])(
+    'preserves onboarding once when %s cannot be downloaded',
+    async (kind) => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      mocks.downloadMedia.mockRejectedValue(new Error('Synthetic media failure'));
+      const api = newApi();
+      await api.connect();
+      sockets[0]!.emit('connection.update', { connection: 'open' });
+      const incoming = {
+        type: 'notify',
+        messages: [
+          {
+            key: { remoteJid: '5511988880101@s.whatsapp.net', id: 'failed-media', fromMe: false },
+            message: { [kind]: { caption: 'Synthetic private caption' } },
+          },
+        ],
+      };
+      sockets[0]!.emit('messages.upsert', incoming);
+      sockets[0]!.emit('messages.upsert', incoming);
+      await vi.waitFor(() => expect(receivedMessages()).toHaveLength(1));
+      expect(receivedMessages()[0]!.message).toMatchObject({
+        text: '[Anexo indisponível]',
+        metadata: { whatsappOnboardingOnly: true },
+      });
+      expect(receivedMessages()[0]!.message).toHaveProperty('attachments', undefined);
+      expect(mocks.downloadMedia).toHaveBeenCalledTimes(1);
+      expect(mocks.persistAttachments).not.toHaveBeenCalled();
+    }
+  );
+  it('preserves onboarding once after media storage fails without replaying the attachment', async () => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    mocks.downloadMedia.mockResolvedValue(Buffer.from('synthetic private media'));
+    mocks.persistAttachments.mockRejectedValue(new Error('Synthetic storage failure'));
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const incoming = {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: '5511988880101@s.whatsapp.net', id: 'failed-storage', fromMe: false },
+          message: { imageMessage: { caption: 'Synthetic private caption' } },
+        },
+      ],
+    };
+    sockets[0]!.emit('messages.upsert', incoming);
+    sockets[0]!.emit('messages.upsert', incoming);
+    await vi.waitFor(() => expect(receivedMessages()).toHaveLength(1));
+    expect(receivedMessages()[0]!.message).toMatchObject({
+      text: '[Anexo indisponível]',
+      metadata: { whatsappOnboardingOnly: true },
+    });
+    expect(receivedMessages()[0]!.message).toHaveProperty('attachments', undefined);
+    expect(mocks.persistAttachments).toHaveBeenCalledTimes(1);
+  });
+  it('keeps successfully downloaded media in the normal assistant flow without a second event', async () => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    mocks.downloadMedia.mockResolvedValue(Buffer.from('synthetic private media'));
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    const incoming = {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: '5511988880101@s.whatsapp.net', id: 'valid-media', fromMe: false },
+          message: {
+            imageMessage: { caption: 'Synthetic private caption', mimetype: 'image/jpeg' },
+          },
+        },
+      ],
+    };
+    sockets[0]!.emit('messages.upsert', incoming);
+    sockets[0]!.emit('messages.upsert', incoming);
+    await vi.waitFor(() => expect(receivedMessages()).toHaveLength(1));
+    const delivered = receivedMessages()[0]!.message;
+    expect(delivered).toMatchObject({
+      text: 'Synthetic private caption',
+      attachments: [{ type: 'image', mimeType: 'image/jpeg' }],
+    });
+    expect(delivered!.metadata).not.toHaveProperty('whatsappOnboardingOnly');
+    expect(mocks.downloadMedia).toHaveBeenCalledTimes(1);
+    expect(mocks.persistAttachments).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    { remoteJid: '5511988880101@s.whatsapp.net', fromMe: true },
+    {
+      remoteJid: '120363000000001@g.us',
+      participant: '5511988880101@s.whatsapp.net',
+      fromMe: false,
+    },
+  ])('does not onboard an outgoing or group-only human payload: %j', async (key) => {
+    vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+    const api = newApi();
+    await api.connect();
+    sockets[0]!.emit('connection.update', { connection: 'open' });
+    sockets[0]!.emit('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { ...key, id: 'not-an-inbound-private-contact' },
+          message: { stickerMessage: { mimetype: 'image/webp' } },
+        },
+      ],
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(receivedMessages()).toHaveLength(0);
+    expect(mocks.downloadMedia).not.toHaveBeenCalled();
+  });
   it('deduplicates concurrent upserts after an asynchronous identity lookup', async () => {
     vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
     const api = newApi();

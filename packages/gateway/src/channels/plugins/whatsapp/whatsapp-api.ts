@@ -70,6 +70,40 @@ const log = getLog('WhatsApp');
 const WHATSAPP_MAX_LENGTH = 4096;
 const RANDOM_UNIT_SCALE = 1_000_000_000;
 
+// Human messages that can introduce a contact but have no assistant parser yet.
+// Do not infer this from arbitrary *Message keys: protocol/status/key updates
+// must never start onboarding or consume an incoming message ID.
+const ONBOARDING_ONLY_CONTENT: Array<[keyof proto.IMessage, string]> = [
+  ['stickerMessage', '[Figurinha recebida]'],
+  ['lottieStickerMessage', '[Figurinha recebida]'],
+  ['contactMessage', '[Contato recebido]'],
+  ['contactsArrayMessage', '[Contatos recebidos]'],
+  ['locationMessage', '[Localização recebida]'],
+  ['liveLocationMessage', '[Localização recebida]'],
+  ['templateButtonReplyMessage', '[Resposta de botão recebida]'],
+  ['listResponseMessage', '[Resposta de lista recebida]'],
+  ['buttonsResponseMessage', '[Resposta de botão recebida]'],
+  ['interactiveResponseMessage', '[Resposta interativa recebida]'],
+  ['pollCreationMessage', '[Enquete recebida]'],
+  ['pollCreationMessageV2', '[Enquete recebida]'],
+  ['pollCreationMessageV3', '[Enquete recebida]'],
+  ['pollCreationMessageV4', '[Enquete recebida]'],
+  ['pollCreationMessageV5', '[Enquete recebida]'],
+  ['pollUpdateMessage', '[Resposta de enquete recebida]'],
+  ['eventMessage', '[Evento recebido]'],
+  ['reactionMessage', '[Reação recebida]'],
+  ['groupInviteMessage', '[Convite recebido]'],
+  ['productMessage', '[Produto recebido]'],
+  ['orderMessage', '[Pedido recebido]'],
+];
+
+function onboardingOnlyText(content: proto.IMessage | undefined): string | undefined {
+  return ONBOARDING_ONLY_CONTENT.find(([key]) => {
+    const value = content?.[key];
+    return value && typeof value === 'object' && Object.keys(value).length > 0;
+  })?.[1];
+}
+
 function providerTimestamp(raw: unknown): Date | undefined {
   let seconds: number;
   if (typeof raw === 'number' || typeof raw === 'bigint') seconds = Number(raw);
@@ -419,7 +453,8 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
             content?.imageMessage ||
             content?.documentMessage ||
             content?.audioMessage ||
-            content?.videoMessage
+            content?.videoMessage ||
+            onboardingOnlyText(content)
           )) {
             log.debug('[WhatsApp] Skipping notification without readable message content');
             continue;
@@ -1782,6 +1817,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
     if (!m) return;
 
     let text = '';
+    let onboardingOnly = false;
     const attachments: ChannelAttachment[] = [];
 
     // Text messages
@@ -1831,6 +1867,19 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
       });
     }
 
+    const neutralText = onboardingOnlyText(m);
+    if (!text && attachments.length === 0 && neutralText) {
+      text = neutralText;
+      onboardingOnly = true;
+    }
+    // Preserve access/onboarding handling if media cannot be retrieved. Do not
+    // pass an absent attachment or an unanalysed caption to the assistant.
+    if (attachments.some((attachment) => !attachment.data?.length)) {
+      attachments.length = 0;
+      text = '[Anexo indisponível]';
+      onboardingOnly = true;
+    }
+
     // Skip empty messages
     if (!text && attachments.length === 0) return;
 
@@ -1840,17 +1889,24 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
 
     if (attachments.length > 0) {
       const platformChatId = isGroup ? remoteJid : phone;
-      attachments.splice(
-        0,
-        attachments.length,
-        ...(await channelAssetStore.persistIncomingAttachments({
-          messageId: `${this.pluginId}:${messageId}`,
-          channelPluginId: this.pluginId,
-          platform: 'whatsapp',
-          platformChatId,
-          attachments,
-        }))
-      );
+      try {
+        attachments.splice(
+          0,
+          attachments.length,
+          ...(await channelAssetStore.persistIncomingAttachments({
+            messageId: `${this.pluginId}:${messageId}`,
+            channelPluginId: this.pluginId,
+            platform: 'whatsapp',
+            platformChatId,
+            attachments,
+          }))
+        );
+      } catch {
+        log.warn('WhatsApp attachment storage unavailable; preserving contact onboarding');
+        attachments.length = 0;
+        text = '[Anexo indisponível]';
+        onboardingOnly = true;
+      }
     }
 
     const sender: ChannelUser = {
@@ -1882,6 +1938,7 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         // Origin is trusted Baileys metadata, not the content of the message.
         isSelfChat: !isGroup && this.isSelfChat(remoteJid),
         fromMe: msg.key.fromMe === true,
+        ...(onboardingOnly && { whatsappOnboardingOnly: true }),
         pushName: msg.pushName || undefined,
         // For groups: store participant JID so we know who sent it
         ...(isGroup && { participant: participantJid }),
