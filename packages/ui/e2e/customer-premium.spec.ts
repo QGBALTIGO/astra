@@ -84,7 +84,12 @@ test('production entry loads the customer layout styles with the login', async (
   expect(shell.width).toBeLessThan(1300);
   const logo = await page.locator('.ac-login-story .ac-brand').boundingBox();
   expect(logo?.height).toBeLessThan(60);
-  await expect(page.locator('.ac-login-story .ac-brand-on-dark')).not.toBeVisible();
+  await expect(page.locator('.ac-login-story .ac-brand img')).toHaveAttribute(
+    'src',
+    '/astra-approved-logo.svg'
+  );
+  await expect(page.locator('.ac-login-card h1')).toHaveCSS('font-family', /Poppins/);
+  await expect(page.locator('.ac-login-card input')).toHaveCSS('font-size', '16px');
   await geometry(page);
 });
 
@@ -98,6 +103,13 @@ for (const theme of ['light', 'dark'] as const) {
       const reference = [390, 1440].includes(screen.width);
       await page.goto('/cliente/entrar');
       await expect(page.getByRole('heading', { name: 'Entre no seu Astra' })).toBeVisible();
+      await expect(page.locator('.ac-login-story')).toBeVisible();
+      await expect(page.locator('.ac-login-card h1')).toHaveCSS('font-family', /Poppins/);
+      if (screen.width <= 900) {
+        const header = await page.locator('.ac-login-story').boundingBox();
+        expect(header?.x).toBe(0);
+        expect(header?.width).toBe(screen.width);
+      }
       await geometry(page);
       await image(page, info, `${prefix}-login`, reference);
       if (reference) await accessibility(page);

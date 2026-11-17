@@ -12,7 +12,7 @@ import {
   ShieldCheck,
 } from '../../components/icons';
 import { CustomerApiError, customerApi } from './api';
-import { CustomerBrand, CustomerError } from './components';
+import { CustomerError } from './components';
 import {
   CustomerCodeField,
   CustomerPhoneField,
@@ -23,6 +23,7 @@ import {
 import { useCountdown, useCustomerQuery, useCustomerTheme } from './hooks';
 import { ASTRA_SITE_URL } from './helpers';
 import type { Customer, CustomerChallenge } from './types';
+import './approved-login.css';
 
 export function CustomerLogin() {
   const session = useCustomerQuery('login-session', (signal) => customerApi.session(signal));
@@ -95,10 +96,17 @@ export function CustomerLogin() {
   };
   if (authenticated || session.data?.customer) return <Navigate to="/cliente" replace />;
   return (
-    <div className="astra-customer ac-login" data-theme={theme}>
+    <div
+      id="astra-approved-dashboard"
+      className="astra-customer ac-login approved-login"
+      data-theme={theme}
+    >
       <div className="ac-login-layout">
         <section className="ac-login-story">
-          <CustomerBrand />
+          <a href="/cliente" className="ac-brand ac-login-brand" aria-label="Astra, início">
+            <img src="/astra-approved-logo.svg" alt="" width="1400" height="355" />
+          </a>
+          <p className="ac-login-mobile-copy">Seu dinheiro e seus planos, em sintonia.</p>
           <span className="ac-eyebrow">SEU ASSISTENTE PESSOAL</span>
           <h2 className="ac-login-tagline">
             Sua rotina,
@@ -132,14 +140,13 @@ export function CustomerLogin() {
             Conheça o Astra
           </a>
         </section>
-        <main className="ac-login-card">
-          <div className="ac-login-mobile-brand">
-            <CustomerBrand />
-          </div>
+        <main className="ac-login-card" aria-labelledby="astra-login-title">
           <p className="ac-eyebrow ac-login-form-eyebrow">
             <Lock aria-hidden="true" /> SEU ESPAÇO PESSOAL
           </p>
-          <h1>{challenge ? 'Digite seu código de acesso' : 'Entre no seu Astra'}</h1>
+          <h1 id="astra-login-title">
+            {challenge ? 'Digite seu código de acesso' : 'Entre no seu Astra'}
+          </h1>
           <p className="ac-login-subtitle">
             {challenge
               ? `Confira o ${maskedPhone(confirmedPhone).toLowerCase()}.`
