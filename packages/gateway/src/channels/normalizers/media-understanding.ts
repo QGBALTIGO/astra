@@ -5,6 +5,7 @@
  */
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
 import type { NormalizedIncoming } from './types.js';
+import { groqAudioTranscription } from '../../services/groq-audio-transport.js';
 
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -209,14 +210,7 @@ export async function transcribeWhatsAppAudio(
     form.append('response_format', 'json');
     const copied = Uint8Array.from(data);
     form.append('file', new Blob([copied.buffer as ArrayBuffer], { type: mime }), 'audio.' + ext);
-    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + key },
-      body: form,
-      signal: AbortSignal.timeout(28_000),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { text?: unknown };
+    const json = (await groqAudioTranscription(form, key, 'json')) as { text?: unknown };
     return safeString(json.text, 6_000) || null;
   } catch {
     return null;

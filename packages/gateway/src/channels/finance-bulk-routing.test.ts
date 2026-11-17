@@ -63,6 +63,11 @@ describe('financial bulk request intent', () => {
     'Apague os pendentes',
     'Exclua tudo que está pendente',
     'Apaga tudo que estiver pendente',
+    'Apague esses pendentes',
+    'Remova essas pendências',
+    'Pode remover os recebimentos pendentes',
+    'Exclua esses lançamentos',
+    'Remova aqueles',
   ])('keeps contextual scope for %s', (text) => {
     expect(financeBulkIntent(text)).toBe('context');
     expect(isBulkFinanceDeletionRequest(text)).toBe(true);
@@ -99,6 +104,10 @@ describe('financial bulk request intent', () => {
     'Exclua o gasto do café',
     'Remova todos os lembretes',
     'Remova todos os lançamentos pendentes e registre100',
+    'Não apague esses pendentes',
+    'Apague esse gasto de café',
+    'Remova esses lembretes',
+    'Exclua esses lançamentos e registre 50',
   ])('does not reinterpret a different/negated/compound request %s', (text) =>
     expect(financeBulkIntent(text)).toBeNull()
   );

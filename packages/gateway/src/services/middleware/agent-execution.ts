@@ -6,6 +6,7 @@
  */
 
 import { withRecentReceiptContext } from '../../channels/recent-chat-replies.js';
+import { attachmentImageContent } from '../../channels/normalizers/image-content.js';
 import { verifiedChannelFacts, verifiedRadarToolReply } from '../../channels/verified-facts.js';
 import { isPendingRadarReply } from '../radar/chat-pending.js';
 import { randomUUID } from 'node:crypto';
@@ -260,13 +261,8 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
       if (message.attachments?.length) {
         const parts: ContentPart[] = [{ type: 'text', text: message.content }];
         for (const att of message.attachments) {
-          if (att.type === 'image' && att.data) {
-            parts.push({
-              type: 'image',
-              data: att.data,
-              mediaType: att.mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-            });
-          }
+          const image = attachmentImageContent(att);
+          if (image) parts.push(image);
         }
         chatContent = parts;
       }

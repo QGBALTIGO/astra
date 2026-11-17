@@ -447,8 +447,16 @@ export async function executeCustomerFinanceTool(
           );
       }
       const id = text(args.transaction_id, 'o ID do lançamento');
-      if (!(await repo.deleteTransaction(id)))
-        throw new CustomerFinanceError('Lançamento não encontrado.', 404);
+      const deletes = getExecContext()?.channelFinanceDeletes;
+      if (deletes?.size && !deletes.has(id))
+        throw new CustomerFinanceError(
+          'A exclusão de vários lançamentos exige revisão e confirmação em lote. Não remova outros itens por chamadas individuais.'
+        );
+      // Reserve before awaiting: nested/parallel calls cannot race into a
+      // second deletion, and a replay of the same ID receives its real result.
+      const deletion = deletes?.get(id) ?? repo.deleteTransaction(id);
+      deletes?.set(id, deletion);
+      if (!(await deletion)) throw new CustomerFinanceError('Lançamento não encontrado.', 404);
       return { success: true, result: { id, deleted: true } };
     }
     return { success: false, error: 'Ferramenta financeira desconhecida.' };

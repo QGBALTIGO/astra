@@ -64,8 +64,8 @@ function setup(extra: Record<string, unknown> = {}) {
   return { primary, backup, config, provider: new FallbackProvider(config) };
 }
 describe('opt-in channel fallback latency', () => {
-  it('falls back for a local oversized payload without disabling the primary for a later small request', async () => {
-    const { provider, config, primary, backup } = setup({ preferLastSuccessful: false });
+  it('falls back for a local oversized payload without preferring the reserve for a later small request', async () => {
+    const { provider, config, primary, backup } = setup();
     primary.complete
       .mockResolvedValueOnce(
         err(
@@ -80,6 +80,21 @@ describe('opt-in channel fallback latency', () => {
     expect(second.ok && second.value.content).toBe('Pequeno pedido atendido');
     expect(primary.complete).toHaveBeenCalledTimes(2);
     expect(backup.complete).toHaveBeenCalledTimes(1);
+  });
+  it('probes a recovered primary after its cooldown even while the reserve is succeeding', async () => {
+    vi.useFakeTimers();
+    const { provider, config, primary, backup } = setup();
+    primary.complete
+      .mockResolvedValueOnce(err(new InternalError('HTTP 503 unavailable')))
+      .mockResolvedValue(ok({ content: 'Principal recuperado', finishReason: 'stop' }) as never);
+    await provider.complete(request);
+    expect((await new FallbackProvider(config).complete(request)).ok).toBe(true);
+    expect(primary.complete).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(15001);
+    const recovered = await new FallbackProvider(config).complete(request);
+    expect(recovered.ok && recovered.value.content).toBe('Principal recuperado');
+    expect(primary.complete).toHaveBeenCalledTimes(2);
+    expect(backup.complete).toHaveBeenCalledTimes(2);
   });
   it('preserves a provider moderation refusal without retrying it as an empty response', async () => {
     const { provider, primary, backup } = setup();
@@ -110,17 +125,17 @@ describe('opt-in channel fallback latency', () => {
       if (result.ok) expect(result.value.content).toBe('customer-' + i);
     });
   });
-  it('keeps the healthy model after a normal pause instead of replaying exhausted providers', async () => {
+  it('retries a still-limited primary only after its retry window, without one-hour stickiness', async () => {
     vi.useFakeTimers();
     const { provider, config, primary, backup } = setup();
     await provider.complete(request);
     vi.setSystemTime(Date.now() + 6 * 60000);
     await new FallbackProvider(config).complete(request);
-    expect(primary.complete).toHaveBeenCalledTimes(1);
+    expect(primary.complete).toHaveBeenCalledTimes(2);
     expect(backup.complete).toHaveBeenCalledTimes(2);
     vi.setSystemTime(Date.now() + 61 * 60000);
     await new FallbackProvider(config).complete(request);
-    expect(primary.complete).toHaveBeenCalledTimes(2);
+    expect(primary.complete).toHaveBeenCalledTimes(3);
   });
   it('tries another model when a required live lookup receives only invented prose', async () => {
     const { provider, primary, backup } = setup();
@@ -224,7 +239,7 @@ describe('opt-in channel fallback latency', () => {
     vi.spyOn(Date, 'now').mockImplementation(() => now);
     const { provider, config, primary } = setup();
     await provider.complete(request);
-    now += 152000;
+    now += 149000;
     await new FallbackProvider(config).complete(request);
     expect(primary.complete).toHaveBeenCalledTimes(1);
   });

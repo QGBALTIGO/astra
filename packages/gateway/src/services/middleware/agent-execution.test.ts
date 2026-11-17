@@ -1607,6 +1607,22 @@ describe('createAgentExecutionMiddleware', () => {
   // =========================================================================
 
   describe('attachments', () => {
+    it('removes a normalizer data URI prefix before passing image content to the agent', async () => {
+      const agent = createAgent();
+      const ctx = createContext({ store: { agent } });
+      await middleware(
+        createMessage({
+          content: 'Imagem de teste',
+          attachments: [
+            { type: 'image', data: 'data:image/png;base64,YQ==', mimeType: 'image/png' },
+          ],
+        }),
+        ctx,
+        vi.fn().mockResolvedValue(createNextResult())
+      );
+      const [parts] = agent.chat.mock.calls[0] as [Array<{ type: string; data?: string }>];
+      expect(parts[1]).toMatchObject({ type: 'image', data: 'YQ==', mediaType: 'image/png' });
+    });
     it('converts image attachments to ContentPart array and passes to agent.chat', async () => {
       const agent = createAgent();
       const ctx = createContext({ store: { agent } });

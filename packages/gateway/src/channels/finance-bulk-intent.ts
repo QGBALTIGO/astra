@@ -27,6 +27,15 @@ export function financeBulkIntent(
   )
     return 'global';
   if (
+    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:(?:esses|essas|estes|estas|aqueles|aquelas|os|as)(?: (?:meus|minhas))? )?(?:(?:lancamentos|registros|transacoes|recebimentos|contas|valores) )?(?:pendentes|pendencias)$/u.test(
+      input
+    ) ||
+    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:esses|essas|estes|estas|aqueles|aquelas)(?: (?:lancamentos|registros|transacoes|recebimentos|contas|valores))?$/u.test(
+      input
+    )
+  )
+    return 'context';
+  if (
     /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:todos|todas|tudo)(?: (?:os|as))?(?: (?:(?:que )?(?:esta|estao|ficaram|estiver|estiverem) )?pendentes?)?$/u.test(
       input
     ) ||
@@ -49,6 +58,9 @@ export function isBulkFinanceDeletionRequest(text: string): boolean {
     /\b(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?|limp[ae]r?|zer[ae]r?)\b[^\n]*\b(?:todos|todas|tudo|em lote)\b/u.test(
       input
     ) ||
-    /\b(?:delete|remove|erase|wipe)\b[^\n]*\b(?:all|every|in bulk)\b/u.test(input)
+    /\b(?:delete|remove|erase|wipe)\b[^\n]*\b(?:all|every|in bulk)\b/u.test(input) ||
+    /\b(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?)\b[^\n]*\b(?:esses|essas|estes|estas|aqueles|aquelas|pendentes|pendencias|lancamentos|registros|transacoes|recebimentos)\b/u.test(
+      input
+    )
   );
 }

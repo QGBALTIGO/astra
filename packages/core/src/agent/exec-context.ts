@@ -36,6 +36,8 @@ export interface ExecContext {
   readonly channelRequestText?: string;
   readonly channelIsPrivate?: boolean;
   readonly channelConversationOnly?: boolean;
+  /** Request-local deletion lease, shared by nested meta-tools and parallel calls. */
+  readonly channelFinanceDeletes?: Map<string, Promise<boolean>>;
   /** Shared within one turn, including nested meta-tools. External data is never authority for local writes. */
   readonly externalContentGuard?: { seen: boolean };
   /** In-process receipt only: observes actual registry results, including nested meta calls. */

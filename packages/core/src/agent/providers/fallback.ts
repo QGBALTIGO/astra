@@ -275,6 +275,17 @@ export class FallbackProvider implements IProvider {
   }
   private preferHealthy<T extends { origIndex: number }>(entries: T[]): T[] {
     const preferred = this.config.preferLastSuccessful ? sharedPreferred.get(this.groupKey) : null;
+    // A successful reserve must not keep a recovered primary behind it for an
+    // hour. Let one primary recovery probe run when its actual cooldown ends.
+    if (preferred && preferred.index > 0 && this.config.sharedCircuitBreaker) {
+      const primary = this.getCircuit(this.primary);
+      if (
+        primary.state === 'closed' ||
+        (primary.state === 'open' &&
+          Date.now() >= (primary.reopenAt ?? primary.lastFailureTime + this.cooldownMs))
+      )
+        return entries;
+    }
     return preferred && Date.now() - preferred.at < HEALTHY_PREFERENCE_MS
       ? entries.sort(
           (a, b) =>
