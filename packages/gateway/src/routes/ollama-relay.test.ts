@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { registerOllamaRelayRoutes } from './ollama-relay.js';
 
@@ -12,9 +12,44 @@ function createTestApp(): Hono {
   return app;
 }
 
+function completion(app: Hono, extraHeaders: Record<string, string> = {}, signal?: AbortSignal) {
+  return app.request(base + '/v1/chat/completions', {
+    method: 'POST',
+    signal,
+    headers: { ...headers, 'content-type': 'application/json', ...extraHeaders },
+    body: JSON.stringify({
+      model: 'qwen3:4b-instruct',
+      messages: [{ role: 'user', content: 'Consulta sintética sem executar ferramentas.' }],
+    }),
+  });
+}
+
+function finishJob(app: Hono, id: string) {
+  return app.request(base + '/worker/result', {
+    method: 'POST',
+    headers: { ...headers, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      id,
+      result: { choices: [{ message: { role: 'assistant', content: 'Resultado sintético.' } }] },
+    }),
+  });
+}
+
+async function establishIdleWorker(app: Hono) {
+  const poll = app.request(base + '/worker/next', { headers });
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect((await poll).status).toBe(204);
+}
+
 describe('Astra local Ollama outbound relay', () => {
   beforeEach(() => {
     vi.stubEnv('ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN', token);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it('rejects unauthenticated callers, even on the worker and model endpoints', async () => {
@@ -24,6 +59,7 @@ describe('Astra local Ollama outbound relay', () => {
       ['POST', base + '/worker/result'],
       ['POST', base + '/v1/chat/completions'],
       ['GET', base + '/v1/models'],
+      ['GET', base + '/worker/status'],
     ] as const) {
       const result = await app.request(path, { method });
       expect(result.status).toBe(401);
@@ -98,6 +134,11 @@ describe('Astra local Ollama outbound relay', () => {
     await clientPromise.catch(() => undefined);
     const after = await app.request(base + '/worker/status', { headers });
     expect(((await after.json()) as { pending: number }).pending).toBe(0);
+    // The PC cannot be interrupted by a disconnected HTTP client. Keep its
+    // physical slot occupied until the late result acknowledges completion.
+    const saturated = await completion(app);
+    expect(saturated.status).toBe(429);
+    expect(Number(saturated.headers.get('Retry-After'))).toBeGreaterThan(0);
     const late = await app.request(base + '/worker/result', {
       method: 'POST',
       headers: { ...headers, 'content-type': 'application/json' },
@@ -109,6 +150,131 @@ describe('Astra local Ollama outbound relay', () => {
       }),
     });
     expect(late.status).toBe(410);
+    const nextWorker = app.request(base + '/worker/next', { headers });
+    const nextClient = completion(app);
+    const nextJob = (await (await nextWorker).json()) as { id: string };
+    await finishJob(app, nextJob.id);
+    expect((await nextClient).status).toBe(200);
+  });
+
+  it('admits one of 300 concurrent reservations and rejects the rest without queuing payloads', async () => {
+    const app = createTestApp();
+    const worker = app.request(base + '/worker/next', { headers });
+    const settled: Response[] = [];
+    const requests = Array.from({ length: 300 }, () =>
+      completion(app, { 'X-Astra-Timeout-Ms': '35000' }).then((response) => {
+        settled.push(response);
+        return response;
+      })
+    );
+    const task = (await (await worker).json()) as { id: string };
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toHaveLength(299);
+    for (const response of settled) {
+      expect(response.status).toBe(429);
+      expect(Number(response.headers.get('Retry-After'))).toBeGreaterThan(0);
+    }
+    expect(await (await app.request(base + '/worker/status', { headers })).json()).toEqual({
+      connected: true,
+      pending: 1,
+    });
+    await finishJob(app, task.id);
+    expect(
+      (await Promise.all(requests)).filter((response) => response.status === 200)
+    ).toHaveLength(1);
+    expect(await (await app.request(base + '/worker/status', { headers })).json()).toEqual({
+      connected: true,
+      pending: 0,
+    });
+  });
+
+  it('releases an unclaimed reservation immediately when its caller cancels', async () => {
+    const app = createTestApp();
+    await establishIdleWorker(app);
+    const controller = new AbortController();
+    const cancelled = completion(app, {}, controller.signal);
+    await vi.advanceTimersByTimeAsync(0);
+    expect((await completion(app)).status).toBe(429);
+    controller.abort();
+    expect((await cancelled).status).toBe(504);
+    const worker = app.request(base + '/worker/next', { headers });
+    const next = completion(app);
+    const task = (await (await worker).json()) as { id: string };
+    await finishJob(app, task.id);
+    expect((await next).status).toBe(200);
+  });
+
+  it('releases timed-out reservations and never lets their late results release a newer inference', async () => {
+    const app = createTestApp();
+    const worker = app.request(base + '/worker/next', { headers });
+    const expired = completion(app, { 'X-Astra-Timeout-Ms': '1000' });
+    const oldTask = (await (await worker).json()) as { id: string };
+    await vi.advanceTimersByTimeAsync(1000);
+    expect((await expired).status).toBe(504);
+    expect(await (await app.request(base + '/worker/status', { headers })).json()).toEqual({
+      connected: true,
+      pending: 0,
+    });
+    const nextWorker = app.request(base + '/worker/next', { headers });
+    const nextClient = completion(app);
+    const newTask = (await (await nextWorker).json()) as { id: string };
+    expect((await finishJob(app, oldTask.id)).status).toBe(410);
+    expect((await completion(app)).status).toBe(429);
+    await finishJob(app, newTask.id);
+    expect((await nextClient).status).toBe(200);
+  });
+
+  it('keeps an active bounded inference online past the 35-second idle heartbeat threshold', async () => {
+    const app = createTestApp();
+    const worker = app.request(base + '/worker/next', { headers });
+    const client = completion(app);
+    const task = (await (await worker).json()) as { id: string };
+    await vi.advanceTimersByTimeAsync(36_000);
+    expect(await (await app.request(base + '/worker/status', { headers })).json()).toEqual({
+      connected: true,
+      pending: 1,
+    });
+    expect((await app.request(base + '/v1/models', { headers })).status).toBe(200);
+    const busy = await completion(app);
+    expect(busy.status).toBe(429);
+    expect(busy.headers.get('Retry-After')).toBe('6');
+    await finishJob(app, task.id);
+    expect((await client).status).toBe(200);
+    await vi.advanceTimersByTimeAsync(35_001);
+    expect(await (await app.request(base + '/worker/status', { headers })).json()).toEqual({
+      connected: false,
+      pending: 0,
+    });
+  });
+
+  it('expires an abandoned physical lease and bounds concurrent worker polls', async () => {
+    const app = createTestApp();
+    const workerController = new AbortController();
+    const firstPoll = app.request(base + '/worker/next', {
+      headers,
+      signal: workerController.signal,
+    });
+    expect((await app.request(base + '/worker/next', { headers })).status).toBe(429);
+    workerController.abort();
+    expect((await firstPoll).status).toBe(204);
+
+    const worker = app.request(base + '/worker/next', { headers });
+    const clientController = new AbortController();
+    const client = completion(app, {}, clientController.signal);
+    const task = (await (await worker).json()) as { id: string };
+    clientController.abort();
+    expect((await client).status).toBe(504);
+    await vi.advanceTimersByTimeAsync(42_001);
+    expect(await (await app.request(base + '/worker/status', { headers })).json()).toEqual({
+      connected: false,
+      pending: 0,
+    });
+    const recoveredWorker = app.request(base + '/worker/next', { headers });
+    const recoveredClient = completion(app);
+    const recovered = (await (await recoveredWorker).json()) as { id: string };
+    expect(recovered.id).not.toBe(task.id);
+    await finishJob(app, recovered.id);
+    expect((await recoveredClient).status).toBe(200);
   });
   it('passes the main agent budget to the PC without extending a shorter absolute deadline', async () => {
     const app = createTestApp();

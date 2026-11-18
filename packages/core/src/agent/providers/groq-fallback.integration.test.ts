@@ -15,6 +15,7 @@ beforeEach(() => {
   keys = Array.from({ length: 5 }, (_, i) => `gsk-synthetic-${sequence}-${i}`);
   keys.forEach((key, i) => vi.stubEnv(i ? `GROQ_API_KEY_${i + 1}` : 'GROQ_API_KEY', key));
   for (let i = 6; i <= 10; i++) vi.stubEnv(`GROQ_API_KEY_${i}`, '');
+  vi.stubEnv('GROQ_QUOTA_GROUPS', '');
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -68,7 +69,7 @@ async function provider() {
 }
 
 describe('Groq credential pool with the real fallback transport', () => {
-  it('uses each available Groq credential once, then a private tool-capable OpenRouter route', async () => {
+  it('respects one shared Groq organization quota, then uses a private tool-capable OpenRouter route', async () => {
     const calls: Array<{ url: string; key: string; body: Record<string, unknown> }> = [];
     vi.stubGlobal(
       'fetch',
@@ -89,14 +90,13 @@ describe('Groq credential pool with the real fallback transport', () => {
     );
     const result = await (await provider()).complete(input('customer-A'));
     expect(result.ok).toBe(true);
-    expect(calls).toHaveLength(6);
-    expect(new Set(calls.slice(0, 5).map((c) => c.key)).size).toBe(5);
-    expect(calls[5]!.body.model).toBe('openrouter/free');
-    expect(calls[5]!.body.provider).toMatchObject({
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.body.model).toBe('openrouter/free');
+    expect(calls[1]!.body.provider).toMatchObject({
       data_collection: 'deny',
       require_parameters: true,
     });
-    expect(JSON.stringify(calls[5]!.body.messages)).toContain('customer-A');
+    expect(JSON.stringify(calls[1]!.body.messages)).toContain('customer-A');
   });
 
   it('preserves an already executed tool receipt when the next completion changes credential', async () => {
@@ -174,11 +174,13 @@ describe('Groq credential pool with the real fallback transport', () => {
     expect(receipts[0]).toEqual(receipts[1]);
   });
 
-  it('keeps 500 simultaneous synthetic customer requests isolated across the actual JSON transports', async () => {
+  it('keeps 500 synthetic requests isolated while bounding Groq concurrency and using the configured fallback', async () => {
     const observedKeys = new Set<string>();
+    let groqCalls = 0;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (_url: string, init: RequestInit) => {
+      vi.fn(async (url: string, init: RequestInit) => {
+        if (url.startsWith('https://api.groq.com/')) groqCalls++;
         observedKeys.add(new Headers(init.headers).get('authorization')!);
         const body = JSON.parse(String(init.body));
         await Promise.resolve();
@@ -191,6 +193,7 @@ describe('Groq credential pool with the real fallback transport', () => {
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.value.content).toBe(`customer-${i}`);
     });
-    expect(observedKeys.size).toBe(5);
+    expect(groqCalls).toBe(4);
+    expect(observedKeys.size).toBe(5); // Four Groq credentials plus the configured fallback.
   });
 });

@@ -1,18 +1,52 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
+  ASTRA_CLOUDFLARE_TIMEOUT_MS,
+  ASTRA_CHANNEL_OTHER_CLOUD_WITH_CLOUDFLARE_TIMEOUT_MS,
+  astraChannelFallbackBudgetMs,
+  getAstraChannelFallbackBudget,
   parseAstraFallbackChain,
   limitAstraFallbacks,
-  getAstraChannelFallbackBudget,
 } from './fallback-chain.js';
 
 describe('Astra free-only fallback policy', () => {
+  it('preserves a full local inference allowance after every configured cloud timeout', () => {
+    const cloudAttempts = [8_000, 8_000, 8_000, 8_000];
+    const budget = astraChannelFallbackBudgetMs(5_000, [
+      ...cloudAttempts,
+      ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
+    ]);
+    expect(ASTRA_LOCAL_FALLBACK_TIMEOUT_MS).toBe(35_000);
+    expect(budget - 5_000 - cloudAttempts.reduce((total, timeout) => total + timeout, 0)).toBe(
+      36_000
+    );
+    expect(budget).toBeLessThanOrEqual(75_000);
+    expect(astraChannelFallbackBudgetMs(35_000, [8_000])).toBe(44_000);
+    expect(astraChannelFallbackBudgetMs(35_000, Array<number>(20).fill(8_000))).toBe(75_000);
+  });
+
+  it('reserves the full local allowance after the Cloudflare-specific attempt budgets', () => {
+    expect(
+      astraChannelFallbackBudgetMs(5_000, [
+        ASTRA_CLOUDFLARE_TIMEOUT_MS,
+        ASTRA_CHANNEL_OTHER_CLOUD_WITH_CLOUDFLARE_TIMEOUT_MS,
+        ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
+      ])
+    ).toBe(60_000);
+    expect(
+      astraChannelFallbackBudgetMs(ASTRA_CLOUDFLARE_TIMEOUT_MS, [
+        ASTRA_CHANNEL_OTHER_CLOUD_WITH_CLOUDFLARE_TIMEOUT_MS,
+        ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
+      ])
+    ).toBe(55_000);
+  });
+
   it.each([
     [[], 16_000],
     [['openrouter'], 16_000],
+    [['cloudflare-workers-ai'], 24_000],
     [['cloudflare-workers-ai', 'openrouter'], 24_000],
-    [['openrouter', 'ollama-local'], 26_000],
-    [['cloudflare-workers-ai', 'openrouter', 'ollama-local'], 26_000],
-  ] as const)('bounds a usable channel chain %j to %i ms', (providers, budget) => {
+  ] as const)('bounds a usable cloud-only channel chain %j to %i ms', (providers, budget) => {
     expect(getAstraChannelFallbackBudget(providers)).toBe(budget);
   });
 

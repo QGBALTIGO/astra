@@ -235,7 +235,12 @@ export class OpenAICompatibleProvider implements IProvider {
       : `${this.config.baseUrl}/models`;
   }
 
-  private responseError(response: Response, errorText: string, streaming = false): InternalError {
+  private responseError(
+    response: Response,
+    errorText: string,
+    streaming = false,
+    retryAfterMs?: number
+  ): InternalError {
     const error = new InternalError(
       `${this.providerId} ${streaming ? 'stream' : 'API'} error: ${response.status}${errorText ? ` - ${errorText}` : ''}`
     ) as InternalError & { retryAfterMs?: number };
@@ -245,6 +250,12 @@ export class OpenAICompatibleProvider implements IProvider {
       const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(hint) - Date.now();
       if (Number.isFinite(delay) && delay >= 0)
         error.retryAfterMs = Math.min(86_400_000, Math.max(1000, delay));
+    }
+    if (retryAfterMs !== undefined && Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
+      error.retryAfterMs = Math.min(
+        86_400_000,
+        Math.max(1000, error.retryAfterMs ?? 0, retryAfterMs)
+      );
     }
     if (this.isCloudflareEndpoint() && response.status === 429) {
       // 3036 is the daily free allocation; 3040 is temporary capacity. Do not
@@ -338,6 +349,7 @@ export class OpenAICompatibleProvider implements IProvider {
       const {
         response,
         errorText: rateLimitErrorText,
+        retryAfterMs,
         finish: cleanup,
         signal,
       } = await this.fetchChatCompletion(body, request);
@@ -345,7 +357,7 @@ export class OpenAICompatibleProvider implements IProvider {
 
       if (!response.ok) {
         const errorText = rateLimitErrorText ?? (await readWithAbort(response.text(), signal));
-        return err(this.responseError(response, errorText));
+        return err(this.responseError(response, errorText, false, retryAfterMs));
       }
 
       const data = (await readWithAbort(response.json(), signal)) as OpenAIResponse;
@@ -416,6 +428,7 @@ export class OpenAICompatibleProvider implements IProvider {
       const {
         response,
         errorText: rateLimitErrorText,
+        retryAfterMs,
         finish: cleanup,
         signal,
       } = await this.fetchChatCompletion(body, request);
@@ -423,7 +436,7 @@ export class OpenAICompatibleProvider implements IProvider {
 
       if (!response.ok || !response.body) {
         const errorText = rateLimitErrorText ?? (await readWithAbort(response.text(), signal));
-        yield err(this.responseError(response, errorText, true));
+        yield err(this.responseError(response, errorText, true, retryAfterMs));
         return;
       }
 
@@ -786,6 +799,7 @@ export class OpenAICompatibleProvider implements IProvider {
   ): Promise<{
     response: Response;
     errorText?: string;
+    retryAfterMs?: number;
     finish?: () => void;
     signal?: AbortSignal;
   }> {
@@ -801,28 +815,32 @@ export class OpenAICompatibleProvider implements IProvider {
         ? { 'X-Runtime': this.providerId.replace('bridge-', '') }
         : {}),
     };
-    const controller = new AbortController();
-    const onAbort = () => controller.abort(request.signal?.reason);
-    if (request.signal?.aborted) onAbort();
-    else request.signal?.addEventListener('abort', onAbort, { once: true });
-    this.activeRequests.add(controller);
-    const timeout = this.config.timeout ?? 120_000;
-    const timer = setTimeout(
-      () => controller.abort(new TimeoutError(`${this.providerId} request`, timeout)),
-      timeout
-    );
-    timer.unref?.();
-    const finish = () => {
-      clearTimeout(timer);
-      request.signal?.removeEventListener('abort', onAbort);
-      this.activeRequests.delete(controller);
-    };
     const keys = groqPoolKeys({
       providerId: this.providerId,
       baseUrl: this.config.baseUrl,
       endpoint: this.config.endpoint,
       authorization: new Headers(headers).get('authorization') ?? '',
     });
+    const controller = new AbortController();
+    const onAbort = () => controller.abort(request.signal?.reason);
+    if (request.signal?.aborted) onAbort();
+    else request.signal?.addEventListener('abort', onAbort, { once: true });
+    this.activeRequests.add(controller);
+    const timeout = this.config.timeout ?? 120_000;
+    // The Groq pool owns one deadline through key selection and body consumption.
+    // Other transports use this request-scoped timer, including Cloudflare retries.
+    const timer = keys
+      ? undefined
+      : setTimeout(
+          () => controller.abort(new TimeoutError(`${this.providerId} request`, timeout)),
+          timeout
+        );
+    timer?.unref?.();
+    const finish = () => {
+      if (timer) clearTimeout(timer);
+      request.signal?.removeEventListener('abort', onAbort);
+      this.activeRequests.delete(controller);
+    };
     try {
       controller.signal.throwIfAborted();
       if (keys) {

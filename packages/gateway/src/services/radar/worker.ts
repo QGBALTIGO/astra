@@ -111,13 +111,14 @@ export async function evaluateRadar(now = new Date()): Promise<number> {
           freshSnapshot(i.snapshot, now)
         ) {
           const value = i.snapshot.items.find((x) => x.value)?.value;
-          if (
-            value &&
-            i.input.threshold &&
-            i.input.comparison &&
-            !thresholdMatches(value, i.input.threshold, i.input.comparison)
-          )
-            await radarRepo.resetThreshold(a.user_id, i.id, i.revision);
+          if (value && i.input.threshold && i.input.comparison) {
+            if (!thresholdMatches(value, i.input.threshold, i.input.comparison))
+              await radarRepo.resetThreshold(a.user_id, i.id, i.revision);
+            else if (
+              await radarRepo.recoverUnsentThreshold(a.user_id, i.id, i.revision, pref.revision)
+            )
+              i.threshold_state = false;
+          }
         }
         if (silent) continue;
         for (const decision of interestDecisions(i, now, timeZone)) {
@@ -343,31 +344,34 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
         let receipt = '';
         let interrupted = false;
         for (const [index, part] of parts.entries()) {
-          const [freshAccount, freshUser, freshAlias, authorized, currentTopics] =
-            await Promise.all([
-              customerAccountsRepo.getById(account.id),
-              channelUsersRepo.getById(account.channelUserId),
-              resolveCustomerPhone(account.phoneNumber),
-              radarRepo.sendingDeliveryCurrent(row),
-              part.topics?.length ? radarRepo.rawInterests(row.user_id) : Promise.resolve([]),
-            ]);
-          if (
-            !authorized ||
-            freshAccount?.phoneNumber !== account.phoneNumber ||
-            freshAccount?.dataUserId !== row.user_id ||
-            freshAccount?.timeZone !== account.timeZone ||
-            !freshUser ||
-            !isChannelUserAccessActive(freshUser) ||
-            freshUser.ownpilotUserId !== 'whatsapp:' + account.phoneNumber ||
-            freshAlias?.accountId !== account.id ||
-            freshAlias.retired ||
-            part.topics?.some(
-              (topic) =>
-                !currentTopics.some(
-                  (i) => i.id === topic.id && i.revision === topic.revision && i.active
-                )
-            )
-          ) {
+          const canSend = async () => {
+            const [freshAccount, freshUser, freshAlias, authorized, currentTopics] =
+              await Promise.all([
+                customerAccountsRepo.getById(account.id),
+                channelUsersRepo.getById(account.channelUserId),
+                resolveCustomerPhone(account.phoneNumber),
+                radarRepo.sendingDeliveryCurrent(row),
+                part.topics?.length ? radarRepo.rawInterests(row.user_id) : Promise.resolve([]),
+              ]);
+            return Boolean(
+              authorized &&
+              freshAccount?.phoneNumber === account.phoneNumber &&
+              freshAccount?.dataUserId === row.user_id &&
+              freshAccount?.timeZone === account.timeZone &&
+              freshUser &&
+              isChannelUserAccessActive(freshUser) &&
+              freshUser.ownpilotUserId === 'whatsapp:' + account.phoneNumber &&
+              freshAlias?.accountId === account.id &&
+              !freshAlias.retired &&
+              !part.topics?.some(
+                (topic) =>
+                  !currentTopics.some(
+                    (i) => i.id === topic.id && i.revision === topic.revision && i.active
+                  )
+              )
+            );
+          };
+          if (!(await canSend())) {
             interrupted = true;
             break;
           }
@@ -376,6 +380,7 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
             text: part.text,
             urlButton: part.urlButton,
             sendBefore: new Date(row.expires_at),
+            canSend,
           });
           if (typeof receipt !== 'string' || !receipt.trim())
             throw new Error('Radar receipt unavailable');
@@ -384,7 +389,8 @@ export async function dispatchRadar(now = new Date()): Promise<number> {
             throw new Error('Radar progress unavailable');
         }
         if (interrupted) {
-          await radarRepo.finishDelivery(row, confirmedParts ? 'unknown' : 'cancelled');
+          if (confirmedParts) await radarRepo.finishDelivery(row, 'unknown');
+          else await radarRepo.finishDelivery(row, 'cancelled', undefined, true);
           continue;
         }
         await radarRepo.finishDelivery(

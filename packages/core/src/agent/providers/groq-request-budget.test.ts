@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { applyGroqRequestBudget, getGroqRequestTokenLimit } from './groq-request-budget.js';
+import {
+  applyGroqRequestBudget,
+  getGroqRequestTokenLimit,
+  getGroqEffectiveRequestTokenLimit,
+} from './groq-request-budget.js';
 
 describe('operator Groq chat token budget', () => {
   it.each(['', '0', '-1', '8e3', '8000.5', ' 8000', 'NaN', '9007199254740992'])(
@@ -9,6 +13,25 @@ describe('operator Groq chat token budget', () => {
   it('accepts a safe positive integer without guessing a provider quota', () => {
     expect(getGroqRequestTokenLimit('8000')).toBe(8000);
     expect(getGroqRequestTokenLimit('0008000')).toBe(8000);
+  });
+  it('uses the stricter request or quota ceiling with the exact admission margin', () => {
+    expect(getGroqEffectiveRequestTokenLimit({})).toBe(5000);
+    expect(getGroqEffectiveRequestTokenLimit({ GROQ_MAX_REQUEST_TOKENS: '8000' })).toBe(5000);
+    expect(getGroqEffectiveRequestTokenLimit({ GROQ_MAX_REQUEST_TOKENS: '3000' })).toBe(3000);
+    expect(
+      getGroqEffectiveRequestTokenLimit({
+        GROQ_MAX_REQUEST_TOKENS: '8000',
+        GROQ_TOKENS_PER_MINUTE: '10000',
+        GROQ_TOKEN_MARGIN_PERCENT: '25',
+      })
+    ).toBe(8000);
+    expect(
+      getGroqEffectiveRequestTokenLimit({
+        GROQ_MAX_REQUEST_TOKENS: 'garbage',
+        GROQ_TOKENS_PER_MINUTE: '0',
+        GROQ_TOKEN_MARGIN_PERCENT: '-1',
+      })
+    ).toBe(5000);
   });
   it.each(['max_tokens', 'max_completion_tokens'])(
     'fits a normal answer and full tool context using %s',

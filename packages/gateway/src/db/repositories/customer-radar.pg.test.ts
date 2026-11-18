@@ -420,6 +420,66 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(await a.preferences()).toEqual(preferences);
       expect(await publicRepo.deliveryCurrent(otherDelivery)).toBe(true);
     });
+    it('starts a currency threshold without activating a paused digest clock inside quiet hours', async () => {
+      await a.savePreferences({
+        ...RADAR_DEFAULT_PREFERENCES,
+        time: '23:00',
+        quietStart: '22:00',
+        quietEnd: '07:00',
+      });
+      const old = await create();
+      const followed = await a.followFromChat(
+        {
+          source: 'ptax',
+          target: 'USD',
+          delivery: 'threshold',
+          threshold: '5',
+          comparison: 'at_or_below',
+          leadMinutes: 60,
+        },
+        'Dólar (USD)',
+        '15:56'
+      );
+      expect((await a.preferences()).preferences).toEqual({
+        enabled: true,
+        time: '23:00',
+        quietStart: '22:00',
+        quietEnd: '07:00',
+      });
+      expect(followed.interest).toMatchObject({
+        active: true,
+        delivery: 'threshold',
+        comparison: 'at_or_below',
+        threshold: '5',
+      });
+      expect(followed.keptPaused).toBe(1);
+      expect((await a.get(old.id))!.active).toBe(false);
+      await expect(a.change(old.id, { active: true })).rejects.toThrow('horário do resumo');
+      await expect(
+        a.create({ source: 'currency', target: 'EUR', delivery: 'digest', leadMinutes: 60 }, 'EUR')
+      ).rejects.toThrow('horário do resumo');
+      await expect(a.savePreferences((await a.preferences()).preferences)).rejects.toThrow(
+        'horário do resumo'
+      );
+      const before = await a.preferences();
+      const second = await a.followFromChat(
+        {
+          source: 'ptax',
+          target: 'EUR',
+          delivery: 'threshold',
+          threshold: '6',
+          comparison: 'at_or_above',
+          leadMinutes: 60,
+        },
+        'Euro (EUR)',
+        '12:00'
+      );
+      expect(second.interest.active).toBe(true);
+      expect(await a.preferences()).toEqual(before);
+      expect((await a.get(old.id))!.active).toBe(false);
+      expect((await a.get(followed.interest.id))!.active).toBe(true);
+      expect(await b.list()).toEqual([]);
+    });
     it('starts matchday with a paused digest clock in quiet hours without allowing that digest to resume', async () => {
       await a.savePreferences({
         ...RADAR_DEFAULT_PREFERENCES,
@@ -1059,6 +1119,330 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(current!.revision).toBe(2);
       expect(current!.input.threshold).toBe('5.55');
       expect(await publicRepo.claimDeliveries()).toEqual([]);
+    });
+    it('persists an inclusive currency alert, preserves the digest and deduplicates a threshold until rearmed', async () => {
+      await a.create(
+        { source: 'news', target: 'mundo', delivery: 'digest', leadMinutes: 60 },
+        'Mundo'
+      );
+      const pref = await a.savePreferences({
+        ...RADAR_DEFAULT_PREFERENCES,
+        enabled: true,
+        time: '09:30',
+      });
+      const saved = await a.followFromChat(
+        {
+          source: 'ptax',
+          target: 'USD',
+          delivery: 'threshold',
+          threshold: '5.000000',
+          comparison: 'at_or_below',
+          leadMinutes: 60,
+        },
+        'Dólar (USD)',
+        '15:56'
+      );
+      expect(await a.preferences()).toEqual(pref);
+      expect((await a.list()).find((item) => item.source === 'news')?.active).toBe(true);
+      expect(await b.get(saved.interest.id)).toBeNull();
+      const now = new Date('2099-11-16T15:00:00Z');
+      const row = (await a.get(saved.interest.id))!;
+      expect(row.input).toMatchObject({ threshold: '5.000000', comparison: 'at_or_below' });
+      const writeRate = async (value: string, id: string) => {
+        const snapshot: RadarSnapshot = {
+          items: [{ id, title: 'USD', value, text: 'Referência PTAX' }],
+          observedAt: now.toISOString(),
+          expiresAt: '2099-11-16T18:00:00Z',
+          sourceLabel: 'Banco Central',
+          sourceUrl: 'https://www.bcb.gov.br/',
+        };
+        await db.execute('UPDATE radar_resources SET snapshot=$2::jsonb WHERE id=$1', [
+          row.resource_id,
+          JSON.stringify(snapshot),
+        ]);
+        return (await a.get(row.id))!;
+      };
+      let current = await writeRate('5.000001', 'first');
+      expect(interestDecisions(current, now, 'America/Campo_Grande')).toEqual([]);
+      current = await writeRate('5', 'equal');
+      const [decision] = interestDecisions(current, now, 'America/Campo_Grande');
+      expect(decision).toBeDefined();
+      expect(
+        await publicRepo.queue(
+          userA,
+          current,
+          pref.revision,
+          decision!.key,
+          decision!.payload,
+          decision!.expiresAt,
+          true
+        )
+      ).toBe(true);
+      expect(
+        await publicRepo.queue(
+          userA,
+          current,
+          pref.revision,
+          decision!.key,
+          decision!.payload,
+          decision!.expiresAt,
+          true
+        )
+      ).toBe(false);
+      expect(interestDecisions((await a.get(row.id))!, now, 'America/Campo_Grande')).toEqual([]);
+      await writeRate('5.000001', 'above');
+      await publicRepo.resetThreshold(userB, row.id, row.revision);
+      expect((await a.get(row.id))!.threshold_state).toBe(true);
+      await publicRepo.resetThreshold(userA, row.id, row.revision);
+      current = await writeRate('5.000000', 'crossed-again');
+      const [next] = interestDecisions(current, now, 'America/Campo_Grande');
+      expect(
+        await publicRepo.queue(
+          userA,
+          current,
+          pref.revision,
+          next!.key,
+          next!.payload,
+          next!.expiresAt,
+          true
+        )
+      ).toBe(true);
+      expect(await b.history()).toEqual([]);
+      expect(await a.history()).toHaveLength(2);
+    });
+
+    describe('threshold recovery with proof of no transport', () => {
+      async function prepareThreshold() {
+        const saved = await a.followFromChat(
+          {
+            source: 'currency',
+            target: 'USD',
+            delivery: 'threshold',
+            threshold: '5',
+            comparison: 'at_or_below',
+            leadMinutes: 60,
+          },
+          'Dólar',
+          '15:56'
+        );
+        const now = new Date();
+        const interest = (await a.get(saved.interest.id))!;
+        const snapshot: RadarSnapshot = {
+          items: [{ id: 'usd-rate', title: 'USD', value: '4.9', text: 'Referência sintética' }],
+          observedAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + 3600000).toISOString(),
+          sourceLabel: 'Frankfurter',
+          sourceUrl: 'https://frankfurter.dev/',
+        };
+        await db.execute('UPDATE radar_resources SET snapshot=$2::jsonb WHERE id=$1', [
+          interest.resource_id,
+          JSON.stringify(snapshot),
+        ]);
+        const current = (await a.get(interest.id))!;
+        const pref = await a.preferences();
+        const [decision] = interestDecisions(current, now, 'America/Campo_Grande');
+        expect(
+          await publicRepo.queue(
+            userA,
+            current,
+            pref.revision,
+            decision!.key,
+            decision!.payload,
+            decision!.expiresAt,
+            true
+          )
+        ).toBe(true);
+        return { interest: current, pref, decision: decision!, now };
+      }
+      async function expireThreshold() {
+        const prepared = await prepareThreshold();
+        await db.execute("UPDATE customer_radar_outbox SET expires_at=NOW()-INTERVAL '1 second'");
+        expect(await publicRepo.claimDeliveries()).toEqual([]);
+        return prepared;
+      }
+      const recover = (prepared: Awaited<ReturnType<typeof prepareThreshold>>) =>
+        publicRepo.recoverUnsentThreshold(
+          userA,
+          prepared.interest.id,
+          prepared.interest.revision,
+          prepared.pref.revision
+        );
+
+      it.each(['pending', 'leased'] as const)(
+        'rearms a %s threshold that expires before transport, keeping the event and fencing old leases',
+        async (state) => {
+          const prepared = await prepareThreshold();
+          const old = state === 'leased' ? (await publicRepo.claimDeliveries())[0]! : undefined;
+          await db.execute("UPDATE customer_radar_outbox SET expires_at=NOW()-INTERVAL '1 second'");
+          expect(await publicRepo.claimDeliveries()).toEqual([]);
+          expect((await a.get(prepared.interest.id))!.threshold_state).toBe(true);
+          expect(
+            await db.queryOne('SELECT status,payload FROM customer_radar_outbox')
+          ).toMatchObject({
+            status: 'expired',
+            payload: { notAttempted: true },
+          });
+          const outcomes = await Promise.all([recover(prepared), recover(prepared)]);
+          expect(outcomes.filter(Boolean)).toHaveLength(1);
+          const current = (await a.get(prepared.interest.id))!;
+          const [next] = interestDecisions(current, prepared.now, 'America/Campo_Grande');
+          expect(next!.key).toBe(prepared.decision.key);
+          const queued = await Promise.all(
+            Array.from({ length: 2 }, () =>
+              publicRepo.queue(
+                userA,
+                current,
+                prepared.pref.revision,
+                next!.key,
+                next!.payload,
+                next!.expiresAt,
+                true
+              )
+            )
+          );
+          expect(queued.filter(Boolean)).toHaveLength(1);
+          expect((await a.get(current.id))!.threshold_state).toBe(true);
+          expect(await a.history()).toHaveLength(1);
+          const newer = (await publicRepo.claimDeliveries())[0]!;
+          expect(newer.payload.notAttempted).toBeUndefined();
+          if (old) {
+            expect(newer.lease_token).not.toBe(old.lease_token);
+            expect(await publicRepo.beginDelivery(old)).toBe(false);
+          }
+          expect(await publicRepo.beginDelivery(newer)).toBe(true);
+        }
+      );
+
+      it.each([false, true])(
+        'recovers cancellation proven before transport, began=%s',
+        async (began) => {
+          const prepared = await prepareThreshold();
+          const row = (await publicRepo.claimDeliveries())[0]!;
+          if (began) expect(await publicRepo.beginDelivery(row)).toBe(true);
+          await publicRepo.finishDelivery(row, 'cancelled', undefined, began);
+          expect(await recover(prepared)).toBe(true);
+        }
+      );
+
+      it.each(['sent', 'unknown', 'unproven-cancel', 'partial'] as const)(
+        'preserves the threshold latch after %s transmission evidence',
+        async (state) => {
+          const prepared = await prepareThreshold();
+          const row = (await publicRepo.claimDeliveries())[0]!;
+          expect(await publicRepo.beginDelivery(row)).toBe(true);
+          if (state === 'partial') {
+            expect(await publicRepo.recordDeliveryPart(row, 0, 'first-part', 2)).toBe(true);
+            await publicRepo.deferDelivery(row, 0, true);
+            expect(
+              (await db.queryOne<{ status: string }>('SELECT status FROM customer_radar_outbox'))!
+                .status
+            ).toBe('sending');
+            await publicRepo.finishDelivery(row, 'cancelled', undefined, true);
+          } else if (state === 'unproven-cancel') await publicRepo.finishDelivery(row, 'cancelled');
+          else
+            await publicRepo.finishDelivery(row, state, state === 'sent' ? 'receipt' : undefined);
+          expect(await recover(prepared)).toBe(false);
+          expect((await a.get(prepared.interest.id))!.threshold_state).toBe(true);
+          expect(await publicRepo.claimDeliveries()).toEqual([]);
+          expect(
+            (await db.queryOne<{ status: string }>('SELECT status FROM customer_radar_outbox'))!
+              .status
+          ).toBe(state === 'sent' ? 'sent' : 'unknown');
+        }
+      );
+
+      it('does not infer safety from an old expired row that has no explicit proof', async () => {
+        const prepared = await expireThreshold();
+        await db.execute("UPDATE customer_radar_outbox SET payload=payload-'notAttempted'");
+        expect(await recover(prepared)).toBe(false);
+        expect((await a.get(prepared.interest.id))!.threshold_state).toBe(true);
+      });
+
+      it('does not let expired evidence clear a newer active or successful delivery latch', async () => {
+        const prepared = await expireThreshold();
+        await publicRepo.resetThreshold(userA, prepared.interest.id, prepared.interest.revision);
+        const current = (await a.get(prepared.interest.id))!;
+        expect(
+          await publicRepo.queue(
+            userA,
+            current,
+            prepared.pref.revision,
+            prepared.decision.key + ':later',
+            prepared.decision.payload,
+            prepared.decision.expiresAt,
+            true
+          )
+        ).toBe(true);
+        expect(await recover(prepared)).toBe(false);
+        const active = (await publicRepo.claimDeliveries())[0]!;
+        expect(await publicRepo.beginDelivery(active)).toBe(true);
+        await publicRepo.finishDelivery(active, 'sent', 'later-receipt');
+        expect(await recover(prepared)).toBe(false);
+        expect((await a.get(prepared.interest.id))!.threshold_state).toBe(true);
+      });
+
+      it('revalidates tenant, rule revision, preference revision and opt-in before recovery', async () => {
+        const prepared = await expireThreshold();
+        expect(
+          await publicRepo.recoverUnsentThreshold(
+            userB,
+            prepared.interest.id,
+            prepared.interest.revision,
+            prepared.pref.revision
+          )
+        ).toBe(false);
+        expect(
+          await publicRepo.recoverUnsentThreshold(
+            userA,
+            prepared.interest.id,
+            prepared.interest.revision + 1,
+            prepared.pref.revision
+          )
+        ).toBe(false);
+        expect(
+          await publicRepo.recoverUnsentThreshold(
+            userA,
+            prepared.interest.id,
+            prepared.interest.revision,
+            prepared.pref.revision + 1
+          )
+        ).toBe(false);
+        await a.savePreferences({ ...prepared.pref.preferences, enabled: false });
+        const disabled = await a.preferences();
+        expect(
+          await publicRepo.recoverUnsentThreshold(
+            userA,
+            prepared.interest.id,
+            prepared.interest.revision,
+            disabled.revision
+          )
+        ).toBe(false);
+        expect((await a.get(prepared.interest.id))!.threshold_state).toBe(true);
+        expect(await b.history()).toEqual([]);
+      });
+
+      it.each([
+        "UPDATE channel_users SET is_blocked=TRUE WHERE id='channel-a'",
+        "UPDATE channel_users SET access_expires_at=NOW()-INTERVAL '1 second' WHERE id='channel-a'",
+        "UPDATE customer_phone_aliases SET retired_at=NOW() WHERE account_id='account-a'",
+        'UPDATE customer_radar_interests SET active=FALSE',
+      ])('rejects recovery after access or interest changes: %s', async (sql) => {
+        const prepared = await expireThreshold();
+        await db.execute(sql);
+        expect(await recover(prepared)).toBe(false);
+      });
+
+      it('fences terminal and deferred transitions against a different tenant or stale lease', async () => {
+        await prepareThreshold();
+        const row = (await publicRepo.claimDeliveries())[0]!;
+        await publicRepo.finishDelivery({ ...row, user_id: userB }, 'cancelled');
+        await publicRepo.deferDelivery({ ...row, user_id: userB }, 0);
+        await publicRepo.finishDelivery({ ...row, lease_token: 'stale' }, 'cancelled');
+        expect(
+          (await db.queryOne<{ status: string }>('SELECT status FROM customer_radar_outbox'))!
+            .status
+        ).toBe('leased');
+      });
     });
   }
 );

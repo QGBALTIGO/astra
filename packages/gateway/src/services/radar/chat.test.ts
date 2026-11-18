@@ -103,6 +103,117 @@ beforeEach(() => {
   m.preview.mockResolvedValue('queued');
 });
 describe('Radar chat consent, continuity and private account scope', () => {
+  it('saves the screenshot condition inclusively without accepting an invented reminder clock', async () => {
+    const result = await message(user, 'Me avise se o dólar chegar a 5 reais cravado ou menos', {
+      action: 'follow',
+      source: 'currency',
+      subject: 'EUR',
+      delivery: 'digest',
+      time: '15:56',
+      threshold: '6',
+      comparison: 'above',
+    });
+    expect(m.follow).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({
+        source: 'ptax',
+        target: 'USD',
+        delivery: 'threshold',
+        threshold: '5',
+        comparison: 'at_or_below',
+      }),
+      'Dólar (USD)',
+      '07:00'
+    );
+    expect(result.changed).toBe(true);
+    expect(result.reply).toContain('igual ou abaixo de *R$ 5*');
+    expect(result.reply).toContain('PTAX do Banco Central a cada 30 minutos');
+    expect(result.reply).toContain('sem cotação em tempo real');
+    expect(result.reply).toContain('22:00–07:00');
+    expect(result.reply).not.toContain('15:56');
+    expect(result.reply).not.toContain('Resumo diário');
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it('keeps an existing digest time while adding an independent price condition', async () => {
+    m.prefs.set(user, { enabled: true, time: '09:30', quietStart: '22:00', quietEnd: '07:00' });
+    m.lists.set(user, [
+      { id: 'news', active: true, source: 'news', target: 'mundo', delivery: 'digest' },
+    ]);
+    const result = await message(user, 'Me avise se o dólar ficar abaixo de R$ 5,123456', {
+      action: 'follow',
+    });
+    expect(result.changed).toBe(true);
+    expect(m.follow).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({ threshold: '5.123456', comparison: 'below' }),
+      'Dólar (USD)',
+      '09:30'
+    );
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it.each([
+    'Me notifique se o dólar ficar em 5 reais ou menos',
+    'Avise se o dólar ficar em 5 reais ou menos',
+    'Quero ser avisado se o dólar ficar em 5 reais ou menos',
+  ])('uses the same explicit consent for supported notification wording: %s', async (text) => {
+    const result = await message(user, text, { action: 'status' });
+    expect(result.changed).toBe(true);
+    expect(m.follow).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({ delivery: 'threshold', comparison: 'at_or_below' }),
+      'Dólar (USD)',
+      '07:00'
+    );
+  });
+  it('does not reset an equivalent active price condition on a retry', async () => {
+    m.prefs.set(user, { enabled: true, time: '09:30', quietStart: '22:00', quietEnd: '07:00' });
+    m.lists.set(user, [
+      {
+        id: 'usd',
+        active: true,
+        source: 'ptax',
+        target: 'USD',
+        delivery: 'threshold',
+        threshold: '5.00',
+        comparison: 'at_or_below',
+      },
+    ]);
+    const result = await message(user, 'Me avise se o dólar chegar a 5 reais cravado ou menos', {
+      action: 'follow',
+    });
+    expect(result.changed).toBe(false);
+    expect(result.reply).toContain('já ativo');
+    expect(m.follow).not.toHaveBeenCalled();
+  });
+  it.each([
+    'Me avise se o dólar ficar em R$ 5 ou menos amanhã às 10h',
+    'Me avise quando o Codex voltar',
+    'Só me avise',
+  ])('does not use unsupported conditions or old model arguments to register: %s', async (text) => {
+    const result = await message(user, text, {
+      action: 'follow',
+      source: 'ptax',
+      subject: 'USD',
+      delivery: 'threshold',
+      threshold: '5',
+      comparison: 'at_or_below',
+      time: '15:56',
+    });
+    expect(result.changed).toBe(false);
+    expect(m.follow).not.toHaveBeenCalled();
+    expect(m.save).not.toHaveBeenCalled();
+  });
+  it('does not let a consulted external document authorize a price alert', async () => {
+    await expect(
+      message(
+        user,
+        'Me avise se o dólar ficar abaixo de 5',
+        { action: 'follow' },
+        { externalContentGuard: { seen: true } }
+      )
+    ).rejects.toThrow('nova mensagem');
+    expect(m.follow).not.toHaveBeenCalled();
+  });
   it('does not register an old team when a read-only all-team clarification changes the topic', async () => {
     const first = await message(user, 'Me avise sempre que tiver jogo do Flamengo', {
       action: 'follow',

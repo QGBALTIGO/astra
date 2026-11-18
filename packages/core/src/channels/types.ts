@@ -83,6 +83,8 @@ export interface ChannelOutgoingMessage {
   copyCode?: { label: string; code: string };
   /** Do not begin sending at or after this deadline (e.g. an expiring access code). */
   sendBefore?: Date;
+  /** Server-owned access guard. WhatsApp rechecks it after queueing, before each send. */
+  canSend?: () => Promise<boolean>;
   /** Attachments to send */
   attachments?: ChannelAttachment[];
   /** Reply-to message ID */

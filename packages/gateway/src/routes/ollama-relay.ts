@@ -21,13 +21,13 @@ type Job = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-const jobs = new Map<string, Job>();
-const queue: string[] = [];
-const listeners = new Set<() => void>();
 const MAX_WAIT_MS = 48_000;
-const MAX_JOBS = 6;
+// The installed bridge runs one inference at a time. Queuing several full
+// contexts behind it cannot fit the callers' deadlines and only wastes work.
+const MAX_JOBS = 1;
+const WORKER_INFERENCE_MAX_MS = 42_000;
+const WORKER_HEARTBEAT_MAX_AGE_MS = 35_000;
 const MAX_BODY_CHARS = 1_500_000;
-let lastWorkerContact = 0;
 
 function key(): string {
   return process.env.ASTRA_LOCAL_OLLAMA_BRIDGE_TOKEN ?? '';
@@ -39,30 +39,6 @@ function authorized(auth: string | undefined): boolean {
   const a = Buffer.from(auth.slice(7));
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
-}
-
-function workerOnline(): boolean {
-  return Boolean(
-    key().length >= 32 && lastWorkerContact && Date.now() - lastWorkerContact < 35_000
-  );
-}
-
-function takeJob(): Job | undefined {
-  while (queue.length) {
-    const job = jobs.get(queue.shift()!);
-    if (job) return job;
-  }
-  return undefined;
-}
-
-function removeQueuedJob(id: string): void {
-  const index = queue.indexOf(id);
-  if (index >= 0) queue.splice(index, 1);
-}
-
-function wakeWorkers(): void {
-  for (const resolve of listeners) resolve();
-  listeners.clear();
 }
 
 function streamResponse(completion: Completion): string {
@@ -108,6 +84,62 @@ function streamResponse(completion: Completion): string {
 /** Register outside /api/* auth: a separate, constant-time bearer guard applies. */
 export function registerOllamaRelayRoutes(app: Hono): void {
   const prefix = '/_internal/astra-ollama';
+  const jobs = new Map<string, Job>();
+  const queue: string[] = [];
+  const listeners = new Set<() => void>();
+  let lastWorkerContact = 0;
+  let admittingRequest = false;
+  // Client cancellation cannot stop a PC inference that was already claimed.
+  // Keep its bounded physical lease until the worker replies or its own
+  // deadline expires; an abandoned result must never clear a newer lease.
+  let inferenceLease: { id: string; expiresAt: number } | undefined;
+
+  function activeInference(): typeof inferenceLease {
+    if (inferenceLease && inferenceLease.expiresAt <= Date.now()) inferenceLease = undefined;
+    return inferenceLease;
+  }
+
+  function workerOnline(): boolean {
+    return Boolean(
+      key().length >= 32 &&
+      ((lastWorkerContact && Date.now() - lastWorkerContact < WORKER_HEARTBEAT_MAX_AGE_MS) ||
+        activeInference())
+    );
+  }
+
+  function busy(): boolean {
+    return admittingRequest || jobs.size >= MAX_JOBS || Boolean(activeInference());
+  }
+
+  function retryAfter(): string {
+    const expiresAt = activeInference()?.expiresAt ?? jobs.values().next().value?.expiresAt;
+    return String(Math.max(1, Math.ceil(((expiresAt ?? Date.now() + 1_000) - Date.now()) / 1_000)));
+  }
+
+  function takeJob(): Job | undefined {
+    if (activeInference()) return undefined;
+    while (queue.length) {
+      const job = jobs.get(queue.shift()!);
+      if (job) {
+        inferenceLease = {
+          id: job.id,
+          expiresAt: Math.min(job.expiresAt, Date.now() + WORKER_INFERENCE_MAX_MS),
+        };
+        return job;
+      }
+    }
+    return undefined;
+  }
+
+  function removeQueuedJob(id: string): void {
+    const index = queue.indexOf(id);
+    if (index >= 0) queue.splice(index, 1);
+  }
+
+  function wakeWorkers(): void {
+    for (const resolve of listeners) resolve();
+    listeners.clear();
+  }
 
   app.get(prefix + '/v1/models', (c) => {
     if (!authorized(c.req.header('authorization'))) return c.json({ error: 'Unauthorized' }, 401);
@@ -121,11 +153,17 @@ export function registerOllamaRelayRoutes(app: Hono): void {
   app.post(prefix + '/v1/chat/completions', async (c) => {
     if (!authorized(c.req.header('authorization'))) return c.json({ error: 'Unauthorized' }, 401);
     if (!workerOnline()) return c.json({ error: 'Local model worker offline' }, 503);
-    if (jobs.size >= MAX_JOBS) return c.json({ error: 'Local model worker busy' }, 503);
+    if (busy()) {
+      c.header('Retry-After', retryAfter());
+      return c.json({ error: 'Local model worker busy' }, 429);
+    }
     if (Number(c.req.header('content-length') ?? 0) > MAX_BODY_CHARS) {
       return c.json({ error: 'Request too large' }, 413);
     }
     let payload: ObjectValue;
+    // Reserve before reading the body: otherwise 300 concurrent callers can
+    // all observe an empty map before their asynchronous JSON reads finish.
+    admittingRequest = true;
     try {
       const body = await c.req.json();
       if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -137,6 +175,8 @@ export function registerOllamaRelayRoutes(app: Hono): void {
       }
     } catch {
       return c.json({ error: 'Invalid JSON' }, 400);
+    } finally {
+      admittingRequest = false;
     }
 
     const id = randomUUID();
@@ -144,12 +184,11 @@ export function registerOllamaRelayRoutes(app: Hono): void {
     const budget = Number(budgetHeader);
     if (budgetHeader && (!Number.isFinite(budget) || budget <= 0))
       return c.json({ error: 'Invalid local model budget' }, 400);
-    const requestedDeadline = Number(c.req.header('X-Astra-Deadline'));
-    if (
-      c.req.header('X-Astra-Deadline') &&
-      Number.isFinite(requestedDeadline) &&
-      requestedDeadline <= Date.now()
-    )
+    const deadlineHeader = c.req.header('X-Astra-Deadline');
+    const requestedDeadline = Number(deadlineHeader);
+    if (deadlineHeader && !Number.isFinite(requestedDeadline))
+      return c.json({ error: 'Invalid local model deadline' }, 400);
+    if (deadlineHeader && requestedDeadline <= Date.now())
       return c.json({ error: 'Local model request expired' }, 408);
     const relativeDeadline =
       Date.now() + (budgetHeader ? Math.min(budget, MAX_WAIT_MS) : MAX_WAIT_MS);
@@ -157,12 +196,16 @@ export function registerOllamaRelayRoutes(app: Hono): void {
       Number.isFinite(requestedDeadline) && requestedDeadline > Date.now()
         ? Math.floor(Math.min(requestedDeadline, relativeDeadline))
         : Math.floor(relativeDeadline);
+    if (busy()) {
+      c.header('Retry-After', retryAfter());
+      return c.json({ error: 'Local model worker busy' }, 429);
+    }
     try {
       const result = await new Promise<Completion>((resolve, reject) => {
         const signal = c.req.raw.signal;
         const onAbort = () => {
-          // A disconnected caller must not occupy one of the six local slots
-          // for another 48 seconds. The worker does NOT execute account tools.
+          // Release the response and queued payload immediately. A claimed
+          // inference keeps only its physical lease, never this private data.
           clearTimeout(timer);
           signal.removeEventListener('abort', onAbort);
           jobs.delete(id);
@@ -221,6 +264,10 @@ export function registerOllamaRelayRoutes(app: Hono): void {
 
   app.get(prefix + '/worker/next', async (c) => {
     if (!authorized(c.req.header('authorization'))) return c.json({ error: 'Unauthorized' }, 401);
+    if (activeInference() || listeners.size) {
+      c.header('Retry-After', retryAfter());
+      return c.json({ error: 'Local model worker busy' }, 429);
+    }
     lastWorkerContact = Date.now();
     let job = takeJob();
     if (!job) {
@@ -231,11 +278,15 @@ export function registerOllamaRelayRoutes(app: Hono): void {
           done = true;
           clearTimeout(timer);
           listeners.delete(finish);
+          c.req.raw.signal.removeEventListener('abort', finish);
           resolve();
         };
         listeners.add(finish);
         const timer = setTimeout(finish, 20_000);
+        c.req.raw.signal.addEventListener('abort', finish, { once: true });
+        if (c.req.raw.signal.aborted) finish();
       });
+      if (c.req.raw.signal.aborted) return c.body(null, 204);
       lastWorkerContact = Date.now();
       job = takeJob();
     }
@@ -264,10 +315,13 @@ export function registerOllamaRelayRoutes(app: Hono): void {
     }
     const id = body.id;
     if (typeof id !== 'string') return c.json({ error: 'Invalid ID' }, 400);
+    lastWorkerContact = Date.now();
+    if (inferenceLease?.id === id) inferenceLease = undefined;
     const job = jobs.get(id);
     if (!job) return c.json({ status: 'expired' }, 410);
     clearTimeout(job.timer);
     jobs.delete(id);
+    removeQueuedJob(id);
     const response = body.result;
     if (!response || typeof response !== 'object' || Array.isArray(response)) {
       job.reject(new Error('Worker returned no completion'));

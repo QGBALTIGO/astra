@@ -10,6 +10,48 @@ interface IdentityDependencies {
   owner: () => Promise<string | null>;
   api?: ChannelPluginAPI;
 }
+
+type AssetMessageScope = Pick<
+  ChannelIncomingMessage,
+  'id' | 'channelPluginId' | 'platform' | 'platformChatId'
+>;
+const VERIFIED_ASSET_SCOPE = Symbol('verified inbound WhatsApp asset scope');
+type ResolvedInboundMessage = ChannelIncomingMessage & {
+  [VERIFIED_ASSET_SCOPE]?: {
+    original: AssetMessageScope;
+    canonical: AssetMessageScope;
+    sender: string;
+  };
+};
+
+function assetScope(message: ChannelIncomingMessage): AssetMessageScope {
+  return {
+    id: message.id,
+    channelPluginId: message.channelPluginId,
+    platform: message.platform,
+    platformChatId: message.platformChatId,
+  };
+}
+
+/**
+ * Only the verified resolver can attach this module-private Symbol. It survives
+ * server-side object spreads, but cannot be supplied through JSON or metadata.
+ */
+export function inboundChannelAssetScope(message: ChannelIncomingMessage): AssetMessageScope {
+  const verified = (message as ResolvedInboundMessage)[VERIFIED_ASSET_SCOPE];
+  if (
+    verified &&
+    message.id === verified.canonical.id &&
+    message.channelPluginId === verified.canonical.channelPluginId &&
+    message.platform === verified.canonical.platform &&
+    message.platformChatId === verified.canonical.platformChatId &&
+    message.sender.platformUserId === verified.sender
+  ) {
+    return { ...verified.original };
+  }
+  return assetScope(message);
+}
+
 /** Reuse a grant's Brazilian spelling only after the transport verifies one recipient. Never merge accounts. */
 export async function resolveInboundWhatsAppSpelling(
   message: ChannelIncomingMessage,
@@ -56,9 +98,15 @@ export async function resolveInboundWhatsAppSpelling(
     return message;
   // Persist one business chat scope for durable reminders and account history.
   // The transport separately resolves its verified delivery spelling.
-  return {
+  const resolved: ResolvedInboundMessage = {
     ...message,
     platformChatId: alternate,
     sender: { ...message.sender, platformUserId: alternate },
   };
+  resolved[VERIFIED_ASSET_SCOPE] = {
+    original: Object.freeze(assetScope(message)),
+    canonical: Object.freeze(assetScope(resolved)),
+    sender: alternate,
+  };
+  return resolved;
 }

@@ -248,6 +248,7 @@ async function reminderTool(
   customer: Customer,
   name: string,
   args: Record<string, unknown>,
+  requestText: string,
   timestamp = new Date()
 ) {
   return runInExecContext(
@@ -256,6 +257,7 @@ async function reminderTool(
       platformChatId: customer.phone,
       channelMessageId: `tool-${name}-${timestamp.getTime()}`,
       channelMessageTimestamp: timestamp.getTime(),
+      channelRequestText: requestText,
     },
     () => executeChannelReminderTool(name, args, customer.userId)
   );
@@ -620,7 +622,14 @@ try {
       const saved = (await reminders(first))[0]!;
       assert.equal(saved.remindAt.getTime(), message.timestamp.getTime() + 20_000);
       assert.equal(
-        (await reminderTool(second, 'cancel_channel_reminder', { reminder_id: saved.id })).success,
+        (
+          await reminderTool(
+            second,
+            'cancel_channel_reminder',
+            { reminder_id: saved.id },
+            'Cancele esse lembrete'
+          )
+        ).success,
         false
       );
       const changedAt = new Date();
@@ -630,6 +639,7 @@ try {
             first,
             'reschedule_channel_reminder',
             { reminder_id: saved.id, delay_seconds: 40 },
+            'Reagende esse lembrete para daqui 40 segundos',
             changedAt
           )
         ).success,
@@ -639,17 +649,29 @@ try {
       assert.equal(current.remindAt.getTime(), changedAt.getTime() + 40_000);
       assert.equal(
         (
-          await reminderTool(second, 'reschedule_channel_reminder', {
-            reminder_id: saved.id,
-            delay_seconds: 60,
-          })
+          await reminderTool(
+            second,
+            'reschedule_channel_reminder',
+            {
+              reminder_id: saved.id,
+              delay_seconds: 60,
+            },
+            'Reagende esse lembrete para daqui 60 segundos'
+          )
         ).success,
         false
       );
       current = (await reminders(first)).find((entry) => entry.id === saved.id)!;
       assert.equal(current.remindAt.getTime(), changedAt.getTime() + 40_000);
       assert.equal(
-        (await reminderTool(first, 'cancel_channel_reminder', { reminder_id: saved.id })).success,
+        (
+          await reminderTool(
+            first,
+            'cancel_channel_reminder',
+            { reminder_id: saved.id },
+            'Cancele esse lembrete'
+          )
+        ).success,
         true
       );
       await makeDue(saved.id, first);

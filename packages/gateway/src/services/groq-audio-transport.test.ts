@@ -9,6 +9,7 @@ beforeEach(() => {
   backup = `synthetic-audio-backup-${run}`;
   vi.stubEnv('GROQ_API_KEY', first);
   vi.stubEnv('GROQ_API_KEY_2', backup);
+  vi.stubEnv('GROQ_QUOTA_GROUPS', '');
   for (let i = 3; i <= 10; i++) vi.stubEnv(`GROQ_API_KEY_${i}`, '');
 });
 afterEach(() => {
@@ -27,6 +28,13 @@ describe('bounded Groq audio credential failover', () => {
   it.each([429, 401, 503])(
     'reuses the same audio on an independent key after HTTP %s',
     async (status) => {
+      vi.stubEnv(
+        'GROQ_QUOTA_GROUPS',
+        JSON.stringify({
+          GROQ_API_KEY: `audio-organization-${run}-primary`,
+          GROQ_API_KEY_2: `audio-organization-${run}-backup`,
+        })
+      );
       const sent: Array<{ key: string | null; body: unknown; url: string }> = [];
       vi.stubGlobal(
         'fetch',
@@ -56,6 +64,21 @@ describe('bounded Groq audio credential failover', () => {
       ).toBe(true);
     }
   );
+  it('does not rotate unknown operator credentials after an organization quota failure', async () => {
+    const fetch = vi.fn(async (_url: string, _options: RequestInit) =>
+      Response.json(
+        { error: { message: 'synthetic quota exhausted' } },
+        { status: 429, headers: { 'retry-after': '30' } }
+      )
+    );
+    vi.stubGlobal('fetch', fetch);
+    await expect(groqAudioTranscription(audio(), first, 'json')).rejects.toThrow('HTTP 429');
+    await expect(groqAudioTranscription(audio(), first, 'json')).rejects.toThrow('HTTP 429');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(new Headers(fetch.mock.calls[0]![1]?.headers).get('authorization')).toBe(
+      'Bearer ' + first
+    );
+  });
   it('does not send operator reserves when the caller supplies its own key', async () => {
     const fetch = vi.fn(async (_url: string, _options: RequestInit) =>
       Response.json({ error: { message: 'unavailable' } }, { status: 429 })

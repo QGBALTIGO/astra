@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ChannelIncomingMessage, ChannelPluginAPI } from '@ownpilot/core/channels';
 import type { ChannelUserEntity } from '../db/repositories/channels/users.js';
-import { resolveInboundWhatsAppSpelling } from './whatsapp-inbound-identity.js';
+import {
+  inboundChannelAssetScope,
+  resolveInboundWhatsAppSpelling,
+} from './whatsapp-inbound-identity.js';
 const full = '5581999990101',
   short = '558199990101';
 function fixture() {
@@ -15,6 +18,7 @@ function fixture() {
     accessSource: 'manual',
   } as ChannelUserEntity;
   const message = {
+    channelPluginId: 'channel.whatsapp',
     platform: 'whatsapp',
     sender: { platform: 'whatsapp', platformUserId: short },
     platformChatId: short,
@@ -45,6 +49,51 @@ describe('inbound WhatsApp ninth digit', () => {
     expect(result.sender.platformUserId).toBe(full);
     expect(result.platformChatId).toBe(full);
     expect(result.id).toBe(message.id);
+  });
+  it('preserves the verified original asset scope through local metadata clones', async () => {
+    const { message, d } = fixture();
+    const resolved = await resolveInboundWhatsAppSpelling(message, d);
+    const cloned = { ...resolved, metadata: { ...resolved.metadata, astraRecentReceipts: [] } };
+    expect(inboundChannelAssetScope(cloned)).toEqual({
+      id: message.id,
+      channelPluginId: message.channelPluginId,
+      platform: message.platform,
+      platformChatId: short,
+    });
+    expect(inboundChannelAssetScope(JSON.parse(JSON.stringify(cloned)))).toEqual({
+      id: message.id,
+      channelPluginId: message.channelPluginId,
+      platform: message.platform,
+      platformChatId: full,
+    });
+  });
+  it('does not accept an original scope claimed through metadata', () => {
+    const { message } = fixture();
+    message.metadata = {
+      originalPlatformChatId: 'another-customer',
+      verifiedAssetScope: { platformChatId: 'another-customer' },
+    };
+    expect(inboundChannelAssetScope(message).platformChatId).toBe(short);
+  });
+  it.each(['id', 'channelPluginId', 'platformChatId'] as const)(
+    'does not reuse verified provenance after the canonical %s changes',
+    async (field) => {
+      const { message, d } = fixture();
+      const resolved = await resolveInboundWhatsAppSpelling(message, d);
+      const changed = { ...resolved, [field]: 'another-scope' };
+      expect(inboundChannelAssetScope(changed)[field]).toBe('another-scope');
+      expect(inboundChannelAssetScope(changed).platformChatId).not.toBe(short);
+    }
+  );
+  it('does not reuse verified asset provenance after the sender changes', async () => {
+    const { message, d } = fixture();
+    const resolved = await resolveInboundWhatsAppSpelling(message, d);
+    expect(
+      inboundChannelAssetScope({
+        ...resolved,
+        sender: { ...resolved.sender, platformUserId: 'another-sender' },
+      }).platformChatId
+    ).toBe(full);
   });
   it.each([null, '5599999999999'])(
     'does not trust an ambiguous or unrelated provider result: %s',

@@ -50,6 +50,8 @@ export interface RadarDeliveryRow {
     cards?: RadarNewsCard[];
     totalParts?: number;
     deliveredParts?: Array<{ index: number; transportId: string }>;
+    /** Repository proof that a terminal delivery never reached transport. */
+    notAttempted?: boolean;
   };
   expires_at: string | Date;
   lease_token: string;
@@ -139,11 +141,13 @@ export class CustomerRadarRepository extends BaseRepository {
       ]);
       const pref = await this.preferences();
       validateMatchdayTime(input, pref.preferences);
+      const independentAlert = ['matchday', 'threshold'].includes(input.delivery);
       const nextPreferences = radarPreferencesSchema.parse({
         ...pref.preferences,
-        // Matchday uses its own validated clock; a paused digest keeps its clock unchanged.
-        enabled: input.delivery !== 'matchday',
-        time: input.delivery === 'matchday' ? pref.preferences.time : time,
+        // Independent alerts do not activate the old digest clock. It may be
+        // inside quiet hours while paused; digest mutations still validate it.
+        enabled: !independentAlert,
+        time: independentAlert ? pref.preferences.time : time,
       });
       nextPreferences.enabled = true;
       await this.execute(
@@ -165,7 +169,7 @@ export class CustomerRadarRepository extends BaseRepository {
           )
         ).changes;
       }
-      if (input.delivery === 'matchday' && pref.preferences.enabled)
+      if (independentAlert && pref.preferences.enabled)
         await this.execute(
           "UPDATE customer_radar_outbox SET status='cancelled' WHERE user_id=$1 AND interest_id=$2 AND status IN ('pending','leased')",
           [this.userId, row!.id]
@@ -401,16 +405,19 @@ export class RadarRepository extends BaseRepository {
     thresholdState?: boolean
   ) {
     if (interest.user_id !== userId) return false;
+    const pendingPayload = { ...payload };
+    delete pendingPayload.notAttempted;
     return this.transaction(async () => {
       await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
         'radar:' + userId,
       ]);
-      const current = await this.queryOne<{ id: string }>(
-        `SELECT i.id FROM customer_radar_interests i JOIN customer_radar_preferences p ON p.user_id=i.user_id
+      const current = await this.queryOne<{ id: string; threshold_state: boolean | null }>(
+        `SELECT i.id,i.threshold_state FROM customer_radar_interests i JOIN customer_radar_preferences p ON p.user_id=i.user_id
     WHERE i.user_id=$1 AND i.id=$2 AND i.revision=$3 AND i.active AND p.revision=$4 AND p.preferences->>'enabled'='true'`,
         [userId, interest.id, interest.revision, prefRevision]
       );
       if (!current) return false;
+      if (thresholdState === true && current.threshold_state === true) return false;
       const changed = await this.execute(
         `INSERT INTO customer_radar_outbox(id,user_id,interest_id,interest_revision,preference_revision,event_key,payload,expires_at)
     VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8)
@@ -418,7 +425,9 @@ export class RadarRepository extends BaseRepository {
       status='pending',interest_revision=EXCLUDED.interest_revision,
       preference_revision=EXCLUDED.preference_revision,payload=EXCLUDED.payload,
       expires_at=EXCLUDED.expires_at,not_before=NOW(),lease_token=NULL,leased_until=NULL
-    WHERE customer_radar_outbox.status='cancelled'
+    WHERE (customer_radar_outbox.status='cancelled'
+      OR ($9::boolean AND customer_radar_outbox.status='expired'
+        AND customer_radar_outbox.payload->'notAttempted'='true'::jsonb))
       AND customer_radar_outbox.interest_id=EXCLUDED.interest_id
       AND customer_radar_outbox.sent_at IS NULL
       AND customer_radar_outbox.transport_id IS NULL
@@ -430,11 +439,12 @@ export class RadarRepository extends BaseRepository {
           interest.revision,
           prefRevision,
           eventKey,
-          JSON.stringify(payload),
+          JSON.stringify(pendingPayload),
           expiresAt.toISOString(),
+          thresholdState === true && interest.input.delivery === 'threshold',
         ]
       );
-      if (thresholdState !== undefined)
+      if (thresholdState !== undefined && changed.changes > 0)
         await this.execute(
           'UPDATE customer_radar_interests SET threshold_state=$3 WHERE user_id=$1 AND id=$2 AND revision=$4',
           [userId, interest.id, thresholdState, interest.revision]
@@ -447,6 +457,45 @@ export class RadarRepository extends BaseRepository {
       'UPDATE customer_radar_interests SET threshold_state=FALSE WHERE user_id=$1 AND id=$2 AND revision=$3 AND active',
       [userId, id, revision]
     );
+  }
+  /**
+   * A queued threshold is a latch, not a receipt. Recover only explicit proof
+   * of no transport, under the same user lock as queue/begin/opt-out. Any other
+   * delivery in this rule revision is conservatively retained as ambiguous;
+   * legacy terminal rows without the proof are never assumed safe to replay.
+   */
+  async recoverUnsentThreshold(
+    userId: string,
+    id: string,
+    revision: number,
+    preferenceRevision: number
+  ): Promise<boolean> {
+    return this.transaction(async () => {
+      await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+        'radar:' + userId,
+      ]);
+      const safe = `o.status IN ('cancelled','expired') AND o.payload->'notAttempted'='true'::jsonb
+        AND o.sent_at IS NULL AND o.transport_id IS NULL
+        AND COALESCE(o.payload->'deliveredParts','[]'::jsonb)='[]'::jsonb`;
+      return !!(await this.queryOne(
+        `UPDATE customer_radar_interests i SET threshold_state=FALSE
+   FROM customer_radar_preferences p
+   JOIN customer_accounts a ON a.data_user_id=p.user_id
+   JOIN channel_users u ON u.id=a.channel_user_id
+   JOIN customer_phone_aliases phone_alias ON phone_alias.account_id=a.id AND phone_alias.phone_number=a.current_phone AND phone_alias.retired_at IS NULL
+   WHERE i.user_id=$1 AND i.id=$2 AND i.revision=$3 AND i.active AND i.threshold_state=TRUE
+     AND i.input->>'delivery'='threshold'
+     AND p.user_id=i.user_id AND p.revision=$4 AND p.preferences->>'enabled'='true'
+     AND u.platform='whatsapp' AND u.platform_user_id=a.current_phone
+     AND u.ownpilot_user_id='whatsapp:'||a.current_phone
+     AND u.is_verified AND NOT u.is_blocked AND u.status='active'
+     AND (u.access_expires_at IS NULL OR u.access_expires_at>NOW())
+     AND EXISTS(SELECT 1 FROM customer_radar_outbox o WHERE o.user_id=i.user_id AND o.interest_id=i.id AND o.interest_revision=i.revision AND (${safe}) IS TRUE)
+     AND NOT EXISTS(SELECT 1 FROM customer_radar_outbox o WHERE o.user_id=i.user_id AND o.interest_id=i.id AND o.interest_revision=i.revision AND NOT ((${safe}) IS TRUE))
+   RETURNING i.id`,
+        [userId, id, revision, preferenceRevision]
+      ));
+    });
   }
   async rawInterests(userId: string): Promise<RadarInterestRow[]> {
     return this.query<RadarInterestRow>(
@@ -616,7 +665,11 @@ export class RadarRepository extends BaseRepository {
       "UPDATE customer_radar_outbox SET status='unknown' WHERE status='sending' AND leased_until<NOW()"
     );
     await this.execute(
-      "UPDATE customer_radar_outbox SET status='expired' WHERE status IN ('pending','leased') AND expires_at<=NOW()"
+      `UPDATE customer_radar_outbox SET status='expired',
+        payload=CASE WHEN jsonb_typeof(payload)='object' THEN jsonb_set(payload,'{notAttempted}',
+          to_jsonb(sent_at IS NULL AND transport_id IS NULL AND COALESCE(payload->'deliveredParts','[]'::jsonb)='[]'::jsonb),true)
+          ELSE payload END
+       WHERE status IN ('pending','leased') AND expires_at<=NOW()`
     );
     return this.query(
       `WITH due AS(SELECT id FROM customer_radar_outbox WHERE expires_at>NOW() AND not_before<=NOW()
@@ -642,7 +695,7 @@ export class RadarRepository extends BaseRepository {
         'radar:' + row.user_id,
       ]);
       return !!(await this.queryOne(
-        `UPDATE customer_radar_outbox o SET status='sending'
+        `UPDATE customer_radar_outbox o SET status='sending',payload=payload-'notAttempted'
    FROM customer_radar_preferences p
    WHERE o.id=$1 AND o.lease_token=$2 AND o.user_id=$3 AND o.status='leased' AND o.leased_until>NOW() AND o.expires_at>NOW()
      AND (o.interest_id IS NULL OR EXISTS(SELECT 1 FROM customer_radar_interests i WHERE i.id=o.interest_id AND i.user_id=o.user_id AND i.active AND i.revision=o.interest_revision))
@@ -705,18 +758,29 @@ export class RadarRepository extends BaseRepository {
   async finishDelivery(
     row: RadarDeliveryRow,
     status: 'sent' | 'unknown' | 'cancelled' | 'expired',
-    transportId?: string
+    transportId?: string,
+    knownNotSent = false
   ) {
     await this.execute(
-      `UPDATE customer_radar_outbox SET status=$3,transport_id=$4,sent_at=CASE WHEN $3='sent' THEN NOW() ELSE sent_at END
-   WHERE id=$1 AND lease_token=$2 AND status IN ('leased','sending')`,
-      [row.id, row.lease_token, status, transportId ?? null]
+      `UPDATE customer_radar_outbox SET
+     status=CASE WHEN $3 IN ('cancelled','expired') AND NOT ((status='leased' OR $6::boolean)
+       AND $4::text IS NULL AND sent_at IS NULL AND transport_id IS NULL
+       AND COALESCE(payload->'deliveredParts','[]'::jsonb)='[]'::jsonb) THEN 'unknown' ELSE $3 END,
+     transport_id=COALESCE($4,transport_id),sent_at=CASE WHEN $3='sent' THEN NOW() ELSE sent_at END,
+     payload=CASE WHEN jsonb_typeof(payload)='object' THEN jsonb_set(payload,'{notAttempted}',
+       to_jsonb($3 IN ('cancelled','expired') AND (status='leased' OR $6::boolean)
+         AND $4::text IS NULL AND sent_at IS NULL AND transport_id IS NULL
+         AND COALESCE(payload->'deliveredParts','[]'::jsonb)='[]'::jsonb),true) ELSE payload END
+   WHERE id=$1 AND lease_token=$2 AND user_id=$5 AND status IN ('leased','sending')`,
+      [row.id, row.lease_token, status, transportId ?? null, row.user_id, knownNotSent]
     );
   }
   async deferDelivery(row: RadarDeliveryRow, seconds = 60, knownNotSent = false) {
     await this.execute(
-      `UPDATE customer_radar_outbox SET status='pending',not_before=NOW()+$3*INTERVAL '1 second',lease_token=NULL,leased_until=NULL WHERE id=$1 AND lease_token=$2 AND (status='leased' OR ($4::boolean AND status='sending'))`,
-      [row.id, row.lease_token, seconds, knownNotSent]
+      `UPDATE customer_radar_outbox SET status='pending',payload=payload-'notAttempted',not_before=NOW()+$3*INTERVAL '1 second',lease_token=NULL,leased_until=NULL
+   WHERE id=$1 AND lease_token=$2 AND user_id=$5 AND (status='leased' OR ($4::boolean AND status='sending'))
+     AND sent_at IS NULL AND transport_id IS NULL AND COALESCE(payload->'deliveredParts','[]'::jsonb)='[]'::jsonb`,
+      [row.id, row.lease_token, seconds, knownNotSent, row.user_id]
     );
   }
   async cleanup() {

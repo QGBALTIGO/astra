@@ -16,7 +16,7 @@ import {
   createFallbackProvider,
   type ResolvedAuth,
   buildSoulPrompt,
-  getGroqRequestTokenLimit,
+  getGroqEffectiveRequestTokenLimit,
   GROQ_MIN_OUTPUT_TOKENS,
   groqPoolKeys,
 } from '@ownpilot/core/agent';
@@ -98,6 +98,7 @@ import {
   limitAstraFallbacks,
   ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
   ASTRA_LOCAL_FALLBACK_MAX_TOKENS,
+  astraChannelFallbackBudgetMs,
   ASTRA_CLOUDFLARE_TIMEOUT_MS,
   ASTRA_CHANNEL_OTHER_CLOUD_WITH_CLOUDFLARE_TIMEOUT_MS,
   getAstraChannelFallbackBudget,
@@ -567,7 +568,7 @@ async function createChatAgentInstance(
           'authorization'
         ) ?? '',
     })
-      ? getGroqRequestTokenLimit()
+      ? getGroqEffectiveRequestTokenLimit()
       : undefined;
 
   const tools = new ToolRegistry();
@@ -714,7 +715,9 @@ async function createChatAgentInstance(
 
   const router = getLLMRouter();
   const modelContextWindow = router.getContextWindow(provider, model);
-  // The model's context window is not the operator's per-request allowance.
+  // The model's context window is not the operator's effective request allowance.
+  // Plan against the same per-minute quota margin and explicit cap as transport,
+  // so a larger/absent request cap cannot create a request admission must refuse.
   // Scheduled/owner chats use this same path and previously reserved 8192
   // output tokens even with an 8000-token Groq admission ceiling, making every
   // request fail locally before a credential could be used.
@@ -797,9 +800,17 @@ async function createChatAgentInstance(
 
   // A local-only installation needs enough time for the bridge to finish.
   const channelPrimaryTimeout =
-    provider === 'cloudflare-workers-ai' ? ASTRA_CLOUDFLARE_TIMEOUT_MS : 8_000;
+    provider === 'ollama-local'
+      ? ASTRA_LOCAL_FALLBACK_TIMEOUT_MS
+      : provider === 'cloudflare-workers-ai'
+        ? ASTRA_CLOUDFLARE_TIMEOUT_MS
+        : 8_000;
   const channelFallbackPrimaryTimeout =
-    provider === 'cloudflare-workers-ai' ? ASTRA_CLOUDFLARE_TIMEOUT_MS : 5_000;
+    provider === 'ollama-local'
+      ? ASTRA_LOCAL_FALLBACK_TIMEOUT_MS
+      : provider === 'cloudflare-workers-ai'
+        ? ASTRA_CLOUDFLARE_TIMEOUT_MS
+        : 5_000;
 
   const config: AgentConfig = {
     name: isCliProvider
@@ -993,10 +1004,16 @@ async function createChatAgentInstance(
                 circuitBreakerCooldown: 300_000,
                 sharedCircuitBreaker: true,
                 preferLastSuccessful: !hasLocalReserve,
-                completionTimeoutMs: getAstraChannelFallbackBudget([
-                  ...(provider === 'cloudflare-workers-ai' ? [provider] : []),
-                  ...usableFallbacks.map((candidate) => candidate.id),
-                ]),
+                completionTimeoutMs:
+                  hasLocalReserve || provider === 'ollama-local'
+                    ? astraChannelFallbackBudgetMs(
+                        channelFallbackPrimaryTimeout,
+                        usableFallbacks.map((candidate) => candidate.timeout ?? 8_000)
+                      )
+                    : getAstraChannelFallbackBudget([
+                        provider,
+                        ...usableFallbacks.map((candidate) => candidate.id),
+                      ]),
               }
             : {}),
           onFallback: (failed, _error, next) => {

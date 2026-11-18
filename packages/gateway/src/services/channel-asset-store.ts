@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { extname, isAbsolute, join } from 'node:path';
+import { constants } from 'node:fs';
+import { mkdir, open, realpath, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ChannelAttachment } from '@ownpilot/core/channels';
 import {
   channelAssetsRepo,
@@ -14,6 +15,15 @@ import { CHANNEL_ASSET_TTL_MS, CHANNEL_ASSET_MAX_FILENAME_LENGTH } from '../conf
 
 const DEFAULT_TTL_MS = CHANNEL_ASSET_TTL_MS;
 const MAX_PURGE_BATCHES = 5;
+const MAX_HYDRATED_ASSET_BYTES = 12 * 1024 * 1024;
+const MAX_HYDRATED_MESSAGE_BYTES = 36 * 1024 * 1024;
+
+export class ChannelAssetUnavailableError extends Error {
+  constructor() {
+    super('Channel attachment unavailable');
+    this.name = 'ChannelAssetUnavailableError';
+  }
+}
 
 function safeSegment(value: string): string {
   const segment =
@@ -132,6 +142,123 @@ export class ChannelAssetStore {
     }
 
     return stored;
+  }
+
+  /**
+   * Call only after channel/user authorization and inside the bounded AI lease.
+   * The durable message scope, never the caller's path, authorizes a read. The
+   * conversation link can still be pending when an inbound message is admitted.
+   */
+  async hydrateIncomingAttachments(params: {
+    messageId: string;
+    channelPluginId: string;
+    platform: string;
+    platformChatId: string;
+    conversationId?: string;
+    attachments: ChannelAttachment[];
+  }): Promise<ChannelAttachment[]> {
+    const hydrated: ChannelAttachment[] = [];
+    let remainingBytes = MAX_HYDRATED_MESSAGE_BYTES;
+    for (const attachment of params.attachments) {
+      if (attachment.assetId === undefined) {
+        // Older/non-persisted adapters still supply inline bytes. A path alone
+        // grants no filesystem access and cannot stand in for an asset ID.
+        if (attachment.path && !attachment.data?.length) throw new ChannelAssetUnavailableError();
+        hydrated.push(attachment);
+        continue;
+      }
+      if (!attachment.assetId.trim()) throw new ChannelAssetUnavailableError();
+      const asset = await this.repo.getById(attachment.assetId);
+      if (
+        !asset ||
+        asset.id !== attachment.assetId ||
+        asset.channelMessageId !== params.messageId ||
+        asset.channelPluginId !== params.channelPluginId ||
+        asset.platform !== params.platform ||
+        asset.platformChatId !== params.platformChatId ||
+        (asset.conversationId &&
+          params.conversationId &&
+          asset.conversationId !== params.conversationId) ||
+        !(Date.parse(asset.expiresAt) > Date.now()) ||
+        !asset.storagePath ||
+        !asset.sha256 ||
+        !/^[a-f0-9]{64}$/.test(asset.sha256)
+      ) {
+        throw new ChannelAssetUnavailableError();
+      }
+
+      const expectedDir = resolve(
+        this.baseDir,
+        safeSegment(params.channelPluginId),
+        safeSegment(params.platformChatId),
+        safeSegment(params.messageId)
+      );
+      const expectedBasename = `${asset.id}${extensionForAttachment(asset)}`;
+      if (
+        !isAbsolute(asset.storagePath) ||
+        dirname(resolve(asset.storagePath)) !== expectedDir ||
+        basename(asset.storagePath) !== expectedBasename
+      ) {
+        throw new ChannelAssetUnavailableError();
+      }
+      const [canonicalBase, canonicalPath] = await Promise.all([
+        realpath(this.baseDir),
+        realpath(asset.storagePath),
+      ]);
+      const storedRelative = relative(canonicalBase, canonicalPath);
+      if (
+        !storedRelative ||
+        storedRelative === '..' ||
+        storedRelative.startsWith('..' + sep) ||
+        isAbsolute(storedRelative) ||
+        basename(canonicalPath) !== expectedBasename
+      ) {
+        throw new ChannelAssetUnavailableError();
+      }
+
+      const file = await open(canonicalPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      let data: Buffer;
+      try {
+        const stat = await file.stat();
+        if (
+          !stat.isFile() ||
+          stat.size <= 0 ||
+          stat.size > MAX_HYDRATED_ASSET_BYTES ||
+          stat.size > remainingBytes
+        ) {
+          throw new ChannelAssetUnavailableError();
+        }
+        // Read exactly the bounded size. readFile() could grow its allocation
+        // if another process appended to the file after the stat check.
+        data = Buffer.allocUnsafe(stat.size);
+        let offset = 0;
+        while (offset < data.length) {
+          const { bytesRead } = await file.read(data, offset, data.length - offset, offset);
+          if (bytesRead === 0) throw new ChannelAssetUnavailableError();
+          offset += bytesRead;
+        }
+        const extra = await file.read(Buffer.alloc(1), 0, 1, data.length);
+        if (
+          extra.bytesRead > 0 ||
+          createHash('sha256').update(data).digest('hex') !== asset.sha256
+        ) {
+          throw new ChannelAssetUnavailableError();
+        }
+      } finally {
+        await file.close();
+      }
+      remainingBytes -= data.length;
+      hydrated.push({
+        type: asset.type,
+        mimeType: asset.mimeType,
+        assetId: asset.id,
+        filename: asset.filename,
+        size: data.length,
+        expiresAt: asset.expiresAt,
+        data,
+      });
+    }
+    return hydrated;
   }
 
   async linkConversation(assetIds: string[], conversationId: string): Promise<void> {

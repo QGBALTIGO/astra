@@ -187,6 +187,13 @@ describe('Radar time, precision and presentation', () => {
     expect(thresholdMatches('5.500001', '5.50', 'above')).toBe(true);
     expect(thresholdMatches('5.499999', '5.50', 'below')).toBe(true);
   });
+  it('keeps inclusive comparisons exact at the six-decimal boundary', () => {
+    expect(thresholdMatches('5', '5.00', 'at_or_below')).toBe(true);
+    expect(thresholdMatches('5.000001', '5', 'at_or_below')).toBe(false);
+    expect(thresholdMatches('4.999999', '5', 'at_or_below')).toBe(true);
+    expect(thresholdMatches('5', '5.000000', 'at_or_above')).toBe(true);
+    expect(thresholdMatches('4.999999', '5', 'at_or_above')).toBe(false);
+  });
   it.each([
     ['23:00', true],
     ['06:59', true],
@@ -226,6 +233,25 @@ describe('Radar time, precision and presentation', () => {
   });
 });
 describe('Radar rule variations', () => {
+  it('notifies at equality for an inclusive condition and suppresses it until rearmed', () => {
+    const i = interest({
+      input: {
+        source: 'ptax',
+        target: 'USD',
+        delivery: 'threshold',
+        threshold: '5.51',
+        comparison: 'at_or_below',
+        leadMinutes: 60,
+      },
+    });
+    expect(interestDecisions(i, now, 'America/Campo_Grande')).toHaveLength(1);
+    expect(
+      interestDecisions({ ...i, threshold_state: true }, now, 'America/Campo_Grande')
+    ).toHaveLength(0);
+    expect(
+      interestDecisions({ ...i, threshold_state: false }, now, 'America/Campo_Grande')
+    ).toHaveLength(1);
+  });
   it('does not emit a threshold alert twice while still above', () => {
     const i = interest({
       input: {

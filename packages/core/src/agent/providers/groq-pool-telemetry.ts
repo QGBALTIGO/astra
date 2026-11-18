@@ -55,6 +55,7 @@ export function groqPoolFailureFacts(input: {
   headers?: Headers;
   errorText?: string;
   requestTokenLimit?: number;
+  admissionReason?: 'concurrency' | 'quota' | 'cooldown' | 'request_too_large' | 'capacity';
 }) {
   const header = (name: string) => integer(input.headers?.get(name));
   const tokenLimit = header('x-ratelimit-limit-tokens');
@@ -79,6 +80,15 @@ export function groqPoolFailureFacts(input: {
   const quotaLimit = field('Limit');
   const quotaRequested = field('Requested');
   const quotaUsed = field('Used');
+  const admissionReason = [
+    'concurrency',
+    'quota',
+    'cooldown',
+    'request_too_large',
+    'capacity',
+  ].includes(input.admissionReason ?? '')
+    ? input.admissionReason
+    : undefined;
   const model =
     /^[a-z\d][a-z\d./:_-]{0,159}$/iu.test(input.model) &&
     !input.keys.some((key) => input.model.includes(key))
@@ -118,18 +128,26 @@ export function groqPoolFailureFacts(input: {
     ...(integer(input.requestTokenLimit) !== undefined
       ? { requestTokenLimit: input.requestTokenLimit }
       : {}),
+    ...(admissionReason ? { admissionReason } : {}),
   };
 }
 
 export function reportGroqPoolFailure(input: Parameters<typeof groqPoolFailureFacts>[0]): void {
   try {
-    const localAdmission =
-      input.status === 413 &&
-      input.errorText?.startsWith('request_too_large: groq_local_admission') === true;
-    log.warn(
-      localAdmission ? 'Groq request rejected by local token budget' : 'Groq transport unavailable',
-      groqPoolFailureFacts(input)
-    );
+    const facts = groqPoolFailureFacts(input);
+    // Backpressure is expected admission behavior, not a transport incident per waiting user.
+    if (facts.admissionReason) log.debug('Groq request deferred by local admission', facts);
+    else {
+      const localAdmission =
+        input.status === 413 &&
+        input.errorText?.startsWith('request_too_large: groq_local_admission') === true;
+      log.warn(
+        localAdmission
+          ? 'Groq request rejected by local token budget'
+          : 'Groq transport unavailable',
+        facts
+      );
+    }
   } catch {
     /* Diagnostics must not change transport behavior or print the failed logger's arguments. */
   }

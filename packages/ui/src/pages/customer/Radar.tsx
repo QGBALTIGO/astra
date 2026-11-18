@@ -389,7 +389,12 @@ export function CustomerRadar({
                     {deliveryLabel(interest)}
                     {interest.delivery === 'threshold'
                       ? ' · ' +
-                        (interest.comparison === 'above' ? 'acima de R$ ' : 'abaixo de R$ ') +
+                        {
+                          above: 'acima de R$ ',
+                          below: 'abaixo de R$ ',
+                          at_or_above: 'igual ou acima de R$ ',
+                          at_or_below: 'igual ou abaixo de R$ ',
+                        }[interest.comparison ?? 'above'] +
                         interest.threshold
                       : ''}
                   </p>
@@ -1039,11 +1044,16 @@ function RadarForm({
                   <select
                     value={input.comparison ?? 'above'}
                     onChange={(e) =>
-                      setInput({ ...input, comparison: e.target.value as 'above' | 'below' })
+                      setInput({
+                        ...input,
+                        comparison: e.target.value as NonNullable<typeof input.comparison>,
+                      })
                     }
                   >
                     <option value="above">Acima de</option>
                     <option value="below">Abaixo de</option>
+                    <option value="at_or_above">Igual ou acima de</option>
+                    <option value="at_or_below">Igual ou abaixo de</option>
                   </select>
                 </label>
                 <label className="field">

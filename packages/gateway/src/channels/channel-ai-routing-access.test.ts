@@ -49,6 +49,7 @@ vi.mock('../utils/memory-extraction.js', () => ({
 
 import { ASTRA_ACCESS_REPLY } from './astra-access.js';
 import { processDirectAgent, processViaBus } from './channel-ai-routing.js';
+import { getChannelAIAdmissionStats, runWithChannelAIAdmission } from './channel-ai-admission.js';
 
 const agent = {
   getConversation: () => ({ id: 'conversation-access', systemPrompt: 'assistant' }),
@@ -227,6 +228,29 @@ describe.each(['bus', 'direct'] as const)(
 
     it('does not bypass WhatsApp access when a caller omits the guard', async () => {
       expect(await route(incoming(), false)).toContain('acesso deste número está inativo');
+      expect(mocks.getAgent).not.toHaveBeenCalled();
+      expect(bus.process).not.toHaveBeenCalled();
+      expect(agent.chat).not.toHaveBeenCalled();
+    });
+
+    it('rechecks authorization after waiting for global inference capacity', async () => {
+      let release!: () => void;
+      const blocked = new Promise<string>((resolve) => {
+        release = () => resolve('synthetic');
+      });
+      const blockers = Array.from({ length: 4 }, (_, index) =>
+        runWithChannelAIAdmission(`occupied-${path}-${index}`, () => blocked)
+      );
+      const pending = route(incoming({ text: 'cpmp acesso o dashboard' }));
+      try {
+        await vi.waitFor(() => expect(getChannelAIAdmissionStats().queued).toBe(1));
+        expect(mocks.getAgent).not.toHaveBeenCalled();
+        isAccessAllowed.mockResolvedValue(false);
+      } finally {
+        release();
+        await Promise.all(blockers);
+      }
+      expect(await pending).toContain('acesso deste número está inativo');
       expect(mocks.getAgent).not.toHaveBeenCalled();
       expect(bus.process).not.toHaveBeenCalled();
       expect(agent.chat).not.toHaveBeenCalled();

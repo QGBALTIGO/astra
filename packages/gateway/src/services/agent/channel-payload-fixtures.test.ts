@@ -9,6 +9,7 @@ const f = vi.hoisted(() => ({
   result: {} as unknown,
   reads: [] as string[],
   selected: '',
+  apiKey: '',
   memoryBudget: undefined as typeof import('./cache.js').computeMemoryMaxTokens | undefined,
 }));
 
@@ -45,7 +46,7 @@ vi.mock('./cache.js', async (original) => {
   f.memoryBudget = actual.computeMemoryMaxTokens;
   return {
     ...actual,
-    getProviderApiKey: async () => 'synthetic-fixture-key',
+    getProviderApiKey: async () => f.apiKey,
     loadProviderConfig: () => ({
       id: 'groq',
       type: 'openai-compatible',
@@ -224,10 +225,15 @@ function measure(body: Record<string, unknown>) {
   };
 }
 
+let fixtureRound = 0;
 beforeEach(() => {
   f.reads = [];
+  // Independent synthetic organizations keep quota state from leaking across cases.
+  f.apiKey = `synthetic-fixture-key-${++fixtureRound}`;
   vi.stubEnv('ASTRA_FALLBACK_CHAIN', '');
-  vi.stubEnv('GROQ_API_KEY', 'synthetic-fixture-key');
+  vi.stubEnv('GROQ_API_KEY', f.apiKey);
+  vi.stubEnv('GROQ_TOKENS_PER_MINUTE', '6000');
+  vi.stubEnv('GROQ_TOKEN_MARGIN_PERCENT', '20');
   vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '');
   for (let index = 2; index <= 10; index++) vi.stubEnv(`GROQ_API_KEY_${index}`, '');
   // All HTTP is intercepted; this only avoids an unrelated DNS lookup.
@@ -243,6 +249,11 @@ afterEach(() => {
 
 describe('real channel payload construction with entirely synthetic customer data', () => {
   it.each(cases)('captures a bounded read-only $name exchange', async (sample) => {
+    // This fixture measures two serialized payloads, not aggregate load. Give
+    // the synthetic organization room for both while retaining the default
+    // 5,000-token per-request ceiling; admission/failover have dedicated tests.
+    vi.stubEnv('GROQ_TOKENS_PER_MINUTE', '12000');
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '5000');
     f.result = sample.result;
     f.selected = sample.tool;
     const requests: Array<Record<string, unknown>> = [];
@@ -367,7 +378,7 @@ describe('real channel payload construction with entirely synthetic customer dat
     expect(requests).toHaveLength(sample.tool ? 2 : 1);
     if (sample.tool) expect((requests[1]!.tools as unknown[]).length).toBeGreaterThanOrEqual(5);
     expect(f.reads).toEqual(sample.tool ? [sample.tool] : []);
-    expect(requests.every((body) => measure(body).approximateTotalTokens < 7500)).toBe(true);
+    expect(requests.every((body) => measure(body).approximateTotalTokens < 5000)).toBe(true);
     if (!sample.tool) expect(requests[0]).not.toHaveProperty('tools');
     exported.push({
       name: sample.name,
@@ -379,7 +390,7 @@ describe('real channel payload construction with entirely synthetic customer dat
 });
 
 describe('real non-channel scheduled request budgets', () => {
-  it('constructs a useful owner request with real meta schemas under the 8000-token pool limit', async () => {
+  it('constructs a useful owner request with real meta schemas under the effective 5000-token quota allowance', async () => {
     vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
     vi.stubEnv('GROQ_API_KEY_2', 'synthetic-fixture-backup-key');
     const requests: Array<Record<string, unknown>> = [];
@@ -415,9 +426,9 @@ describe('real non-channel scheduled request budgets', () => {
     expect(agent.getConversation().systemPrompt).toContain('OwnPilot');
     expect((requests[0]!.tools as unknown[]).length).toBe(4);
     const facts = measure(requests[0]!);
-    expect(facts.approximateTotalTokens).toBeLessThanOrEqual(8000);
+    expect(facts.approximateTotalTokens).toBeLessThanOrEqual(5000);
     expect(facts.reservedOutputTokens).toBeGreaterThanOrEqual(1024);
-    expect(facts.reservedOutputTokens).toBeLessThanOrEqual(2000);
+    expect(facts.reservedOutputTokens).toBeLessThanOrEqual(1250);
     expect(f.reads).toEqual([]);
   });
 

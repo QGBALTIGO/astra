@@ -1,4 +1,5 @@
 import { groqPoolRequestFacts } from './groq-pool-telemetry.js';
+import { groqQuotaRequestTokenLimit } from './groq-admission.js';
 
 /** A useful answer allowance; explicitly smaller caller limits remain smaller. */
 export const GROQ_MIN_OUTPUT_TOKENS = 1024;
@@ -10,6 +11,16 @@ export function getGroqRequestTokenLimit(
   if (!value || !/^\d+$/u.test(value)) return undefined;
   const limit = Number(value);
   return Number.isSafeInteger(limit) && limit > 0 ? limit : undefined;
+}
+
+/** The same per-request ceiling for prompt planning and transport admission. */
+export function getGroqEffectiveRequestTokenLimit(
+  env: Readonly<Record<string, string | undefined>> = process.env
+): number {
+  return Math.min(
+    getGroqRequestTokenLimit(env.GROQ_MAX_REQUEST_TOKENS) ?? Number.POSITIVE_INFINITY,
+    groqQuotaRequestTokenLimit(env)
+  );
 }
 
 /**

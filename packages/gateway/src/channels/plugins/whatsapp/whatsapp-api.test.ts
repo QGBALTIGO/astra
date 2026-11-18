@@ -60,6 +60,7 @@ vi.mock('@ownpilot/core/events', async (importOriginal) => {
 });
 
 import { WhatsAppChannelAPI } from './whatsapp-api.js';
+import { isDirectUserAudio } from './whatsapp-audio-provenance.js';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Readable } from 'node:stream';
 vi.mock('../../../services/channel-asset-store.js', () => ({
@@ -110,6 +111,35 @@ describe('WhatsAppChannelAPI', () => {
       vi.unstubAllEnvs();
     }
   });
+  it.each([
+    [{}, true],
+    [{ isForwarded: true }, false],
+    [{ forwardingScore: 1 }, false],
+  ])(
+    'preserves authenticated direct/forwarded audio origin from Baileys: %j',
+    async (contextInfo, direct) => {
+      vi.stubEnv('ASTRA_WHATSAPP_MULTIUSER', 'true');
+      try {
+        vi.mocked(downloadMediaMessage).mockResolvedValueOnce(
+          Readable.from([Buffer.from('synthetic direct audio')]) as never
+        );
+        const api = new WhatsAppChannelAPI({ my_phone: '5511999990102' }, 'channel.whatsapp');
+        (api as any).sock = { user: { id: '5511999990102@s.whatsapp.net' } };
+        await (api as any).handleIncomingMessage({
+          key: { remoteJid: '5567999991234@s.whatsapp.net', id: 'audio-origin', fromMe: false },
+          message: { audioMessage: { mimetype: 'audio/ogg', contextInfo } },
+          messageTimestamp: 1700000000,
+          metadata: { directUserAudio: true, isForwarded: false },
+        });
+        expect(mockEmit).toHaveBeenCalledTimes(1);
+        const { message } = mockEmit.mock.calls[0]![0];
+        expect(message.attachments[0].type).toBe('audio');
+        expect(isDirectUserAudio(message)).toBe(direct);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  );
   it('bounds a stuck media download even when the provider ignores cancellation', async () => {
     vi.useFakeTimers();
     try {
@@ -373,7 +403,9 @@ describe('WhatsApp native URL CTA transport (no real WhatsApp sends)', () => {
       status: 'connected',
       connectedAccountPhone: '5511888888888',
       waitForConnectedAccount: vi.fn().mockResolvedValue(undefined),
-      acquireSendSlot: vi.fn().mockResolvedValue(socket),
+      acquireSendSlot: vi
+        .fn()
+        .mockResolvedValue({ sock: socket, permit: { commit: vi.fn(), release: vi.fn() } }),
     });
     mockGenerateNative.mockReturnValue({
       key: { id: 'native-cta-id', remoteJid: '5511999999999@s.whatsapp.net' },

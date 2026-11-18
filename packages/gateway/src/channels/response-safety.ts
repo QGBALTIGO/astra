@@ -343,11 +343,63 @@ export function successfulChannelTools(receipts: ChannelToolReceipt[]): Set<stri
   return names;
 }
 
+/** Only explicit, pre-write reminder validation proves that nothing was scheduled. */
+function reminderValidationReply(
+  receipts: ChannelToolReceipt[],
+  requestText: string
+): string | null {
+  const operations = channelOperations(receipts);
+  if (!operations.length) return null;
+  const reasons: string[] = [];
+  for (const receipt of operations) {
+    if (!/^(?:schedule|reschedule)_channel_reminder$/.test(normalizeName(receipt.name)))
+      return null;
+    const envelope = object(json(receipt.content));
+    const validation = object(envelope?.result);
+    if (
+      envelope?.success !== false ||
+      typeof envelope.error !== 'string' ||
+      validation?.kind !== 'reminder_request_validation' ||
+      (validation.reason !== 'time_required' && validation.reason !== 'condition_requires_monitor')
+    )
+      return null;
+    reasons.push(validation.reason);
+  }
+  // Mixed results (including an earlier saved reminder or an uncertain write)
+  // stay in the existing operation accounting. Never replace them with a denial.
+  const names = new Set(operations.map((receipt) => normalizeName(receipt.name)));
+  const notScheduled =
+    names.size > 1
+      ? 'Não agendei nem reagendei lembretes neste pedido.'
+      : names.has('reschedule_channel_reminder')
+        ? 'Não alterei o horário desse lembrete.'
+        : 'Não agendei esse lembrete.';
+  if (!reasons.includes('condition_requires_monitor'))
+    return notScheduled + ' Diga o dia e a hora ou um intervalo para o aviso.';
+  const request = requestText.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  if (/\b(?:dolar|usd|euro|eur|libra|gbp|cotacao)\b/u.test(request))
+    return (
+      notScheduled +
+      ' Um lembrete com horário fixo não acompanha a cotação. Para esse pedido, é preciso configurar a moeda e a condição no Radar. Ainda não tenho confirmação de ativação desse alerta.'
+    );
+  if (/\bcodex\b/u.test(request))
+    return (
+      notScheduled +
+      ' Um lembrete com horário fixo não detecta quando o Codex volta. Sem um monitoramento confirmado, não posso prometer esse aviso. Se quiser um lembrete para conferir, diga o dia e a hora ou um intervalo.'
+    );
+  return (
+    notScheduled +
+    ' Esse pedido depende de um evento, e um lembrete com horário fixo não monitora essa condição. Se quiser um lembrete para conferir, diga o dia e a hora ou um intervalo.'
+  );
+}
+
 export function safeChannelResponse(
   text: string,
   receipts: ChannelToolReceipt[],
   context: { timeZone?: string; requestText?: string } = {}
 ): string {
+  const rejectedReminder = reminderValidationReply(receipts, context.requestText ?? '');
+  if (rejectedReminder) return rejectedReminder;
   // A saved row returned by a lookup is evidence of an existing item, never a
   // new registration. Keep the model's prose and details but label it clearly.
   if (

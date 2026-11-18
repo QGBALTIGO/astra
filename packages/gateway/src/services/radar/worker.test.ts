@@ -18,6 +18,11 @@ const m = vi.hoisted(() => ({
   send: vi.fn(),
   sending: vi.fn(),
   part: vi.fn(),
+  accounts: vi.fn(),
+  queue: vi.fn(),
+  queueDigest: vi.fn(),
+  recover: vi.fn(),
+  reset: vi.fn(),
 }));
 vi.mock('@ownpilot/core/channels', () => ({
   getChannelService: () => ({ listChannels: m.list, getChannel: m.channel, send: m.send }),
@@ -34,6 +39,11 @@ vi.mock('../../db/repositories/customer-radar.js', () => ({
     markContent: m.mark,
     sendingDeliveryCurrent: m.sending,
     recordDeliveryPart: m.part,
+    activeAccounts: m.accounts,
+    queue: m.queue,
+    queueDigest: m.queueDigest,
+    recoverUnsentThreshold: m.recover,
+    resetThreshold: m.reset,
   },
   CustomerRadarRepository: class {
     preferences = m.preferences;
@@ -52,7 +62,7 @@ vi.mock('./providers.js', () => ({
   RADAR_POLL_SECONDS: {},
   fetchRadarResource: vi.fn(),
 }));
-import { dispatchRadar } from './worker.js';
+import { dispatchRadar, evaluateRadar } from './worker.js';
 import { interestDecisions } from './rules.js';
 import { ChannelSendNotAttemptedError } from '../../channels/send-not-attempted.js';
 const now = new Date('2026-11-16T11:00:00Z');
@@ -102,6 +112,10 @@ beforeEach(() => {
   m.begin.mockResolvedValue(true);
   m.sending.mockResolvedValue(true);
   m.part.mockResolvedValue(true);
+  m.accounts.mockResolvedValue([]);
+  m.queue.mockResolvedValue(false);
+  m.queueDigest.mockResolvedValue(false);
+  m.recover.mockResolvedValue(false);
   m.account.mockResolvedValue({ ...account });
   m.latest.mockResolvedValue({ ...account });
   m.user.mockResolvedValue({
@@ -342,6 +356,35 @@ describe('Radar final delivery authorization and failures', () => {
     expect(await dispatchRadar(now)).toBe(0);
     expect(m.finish).toHaveBeenCalledWith(expect.anything(), 'unknown');
   });
+  it('records proof of no transport when authorization stops the first part after begin', async () => {
+    m.sending.mockResolvedValue(false);
+    expect(await dispatchRadar(now)).toBe(0);
+    expect(m.send).not.toHaveBeenCalled();
+    expect(m.finish).toHaveBeenCalledWith(expect.anything(), 'cancelled', undefined, true);
+  });
+  it.each(['lease', 'account', 'access', 'alias', 'topic'] as const)(
+    'revalidates %s while waiting for the actual transport slot',
+    async (changed) => {
+      m.send.mockImplementation(
+        async (_channelId: string, message: { canSend: () => Promise<boolean> }) => {
+          if (changed === 'lease') m.sending.mockResolvedValue(false);
+          if (changed === 'account')
+            m.latest.mockResolvedValue({ ...account, phoneNumber: '5567999992222' });
+          if (changed === 'access')
+            m.user.mockResolvedValue({ ...(await m.user()), isBlocked: true });
+          if (changed === 'alias')
+            m.identity.mockResolvedValue({ accountId: 'account-b', retired: false });
+          if (changed === 'topic') m.raw.mockResolvedValue([{ ...followed(), active: false }]);
+          expect(await message.canSend()).toBe(false);
+          throw new ChannelSendNotAttemptedError('synthetic queued authorization rejection');
+        }
+      );
+      expect(await dispatchRadar(now)).toBe(0);
+      expect(m.defer).toHaveBeenCalledWith(expect.anything(), 60, true);
+      expect(m.part).not.toHaveBeenCalled();
+      expect(m.finish).not.toHaveBeenCalled();
+    }
+  );
   it('does not blindly retry after a transport timeout', async () => {
     m.send.mockRejectedValue(new Error('timeout'));
     await dispatchRadar(now);
@@ -370,5 +413,78 @@ describe('Radar final delivery authorization and failures', () => {
     m.raw.mockResolvedValue([i]);
     await dispatchRadar(now);
     expect(m.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('threshold evaluation after an unsent delivery', () => {
+  function accountWithThreshold(value = '4.9') {
+    const interest = {
+      ...followed(),
+      input: {
+        source: 'currency',
+        target: 'USD',
+        delivery: 'threshold',
+        leadMinutes: 60,
+        threshold: '5',
+        comparison: 'at_or_below',
+      },
+      threshold_state: true,
+      snapshot: {
+        ...followed().snapshot,
+        items: [{ id: 'price', title: 'USD', value, text: 'Referência' }],
+      },
+    };
+    m.accounts.mockResolvedValue([
+      {
+        user_id: account.dataUserId,
+        time_zone: account.timeZone,
+        time_zone_source: 'manual',
+        current_phone: account.phoneNumber,
+        preferences: { enabled: true, time: '07:00', quietStart: '22:00', quietEnd: '07:00' },
+        preference_revision: 1,
+        interests: [interest],
+      },
+    ]);
+    return interest;
+  }
+
+  it('evaluates the fresh price again only after the repository proves safe recovery', async () => {
+    accountWithThreshold();
+    m.recover.mockResolvedValue(true);
+    m.queue.mockResolvedValue(true);
+    expect(await evaluateRadar(now)).toBe(1);
+    expect(m.recover).toHaveBeenCalledWith(account.dataUserId, 'interest', 1, 1);
+    expect(m.queue).toHaveBeenCalledWith(
+      account.dataUserId,
+      expect.objectContaining({ threshold_state: false }),
+      1,
+      'interest:threshold:price:4.9',
+      expect.anything(),
+      expect.any(Date),
+      true
+    );
+  });
+
+  it('keeps suppression when the repository cannot prove there was no transmission', async () => {
+    accountWithThreshold();
+    expect(await evaluateRadar(now)).toBe(0);
+    expect(m.recover).toHaveBeenCalledOnce();
+    expect(m.queue).not.toHaveBeenCalled();
+  });
+
+  it('does not recover from stale price data', async () => {
+    const interest = accountWithThreshold();
+    interest.snapshot.expiresAt = now.toISOString();
+    expect(await evaluateRadar(now)).toBe(0);
+    expect(m.recover).not.toHaveBeenCalled();
+    expect(m.queue).not.toHaveBeenCalled();
+  });
+
+  it('uses normal rearming when the fresh rate leaves the threshold', async () => {
+    accountWithThreshold('5.000001');
+    expect(await evaluateRadar(now)).toBe(0);
+    expect(m.reset).toHaveBeenCalledWith(account.dataUserId, 'interest', 1);
+    expect(m.recover).not.toHaveBeenCalled();
+    expect(m.queue).not.toHaveBeenCalled();
   });
 });

@@ -480,5 +480,6 @@ export { BaseAgentLifecycle } from './lifecycle.js';
 export { groqPoolKeys, fetchGroqPool, groqPoolRead } from './providers/groq-key-pool.js';
 export {
   getGroqRequestTokenLimit,
+  getGroqEffectiveRequestTokenLimit,
   GROQ_MIN_OUTPUT_TOKENS,
 } from './providers/groq-request-budget.js';

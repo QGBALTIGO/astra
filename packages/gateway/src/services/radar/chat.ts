@@ -10,6 +10,7 @@ import {
   normalizeRadarTarget,
   cleanText,
   sourceAvailable,
+  decimalUnits,
   type RadarSourceId,
 } from './contracts.js';
 import { searchRadar, fetchRadarResource } from './providers.js';
@@ -20,6 +21,7 @@ import {
 } from './chat-pending.js';
 import { newsCards } from './news-cards.js';
 import { BRAZIL_TEAMS } from './football.js';
+import { currencyThresholdRequest, currencyConditionLabel } from './currency-intent.js';
 import {
   gameAlertRequest,
   explicitRadarTime,
@@ -60,7 +62,8 @@ const writeRequest = (s: string) =>
   (!/\b(?:nao (?:ative|cadastre|salve|mude)|so (?:explique|consulte|analise)|apenas (?:consulte|explique)|exemplo|hipotetic\w*)\b/.test(
     fold(s)
   ) &&
-    (gameAlertRequest(s) ||
+    (!!currencyThresholdRequest(s) ||
+      gameAlertRequest(s) ||
       /\b(?:acompanhe|quero acompanhar|quero receber|siga|ative|adicion\w*|inclu\w*|me (?:mande|envie|avise)|manda|mande|envia|envie|paus\w*|pare|parar|cancel\w*|desativ\w*|retom\w*|volte|mude|mudar|altere|alterar)\b/.test(
         fold(s)
       )));
@@ -236,6 +239,15 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   const repo = new CustomerRadarRepository(ownerId);
   let action = String(args.action);
   const requestText = fold(ctx.channelRequestText ?? '');
+  const currencyAlert = currencyThresholdRequest(requestText);
+  if (currencyAlert) {
+    // Recover all price fields from the authenticated customer message. Model
+    // arguments and an older reminder clock must not change this condition.
+    args = { ...currencyAlert };
+    action = 'follow';
+    continuing = false;
+    pending.delete(key);
+  }
   const wantsGameAlerts = gameAlertRequest(requestText);
   if (
     (action === 'follow' &&
@@ -252,6 +264,10 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     ...extra,
   });
   const [interests, pref] = await Promise.all([repo.list(), repo.preferences()]);
+  if (action === 'follow' && args.delivery === 'threshold' && !currencyAlert)
+    return reply(
+      'Para configurar um alerta de cotação, me diga a moeda e a condição completa, por exemplo: "me avise se o dólar ficar em R$ 5 ou menos". Esse acompanhamento usa taxas de referência, sem cotação em tempo real. Se você quer apenas conferir em um dia e horário, peça um lembrete para verificar a cotação.'
+    );
   if (action === 'follow' && /\b(?:pare|parar|paus\w*|cancel\w*|desativ\w*)\b/.test(requestText))
     throw new Error('Me diga o assunto que você quer pausar no Radar.');
   if (
@@ -425,11 +441,13 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     );
   }
   let time =
-    typeof args.time === 'string'
-      ? args.time
-      : args.delivery !== 'matchday' && pref.preferences.enabled
-        ? pref.preferences.time
-        : undefined;
+    args.delivery === 'threshold'
+      ? pref.preferences.time
+      : typeof args.time === 'string'
+        ? args.time
+        : args.delivery !== 'matchday' && pref.preferences.enabled
+          ? pref.preferences.time
+          : undefined;
   if (['follow', 'configure'].includes(action)) {
     if (action === 'configure' && !time)
       return ask(
@@ -551,7 +569,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
             : '📰 Sobre qual assunto você quer receber notícias no Radar?'
           : '📡 Qual ' + source.hint.toLowerCase() + ' você quer acompanhar no Radar?'
     );
-  if (action === 'follow' && !time)
+  if (action === 'follow' && args.delivery !== 'threshold' && !time)
     return ask(
       'time',
       args.delivery === 'matchday'
@@ -562,6 +580,8 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
     );
   let target = subject,
     label = subject;
+  if (currencyAlert)
+    label = { USD: 'Dólar (USD)', EUR: 'Euro (EUR)', GBP: 'Libra (GBP)' }[currencyAlert.subject];
   if (source.needsSearch) {
     const choices = await searchRadar(source.id, subject);
     const exact = choices.filter((c) => fold(c.label) === fold(subject) || c.id === args.choiceId);
@@ -656,6 +676,7 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
   // A per-topic request cannot silently move the existing combined daily digest.
   if (
     input.delivery !== 'matchday' &&
+    input.delivery !== 'threshold' &&
     pref.preferences.enabled &&
     time !== pref.preferences.time &&
     interests.some((i) => i.active)
@@ -668,10 +689,56 @@ export async function manageRadarChat(userId: string, inputArgs: Record<string, 
         '. Depois posso incluir esse assunto no mesmo resumo.',
       false
     );
+  if (
+    input.delivery === 'threshold' &&
+    pref.preferences.enabled &&
+    interests.some(
+      (interest) =>
+        interest.active &&
+        interest.source === input.source &&
+        interest.target === input.target &&
+        interest.delivery === 'threshold' &&
+        interest.threshold &&
+        decimalUnits(interest.threshold) === decimalUnits(input.threshold!) &&
+        interest.comparison === input.comparison
+    )
+  ) {
+    pending.delete(key);
+    return reply(
+      '💵 *Alerta de cotação já ativo*\n\nMantive o acompanhamento de *' +
+        label +
+        '* ' +
+        currencyConditionLabel(input.comparison!) +
+        ' *R$ ' +
+        input.threshold!.replace('.', ',') +
+        '*. Nenhum novo alerta foi criado.'
+    );
+  }
   await revalidate();
   const saved = await repo.followFromChat(input, label, time!);
   pending.delete(key);
   if (source.id === 'football') rememberFootball(label);
+  if (input.delivery === 'threshold')
+    return reply(
+      '💵 *Alerta de cotação ativado*\n\n• Moeda: ' +
+        label +
+        '\n• Condição: ' +
+        currencyConditionLabel(input.comparison!) +
+        ' *R$ ' +
+        input.threshold!.replace('.', ',') +
+        '*\n\n' +
+        (source.id === 'ptax'
+          ? 'Vou consultar a referência PTAX do Banco Central a cada 30 minutos. Ela acompanha os boletins publicados, sem cotação em tempo real.'
+          : 'Vou consultar a taxa de referência diária do Frankfurter a cada 6 horas, sem cotação em tempo real.') +
+        '\nAviso por aqui quando a referência consultada atender à condição, respeitando seu horário silencioso (' +
+        pref.preferences.quietStart +
+        '–' +
+        pref.preferences.quietEnd +
+        '). Não é um lembrete com horário fixo.' +
+        (saved.keptPaused ? '\nOs outros assuntos pausados continuam sem envio.' : ''),
+      true,
+      { interest: saved.interest, enabled: true, timeZone: identity.account.timeZone }
+    );
   return reply(
     icons[source.id] +
       ' *' +
