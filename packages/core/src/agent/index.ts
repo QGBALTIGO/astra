@@ -478,3 +478,7 @@ export { BaseAgentLifecycle } from './lifecycle.js';
 // Shared operator transport for gateway audio. Endpoint and credential scope are
 // validated by the gateway; credentials remain in the calling request scope.
 export { groqPoolKeys, fetchGroqPool, groqPoolRead } from './providers/groq-key-pool.js';
+export {
+  getGroqRequestTokenLimit,
+  GROQ_MIN_OUTPUT_TOKENS,
+} from './providers/groq-request-budget.js';

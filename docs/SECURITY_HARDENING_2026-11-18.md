@@ -1,10 +1,11 @@
 # Astra security hardening — 2026-11-18
 
-**Publication status:** the code is merged and the qualified container image is
-published. Production activation is **pending**: Railway's approval step refused
-the deployment. The staged patch was not applied, and the prior production
-deployment remains online. The controls below describe the approved candidate,
-not a claim that this candidate is already serving production traffic.
+**Publication status, updated 2026-11-18:** the qualified container image is
+**active in production**. Railway records deployment
+`4ad5a6d2-8dce-481c-9ab0-db0de702deec` as successful, created at 11:44:54 UTC
+(07:44:54 America/Campo_Grande) and started at approximately 07:45 local time.
+The read-only checks below confirmed selected protections on the live site;
+they do not constitute exhaustive production penetration testing.
 
 ## Scope and evidence
 
@@ -193,7 +194,7 @@ PostgreSQL scenarios, WhatsApp reliability, simulation, and touch/keyboard check
   whose required dashboard, customer, onboarding, and runtime-preservation gates
   must all pass before the image is published.
 
-## Prepared production change and approval blocker
+## Prepared production change and approval history
 
 The qualified-image workflow completed successfully at **11:29:22 UTC on
 2026-11-18** (**07:29:22 America/Campo_Grande**). All three application gates,
@@ -223,16 +224,49 @@ The Railway `accept-deploy` operation returned:
 
 > Cancelled — the user did not approve this action. No changes were made.
 
-Subsequent read-only verification confirmed that the patch remains **STAGED**,
-with **no deployment triggered**. The current deployment remains
+At that time, read-only verification confirmed that the patch remained **STAGED**,
+with **no deployment triggered**. The then-current deployment remained
 `153d2198-d455-4d9a-9fe2-111e13718e9a` (**SUCCESS**, one running replica), using the
 previous image digest
 `sha256:887b2759ebab063fc183519ab5da46bb427bf0e6766e170825d75b0cccd537bd`.
 The approval refusal was not bypassed through another deployment mechanism.
 
-After approval, production verification must confirm the new deployment's
-success, backup creation, non-root runtime, proxy identity configuration,
-readiness, real 404 responses for private/development paths, and protected API
-denials. Those post-deployment results and a newly created release backup are
-**not yet claimed**. Cloudflare DNS/proxy/WAF activation remains separately
-blocked on authenticated account and DNS access.
+That approval refusal was a historical blocker. A later deployment is now
+confirmed by the evidence in the next section. Cloudflare DNS/proxy/WAF
+activation remains separately pending authenticated account and DNS access;
+none of the checks below establishes that a Cloudflare WAF is active.
+
+## Subsequent activation and live verification
+
+On 2026-11-18, a later read of the production service confirmed the exact approved
+image digest `sha256:b5c6693860a2dca09c3c55f4aa406e164cd5622e17868efc978fd1e783b10be0`,
+deployment `4ad5a6d2-8dce-481c-9ab0-db0de702deec` in **SUCCESS**, and no pending patch.
+The evidence confirms publication; it does not identify who completed approval.
+
+The deployment's startup logs record:
+
+- **11:45:32 UTC:** runtime UID/GID **1001**, not root.
+- **11:45:33 UTC:** `[ReleaseBackup] created.` before application startup.
+- **11:45:35 UTC:** proxy client identity configured, header `x-real-ip`, JWT
+  authentication, and API limit **500 requests per 60,000 ms**.
+
+At **13:03 UTC / 09:03 America/Campo_Grande**, bounded unauthenticated GET requests
+to `https://app.astraacessor.pro` produced these results:
+
+| Path                                                                     | Observed result                            |
+| ------------------------------------------------------------------------ | ------------------------------------------ |
+| `/` and `/cliente/entrar`                                                | 200, HTML, CSP and HSTS present            |
+| `/@vite/client`, `/@id/__vite-browser-external`, `/.env`, `/.git/config` | 404, plain text, `Cache-Control: no-store` |
+| `/assets/astra-security-missing-file.js`                                 | 404, JSON                                  |
+| `/api/v1/settings`                                                       | 401, authentication required               |
+| `/health/sandbox`                                                        | 401, authentication required               |
+| `/api/v1/auth/status`                                                    | 200, password configured, unauthenticated  |
+| `/health/ready`                                                          | 200, `ready`, `Cache-Control: no-store`    |
+
+These are read-only route/configuration checks, not production load tests.
+They establish that the observed deployment is serving the intended perimeter
+behavior, while the broader concurrency, cancellation, and revocation cases
+remain covered by the recorded isolated regression tests. The session-cookie
+HTTPS setting is present; no production login was performed to obtain a new
+session cookie during this verification. Backup creation was observed; a fresh
+production restore was not performed.

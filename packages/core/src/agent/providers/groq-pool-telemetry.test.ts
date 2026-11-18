@@ -120,6 +120,21 @@ describe('sanitized numerical Groq diagnostics', () => {
     });
     expect(() => reportGroqPoolFailure(input())).not.toThrow();
   });
+  it('distinguishes a local budget refusal from a remote transport failure', () => {
+    const local = {
+      ...input(),
+      status: 413,
+      attempt: 0,
+      errorText: 'request_too_large: groq_local_admission; private diagnostic must not be logged',
+      requestTokenLimit: 8000,
+    };
+    reportGroqPoolFailure(local);
+    expect(f.warn).toHaveBeenLastCalledWith(
+      'Groq request rejected by local token budget',
+      groqPoolFailureFacts(local)
+    );
+    expect(JSON.stringify(f.warn.mock.calls.at(-1))).not.toContain('private diagnostic');
+  });
   it('does not spread accidental extra fields from a future caller into telemetry', () => {
     expect(
       JSON.stringify(

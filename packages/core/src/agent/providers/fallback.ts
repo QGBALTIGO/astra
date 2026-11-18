@@ -26,6 +26,18 @@ import { createHash } from 'node:crypto';
 import { readWithAbort } from './shared.js';
 import { ignoreError } from '../../utils/ignore-error.js';
 
+/** A request's output ceiling is not evidence of a provider-wide outage. */
+class OutputLimitError extends InternalError {
+  constructor() {
+    super('Provider reached its output limit before completing the response');
+  }
+}
+
+const timeoutDetails = (error: Error, phase: 'completion' | 'stream') =>
+  error instanceof TimeoutError && Number.isFinite(error.timeoutMs) && error.timeoutMs >= 0
+    ? { timeoutMs: Math.round(error.timeoutMs), timeoutPhase: phase }
+    : undefined;
+
 /**
  * Circuit breaker states
  */
@@ -295,17 +307,23 @@ export class FallbackProvider implements IProvider {
   ): void {
     const { circuit } = attempt;
     if (attempt.probeToken && circuit.probeToken !== attempt.probeToken) return;
+    if (error instanceof OutputLimitError) return;
     const status = /(?:API error|stream error|HTTP|status(?:\s*code)?)\s*:?\s*(\d{3})\b/i.exec(
       error?.message ?? ''
     )?.[1];
+    // A local payload budget rejection made no provider request. It must not
+    // poison either a shared circuit or this agent's private circuit.
+    if (
+      status === '413' &&
+      /\brequest_too_large: groq_local_admission\b/i.test(error?.message ?? '')
+    )
+      return;
     if (
       this.config.sharedCircuitBreaker &&
       error &&
       (error instanceof ValidationError ||
         status === '400' ||
-        (!status &&
-          /context[_ -]length[_ -]exceeded|maximum context length/i.test(error.message)) ||
-        (status === '413' && /\brequest_too_large: groq_local_admission\b/i.test(error.message)))
+        (!status && /context[_ -]length[_ -]exceeded|maximum context length/i.test(error.message)))
     )
       return;
     circuit.failureCount++;
@@ -560,6 +578,8 @@ export class FallbackProvider implements IProvider {
         }
         const calls = result.ok ? (result.value.toolCalls ?? []) : [];
         let invalidResponse: string | undefined;
+        if (result.ok && result.value.finishReason === 'length')
+          invalidResponse = 'Provider reached its output limit before completing the response';
         if (result.ok && request.requiredToolCall) {
           if (
             calls.length !== 1 ||
@@ -585,7 +605,10 @@ export class FallbackProvider implements IProvider {
         if (invalidResponse) {
           // A prose-only answer is not a successful live lookup. No tool has
           // executed yet, so trying another configured model cannot replay a write.
-          lastError = new InternalError(invalidResponse);
+          lastError =
+            result.ok && result.value.finishReason === 'length'
+              ? new OutputLimitError()
+              : new InternalError(invalidResponse);
           log.warn(invalidResponse);
           this.recordFailure(provider, lastError, circuitAttempt);
           continue;
@@ -629,7 +652,10 @@ export class FallbackProvider implements IProvider {
             ? errorObj
             : new InternalError(errorObj.message);
         if (!this.shouldFallback(errorObj)) return err(lastError);
-        log.error(`Provider ${provider.type} threw exception: ${providerErrorSummary(errorObj)}`);
+        log.error(
+          `Provider ${provider.type} threw exception: ${providerErrorSummary(errorObj)}`,
+          timeoutDetails(errorObj, 'completion')
+        );
         logError(provider.type, errorObj, 'Exception during fallback');
         this.recordFailure(provider, errorObj, circuitAttempt);
       } finally {
@@ -729,6 +755,13 @@ export class FallbackProvider implements IProvider {
             lastError = result.error;
             break;
           }
+          if (result.value.finishReason === 'length') {
+            // This terminal result is incomplete, even if it carries valid JSON
+            // or text. Earlier emitted fragments cannot be replayed elsewhere.
+            hasError = true;
+            lastError = new OutputLimitError();
+            break;
+          }
 
           // Role/usage-only events carry no replayable response. Any text or
           // tool fragment, including only an id or argument prefix, commits us
@@ -805,7 +838,8 @@ export class FallbackProvider implements IProvider {
           return;
         }
         log.error(
-          `Stream: Provider ${provider.type} threw exception: ${providerErrorSummary(errorObj)}`
+          `Stream: Provider ${provider.type} threw exception: ${providerErrorSummary(errorObj)}`,
+          timeoutDetails(errorObj, 'stream')
         );
         this.recordFailure(provider, errorObj, circuitAttempt);
 

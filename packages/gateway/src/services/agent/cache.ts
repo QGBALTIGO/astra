@@ -69,6 +69,13 @@ export const agentConfigCache = new Map<string, AgentConfig>();
 export const chatAgentCache = new Map<string, Agent>(); // Chat agents keyed by provider:model
 export { MAX_AGENT_CACHE_SIZE, MAX_CHAT_AGENT_CACHE_SIZE };
 
+/** Release an owned one-shot chat agent without invalidating other conversations. */
+export function evictChatAgentInstance(agent: Agent): void {
+  for (const [key, cached] of chatAgentCache) {
+    if (cached === agent) chatAgentCache.delete(key);
+  }
+}
+
 /** LRU touch: move entry to end of Map iteration order */
 export function lruGet<V>(cache: Map<string, V>, key: string): V | undefined {
   const value = cache.get(key);

@@ -375,6 +375,8 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
               provider,
               model,
               error: result.error?.message,
+              errorCode: 'AGENT_EXECUTION_FAILED',
+              errorStage: 'agent-execution',
             },
             timestamp: new Date(),
           },
@@ -536,7 +538,12 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
             channelReceipts,
             ctx.get<string>('channelTimeZone')
           ),
-          metadata: { ...message.metadata, error: err.message },
+          metadata: {
+            ...message.metadata,
+            error: err.message,
+            errorCode: 'AGENT_EXECUTION_ERROR',
+            errorStage: 'agent-execution',
+          },
           timestamp: new Date(),
         },
         streamed: !!stream,

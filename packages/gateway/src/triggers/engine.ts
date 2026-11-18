@@ -242,6 +242,11 @@ export class TriggerEngine {
     return this.running;
   }
 
+  /** The trusted owner scope of this engine, never an action-payload override. */
+  getUserId(): string {
+    return this.config.userId;
+  }
+
   // ==========================================================================
   // Action Handlers
   // ==========================================================================
@@ -802,7 +807,11 @@ export class TriggerEngine {
         await this.triggerService.markFired(this.config.userId, trigger.id);
       }
 
-      log.info('Executed trigger', { trigger: trigger.name, durationMs });
+      log.info('Executed trigger', {
+        trigger: trigger.name,
+        durationMs,
+        status: skipped ? 'skipped' : result.success ? 'success' : 'failure',
+      });
     } catch (error) {
       const durationMs = Date.now() - startTime;
       const errorMessage = getErrorMessage(error);

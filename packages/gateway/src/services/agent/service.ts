@@ -16,6 +16,9 @@ import {
   createFallbackProvider,
   type ResolvedAuth,
   buildSoulPrompt,
+  getGroqRequestTokenLimit,
+  GROQ_MIN_OUTPUT_TOKENS,
+  groqPoolKeys,
 } from '@ownpilot/core/agent';
 import { ToolRegistry, getBaseName, EXPENSE_TRACKER_TOOLS } from '@ownpilot/core/tools';
 import { hasProviderService, getProviderService } from '@ownpilot/core/services';
@@ -549,6 +552,24 @@ async function createChatAgentInstance(
       ? provider
       : (providerConfig?.type ?? 'openai');
 
+  // Match the transport's operator-pool boundary: tenant credentials, custom
+  // endpoints and authorization overrides do not inherit an operator quota.
+  // Channel agents already have their own compact prompt/history/output policy.
+  const groqRequestBudget =
+    !channelMode &&
+    provider === 'groq' &&
+    groqPoolKeys({
+      providerId: provider,
+      baseUrl: baseUrl ?? 'https://api.groq.com/openai/v1',
+      endpoint: providerConfig?.endpoint,
+      authorization:
+        new Headers({ Authorization: `Bearer ${apiKey}`, ...providerConfig?.headers }).get(
+          'authorization'
+        ) ?? '',
+    })
+      ? getGroqRequestTokenLimit()
+      : undefined;
+
   const tools = new ToolRegistry();
   registerAllTools(tools);
   // Chat, WhatsApp and configured agents must read the same Postgres expenses as the UI.
@@ -680,9 +701,10 @@ async function createChatAgentInstance(
     includeProfile: true,
     includeInstructions: true,
     includeTimeContext: true,
-    // Channel models discover tools through the four meta functions; injecting
-    // every full tool schema burns thousands of Groq TPM on each short message.
-    includeToolDescriptions: !isCliProvider && !channelMode,
+    // Both channel agents and a budgeted operator Groq agent discover tools
+    // through the same four meta functions. Omit their redundant catalog in
+    // the prompt without changing the registry, user scope or permissions.
+    includeToolDescriptions: !isCliProvider && !channelMode && groqRequestBudget === undefined,
   });
 
   // Extension sections are now injected per-request by the context-injection middleware
@@ -691,7 +713,15 @@ async function createChatAgentInstance(
   const chatMetaToolFilter = AI_META_TOOL_NAMES.map((name) => unsafeToolId(name));
 
   const router = getLLMRouter();
-  const ctxWindow = router.getContextWindow(provider, model);
+  const modelContextWindow = router.getContextWindow(provider, model);
+  // The model's context window is not the operator's per-request allowance.
+  // Scheduled/owner chats use this same path and previously reserved 8192
+  // output tokens even with an 8000-token Groq admission ceiling, making every
+  // request fail locally before a credential could be used.
+  const ctxWindow =
+    groqRequestBudget === undefined
+      ? modelContextWindow
+      : Math.min(modelContextWindow, groqRequestBudget);
   // For chat we DO include the dynamic-injection reserve because
   // context-injection middleware grows the system prompt per request with
   // extensions, skills, page context, tool suggestions, and data hints.
@@ -699,15 +729,63 @@ async function createChatAgentInstance(
   const modelMaxOutput = router.getMaxOutput(provider, model);
   // Reserve fewer output tokens for conversational channel requests on Groq;
   // a full 8192-token reservation exhausts the 8000-TPM allowance.
-  const outputBuffer = Math.min(
+  const requestedOutput = Math.min(
     AGENT_DEFAULT_MAX_TOKENS,
     modelMaxOutput,
     channelMode ? (provider === 'ollama-local' ? 1536 : 768) : Number.POSITIVE_INFINITY
   );
+  const minimumOutput = Math.min(requestedOutput, GROQ_MIN_OUTPUT_TOKENS);
+  const toolSchemaTokens =
+    groqRequestBudget === undefined
+      ? 0
+      : Math.ceil(
+          JSON.stringify(
+            tools
+              .getDefinitionsByNames(chatMetaToolFilter)
+              .map(({ name, description, parameters }) => ({
+                type: 'function',
+                function: { name, description, parameters },
+              }))
+          ).length / 4
+        );
+  const fixedContextTokens = systemPromptTokens + toolSchemaTokens;
+  // computeMemoryMaxTokens retains a 1024-token history floor and safety
+  // margin. Do not reserve optional injections at the expense of that floor
+  // or of a useful response. Impossible fixed prompts still fail at transport;
+  // they are never shortened or stripped of access instructions here.
+  const memoryFloor = 1024;
+  const safetyMargin = 1024;
+  const dynamicInjectionReserve =
+    groqRequestBudget === undefined
+      ? undefined
+      : Math.min(
+          8192,
+          Math.floor(ctxWindow / 4),
+          Math.max(0, ctxWindow - fixedContextTokens - minimumOutput - memoryFloor - safetyMargin)
+        );
+  // Leave most of a bounded request for instructions, messages and tools.
+  // Keep a useful response allowance (or a smaller model/channel limit), not a
+  // few-token response that could falsely appear to finish a scheduled task.
+  // The transport still measures the serialized request and rejects payloads
+  // that cannot fit; this planning budget never disables that final guard.
+  const outputBuffer =
+    groqRequestBudget === undefined
+      ? requestedOutput
+      : Math.min(
+          requestedOutput,
+          Math.max(
+            minimumOutput,
+            Math.min(
+              Math.floor(ctxWindow / 4),
+              ctxWindow - fixedContextTokens - dynamicInjectionReserve! - memoryFloor - safetyMargin
+            )
+          )
+        );
   const computedMemoryMaxTokens = router.computeMemoryMaxTokens({
     ctxWindow,
-    systemPromptTokens,
+    systemPromptTokens: fixedContextTokens,
     outputBuffer,
+    ...(dynamicInjectionReserve === undefined ? {} : { dynamicInjectionReserve }),
   });
   // The model's context window is not the provider's tokens-per-minute quota.
   // Keep conversational history bounded for Groq channels: even a 128K context

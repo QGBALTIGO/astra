@@ -123,7 +123,13 @@ export function groqPoolFailureFacts(input: {
 
 export function reportGroqPoolFailure(input: Parameters<typeof groqPoolFailureFacts>[0]): void {
   try {
-    log.warn('Groq transport unavailable', groqPoolFailureFacts(input));
+    const localAdmission =
+      input.status === 413 &&
+      input.errorText?.startsWith('request_too_large: groq_local_admission') === true;
+    log.warn(
+      localAdmission ? 'Groq request rejected by local token budget' : 'Groq transport unavailable',
+      groqPoolFailureFacts(input)
+    );
   } catch {
     /* Diagnostics must not change transport behavior or print the failed logger's arguments. */
   }
