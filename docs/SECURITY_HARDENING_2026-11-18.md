@@ -1,5 +1,11 @@
 # Astra security hardening — 2026-11-18
 
+**Publication status:** the code is merged and the qualified container image is
+published. Production activation is **pending**: Railway's approval step refused
+the deployment. The staged patch was not applied, and the prior production
+deployment remains online. The controls below describe the approved candidate,
+not a claim that this candidate is already serving production traffic.
+
 ## Scope and evidence
 
 This change hardens the gateway, its authentication and public HTTP/WebSocket
@@ -9,11 +15,12 @@ with one Railway replica. No attack payload was replayed against production.
 Production verification uses harmless reads; abuse cases use local synthetic
 requests and mocked accounts.
 
-The reported Vite requests received the SPA HTML fallback. That behavior was
-independently reproduced with harmless development-file paths. The historical
-response bodies were unavailable, so those HTTP 200 statuses do not establish
-code execution, exfiltration, or the absence of either. The deployed process is
-the compiled gateway, not a Vite development server.
+The reported Vite requests received HTTP 200, but their historical response
+bodies were unavailable. Harmless development-file paths independently returned
+the SPA HTML fallback, providing a plausible explanation for those statuses.
+This does not establish what the original requests returned, code execution,
+exfiltration, or the absence of either. The deployed process is the compiled
+gateway, not a Vite development server.
 
 The managed Codex Security scanner was unavailable in this session. This is a
 source review with regression tests and dependency/advisory checks, not a claim
@@ -158,3 +165,74 @@ kept in a separate commit from the security controls.
 - No guarantee of "100% security" is made. Image qualification, production
   health checks, backups, continued dependency maintenance, and monitoring
   remain part of operation. The existing build/release gates are preserved.
+
+## Release validation record
+
+The code was integrated through [PR #155](https://github.com/QGBALTIGO/astra/pull/155)
+as commit `2e17ecc1c7f21f40026f9af4f0453dd7eb44e0d2`. Its tree
+`0cf51a725e1257aedf9cc5c4ff1c7cbe49c32fc0` exactly matches the locally validated
+tree. All ten PR workflows completed successfully, including Linux/Windows CI,
+the isolated interface audit, customer portal, dashboard, onboarding,
+PostgreSQL scenarios, WhatsApp reliability, simulation, and touch/keyboard checks.
+
+- The complete monorepo run passed **37,317 tests**, with **zero failures** and
+  **1,299 conditional skips**. Build, type checks, lint, formatting, and the
+  frozen-lockfile install also passed.
+- [PR CI](https://github.com/QGBALTIGO/astra/actions/runs/44291586586) passed
+  **176 Playwright browser tests**. Its separate PostgreSQL regression group
+  passed **114 tests**; Windows checks passed **13,035 tests**.
+- [Main CI](https://github.com/QGBALTIGO/astra/actions/runs/44293315953) passed the
+  normal build/test job, production dependency audit, gateway boot, and database
+  migrations. Its overall result is **failure only because of the existing
+  coverage debt** tracked in [#150](https://github.com/QGBALTIGO/astra/issues/150).
+  Gateway function coverage is **83.36%**, improved from **83.26%** on the base,
+  but below the unchanged **84%** requirement. All instrumented tests passed.
+  This report does not represent that coverage gate as green.
+- The production image is built by the separate
+  [qualified-image workflow](https://github.com/QGBALTIGO/astra/actions/runs/44293315880),
+  whose required dashboard, customer, onboarding, and runtime-preservation gates
+  must all pass before the image is published.
+
+## Prepared production change and approval blocker
+
+The qualified-image workflow completed successfully at **11:29:22 UTC on
+2026-11-18** (**07:29:22 America/Campo_Grande**). All three application gates,
+container build, backup refusal tests, private-volume ownership checks, original
+command passthrough, and publication passed. The immutable candidate is:
+
+```text
+ghcr.io/qgbaltigo/astra@sha256:b5c6693860a2dca09c3c55f4aa406e164cd5622e17868efc978fd1e783b10be0
+```
+
+The prepared patch targets only `astra-gateway` in `astra-ownpilot` / `production`:
+
+- Switch the image to the qualified digest above.
+- Set `ASTRA_RELEASE_BACKUP_LABEL=astra-security-20261118-2e17ecc1` to require a
+  release-preservation backup before application startup.
+- Set `UI_SESSION_COOKIE_SECURE=true` to require HTTPS for session cookies.
+- Keep the existing `TRUSTED_PROXY_IP_HEADER=x-real-ip` selection. Staging the
+  same value produced no configuration change.
+
+The final review confirmed that build settings, startup/pre-deployment commands,
+health check, networking, and `/app/data` volume mounts remain unchanged. No
+service or volume deletion was staged, no other service was touched, and no
+shared variable was changed. The staged patch ID is
+`cacf712c-c041-4faa-9341-4940fb51f48b`.
+
+The Railway `accept-deploy` operation returned:
+
+> Cancelled — the user did not approve this action. No changes were made.
+
+Subsequent read-only verification confirmed that the patch remains **STAGED**,
+with **no deployment triggered**. The current deployment remains
+`153d2198-d455-4d9a-9fe2-111e13718e9a` (**SUCCESS**, one running replica), using the
+previous image digest
+`sha256:887b2759ebab063fc183519ab5da46bb427bf0e6766e170825d75b0cccd537bd`.
+The approval refusal was not bypassed through another deployment mechanism.
+
+After approval, production verification must confirm the new deployment's
+success, backup creation, non-root runtime, proxy identity configuration,
+readiness, real 404 responses for private/development paths, and protected API
+denials. Those post-deployment results and a newly created release backup are
+**not yet claimed**. Cloudflare DNS/proxy/WAF activation remains separately
+blocked on authenticated account and DNS access.
