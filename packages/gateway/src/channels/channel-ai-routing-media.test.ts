@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelIncomingMessage, ChannelPluginAPI } from '@ownpilot/core/channels';
 import type { ChannelUserEntity } from '../db/repositories/channels/users.js';
 import { getExecContext } from '@ownpilot/core/agent';
-import { channelReminderRequestError } from './reminder-request.js';
+import { channelReminderRequestError, clearChannelReminderRequests } from './reminder-request.js';
+import { markDirectWhatsAppAudio } from './plugins/whatsapp/whatsapp-audio-provenance.js';
 
 const mocks = vi.hoisted(() => ({
   getAgent: vi.fn(),
@@ -107,6 +108,7 @@ describe.each(['bus', 'direct'] as const)('Scoped media admission through %s', (
 
   beforeEach(() => {
     vi.resetAllMocks();
+    clearChannelReminderRequests();
     mocks.financing.mockResolvedValue(null);
     mocks.recordExpense.mockResolvedValue(null);
     mocks.resolveRouting.mockResolvedValue({ provider: 'openai', model: 'gpt-4o' });
@@ -172,10 +174,17 @@ describe.each(['bus', 'direct'] as const)('Scoped media admission through %s', (
     expect(requestError).toContain('não informou');
   });
 
-  it('preserves transcribed customer speech as reminder consent without document text', async () => {
-    const message = incoming();
+  it('keeps direct speech authority limited to the reminder ledger, without changing financial consent', async () => {
+    const message = incoming('direct-voice');
     message.text = '';
+    message.platformChatId = '5567999991234';
+    message.sender.platformUserId = '5567999991234';
+    message.metadata = { fromMe: false, isGroup: false };
     message.attachments![0] = { ...message.attachments![0]!, type: 'audio', mimeType: 'audio/ogg' };
+    markDirectWhatsAppAudio(message, {
+      key: { id: 'direct-voice', remoteJid: '5567999991234@s.whatsapp.net', fromMe: false },
+      message: { audioMessage: { mimetype: 'audio/ogg' } },
+    });
     const speech = 'Me lembre amanhã às 9h de pagar a conta';
     mocks.enrich.mockResolvedValue({
       text: 'Transcrição de áudio enviada pelo usuário: ' + speech,
@@ -199,9 +208,112 @@ describe.each(['bus', 'direct'] as const)('Scoped media admission through %s', (
         return { ok: true, value: { content: 'Pedido entendido' } };
       });
     await route(message);
-    expect(authorizedText).toBe(speech);
+    expect(authorizedText).toBe(message.text);
     expect(requestError).toBeUndefined();
   });
+
+  it.each(['forwarded', 'unproven', 'forged-metadata'] as const)(
+    'does not authorize a reminder from %s speech',
+    async (kind) => {
+      const message = incoming('voice-' + kind);
+      message.text = '[Attachment]';
+      message.platformChatId = '5567999991234';
+      message.sender.platformUserId = '5567999991234';
+      message.metadata = {
+        fromMe: false,
+        isGroup: false,
+        ...(kind === 'forged-metadata' ? { whatsappDirectAudio: true, isForwarded: false } : {}),
+      };
+      message.attachments![0] = {
+        ...message.attachments![0]!,
+        type: 'audio',
+        mimeType: 'audio/ogg',
+      };
+      if (kind === 'forwarded')
+        markDirectWhatsAppAudio(message, {
+          key: { id: 'voice-forwarded', remoteJid: '5567999991234@s.whatsapp.net', fromMe: false },
+          message: {
+            audioMessage: {
+              mimetype: 'audio/ogg',
+              contextInfo: { isForwarded: true, forwardingScore: 1 },
+            },
+          },
+        });
+      const speech = 'Me lembre amanhã às 9h de pagar a conta';
+      mocks.enrich.mockResolvedValue({ text: 'Transcrição: ' + speech, userSpeech: speech });
+      let requestError: string | undefined;
+      const capture = () => {
+        const ctx = getExecContext()!;
+        expect(ctx.channelRequestText).toBe('[Attachment]');
+        requestError = channelReminderRequestError(
+          `whatsapp:${message.sender.platformUserId}`,
+          ctx
+        );
+      };
+      if (path === 'bus')
+        bus.process.mockImplementation(async () => {
+          capture();
+          return { response: { content: 'Pedido entendido' } };
+        });
+      else
+        agent.chat.mockImplementation(async () => {
+          capture();
+          return { ok: true, value: { content: 'Pedido entendido' } };
+        });
+      await route(message);
+      expect(requestError).toContain('não informou');
+    }
+  );
+
+  it('does not retain spoken reminder permission if access changes during transcription', async () => {
+    const message = incoming('revoked-voice');
+    message.text = '[Attachment]';
+    message.platformChatId = '5567999991234';
+    message.sender.platformUserId = '5567999991234';
+    message.metadata = { fromMe: false, isGroup: false };
+    message.attachments![0] = { ...message.attachments![0]!, type: 'audio', mimeType: 'audio/ogg' };
+    markDirectWhatsAppAudio(message, {
+      key: { id: 'revoked-voice', remoteJid: '5567999991234@s.whatsapp.net', fromMe: false },
+      message: { audioMessage: { mimetype: 'audio/ogg' } },
+    });
+    mocks.enrich.mockImplementation(async () => {
+      isAccessAllowed.mockResolvedValue(false);
+      return {
+        text: 'Transcrição: Me lembre amanhã às 9h de pagar a conta',
+        userSpeech: 'Me lembre amanhã às 9h de pagar a conta',
+      };
+    });
+    expect(await route(message)).toContain('inativo');
+    expect(bus.process).not.toHaveBeenCalled();
+    expect(agent.chat).not.toHaveBeenCalled();
+    expect(
+      channelReminderRequestError(`whatsapp:${message.sender.platformUserId}`, {
+        channelPluginId: message.channelPluginId,
+        platformChatId: message.platformChatId,
+        channelMessageId: message.id,
+        channelRequestText: message.text,
+      })
+    ).toContain('não informou');
+  });
+
+  it.each([{}, { isForwarded: true }, { forwardedFrom: 'another-person' }])(
+    'requires the written review for spoken bulk deletion: %j',
+    async (metadata) => {
+      const message = incoming('bulk-speech');
+      message.text = '[Attachment]';
+      message.metadata = { fromMe: false, isGroup: false, ...metadata };
+      message.attachments![0] = {
+        ...message.attachments![0]!,
+        type: 'audio',
+        mimeType: 'audio/ogg',
+      };
+      const speech = 'Remova todos os meus lançamentos pendentes';
+      mocks.enrich.mockResolvedValue({ text: 'Transcrição: ' + speech, userSpeech: speech });
+      expect(await route(message)).toContain('escreva o pedido');
+      expect(bus.process).not.toHaveBeenCalled();
+      expect(agent.chat).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     ['image', 'image/png'],

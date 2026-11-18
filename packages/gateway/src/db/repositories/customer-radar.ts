@@ -141,11 +141,13 @@ export class CustomerRadarRepository extends BaseRepository {
       ]);
       const pref = await this.preferences();
       validateMatchdayTime(input, pref.preferences);
+      const independentAlert = ['matchday', 'threshold'].includes(input.delivery);
       const nextPreferences = radarPreferencesSchema.parse({
         ...pref.preferences,
-        // Independent alerts never move a customer's combined digest clock.
-        enabled: true,
-        time: ['matchday', 'threshold'].includes(input.delivery) ? pref.preferences.time : time,
+        // Independent alerts do not activate the old digest clock. It may be
+        // inside quiet hours while paused; digest mutations still validate it.
+        enabled: !independentAlert,
+        time: independentAlert ? pref.preferences.time : time,
       });
       nextPreferences.enabled = true;
       await this.execute(
@@ -167,7 +169,7 @@ export class CustomerRadarRepository extends BaseRepository {
           )
         ).changes;
       }
-      if (['matchday', 'threshold'].includes(input.delivery) && pref.preferences.enabled)
+      if (independentAlert && pref.preferences.enabled)
         await this.execute(
           "UPDATE customer_radar_outbox SET status='cancelled' WHERE user_id=$1 AND interest_id=$2 AND status IN ('pending','leased')",
           [this.userId, row!.id]

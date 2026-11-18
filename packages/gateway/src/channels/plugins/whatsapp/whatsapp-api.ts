@@ -67,6 +67,7 @@ import { recordOutboundQuality } from '../../../services/outbound-quality.js';
 import { SimpleTTLCache } from '../../../utils/simple-ttl-cache.js';
 import { ChannelSendNotAttemptedError } from '../../send-not-attempted.js';
 import { whatsappReplyDelayMs } from './whatsapp-response-pacing.js';
+import { markDirectWhatsAppAudio } from './whatsapp-audio-provenance.js';
 import {
   WhatsAppOutboundQueue,
   type WhatsAppOutboundQueueStats,
@@ -2068,6 +2069,13 @@ export class WhatsAppChannelAPI implements ChannelPluginAPI {
         ...(isGroup && { participant: participantJid }),
       },
     };
+
+    // The resolver above authenticated a private PN/LID destination. Preserve
+    // the original content contexts while binding the proof to that resolved JID.
+    markDirectWhatsAppAudio(channelMessage, {
+      ...msg,
+      key: { ...msg.key, remoteJid },
+    });
 
     this.trackMessage(messageId, phone);
 

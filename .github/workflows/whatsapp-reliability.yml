@@ -56,7 +56,9 @@ jobs:
           pnpm --filter @ownpilot/gateway exec vitest run
           src/channels/channel-ai-admission.test.ts
           src/channels/channel-ai-routing-media.test.ts
+          src/channels/channel-ai-routing-audio-consent.test.ts
           src/channels/whatsapp-inbound-identity.test.ts
+          src/services/groq-audio-transport.test.ts
           src/routes/ollama-relay.test.ts
           src/services/agent/fallback-chain.test.ts
           src/services/agent/service.test.ts
@@ -99,6 +101,7 @@ jobs:
           src/channels/plugins/whatsapp/whatsapp-response-pacing.test.ts
           src/channels/plugins/whatsapp/whatsapp-outbound-queue.test.ts
           src/channels/plugins/whatsapp/whatsapp-media-queue.test.ts
+          src/channels/plugins/whatsapp/whatsapp-audio-provenance.test.ts
           src/channels/plugins/whatsapp/libsignal-logging.test.ts
           src/services/channel-reminder-worker.test.ts
           src/services/daily-greeting-worker.test.ts

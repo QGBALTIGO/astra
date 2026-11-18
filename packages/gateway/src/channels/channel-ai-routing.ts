@@ -78,13 +78,29 @@ import { withContactStyleContext } from './channel-personalization.js';
 import { inboundChannelAssetScope } from './whatsapp-inbound-identity.js';
 import { channelHelpReply } from './channel-help.js';
 import { observeChannelReminderRequest, forgetChannelReminderRequest } from './reminder-request.js';
+import { isDirectUserAudio } from './plugins/whatsapp/whatsapp-audio-provenance.js';
 
-/** Captions and transcribed speech are requests; OCR/document text remains data. */
-function customerAuthoredChannelRequest(
+/** A direct voice note can supply a reminder time, never financial consent. */
+async function observeSpokenReminderRequest(
   message: ChannelIncomingMessage,
-  interpreted: NormalizedIncoming
-): string {
-  return [message.text, interpreted.userSpeech].filter(Boolean).join('\n');
+  userId: string,
+  speech: string | undefined,
+  isAccessAllowed?: ChannelAccessCheck
+): Promise<boolean> {
+  if (
+    !speech ||
+    !isDirectUserAudio(message) ||
+    (message.text.trim() && message.text.trim() !== '[Attachment]')
+  )
+    return true;
+  if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
+    forgetChannelReminderRequest(userId, message);
+    return false;
+  }
+  // Retain only bounded intent/time flags, scoped to this user and message.
+  // The transcript never enters the global channelRequestText used by finance.
+  observeChannelReminderRequest(userId, { ...message, text: speech, attachments: undefined });
+  return true;
 }
 
 /** Generate the standard demo-mode reply. */
@@ -621,6 +637,15 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
   // destructive bulk action, but cannot provide its confirmation authority.
   if (interpreted.userSpeech && isBulkFinanceDeletionRequest(interpreted.userSpeech))
     return 'Para revisar a exclusão dos pendentes com segurança, escreva o pedido nesta conversa. Vou mostrar a seleção antes de pedir sua confirmação.';
+  if (
+    !(await observeSpokenReminderRequest(
+      message,
+      channelUser.ownpilotUserId,
+      interpreted.userSpeech,
+      deps.isAccessAllowed
+    ))
+  )
+    return INACTIVE_CHANNEL_ACCESS_REPLY;
 
   const routing = await resolveForChannel(message.channelPluginId, {
     hasMedia: Boolean(message.attachments?.length),
@@ -759,7 +784,7 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
         channelMessageTimestamp: message.timestamp?.getTime(),
-        channelRequestText: customerAuthoredChannelRequest(message, interpreted),
+        channelRequestText: message.text,
         channelIsPrivate: integrationPrivateChat(message),
         channelConversationOnly: isConversationalOnlyChannelRequest(message.text),
         channelFinanceDeletes: new Map(),
@@ -898,6 +923,13 @@ async function processDirectAgentInSession(
     : null;
   if (speechScope) return speechScope;
 
+  if (interpreted.userSpeech && isBulkFinanceDeletionRequest(interpreted.userSpeech))
+    return 'Para revisar a exclusão dos pendentes com segurança, escreva o pedido nesta conversa. Vou mostrar a seleção antes de pedir sua confirmação.';
+  if (
+    !(await observeSpokenReminderRequest(message, userId, interpreted.userSpeech, isAccessAllowed))
+  )
+    return INACTIVE_CHANNEL_ACCESS_REPLY;
+
   const routing = await resolveForChannel(message.channelPluginId, {
     hasMedia: Boolean(message.attachments?.length),
   });
@@ -965,7 +997,7 @@ async function processDirectAgentInSession(
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
         channelMessageTimestamp: message.timestamp?.getTime(),
-        channelRequestText: customerAuthoredChannelRequest(message, interpreted),
+        channelRequestText: message.text,
         onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
         channelIsPrivate: integrationPrivateChat(message),
         channelConversationOnly: conversationOnly,

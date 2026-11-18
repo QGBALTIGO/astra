@@ -206,7 +206,12 @@ and a concrete time or a scoped continuation of that request. The short-lived
 continuation record is bounded by 5,000 user/channel/chat keys and a ten-minute
 expiry. It cannot inherit a time from an unrelated completed request, another
 customer or a quoted assistant promise. Original typed text and direct user
-speech can provide authority; OCR/PDF interpretation cannot. Conditional event
+speech can provide authority; OCR/PDF interpretation cannot. Audio requires
+transport-owned proof bound to its private message, recipient and asset. It
+survives verified phone-alias normalization but cannot be minted by JSON
+metadata or a forwarded message. The transcript supplies only reminder intent
+and timing flags; the global request-text authority used by financial tools
+remains the original typed text. Conditional event
 requests cannot be converted to a fixed reminder by fabricated tool arguments.
 An unsupported event such as service availability requires an honest response
 about monitoring, rather than a scheduled-success receipt.

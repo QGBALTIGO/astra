@@ -420,6 +420,66 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(await a.preferences()).toEqual(preferences);
       expect(await publicRepo.deliveryCurrent(otherDelivery)).toBe(true);
     });
+    it('starts a currency threshold without activating a paused digest clock inside quiet hours', async () => {
+      await a.savePreferences({
+        ...RADAR_DEFAULT_PREFERENCES,
+        time: '23:00',
+        quietStart: '22:00',
+        quietEnd: '07:00',
+      });
+      const old = await create();
+      const followed = await a.followFromChat(
+        {
+          source: 'ptax',
+          target: 'USD',
+          delivery: 'threshold',
+          threshold: '5',
+          comparison: 'at_or_below',
+          leadMinutes: 60,
+        },
+        'Dólar (USD)',
+        '15:56'
+      );
+      expect((await a.preferences()).preferences).toEqual({
+        enabled: true,
+        time: '23:00',
+        quietStart: '22:00',
+        quietEnd: '07:00',
+      });
+      expect(followed.interest).toMatchObject({
+        active: true,
+        delivery: 'threshold',
+        comparison: 'at_or_below',
+        threshold: '5',
+      });
+      expect(followed.keptPaused).toBe(1);
+      expect((await a.get(old.id))!.active).toBe(false);
+      await expect(a.change(old.id, { active: true })).rejects.toThrow('horário do resumo');
+      await expect(
+        a.create({ source: 'currency', target: 'EUR', delivery: 'digest', leadMinutes: 60 }, 'EUR')
+      ).rejects.toThrow('horário do resumo');
+      await expect(a.savePreferences((await a.preferences()).preferences)).rejects.toThrow(
+        'horário do resumo'
+      );
+      const before = await a.preferences();
+      const second = await a.followFromChat(
+        {
+          source: 'ptax',
+          target: 'EUR',
+          delivery: 'threshold',
+          threshold: '6',
+          comparison: 'at_or_above',
+          leadMinutes: 60,
+        },
+        'Euro (EUR)',
+        '12:00'
+      );
+      expect(second.interest.active).toBe(true);
+      expect(await a.preferences()).toEqual(before);
+      expect((await a.get(old.id))!.active).toBe(false);
+      expect((await a.get(followed.interest.id))!.active).toBe(true);
+      expect(await b.list()).toEqual([]);
+    });
     it('starts matchday with a paused digest clock in quiet hours without allowing that digest to resume', async () => {
       await a.savePreferences({
         ...RADAR_DEFAULT_PREFERENCES,
