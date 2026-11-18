@@ -60,7 +60,49 @@ import {
   PROVIDER_OAUTH_CONFIG_PREFIX,
   getEffectiveAllowedDirs,
   bootstrapAstraToolGroups,
+  getDefaultModel,
+  DEFAULT_PROVIDER_KEY,
+  DEFAULT_MODEL_KEY,
 } from './app-settings.js';
+
+describe('provider-specific default models', () => {
+  beforeEach(() => {
+    mockGet.mockReset();
+    mockGetByPrefix.mockResolvedValue([]);
+    vi.stubEnv('ASTRA_ONLY_GROQ', 'false');
+    vi.stubEnv('ASTRA_PRIMARY_PROVIDER', 'groq');
+    vi.stubEnv('ASTRA_GROQ_MODEL', 'openai/gpt-oss-20b');
+    mockGet.mockImplementation(async (key: string) => {
+      if (key === DEFAULT_PROVIDER_KEY) return 'groq';
+      if (key === DEFAULT_MODEL_KEY) return 'openai/gpt-oss-120b';
+      return undefined;
+    });
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('does not send the global Groq model to an explicitly selected Cloudflare provider', async () => {
+    expect(await getDefaultModel('cloudflare-workers-ai')).toBe('@cf/zai-org/glm-4.7-flash');
+    expect(await getDefaultModel('groq')).toBe('openai/gpt-oss-20b');
+    expect(await getDefaultModel()).toBe('openai/gpt-oss-20b');
+  });
+
+  it("does not inherit a different provider's saved model when the deployment pin is absent", async () => {
+    vi.stubEnv('ASTRA_PRIMARY_PROVIDER', '');
+    vi.stubEnv('ASTRA_GROQ_MODEL', '');
+    expect(await getDefaultModel('cloudflare-workers-ai')).toBe('@cf/zai-org/glm-4.7-flash');
+    expect(await getDefaultModel('groq')).toBe('openai/gpt-oss-120b');
+  });
+
+  it('keeps an explicit custom model for its saved provider', async () => {
+    mockGet.mockImplementation(async (key: string) => {
+      if (key === DEFAULT_PROVIDER_KEY) return 'cloudflare-workers-ai';
+      if (key === DEFAULT_MODEL_KEY) return '@cf/custom/operator-model';
+      return undefined;
+    });
+    expect(await getDefaultModel('cloudflare-workers-ai')).toBe('@cf/custom/operator-model');
+  });
+});
 
 describe('getResolvedAuth', () => {
   beforeEach(() => {

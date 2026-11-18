@@ -206,6 +206,12 @@ describe('lruGet', () => {
 // invalidateAgentCache
 // ---------------------------------------------------------------------------
 describe('invalidateAgentCache', () => {
+  it('advances the generation even when no completed agents have been cached yet', () => {
+    const before = mod.getAgentCacheGeneration();
+    mod.invalidateAgentCache();
+    expect(mod.getAgentCacheGeneration()).toBe(before + 1);
+  });
+
   it('clears agentCache', () => {
     mod.agentCache.set('a1', {} as never);
     mod.invalidateAgentCache();

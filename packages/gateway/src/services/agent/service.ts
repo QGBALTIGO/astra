@@ -77,6 +77,7 @@ import {
   chatAgentCache,
   pendingAgents,
   pendingChatAgents,
+  getAgentCacheGeneration,
   lruGet,
   createApprovalCallback,
   createSoulAwareApprovalCallback,
@@ -91,6 +92,7 @@ import {
 import { getLLMRouter, getConfigCenter } from '@ownpilot/core/services';
 import {
   parseAstraFallbackChain,
+  limitAstraFallbacks,
   ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
   ASTRA_LOCAL_FALLBACK_MAX_TOKENS,
   ASTRA_CLOUDFLARE_TIMEOUT_MS,
@@ -135,7 +137,7 @@ export function getCliCorrelationId(agent: Agent): string | undefined {
 /**
  * Create runtime Agent instance from database record
  */
-async function createAgentFromRecord(record: AgentRecord): Promise<Agent> {
+async function createAgentFromRecord(record: AgentRecord, cacheGeneration: number): Promise<Agent> {
   // Resolve "default" provider/model to actual values via IProviderService
   const providerSvc = hasProviderService() ? getProviderService() : null;
 
@@ -307,16 +309,18 @@ async function createAgentFromRecord(record: AgentRecord): Promise<Agent> {
 
   const agent = createAgent(config, { tools });
 
-  // Evict oldest entry if cache is at capacity
-  if (agentCache.size >= MAX_AGENT_CACHE_SIZE) {
-    const oldestKey = agentCache.keys().next().value;
-    if (oldestKey) {
-      evictAgentFromCache(oldestKey);
+  // A rotation may have happened while auth/tools/prompts were loading. The
+  // original request may finish, but must not evict or replace fresh agents.
+  if (cacheGeneration === getAgentCacheGeneration()) {
+    if (agentCache.size >= MAX_AGENT_CACHE_SIZE) {
+      const oldestKey = agentCache.keys().next().value;
+      if (oldestKey) {
+        evictAgentFromCache(oldestKey);
+      }
     }
+    agentCache.set(record.id, agent);
+    agentConfigCache.set(record.id, config);
   }
-
-  agentCache.set(record.id, agent);
-  agentConfigCache.set(record.id, config);
 
   return agent;
 }
@@ -333,8 +337,9 @@ export async function getOrCreateAgentInstance(record: AgentRecord): Promise<Age
   const pending = pendingAgents.get(record.id);
   if (pending) return pending;
 
-  const promise = createAgentFromRecord(record).finally(() => {
-    pendingAgents.delete(record.id);
+  const cacheGeneration = getAgentCacheGeneration();
+  const promise = createAgentFromRecord(record, cacheGeneration).finally(() => {
+    if (pendingAgents.get(record.id) === promise) pendingAgents.delete(record.id);
   });
   pendingAgents.set(record.id, promise);
 
@@ -368,12 +373,13 @@ export async function getAgent(id: string): Promise<Agent | undefined> {
     }
   }
 
+  const cacheGeneration = getAgentCacheGeneration();
   const promise = (async () => {
     const record = await agentsRepo.getById(id);
     if (!record) return undefined;
-    return createAgentFromRecord(record);
+    return createAgentFromRecord(record, cacheGeneration);
   })().finally(() => {
-    pendingAgents.delete(id);
+    if (pendingAgents.get(id) === promise) pendingAgents.delete(id);
   });
   pendingAgents.set(id, promise as Promise<Agent>);
 
@@ -396,6 +402,7 @@ export async function getOrCreateDefaultAgent(): Promise<Agent> {
   const pending = pendingAgents.get(defaultId);
   if (pending) return pending;
 
+  const cacheGeneration = getAgentCacheGeneration();
   const promise = (async () => {
     let record = await agentsRepo.getById(defaultId);
 
@@ -427,9 +434,9 @@ export async function getOrCreateDefaultAgent(): Promise<Agent> {
       });
     }
 
-    return createAgentFromRecord(record);
+    return createAgentFromRecord(record, cacheGeneration);
   })().finally(() => {
-    pendingAgents.delete(defaultId);
+    if (pendingAgents.get(defaultId) === promise) pendingAgents.delete(defaultId);
   });
   pendingAgents.set(defaultId, promise);
 
@@ -492,7 +499,7 @@ export async function getOrCreateChatAgent(
     channelMode,
     userId
   ).finally(() => {
-    pendingChatAgents.delete(cacheKey);
+    if (pendingChatAgents.get(cacheKey) === promise) pendingChatAgents.delete(cacheKey);
   });
   pendingChatAgents.set(cacheKey, promise);
 
@@ -514,6 +521,7 @@ async function createChatAgentInstance(
   channelMode = false,
   userId = 'default'
 ): Promise<Agent> {
+  const cacheGeneration = getAgentCacheGeneration();
   // ── CLI Chat Provider path ──
   // CLI providers (cli-claude, cli-codex, cli-gemini) use login-based auth
   // and don't require API keys. They spawn CLI processes for completions.
@@ -807,11 +815,12 @@ async function createChatAgentInstance(
     const candidates = parseAstraFallbackChain(
       process.env.ASTRA_FALLBACK_CHAIN,
       provider,
-      fallback
+      fallback,
+      { deferLimit: true }
     );
 
     try {
-      const usableFallbacks = [];
+      const configuredFallbacks = [];
       for (const candidate of candidates) {
         // A candidate is available only when credentials AND a supported
         // endpoint have been configured. Never use a catalog's paid default.
@@ -827,7 +836,7 @@ async function createChatAgentInstance(
           ? candidate.provider
           : (fbConfig?.type ?? 'openai-compatible');
 
-        usableFallbacks.push({
+        configuredFallbacks.push({
           id: candidate.provider,
           provider: fbType as AIProvider,
           apiKey: fbApiKey,
@@ -862,6 +871,7 @@ async function createChatAgentInstance(
         });
       }
 
+      const usableFallbacks = limitAstraFallbacks(configuredFallbacks, (candidate) => candidate.id);
       if (usableFallbacks.length > 0) {
         const hasLocalReserve = usableFallbacks.some(
           (candidate) => candidate.id === 'ollama-local'
@@ -926,11 +936,6 @@ async function createChatAgentInstance(
     }
   }
 
-  if (chatAgentCache.size >= MAX_CHAT_AGENT_CACHE_SIZE) {
-    const oldestKey = chatAgentCache.keys().next().value;
-    if (oldestKey) chatAgentCache.delete(oldestKey);
-  }
-
   const agent = createAgent(config, { tools, provider: providerInstance });
 
   // Store correlation ID for CLI agents (used by SSE stream to forward MCP events)
@@ -938,7 +943,11 @@ async function createChatAgentInstance(
     cliCorrelationIds.set(agent, correlationId);
   }
 
-  if (!isCliProvider) {
+  if (!isCliProvider && cacheGeneration === getAgentCacheGeneration()) {
+    if (chatAgentCache.size >= MAX_CHAT_AGENT_CACHE_SIZE) {
+      const oldestKey = chatAgentCache.keys().next().value;
+      if (oldestKey) chatAgentCache.delete(oldestKey);
+    }
     chatAgentCache.set(cacheKey, agent);
   }
 

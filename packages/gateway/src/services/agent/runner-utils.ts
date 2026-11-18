@@ -51,6 +51,7 @@ import { getGatewayExtensionService } from '../extension/accessor.js';
 import { getProviderMetricsRepository } from '../../db/repositories/costs/provider-metrics.js';
 import {
   parseAstraFallbackChain,
+  limitAstraFallbacks,
   ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
   ASTRA_LOCAL_FALLBACK_MAX_TOKENS,
   ASTRA_CLOUDFLARE_TIMEOUT_MS,
@@ -258,11 +259,12 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
     const candidates = parseAstraFallbackChain(
       process.env.ASTRA_FALLBACK_CHAIN,
       opts.provider,
-      requestedFallback
+      requestedFallback,
+      { deferLimit: true }
     );
 
     try {
-      const fallbacks: ProviderConfig[] = [];
+      const configuredFallbacks: ProviderConfig[] = [];
       for (const candidate of candidates) {
         const fbResolvedAuth = await resolveAuthForRequest(candidate.provider);
         const fbApiKey = fbResolvedAuth?.value ?? (await getProviderApiKey(candidate.provider));
@@ -270,7 +272,7 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
         if (!fbApiKey || (!fbConfig?.baseUrl && !NATIVE_PROVIDERS.has(candidate.provider))) {
           continue;
         }
-        fallbacks.push({
+        configuredFallbacks.push({
           id: candidate.provider,
           provider: (NATIVE_PROVIDERS.has(candidate.provider)
             ? candidate.provider
@@ -305,6 +307,7 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
         });
       }
 
+      const fallbacks = limitAstraFallbacks(configuredFallbacks, (candidate) => candidate.id);
       if (fallbacks.length > 0) {
         providerInstance = createFallbackProvider({
           primary: { ...agentProviderConfig, id: opts.provider, maxRetries: 0 },

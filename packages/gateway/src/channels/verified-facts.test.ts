@@ -4,6 +4,7 @@ import {
   verifiedChannelFacts,
   verifiedRadarToolReply,
   verifiedReadChannelFacts,
+  verifiedChannelToolReply,
 } from './verified-facts.js';
 const receipt = (name: string, result: unknown): ChannelToolReceipt => ({
   name: 'core.' + name,
@@ -45,6 +46,39 @@ describe('recovering verified reads without another provider turn', () => {
       pageSize: 20,
       ...changes,
     });
+  it('renders the whole received page before the memory limit without skipping rows 6–20', () => {
+    const rows = Array.from({ length: 20 }, (_, index) =>
+      transaction({
+        id: `private-${index}`,
+        description: `Parcela ${String(index + 1).padStart(2, '0')} de um pedido sintético para verificar a página completa`,
+      })
+    );
+    const result = page(rows, { total: 26 });
+    expect(result.content.length).toBeGreaterThan(3072);
+    const answer = verifiedChannelToolReply(
+      { content: '', toolCalls: [{ name: 'core.list_transactions' }] },
+      [result],
+      { requestText: 'Quais minhas entradas pendentes?' }
+    );
+    for (let i = 1; i <= 20; i++) expect(answer).toContain(`Parcela ${String(i).padStart(2, '0')}`);
+    expect(answer).toContain('Exibindo 20 de 26');
+    expect(answer).toContain('página 2 desta lista');
+    expect(answer).not.toMatch(/truncad|private-/);
+  });
+  it.each([
+    'Liste minhas entradas e depois mostre minhas despesas',
+    'Liste minhas entradas e registre uma despesa de 10 reais',
+    'Mostre minhas entradas e minhas tarefas',
+    'Qual o total das minhas entradas?',
+  ])('does not early-complete an intermediate finance read: %s', (requestText) => {
+    expect(
+      verifiedChannelToolReply(
+        { content: '', toolCalls: [{ name: 'core.list_transactions' }] },
+        [page([transaction()])],
+        { requestText }
+      )
+    ).toBeUndefined();
+  });
   it('keeps received and pending amounts separate and limits output to public fields', () => {
     const answer = verifiedReadChannelFacts([financial()]);
     expect(answer).toContain('• *A receber:* R$ 770,00');

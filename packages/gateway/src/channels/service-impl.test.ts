@@ -13,7 +13,7 @@ import { ASTRA_WEEKLY_PORTAL_REPLY } from './astra-access.js';
 import { isWeeklyPortalGuide } from './astra-access.js';
 import { writeShortChannelReply } from './short-channel-reply.js';
 vi.mock('./short-channel-reply.js', () => ({ writeShortChannelReply: vi.fn() }));
-import type { Message } from '@ownpilot/core/agent';
+import { getExecContext, type Message } from '@ownpilot/core/agent';
 import { inboundAccessCycle } from '../db/repositories/channel-access-inbound-notices.js';
 import type { ChannelUserEntity } from '../db/repositories/channels/users.js';
 
@@ -2380,6 +2380,61 @@ describe('ChannelServiceImpl', () => {
         expect(mockVerificationService.verifyViaWhitelist).not.toHaveBeenCalled();
       });
 
+      it.each([
+        ['**Finanças**<br>Exemplo: R$ 30.', '*Finanças*\nExemplo: R$ 30.'],
+        ['*Finanças*\nExemplo: R$ 30.', '*Finanças*\nExemplo: R$ 30.'],
+      ])(
+        'normalizes direct and already formatted WhatsApp replies at the final send boundary: %s',
+        async (content, expected) => {
+          mockGetOrCreateChatAgent.mockResolvedValue(
+            createMockAgent({
+              chat: vi.fn().mockResolvedValue({ ok: true, value: { content } }),
+            })
+          );
+          await service.processIncomingMessage(message);
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ text: expected })
+          );
+        }
+      );
+
+      it('uses the direct-agent read hook to send verified Gmail metadata without another model round', async () => {
+        const receipt = {
+          name: 'core.run_connected_action',
+          isError: false,
+          content: JSON.stringify({
+            success: true,
+            result: {
+              source: 'Gmail',
+              untrustedExternalData: {
+                messages: [
+                  {
+                    id: 'synthetic-direct-email',
+                    subject: 'Agenda da reunião',
+                    sender: 'Equipe <agenda@example.com>',
+                  },
+                ],
+              },
+            },
+          }),
+        };
+        const chat = vi.fn().mockImplementation(async (_text, options) => {
+          getExecContext()?.onToolResult?.(receipt);
+          const content = options.onToolResults(
+            { content: '', toolCalls: [{ name: receipt.name }] },
+            [receipt]
+          );
+          expect(content).toContain('Agenda da reunião');
+          return { ok: true, value: { content } };
+        });
+        mockGetOrCreateChatAgent.mockResolvedValue(createMockAgent({ chat }));
+        await service.processIncomingMessage({ ...message, text: 'Mostre meus últimos e-mails' });
+        expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: expect.stringContaining('Agenda da reunião') })
+        );
+        expect(chat).toHaveBeenCalledTimes(1);
+      });
+
       it('keeps the original data scope after a verified customer changes their phone', async () => {
         const historicalScope = 'whatsapp:5521999997890';
         mockResolveCustomerPhone.mockResolvedValue({
@@ -3753,7 +3808,10 @@ describe('ChannelServiceImpl', () => {
       it('should fall back to direct agent when no MessageBus', async () => {
         await service.processIncomingMessage(message);
 
-        expect(mockAgent.chat).toHaveBeenCalledWith('Hello!');
+        expect(mockAgent.chat).toHaveBeenCalledWith(
+          'Hello!',
+          expect.objectContaining({ onToolResults: expect.any(Function) })
+        );
         expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
           expect.objectContaining({
             text: 'Direct agent response',

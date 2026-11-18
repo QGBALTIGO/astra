@@ -132,6 +132,27 @@ describe('Channel turns across reconnection and slow provider fallbacks', () => 
     mocks.createConversation.mockResolvedValue({});
   });
 
+  it.each(
+    ['bus', 'direct'].flatMap((path) => [
+      { path, text: 'Quais os últimos gmais importantes que recebi' },
+      { path, text: 'Quais os últimos e-mails importantes que recebi' },
+    ])
+  )('bypasses financial shortcuts for an email request in $path: $text', async ({ path, text }) => {
+    const agent = makeAgent();
+    agent.chat.mockResolvedValue({ ok: true, value: { content: 'Vamos conferir seus e-mails.' } });
+    mocks.getAgent.mockResolvedValue(agent);
+    mocks.financing.mockResolvedValue('Unexpected financial shortcut');
+    mocks.recordExpense.mockResolvedValue('Unexpected financial shortcut');
+    const { deps } = makeDeps();
+    const bus = { process: vi.fn().mockResolvedValue(busReply('Vamos conferir seus e-mails.')) };
+    const message = incoming(`email-domain-${path}`, { text });
+    if (path === 'bus') await processViaBus(bus as never, message, session, user, deps);
+    else await processDirectAgent(message, user.ownpilotUserId, async () => true);
+    expect(mocks.financing).not.toHaveBeenCalled();
+    expect(mocks.recordExpense).not.toHaveBeenCalled();
+    expect(path === 'bus' ? bus.process : agent.chat).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ['bus', 'whatsapp'],
     ['direct', 'whatsapp'],

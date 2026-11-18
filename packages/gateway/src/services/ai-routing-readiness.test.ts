@@ -162,6 +162,39 @@ describe('Astra AI routing startup readiness', () => {
     ]);
   });
 
+  it('applies the chain cap only after unavailable providers have been removed', async () => {
+    mocks.resolveProcess.mockResolvedValue({ provider: 'openai', model: 'gpt-4o' });
+    vi.stubEnv(
+      'ASTRA_FALLBACK_CHAIN',
+      [zai, google, groq, openrouter, cloudflare, local]
+        .map((route) => `${route.provider}=${route.model}`)
+        .join(',')
+    );
+    // Google and the requested local reserve have no usable credential/config.
+    expect((await getAstraAiRoutingReadiness()).chat.fallbackChain).toEqual([
+      zai,
+      groq,
+      openrouter,
+      cloudflare,
+    ]);
+  });
+
+  it('does not report a displaced reserve when a runtime model is omitted from sanitized logs', async () => {
+    mocks.resolveProcess.mockResolvedValue({ provider: 'openai', model: 'gpt-4o' });
+    for (const route of [google, local]) {
+      mocks.keys.set(route.provider, credential);
+      mocks.configs.set(route.provider, { baseUrl: 'https://example.invalid/v1' });
+    }
+    vi.stubEnv(
+      'ASTRA_FALLBACK_CHAIN',
+      `openrouter=private-new-model:free,zai=glm-4.7-flash,google=gemini-2.5-flash-lite,groq=${groq.model},cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash,ollama-local=qwen3:4b-instruct`
+    );
+    const snapshot = await getAstraAiRoutingReadiness();
+    expect(snapshot.chat.fallbackChain).toEqual([zai, google, groq, local]);
+    expect(snapshot.chat.unrecognizedFallbackCount).toBe(1);
+    expect(JSON.stringify(snapshot)).not.toContain('private-new-model');
+  });
+
   it('logs only canonical identifiers, omitting malicious routing and credential strings', async () => {
     const injectedProvider = `groq\nAuthorization: Bearer ${credential}`;
     const injectedModel = `openai/gpt-oss-120b?api_key=${credential}`;

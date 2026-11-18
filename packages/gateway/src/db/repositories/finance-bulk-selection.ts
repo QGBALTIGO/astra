@@ -193,7 +193,8 @@ export class FinanceBulkSelectionRepository extends BaseRepository {
     at: Date,
     binding: string,
     global: boolean,
-    allowed: () => Promise<boolean>
+    allowed: () => Promise<boolean>,
+    requestedType?: FinanceSelectionFilter['type']
   ): Promise<FinanceDeletionResult> {
     return this.transaction(async () => {
       await this.queryOne('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [
@@ -222,6 +223,10 @@ export class FinanceBulkSelectionRepository extends BaseRepository {
         };
       if (!global && (!prior || !fresh(prior) || prior.phase === 'done' || prior.ambiguous))
         return { kind: 'missing' };
+      // A contextual request may narrow a mixed read, but cannot silently
+      // replace a different type selected by the preceding consultation.
+      if (!global && requestedType && prior!.filter.type && prior!.filter.type !== requestedType)
+        return { kind: 'missing' };
       if (
         !(await this.incoming(
           scope,
@@ -230,7 +235,10 @@ export class FinanceBulkSelectionRepository extends BaseRepository {
         ))
       )
         return { kind: 'missing' };
-      const filter = global ? {} : prior!.filter;
+      const filter: FinanceSelectionFilter = {
+        ...(global ? {} : prior!.filter),
+        ...(requestedType ? { type: requestedType } : {}),
+      };
       const cutoff = global ? Math.min(at.getTime(), Date.now()) : prior!.cutoff;
       const params: unknown[] = [scope.userId, new Date(cutoff)];
       const clauses = [

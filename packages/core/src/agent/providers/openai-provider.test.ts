@@ -494,21 +494,51 @@ describe('OpenAIProvider', () => {
       expect(body.tools[0].function.name).toBe('core__search'); // sanitized
     });
 
-    it('includes tool_choice when provided', async () => {
-      const tools: ToolDefinition[] = [
-        {
-          name: 'tool_a',
-          description: 'desc',
-          parameters: { type: 'object', properties: {} },
-        },
-      ];
-      mockFetch.mockImplementation(mockFetchOk(makeOpenAIResponse()));
+    it.each(['auto', 'none', 'required'] as const)(
+      'preserves tool_choice=%s',
+      async (toolChoice) => {
+        const tools: ToolDefinition[] = [
+          {
+            name: 'tool_a',
+            description: 'desc',
+            parameters: { type: 'object', properties: {} },
+          },
+        ];
+        mockFetch.mockImplementation(mockFetchOk(makeOpenAIResponse()));
 
-      await provider.complete(makeRequest({ tools, toolChoice: 'auto' }));
+        await provider.complete(makeRequest({ tools, toolChoice }));
 
-      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.tool_choice).toBe('auto');
-    });
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+        expect(body.tool_choice).toBe(toolChoice);
+      }
+    );
+
+    it.each([false, true])(
+      'serializes a named tool choice with its sanitized name (stream=%s)',
+      async (stream) => {
+        const tools: ToolDefinition[] = [
+          {
+            name: 'core.add_task',
+            description: 'Create a task',
+            parameters: { type: 'object', properties: {} },
+          },
+        ];
+        mockFetch.mockImplementation(
+          stream ? mockFetchStream(['data: [DONE]\n\n']) : mockFetchOk(makeOpenAIResponse())
+        );
+        const request = makeRequest({ tools, toolChoice: { name: 'core.add_task' } });
+
+        if (stream) await collectStream(provider.stream(request));
+        else expect((await provider.complete(request)).ok).toBe(true);
+
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+        expect(body.tools[0].function.name).toBe('core__add_task');
+        expect(body.tool_choice).toEqual({
+          type: 'function',
+          function: { name: 'core__add_task' },
+        });
+      }
+    );
 
     it('creates timestamp from response created field', async () => {
       const createdTimestamp = 1700000000;

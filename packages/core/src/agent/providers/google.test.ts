@@ -226,6 +226,43 @@ describe('GoogleProvider', () => {
     );
     expect(JSON.parse(mockFetch.mock.calls[1]![1].body as string).toolConfig).toBeUndefined();
   });
+  it.each([
+    { toolChoice: 'none' as const, expected: { mode: 'NONE' } },
+    {
+      toolChoice: { name: 'core.add_task' },
+      expected: { mode: 'ANY', allowedFunctionNames: ['core__add_task'] },
+    },
+  ])('honors tool choice $toolChoice in complete and stream', async ({ toolChoice, expected }) => {
+    const provider = new GoogleProvider(makeMockConfig());
+    const request = makeRequest({
+      tools: [
+        {
+          name: 'core.add_task',
+          description: 'Create a task',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+      toolChoice,
+    });
+
+    for (const stream of [false, true]) {
+      const data = JSON.stringify(makeGeminiResponse());
+      mockFetch.mockResolvedValueOnce(
+        new Response(stream ? `data: ${data}\n\n` : data, {
+          headers: { 'content-type': stream ? 'text/event-stream' : 'application/json' },
+        })
+      );
+      if (stream) {
+        for await (const chunk of provider.stream(request)) expect(chunk.ok).toBe(true);
+      } else {
+        expect((await provider.complete(request)).ok).toBe(true);
+      }
+
+      const body = JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string);
+      expect(body.tools[0].functionDeclarations[0].name).toBe('core__add_task');
+      expect(body.toolConfig).toEqual({ functionCallingConfig: expected });
+    }
+  });
   let mockFetch: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {

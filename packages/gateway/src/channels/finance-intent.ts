@@ -1,3 +1,5 @@
+import { hasChannelEmailSubject, isChannelEmailRequest } from './email-intent.js';
+
 /** A negated correction or example is not permission to mutate the ledger. */
 export function isNonExecutableFinanceCorrection(text: string): boolean {
   const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
@@ -29,6 +31,7 @@ export function isGeneralReceivableQuery(text: string): boolean {
 }
 
 export function isFinanceReadOnlyRequest(text: string): boolean {
+  if (isChannelEmailRequest(text)) return false;
   if (isGeneralReceivableQuery(text)) return true;
   const input = text
     .normalize('NFD')
@@ -60,6 +63,7 @@ export function isFinanceReadOnlyRequest(text: string): boolean {
 export function requiredFinanceReadTool(text: string): string | undefined {
   if (
     !isFinanceReadOnlyRequest(text) ||
+    hasChannelEmailSubject(text) ||
     /\b(?:google|gmail|drive|planilha|notion|todoist|trello|e-?mail|exemplo|ficticio|simulacao|hipotetico)\b/iu.test(
       text.normalize('NFD').replace(/\p{M}/gu, '')
     )

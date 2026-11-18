@@ -34,10 +34,19 @@ type CircuitState = 'closed' | 'open' | 'half-open';
 interface CircuitBreakerEntry {
   state: CircuitState;
   failureCount: number;
+  failureVersion: number;
   lastFailureTime: number;
   lastSuccessTime: number;
   reopenAt?: number;
   probeUntil?: number;
+  probeToken?: symbol;
+}
+interface CircuitAttempt {
+  circuit: CircuitBreakerEntry;
+  failureVersion: number;
+  deadline: number;
+  probeToken?: symbol;
+  finish(): void;
 }
 const sharedCircuits = new Map<string, CircuitBreakerEntry>();
 const sharedPreferred = new Map<string, { index: number; at: number }>();
@@ -190,37 +199,74 @@ export class FallbackProvider implements IProvider {
     const circuits = this.config.sharedCircuitBreaker ? sharedCircuits : this.circuits;
     let entry = circuits.get(circuitId);
     if (!entry) {
-      entry = { state: 'closed', failureCount: 0, lastFailureTime: 0, lastSuccessTime: 0 };
+      entry = {
+        state: 'closed',
+        failureCount: 0,
+        failureVersion: 0,
+        lastFailureTime: 0,
+        lastSuccessTime: 0,
+      };
       if (circuits.size >= 256) circuits.delete(circuits.keys().next().value!);
       circuits.set(circuitId, entry);
     }
     return entry;
   }
 
-  /** Returns true if the provider should be skipped */
-  private isCircuitOpen(provider: IProvider): boolean {
+  /** Admit one recovery probe for its actual request budget, with owned cleanup. */
+  private acquireCircuitAttempt(
+    provider: IProvider,
+    index: number,
+    deadline: number,
+    signal?: AbortSignal
+  ): CircuitAttempt | undefined {
     const circuit = this.getCircuit(provider);
-    if (circuit.state === 'closed') return false;
-    if (circuit.state === 'open') {
-      // Check if cooldown has elapsed → transition to half-open
-      if (Date.now() >= (circuit.reopenAt ?? circuit.lastFailureTime + this.cooldownMs)) {
-        circuit.state = 'half-open';
-        if (this.config.sharedCircuitBreaker) circuit.probeUntil = Date.now() + 10000;
-        log.info(`CircuitBreaker ${provider.type}: open → half-open (cooldown elapsed)`);
-        return false; // allow one test request
+    const attemptDeadline = Math.min(
+      deadline,
+      Date.now() + (this.orderedConfigs[index]?.timeout ?? Number.POSITIVE_INFINITY)
+    );
+    let probeToken: symbol | undefined;
+    if (circuit.state !== 'closed') {
+      const now = Date.now();
+      if (
+        (circuit.state === 'open' &&
+          now < (circuit.reopenAt ?? circuit.lastFailureTime + this.cooldownMs)) ||
+        (circuit.state === 'half-open' && (circuit.probeUntil ?? 0) > now)
+      )
+        return undefined;
+      circuit.state = 'half-open';
+      circuit.probeToken = probeToken = Symbol('recovery probe');
+      circuit.probeUntil = attemptDeadline;
+      log.info(`CircuitBreaker ${provider.type}: allowing one recovery probe`);
+    }
+    const finish = () => {
+      signal?.removeEventListener('abort', finish);
+      if (probeToken && circuit.probeToken === probeToken) {
+        // Cancellation, a request-specific error or an early consumer return
+        // is not an outage. Leave the elapsed cooldown available for a new probe.
+        circuit.state = 'open';
+        circuit.probeToken = undefined;
+        circuit.probeUntil = undefined;
       }
-      return true; // still open, skip
-    }
-    if (this.config.sharedCircuitBreaker) {
-      if ((circuit.probeUntil ?? 0) > Date.now()) return true;
-      circuit.probeUntil = Date.now() + 10000;
-    }
-    // half-open: allow one recovery probe through
-    return false;
+    };
+    if (probeToken) signal?.addEventListener('abort', finish, { once: true });
+    return {
+      circuit,
+      failureVersion: circuit.failureVersion,
+      deadline: attemptDeadline,
+      probeToken,
+      finish,
+    };
   }
 
-  private recordSuccess(provider: IProvider): void {
-    const circuit = this.getCircuit(provider);
+  private recordSuccess(provider: IProvider, attempt: CircuitAttempt): void {
+    const { circuit } = attempt;
+    // A slow response started before a concurrent quota/outage must not erase
+    // the newer failure or release another request's recovery probe.
+    if (
+      circuit.failureVersion !== attempt.failureVersion ||
+      (attempt.probeToken && circuit.probeToken !== attempt.probeToken)
+    )
+      return;
     if (circuit.state !== 'closed') {
       log.info(`CircuitBreaker ${provider.type}: ${circuit.state} → closed`);
     }
@@ -229,6 +275,7 @@ export class FallbackProvider implements IProvider {
     circuit.lastSuccessTime = Date.now();
     circuit.reopenAt = undefined;
     circuit.probeUntil = undefined;
+    circuit.probeToken = undefined;
     if (this.config.preferLastSuccessful) {
       const previous = sharedPreferred.get(this.groupKey),
         now = Date.now(),
@@ -241,25 +288,40 @@ export class FallbackProvider implements IProvider {
     }
   }
 
-  private recordFailure(provider: IProvider, error?: Error): void {
+  private recordFailure(
+    provider: IProvider,
+    error: Error | undefined,
+    attempt: CircuitAttempt
+  ): void {
+    const { circuit } = attempt;
+    if (attempt.probeToken && circuit.probeToken !== attempt.probeToken) return;
+    const status = /(?:API error|stream error|HTTP|status(?:\s*code)?)\s*:?\s*(\d{3})\b/i.exec(
+      error?.message ?? ''
+    )?.[1];
     if (
       this.config.sharedCircuitBreaker &&
       error &&
       (error instanceof ValidationError ||
-        /\b400\b|context[_ -]length[_ -]exceeded|maximum context length|\b413\b.*\brequest_too_large: groq_local_admission\b/i.test(
-          error.message
-        ))
+        status === '400' ||
+        (!status &&
+          /context[_ -]length[_ -]exceeded|maximum context length/i.test(error.message)) ||
+        (status === '413' && /\brequest_too_large: groq_local_admission\b/i.test(error.message)))
     )
       return;
-    const circuit = this.getCircuit(provider);
     circuit.failureCount++;
+    circuit.failureVersion++;
     circuit.lastFailureTime = Date.now();
     circuit.probeUntil = undefined;
-    circuit.reopenAt =
+    circuit.probeToken = undefined;
+    // In-flight requests can fail out of order. A late transient error must
+    // never shorten a quota or explicit Retry-After already observed.
+    circuit.reopenAt = Math.max(
+      circuit.reopenAt ?? 0,
       circuit.lastFailureTime +
-      (this.config.sharedCircuitBreaker
-        ? providerCooldownMs(error, this.cooldownMs)
-        : this.cooldownMs);
+        (this.config.sharedCircuitBreaker
+          ? providerCooldownMs(error, this.cooldownMs)
+          : this.cooldownMs)
+    );
 
     if (circuit.state === 'half-open') {
       // Failed during test → re-open
@@ -290,7 +352,8 @@ export class FallbackProvider implements IProvider {
       if (
         primary.state === 'closed' ||
         (primary.state === 'open' &&
-          Date.now() >= (primary.reopenAt ?? primary.lastFailureTime + this.cooldownMs))
+          Date.now() >= (primary.reopenAt ?? primary.lastFailureTime + this.cooldownMs)) ||
+        (primary.state === 'half-open' && Date.now() >= (primary.probeUntil ?? 0))
       )
         return entries;
     }
@@ -315,12 +378,16 @@ export class FallbackProvider implements IProvider {
     };
   }
 
-  private attemptContext(request: CompletionRequest, index: number, deadline: number) {
-    request.signal?.throwIfAborted();
-    const remaining = Math.min(
+  private attemptTimeoutMs(index: number, deadline: number): number {
+    return Math.min(
       deadline - Date.now(),
       this.orderedConfigs[index]?.timeout ?? Number.POSITIVE_INFINITY
     );
+  }
+
+  private attemptContext(request: CompletionRequest, index: number, deadline: number) {
+    request.signal?.throwIfAborted();
+    const remaining = this.attemptTimeoutMs(index, deadline);
     if (remaining <= 0)
       throw new TimeoutError('provider response budget', this.config.completionTimeoutMs ?? 0);
     const controller = new AbortController();
@@ -462,7 +529,13 @@ export class FallbackProvider implements IProvider {
       const provider = entry.provider;
 
       // Circuit breaker: skip providers whose circuit is open
-      if (this.isCircuitOpen(provider)) {
+      const circuitAttempt = this.acquireCircuitAttempt(
+        provider,
+        entry.origIndex,
+        deadline,
+        request.signal
+      );
+      if (!circuitAttempt) {
         log.info(`Skipping ${provider.type} (circuit open)`);
         continue;
       }
@@ -476,12 +549,15 @@ export class FallbackProvider implements IProvider {
           provider,
           this.requestForProvider(request, entry.origIndex),
           entry.origIndex,
-          deadline
+          circuitAttempt.deadline
         );
         request.signal?.throwIfAborted();
 
         // A provider refusal is meaningful, rather than an empty transport result.
-        if (result.ok && result.value.finishReason === 'content_filter') return result;
+        if (result.ok && result.value.finishReason === 'content_filter') {
+          this.recordSuccess(provider, circuitAttempt);
+          return result;
+        }
         const calls = result.ok ? (result.value.toolCalls ?? []) : [];
         let invalidResponse: string | undefined;
         if (result.ok && request.requiredToolCall) {
@@ -511,11 +587,11 @@ export class FallbackProvider implements IProvider {
           // executed yet, so trying another configured model cannot replay a write.
           lastError = new InternalError(invalidResponse);
           log.warn(invalidResponse);
-          this.recordFailure(provider, lastError);
+          this.recordFailure(provider, lastError, circuitAttempt);
           continue;
         }
         if (result.ok) {
-          this.recordSuccess(provider);
+          this.recordSuccess(provider, circuitAttempt);
           if (i > 0) {
             log.info(`Success with fallback provider: ${provider.type}`);
           }
@@ -524,10 +600,11 @@ export class FallbackProvider implements IProvider {
 
         // Request failed
         lastError = result.error;
+        if (!this.shouldFallback(result.error)) return err(result.error);
 
         log.warn(`Provider ${provider.type} failed: ${providerErrorSummary(result.error)}`);
         logError(provider.type, result.error, 'Fallback triggered');
-        this.recordFailure(provider, result.error);
+        this.recordFailure(provider, result.error, circuitAttempt);
 
         // Check if we should try next provider
         if (i < providers.length - 1 && this.shouldFallback(result.error)) {
@@ -551,9 +628,12 @@ export class FallbackProvider implements IProvider {
           errorObj instanceof InternalError
             ? errorObj
             : new InternalError(errorObj.message);
+        if (!this.shouldFallback(errorObj)) return err(lastError);
         log.error(`Provider ${provider.type} threw exception: ${providerErrorSummary(errorObj)}`);
         logError(provider.type, errorObj, 'Exception during fallback');
-        this.recordFailure(provider, errorObj);
+        this.recordFailure(provider, errorObj, circuitAttempt);
+      } finally {
+        circuitAttempt.finish();
       }
     }
 
@@ -615,13 +695,19 @@ export class FallbackProvider implements IProvider {
       const provider = entry.provider;
 
       // Circuit breaker: skip providers whose circuit is open
-      if (this.isCircuitOpen(provider)) {
+      const circuitAttempt = this.acquireCircuitAttempt(
+        provider,
+        entry.origIndex,
+        deadline,
+        request.signal
+      );
+      if (!circuitAttempt) {
         log.info(`Stream: Skipping ${provider.type} (circuit open)`);
         continue;
       }
 
       this.currentProviderIndex = entry.origIndex;
-      let hasYielded = false;
+      let hasOutput = false;
 
       try {
         log.info(`Stream: Trying provider ${i + 1}/${providers.length}: ${provider.type}`);
@@ -633,7 +719,7 @@ export class FallbackProvider implements IProvider {
           provider,
           this.requestForProvider(request, entry.origIndex),
           entry.origIndex,
-          deadline
+          circuitAttempt.deadline
         );
 
         for await (const result of generator) {
@@ -644,11 +730,18 @@ export class FallbackProvider implements IProvider {
             break;
           }
 
-          hasYielded = true;
+          // Role/usage-only events carry no replayable response. Any text or
+          // tool fragment, including only an id or argument prefix, commits us
+          // to this stream. A moderation refusal must not trigger a reserve.
+          hasOutput ||= Boolean(
+            result.value.content ||
+            result.value.toolCalls?.length ||
+            result.value.finishReason === 'content_filter'
+          );
+          if (result.value.done) this.recordSuccess(provider, circuitAttempt);
           yield result;
 
           if (result.value.done) {
-            this.recordSuccess(provider);
             return;
           }
         }
@@ -658,7 +751,7 @@ export class FallbackProvider implements IProvider {
         if (!hasError) {
           hasError = true;
           lastError = new InternalError(
-            hasYielded
+            hasOutput
               ? 'Provider stream ended before completion'
               : 'Provider returned an empty stream'
           );
@@ -666,13 +759,17 @@ export class FallbackProvider implements IProvider {
 
         // If error occurred, try next provider
         if (hasError && lastError) {
+          if (!this.shouldFallback(lastError)) {
+            yield err(lastError);
+            return;
+          }
           log.warn(`Stream: Provider ${provider.type} failed: ${providerErrorSummary(lastError)}`);
-          this.recordFailure(provider, lastError);
+          this.recordFailure(provider, lastError, circuitAttempt);
 
           // If we already sent chunks to the client, do NOT retry with another
           // provider — the client would see duplicate/overlapping content.
           // Instead, signal the error and stop.
-          if (hasYielded) {
+          if (hasOutput) {
             log.warn('Stream: Partial data already sent — cannot retry. Yielding error.');
             yield err(
               new InternalError(
@@ -703,14 +800,18 @@ export class FallbackProvider implements IProvider {
           return;
         }
         const errorObj = error instanceof Error ? error : new Error(String(error));
+        if (!this.shouldFallback(errorObj)) {
+          yield err(new InternalError('Provider request cancelled'));
+          return;
+        }
         log.error(
           `Stream: Provider ${provider.type} threw exception: ${providerErrorSummary(errorObj)}`
         );
-        this.recordFailure(provider, errorObj);
+        this.recordFailure(provider, errorObj, circuitAttempt);
 
         // A failed network stream after sending output is not replayable:
         // doing so could concatenate two responses or duplicate tool calls.
-        if (hasYielded) {
+        if (hasOutput) {
           yield err(new InternalError('Stream interrupted after partial output'));
           return;
         }
@@ -720,6 +821,8 @@ export class FallbackProvider implements IProvider {
 
         yield err(new InternalError(errorObj.message));
         return;
+      } finally {
+        circuitAttempt.finish();
       }
     }
 

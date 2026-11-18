@@ -73,11 +73,16 @@ function hasConfiguredValue(routing: ProcessRouting): boolean {
 }
 
 function mergeRouting(override: ProcessRouting, base: ProcessRouting): ProcessRouting {
+  const providerChanged = override.provider && override.provider !== base.provider;
+  const fallbackChanged =
+    override.fallbackProvider && override.fallbackProvider !== base.fallbackProvider;
   return {
     provider: override.provider ?? base.provider,
-    model: override.model ?? base.model,
+    model: override.model ?? (providerChanged ? null : base.model),
     fallbackProvider: override.fallbackProvider ?? base.fallbackProvider,
-    fallbackModel: override.fallbackModel ?? base.fallbackModel,
+    // Provider/model are pairs. A new fallback needs its own explicit model;
+    // selecting an arbitrary catalog default here could opt into a paid model.
+    fallbackModel: override.fallbackModel ?? (fallbackChanged ? null : base.fallbackModel),
   };
 }
 
