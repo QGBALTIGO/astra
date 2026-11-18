@@ -91,8 +91,12 @@ test('publishing an image requires the onboarding gate on the same checkout', ()
     new URL('../.github/workflows/astra-onboarding-release.yml', import.meta.url),
     'utf8'
   );
-  assert.match(publisher, /needs: \[qualification, customer-verification, onboarding\]/);
+  assert.match(
+    publisher,
+    /needs: \[qualification, customer-verification, onboarding, customer-controls\]/
+  );
   assert.match(publisher, /uses: \.\/\.github\/workflows\/astra-onboarding-release\.yml/);
+  assert.match(publisher, /uses: \.\/\.github\/workflows\/customer-controls\.yml/);
   assert.ok(publisher.includes("'.github/workflows/astra-customer-premium.yml'"));
   assert.ok(publisher.includes("'.github/workflows/astra-dashboard-release.yml'"));
   assert.match(gate, /workflow_call:/);
