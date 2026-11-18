@@ -116,3 +116,54 @@ Primary provider references used to interpret, not overstate, the evidence:
 - [Groq rate-limit behavior](https://console.groq.com/docs/rate-limits)
 - [OpenRouter rate-limit documentation](https://github.com/OpenRouterTeam/docs/blob/main/api_reference/limits.mdx)
 - [Cloudflare Workers AI errors](https://developers.cloudflare.com/workers-ai/platform/errors/)
+
+## Release evidence and final deployment status
+
+As of 18 November 2026 at 20:20:31 UTC (16:20:31 America/Campo_Grande),
+the correction is **merged and qualified, but not deployed**.
+
+- [PR #156](https://github.com/QGBALTIGO/astra/pull/156) merged as
+  `84a2d88ac5e51a7fc25e71bfc7c7369817edb0d1`. The qualified artifact uses that
+  commit, not later unrelated changes on `main`.
+- Local focused verification passed 797 tests across 18 files, the full build,
+  type checking, lint, and formatting.
+- [PR CI](https://github.com/QGBALTIGO/astra/actions/runs/44314197055) passed
+  37,391 Linux tests (1,299 conditional skips), 13,068 Windows tests,
+  176 Playwright tests, and 114 PostgreSQL integration tests. The six
+  PR-triggered workflows completed successfully.
+- The [main CI run](https://github.com/QGBALTIGO/astra/actions/runs/44315144357)
+  passed its build/test, boot, and migration jobs. Its coverage job failed:
+  gateway function coverage is 83.30%, below the existing 84% threshold and
+  0.06 percentage points below the prior 83.36%. This remains unresolved
+  coverage debt; the threshold and exclusions were not changed. The main CI
+  run is therefore not entirely green.
+- The [qualified-image workflow](https://github.com/QGBALTIGO/astra/actions/runs/44315144176)
+  completed successfully at 13:44:51 UTC. Its existing dashboard, portal,
+  onboarding, backup-preservation, private-volume, symlink-refusal, and non-root
+  runtime checks passed. No release gate was disabled.
+
+Qualified candidate image:
+
+```text
+ghcr.io/qgbaltigo/astra@sha256:85f3346da4140f6f345017a94cb282faf94788034c26e738a823ac06bc0ed08a
+```
+
+Railway patch `9369fbb5-9e56-4ac7-87cc-0cfd742200d4` remains `STAGED`.
+Its changes are confined to `astra-gateway`: the qualified image and release
+backup label `astra-briefing-20261118-84a2d88a`, plus removal of already-empty
+repository-source fields. The reviewed patch reports `destructive: false`;
+the start command, pre-deploy command, health checks, networking, and persistent
+volume are preserved.
+
+The final connector deployment call ended with `aborted by user`. A fresh
+read afterward confirmed no new deployment: the active deployment remains
+`4ad5a6d2-8dce-481c-9ab0-db0de702deec` (the security release), `SUCCESS`,
+with one running replica and no reported warnings, criticals, or recent
+deployment failures. This cancellation was not bypassed through another
+deployment route.
+
+Completing the staged Railway deployment is the remaining release step.
+Afterward, verify the candidate deployment ID, startup backup and readiness,
+and separately inspect a real scheduled execution's outcome and any configured
+delivery receipt. Neither the staged image nor a successful health check is
+evidence that the failed historical summary was delivered.
