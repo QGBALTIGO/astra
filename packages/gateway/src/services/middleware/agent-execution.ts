@@ -7,7 +7,7 @@
 
 import { withRecentReceiptContext } from '../../channels/recent-chat-replies.js';
 import { attachmentImageContent } from '../../channels/normalizers/image-content.js';
-import { verifiedChannelFacts, verifiedRadarToolReply } from '../../channels/verified-facts.js';
+import { verifiedChannelFacts, verifiedChannelToolReply } from '../../channels/verified-facts.js';
 import { isPendingRadarReply } from '../radar/chat-pending.js';
 import { randomUUID } from 'node:crypto';
 import type { MessageMiddleware, StreamCallbacks } from '@ownpilot/core/services';
@@ -193,7 +193,14 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
           : undefined);
       if (requiredFirst) chatOptions.requiredFirstTool = requiredFirst;
       if (message.metadata.source === 'channel' && !conversationOnly)
-        chatOptions.onToolResults = verifiedRadarToolReply;
+        chatOptions.onToolResults = (
+          response: Parameters<typeof verifiedChannelToolReply>[0],
+          results: Parameters<typeof verifiedChannelToolReply>[1]
+        ) =>
+          verifiedChannelToolReply(response, results, {
+            timeZone: ctx.get<string>('channelTimeZone'),
+            requestText: message.content,
+          });
 
       // Add thinking config if provided
       const thinking = ctx.get<{

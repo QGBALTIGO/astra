@@ -27,6 +27,35 @@ beforeEach(() => {
 
 describe('Astra presentation across the final channel boundary', () => {
   it.each(['bus', 'direct'] as const)(
+    'answers a help request concisely for the actual channel through %s',
+    async (path) => {
+      const bus = { process: vi.fn() };
+      const request = { ...message, text: 'Como eu te uso?' };
+      const response =
+        path === 'bus'
+          ? await processViaBus(
+              bus as never,
+              request as never,
+              { sessionId: 'style-session', conversationId: null },
+              { ownpilotUserId: userId },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : await processDirectAgent(request as never, userId, async () => true);
+      expect(response).toContain('aqui no WhatsApp');
+      expect(response).toContain('*Finanças:*');
+      expect(response).toContain('Gastei R$ 30');
+      expect(response!.length).toBeLessThan(650);
+      expect(response).not.toMatch(/Telegram|\*\*|<br\s*\/?>/i);
+      expect(bus.process).not.toHaveBeenCalled();
+      expect(repo.updateProfile).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['bus', 'direct'] as const)(
     'persists timezone before using the model in %s',
     async (path) => {
       const bus = { process: vi.fn() };

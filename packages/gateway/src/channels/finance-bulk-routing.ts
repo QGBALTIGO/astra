@@ -1,5 +1,5 @@
 import type { ChannelIncomingMessage } from '@ownpilot/core/channels';
-import { financeBulkIntent } from './finance-bulk-intent.js';
+import { financeBulkIntent, financeBulkTransactionType } from './finance-bulk-intent.js';
 import { customerAccountBinding, customerChannelAccess } from './customer-channel-access.js';
 import { financeBulkSelectionRepo } from '../db/repositories/finance-bulk-selection.js';
 import { financeSelectionScope } from './finance-read-context.js';
@@ -49,7 +49,8 @@ export async function tryPendingFinanceDeletion(
             message.timestamp,
             binding,
             intent === 'global',
-            access.stillAllowed
+            access.stillAllowed,
+            financeBulkTransactionType(message.text)
           );
     if (!(await access.stillAllowed()) || result.kind === 'denied') return denied;
     if (result.kind === 'missing')

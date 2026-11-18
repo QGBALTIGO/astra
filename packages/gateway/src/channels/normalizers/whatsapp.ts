@@ -31,14 +31,50 @@ function normalizeWhatsAppFormatting(text: string): string {
  * **bold** → *bold*, __italic__ → _italic_, ~~strike~~ → ~strike~
  */
 function markdownToWhatsApp(text: string): string {
+  // Format prose only. Examples in code and characters inside URLs are literal,
+  // and this function also runs at the final send boundary after bus formatting.
   return text
-    .replace(
-      /\[([^\]\n]+)\]\((https?:\/\/[^\s<>()]+(?:\([^\s<>()]*\)[^\s<>()]*)*)\)/g,
-      (_match, label: string, url: string) => (label === url ? url : `${label}: ${url}`)
-    )
-    .replace(/\*\*(.+?)\*\*/g, '*$1*') // **bold** → *bold*
-    .replace(/__(.+?)__/g, '_$1_') // __italic__ → _italic_
-    .replace(/~~(.+?)~~/g, '~$1~'); // ~~strike~~ → ~strike~
+    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/g)
+    .map((part, index) => {
+      if (index % 2) return part;
+      const prose = part
+        .replace(
+          /\[([^\]\n]+)\]\((https?:\/\/[^\s<>()]+(?:\([^\s<>()]*\)[^\s<>()]*)*)\)/g,
+          (_match, label: string, url: string) => (label === url ? url : `${label}: ${url}`)
+        )
+        .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+        .replace(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi, (_match, attrs: string, label: string) => {
+          const href = attrs.match(/(?:^|\s)href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i);
+          const url = (href?.[1] ?? href?.[2] ?? href?.[3] ?? '').replace(
+            /&amp;|&#0*38;|&#x0*26;/gi,
+            '&'
+          );
+          if (!/^https?:\/\/[^\s<>]+$/i.test(url)) return label;
+          return label === url ? url : `${label}: ${url}`;
+        })
+        .replace(/<br\b[^>]*\/?>/gi, '\n')
+        .replace(/<\/(?:p|div)\s*>/gi, '\n\n')
+        .replace(/<li\b[^>]*>/gi, '• ')
+        .replace(/<\/li\s*>/gi, '\n')
+        .replace(/<(?:strong|b)\b[^>]*>([\s\S]*?)<\/(?:strong|b)\s*>/gi, '**$1**')
+        .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*?)?\s*\/?>/gi, '');
+      return prose
+        .split(/(https?:\/\/[^\s<>]+)/gi)
+        .map((piece, urlIndex) =>
+          urlIndex % 2
+            ? piece
+            : piece
+                .replace(/&nbsp;|&#160;/gi, ' ')
+                .replace(/\*{2,}(.+?)\*{2,}/g, '*$1*')
+                .replace(/_{2,}(.+?)_{2,}/g, '_$1_')
+                .replace(/~~(.+?)~~/g, '~$1~')
+        )
+        .join('')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n');
+    })
+    .join('')
+    .trim();
 }
 
 export const whatsappNormalizer: ChannelNormalizer = {

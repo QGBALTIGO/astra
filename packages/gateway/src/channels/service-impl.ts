@@ -110,6 +110,7 @@ import {
 } from './channel-ai-routing.js';
 import { channelAssetStore } from '../services/channel-asset-store.js';
 import { bridgeIncomingMessage } from './bridge-runtime.js';
+import { whatsappNormalizer } from './normalizers/whatsapp.js';
 
 const log = getLog('ChannelService');
 
@@ -1378,6 +1379,10 @@ export class ChannelServiceImpl implements IChannelService {
             )
           : null;
       if (integrationProposal) responseText = integrationProposalMessage(integrationProposal);
+      // Shortcuts, direct replies and personalized confirmations can bypass the
+      // bus normalizer. Apply the same idempotent formatting to every final reply.
+      if (message.platform === 'whatsapp')
+        responseText = whatsappNormalizer.normalizeOutgoing(responseText).join('\n\n');
       let sentMessageId: string;
       if (progress && !replyWithVoice && !dashboardAction) {
         // Replace progress message with final response

@@ -1,6 +1,27 @@
 import { describe, it, expect } from 'vitest';
 import { channelFailureKind, channelFailureReply, presentChannelReply } from './channel-failure.js';
 
+describe('email lookup failures do not become financial failures', () => {
+  it.each([
+    'Quais os últimos gmais importantes que recebi',
+    'Quais os últimos e-mails importantes que recebi',
+    'Me mostre os gmails recebidos hoje',
+    'Quais e-mails sobre meus pagamentos recebi?',
+    'Mostre minha caixa de entrada',
+  ])('keeps the failure in the email domain: %s', (request) => {
+    const tools = ['connected_apps_status', 'search_connected_actions', 'search_connected_actions'];
+    const receipts = tools.map((name) => ({
+      name: `core.${name}`,
+      arguments: '{}',
+      content: '{"success":true}',
+      isError: false,
+    }));
+    const reply = channelFailureReply(request, 'agent_error', receipts);
+    expect(reply).toMatch(/e-mails|caixa de entrada/i);
+    expect(reply).not.toMatch(/Transações|lançamentos|gastos|parcelas|receita financeira/i);
+  });
+});
+
 describe('culinary requests remain conversations during a provider failure', () => {
   it.each([
     'Como faço um frango simples na frigideira? Quero uma receita rápida.',

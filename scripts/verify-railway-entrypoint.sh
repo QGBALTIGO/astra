@@ -13,6 +13,21 @@ if [ "${1:-}" = 'verify-child' ]; then
   [ "$(stat -c '%u' /tmp/runtime-outside-fixture)" = '0' ]
   [ "$2" = 'argument with spaces' ]
   [ "$3" = 'literal-$-*' ]
+  node <<'NODE'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+assert.equal(os.homedir(), '/home/ownpilot');
+const directory = fs.mkdtempSync(path.join(os.homedir(), '.runtime-fixture-'));
+try {
+  const file = path.join(directory, 'cache-check');
+  fs.writeFileSync(file, 'home-is-writable', { mode: 0o600 });
+  assert.equal(fs.readFileSync(file, 'utf8'), 'home-is-writable');
+} finally {
+  fs.rmSync(directory, { recursive: true });
+}
+NODE
   printf '%s\n' 'runtime-private-data-readable-without-root'
   exit 0
 fi

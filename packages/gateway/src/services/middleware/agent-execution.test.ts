@@ -266,6 +266,146 @@ describe('createAgentExecutionMiddleware', () => {
     middleware = createAgentExecutionMiddleware();
   });
 
+  describe('completed channel reads', () => {
+    const gmailReceipt = (subject: string) => ({
+      name: 'core.run_connected_action',
+      isError: false,
+      content: JSON.stringify({
+        success: true,
+        result: {
+          source: 'Gmail',
+          untrustedExternalData: {
+            messages: [
+              {
+                id: 'synthetic-email-id',
+                subject,
+                sender: 'Equipe <agenda@example.com>',
+                internalDate: String(Date.parse('2026-11-18T17:30:00Z')),
+              },
+            ],
+          },
+        },
+      }),
+    });
+
+    it('recovers the latest Gmail query after successful reads and the turn budget is exhausted', async () => {
+      const chat = vi.fn().mockImplementation(async () => {
+        for (const receipt of [
+          {
+            name: 'core.connected_apps_status',
+            isError: false,
+            content: '{"success":true,"result":{}}',
+          },
+          {
+            name: 'core.search_connected_actions',
+            isError: false,
+            content: '{"success":true,"result":{}}',
+          },
+          gmailReceipt('Consulta anterior'),
+          {
+            name: 'core.search_connected_actions',
+            isError: false,
+            content: '{"success":true,"result":{}}',
+          },
+          gmailReceipt('Reunião da consulta atual'),
+        ])
+          getExecContext()?.onToolResult?.(receipt);
+        return { ok: false, error: { message: 'Maximum turns exceeded (6)' } };
+      });
+      const result = await middleware(
+        createMessage({
+          content: 'Quais os últimos e-mails que recebi?',
+          metadata: { source: 'channel', platform: 'whatsapp' },
+        }),
+        createContext({
+          store: { agent: createAgent({ chat }), channelTimeZone: 'America/Cuiaba' },
+        }),
+        vi.fn()
+      );
+      expect(result.response.content).toContain('E-mails encontrados');
+      expect(result.response.content).toContain('Reunião da consulta atual');
+      expect(result.response.content).toContain('agenda@example.com');
+      expect(result.response.content).toContain('18/11/2026, 13:30');
+      expect(result.response.content).not.toMatch(
+        /Consulta anterior|financeiro|synthetic-email-id|Maximum turns/
+      );
+      expect(chat).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not hide a later Gmail failure with an earlier result at the production middleware', async () => {
+      const chat = vi.fn().mockImplementation(async () => {
+        getExecContext()?.onToolResult?.(gmailReceipt('Resultado antigo não deve aparecer'));
+        getExecContext()?.onToolResult?.({
+          name: 'core.run_connected_action',
+          isError: true,
+          content: '{"success":false,"error":"private-error"}',
+        });
+        return { ok: false, error: { message: 'Maximum turns exceeded (6)' } };
+      });
+      const result = await middleware(
+        createMessage({
+          content: 'Mostre os últimos e-mails',
+          metadata: { source: 'channel', platform: 'whatsapp' },
+        }),
+        createContext({ store: { agent: createAgent({ chat }) } }),
+        vi.fn()
+      );
+      expect(result.response.content).not.toMatch(
+        /Resultado antigo|private-error|financeiro|Maximum turns/
+      );
+      expect(result.response.content).toMatch(/e-mails/);
+      expect(chat).toHaveBeenCalledTimes(1);
+    });
+
+    it('finishes a full raw finance page through the middleware hook before another model round', async () => {
+      const transactions = Array.from({ length: 20 }, (_, index) => ({
+        id: `private-id-${index}`,
+        description: `Parcela ${String(index + 1).padStart(2, '0')}`,
+        amount: index + 1,
+        currency: 'BRL',
+        type: 'income',
+        status: 'pending',
+        date: '2026-12-01',
+        notes:
+          'Long private notes that must not consume the message or appear in the answer. '.repeat(
+            4
+          ),
+      }));
+      const receipt = {
+        name: 'core.list_transactions',
+        isError: false,
+        content: JSON.stringify({
+          success: true,
+          result: { transactions, total: 26, page: 1, pageSize: 20 },
+        }),
+      };
+      expect(receipt.content.length).toBeGreaterThan(3072);
+      const chat = vi.fn().mockImplementation(async (_text, options) => {
+        getExecContext()?.onToolResult?.(receipt);
+        const content = options.onToolResults(
+          { content: '', toolCalls: [{ name: receipt.name }] },
+          [receipt]
+        );
+        expect(content).toContain('Parcela 20');
+        return { ok: true, value: { id: 'read-completed', content } };
+      });
+      const result = await middleware(
+        createMessage({
+          content: 'Quais minhas entradas pendentes?',
+          metadata: { source: 'channel', platform: 'whatsapp' },
+        }),
+        createContext({ store: { agent: createAgent({ chat }) } }),
+        vi.fn()
+      );
+      for (let index = 1; index <= 20; index++)
+        expect(result.response.content).toContain(`Parcela ${String(index).padStart(2, '0')}`);
+      expect(result.response.content).toContain('Exibindo 20 de 26');
+      expect(result.response.content).toContain('página 2 desta lista');
+      expect(result.response.content).not.toMatch(/private|truncad/);
+      expect(chat).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('drafts a Pix request naturally with the model, without exposing financial tools', async () => {
     const text = 'Oi, amor! Você conseguiria me fazer um Pix de R$ 100? ❤️';
     const agent = createAgent({

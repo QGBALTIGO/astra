@@ -78,6 +78,12 @@ describe('financial bulk request intent', () => {
     'Remova todos os meus lançamentos pendentes',
     'Apaga todos os lançamentos pendentes',
     'Remova todos os registros que estão pendentes',
+    'Exclua todas as transações pendentes',
+    'Remova todos as entradas pendentes',
+    'Remova todas as entradas pendentes',
+    'Exclua todas as minhas receitas pendentes',
+    'Apague todas as saídas que estão pendentes',
+    'Remova todos os recebimentos pendentes',
   ])('recognizes an explicit whole-ledger preview %s', (text) =>
     expect(financeBulkIntent(text)).toBe('global')
   );
@@ -113,6 +119,51 @@ describe('financial bulk request intent', () => {
   );
 });
 describe('deterministic financial deletion preview and confirmation', () => {
+  it.each(['bus', 'direct'])(
+    'reviews the reported pending-income request in %s before a separate confirmation',
+    async (route) => {
+      const input = incoming('Remova todos as entradas pendentes');
+      const bus = { process: vi.fn() };
+      const reply =
+        route === 'bus'
+          ? await processViaBus(
+              bus as never,
+              input,
+              { sessionId: 'fixture-session', conversationId: null },
+              { ownpilotUserId: 'fixture-user' },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : await processDirectAgent(input, 'fixture-user', async () => true);
+      expect(reply).toContain('Revisar exclusão');
+      expect(reply).toContain('Valores a receber');
+      expect(f.prepare.mock.calls[0]?.[4]).toBe(true);
+      expect(f.prepare.mock.calls[0]?.[6]).toBe('income');
+      expect(f.confirm).not.toHaveBeenCalled();
+      expect(bus.process).not.toHaveBeenCalled();
+
+      const receipt = await tryPendingFinanceDeletion(
+        incoming('confirmo excluir os pendentes', { id: 'fixture-confirm-request' }),
+        'fixture-user',
+        async () => true
+      );
+      expect(receipt).toContain('Removidos:* 2');
+      expect(f.confirm).toHaveBeenCalledTimes(1);
+    }
+  );
+  it.each([
+    ['Remova essas entradas pendentes', false, 'income'],
+    ['Exclua todas as despesas pendentes', true, 'expense'],
+    ['Remova essas saídas pendentes', false, 'expense'],
+  ])('keeps the explicit transaction type for %s', async (text, global, type) => {
+    await tryPendingFinanceDeletion(incoming(text as string), 'fixture-user', async () => true);
+    expect(f.prepare.mock.calls[0]?.[4]).toBe(global);
+    expect(f.prepare.mock.calls[0]?.[6]).toBe(type);
+    expect(f.confirm).not.toHaveBeenCalled();
+  });
   it.each(['bus', 'direct'])(
     'intercepts a global pending deletion before any model or individual delete in %s',
     async (route) => {

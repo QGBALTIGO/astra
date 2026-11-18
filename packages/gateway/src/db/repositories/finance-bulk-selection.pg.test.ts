@@ -109,6 +109,44 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
         [id]
       );
     }
+    it('previews and confirms all pending income without touching expenses, settled entries or another owner', async () => {
+      await entry('income-1');
+      await entry('income-2');
+      await entry('expense-1', { type: 'expense' });
+      await entry('settled-income', { status: 'settled' });
+      await entry('other-income', { owner: other });
+      await incoming('request', 2);
+      const prepared = await repo.prepare(
+        scope,
+        'request',
+        new Date(at + 2000),
+        binding,
+        true,
+        allowed,
+        'income'
+      );
+      expect(prepared).toMatchObject({ kind: 'preview', count: 2, filter: { type: 'income' } });
+      for (const id of ['income-1', 'income-2', 'expense-1', 'settled-income', 'other-income'])
+        expect((await active(id))?.deleted).toBe(false);
+      expect(await confirm()).toMatchObject({ kind: 'done', result: { deleted: 2 } });
+      for (const id of ['income-1', 'income-2']) expect((await active(id))?.deleted).toBe(true);
+      for (const id of ['expense-1', 'settled-income', 'other-income'])
+        expect((await active(id))?.deleted).toBe(false);
+    });
+
+    it('refuses a contextual income deletion when the previous read selected expenses', async () => {
+      await entry('income-1');
+      await entry('expense-1', { type: 'expense' });
+      await incoming('list', 1);
+      await repo.remember(scope, { type: 'expense' }, 'list', new Date(at + 1000), binding);
+      await incoming('request', 2);
+      expect(
+        await repo.prepare(scope, 'request', new Date(at + 2000), binding, false, allowed, 'income')
+      ).toEqual({ kind: 'missing' });
+      expect((await active('income-1'))?.deleted).toBe(false);
+      expect((await active('expense-1'))?.deleted).toBe(false);
+    });
+
     it('deletes the full selected pending scope beyond page limits, preserving paid, other types/periods/currencies/tenants and later rows', async () => {
       await fixture.adapter.execute(
         `INSERT INTO expenses(id,user_id,date,amount,currency,description,transaction_type,status,created_at,updated_at)

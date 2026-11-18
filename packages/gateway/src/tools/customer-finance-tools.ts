@@ -1,6 +1,7 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
 import { isFinanceReadOnlyRequest } from '../channels/finance-intent.js';
 import { isBulkFinanceDeletionRequest } from '../channels/finance-bulk-intent.js';
+import { isChannelEmailRequest } from '../channels/email-intent.js';
 import { financeSelectionScope, rememberFinanceRead } from '../channels/finance-read-context.js';
 import { customerAccountBinding } from '../channels/customer-channel-access.js';
 import {
@@ -271,6 +272,11 @@ export async function executeCustomerFinanceTool(
   userId?: string
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   if (!userId) return { success: false, error: 'Usuário autenticado obrigatório.' };
+  if (isChannelEmailRequest(getExecContext()?.channelRequestText ?? ''))
+    return {
+      success: false,
+      error: 'Seu pedido atual é sobre e-mails. Consulte a integração de e-mail para responder.',
+    };
   if (
     toolName === 'delete_transaction' &&
     isBulkFinanceDeletionRequest(getExecContext()?.channelRequestText ?? '')
@@ -304,6 +310,7 @@ export async function executeCustomerFinanceTool(
       if (args.search !== undefined) query.search = text(args.search, 'a busca');
       if (args.type !== undefined) query.type = transactionType(args.type);
       if (args.status !== undefined) query.status = transactionStatus(args.status);
+      if (query.status === 'pending') query.sort = 'due';
       if (args.from !== undefined) query.from = text(args.from, 'o início');
       if (args.to !== undefined) query.to = text(args.to, 'o fim');
       if (args.page !== undefined) {
