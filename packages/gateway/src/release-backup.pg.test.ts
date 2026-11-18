@@ -5,7 +5,9 @@ import { createReadStream } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { Client } from 'pg';
 import { describe, expect, it } from 'vitest';
 import {
@@ -63,11 +65,25 @@ async function restoreArtifact(
   );
   decipher.setAAD(Buffer.from(`${manifest.format}:${manifest.label}:${artifact.name}`));
   decipher.setAuthTag(Buffer.from(artifact.tag, 'hex'));
+  const source = createReadStream(
+    join(directory, artifact.name),
+    command === 'tar' ? { highWaterMark: 512 } : undefined
+  );
+  // Separate tar's logical archive end from the trailing ciphertext so this
+  // qualification catches consumers that close before GCM authentication.
+  const input =
+    command === 'tar'
+      ? Readable.from(
+          (async function* () {
+            for await (const chunk of source) {
+              yield chunk;
+              await delay(1);
+            }
+          })()
+        )
+      : source;
   try {
-    await Promise.all([
-      pipeline(createReadStream(join(directory, artifact.name)), decipher, child.stdin),
-      exit,
-    ]);
+    await Promise.all([pipeline(input, decipher, child.stdin), exit]);
   } finally {
     clearTimeout(timeout);
     if (child.exitCode === null) child.kill('SIGKILL');
@@ -179,7 +195,9 @@ describe.skipIf(!enabled)('pre-start encrypted backup real PostgreSQL 16 qualifi
       await mkdir(files, { mode: 0o700 });
       await restoreArtifact(
         'tar',
-        ['-x', '-f', '-', '-C', files],
+        // Consume the complete encrypted stream, including tar's zero padding,
+        // before accepting success. Node child stdio is not a regular Unix pipe.
+        ['--ignore-zeros', '-x', '-f', '-', '-C', files],
         { PATH: process.env.PATH },
         backup,
         manifest,
@@ -194,6 +212,21 @@ describe.skipIf(!enabled)('pre-start encrypted backup real PostgreSQL 16 qualifi
       await expect(
         readFile(join(files, 'release-backups', label, 'manifest.json'))
       ).rejects.toMatchObject({ code: 'ENOENT' });
+      const tamperedFiles = join(directory, 'tampered-files');
+      await mkdir(tamperedFiles, { mode: 0o700 });
+      const filesArtifact = manifest.artifacts[1]!;
+      const invalidTag = Buffer.from(filesArtifact.tag, 'hex');
+      invalidTag[0] = invalidTag[0]! ^ 1;
+      await expect(
+        restoreArtifact(
+          'tar',
+          ['--ignore-zeros', '-x', '-f', '-', '-C', tamperedFiles],
+          { PATH: process.env.PATH },
+          backup,
+          manifest,
+          { ...filesArtifact, tag: invalidTag.toString('hex') }
+        )
+      ).rejects.toThrow(/unable to authenticate data/);
       // Source data, secrets and sequence remain intact after the read-only dump.
       expect(
         (await source.query('SELECT count(*)::int AS count FROM preservation_movements')).rows[0]
