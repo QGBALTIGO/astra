@@ -438,6 +438,16 @@ vi.mock('../services/log.js', () => ({
 // Global fetch mock for RSS tool executors
 vi.stubGlobal('fetch', vi.fn());
 
+// Feed validation still runs the real SSRF checks before safeFetch. Resolve
+// fixtures deterministically, including the private-address rejection case.
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(async (hostname: string) => {
+    if (hostname === 'example.com') return [{ address: '93.184.216.34', family: 4 }];
+    if (hostname === 'bad-url.example.com') return [{ address: '127.0.0.1', family: 4 }];
+    throw new Error(`Unexpected DNS lookup in RSS unit test: ${hostname}`);
+  }),
+}));
+
 // The RSS executors fetch feeds via safeFetch (SSRF-safe). Its real SSRF/DNS
 // checks are covered by safe-fetch.test.ts; here we delegate to the stubbed
 // global fetch so these tests exercise the feed-parsing logic, not networking.
@@ -1593,7 +1603,7 @@ describe('news_add_feed executor', () => {
   });
 
   it('returns error for private/loopback URLs (SSRF protection)', async () => {
-    // isPrivateUrlAsync returns true for bad-url.example.com (DNS rebinding check)
+    // The DNS fixture resolves to loopback; the real policy must reject it.
     const exec = await captureNewsRssTool('news_add_feed');
     const result = (await exec!({ url: 'http://bad-url.example.com/feed.rss' })) as {
       content: { error?: string };

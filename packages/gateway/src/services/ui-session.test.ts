@@ -33,7 +33,9 @@ vi.mock('./log.js', () => ({
 
 import {
   hashPassword,
+  hashPasswordAsync,
   verifyPassword,
+  verifyPasswordAsync,
   createSession,
   createMcpSession,
   validateSession,
@@ -56,10 +58,12 @@ const mockSettingsRepo = vi.mocked(settingsRepo);
 const mockUiSessionsRepo = vi.mocked(uiSessionsRepo);
 
 describe('UI Session Service', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
-    // Reset TTLCache by invalidating all sessions (clears cache + mocks)
+    mockSettingsRepo.get.mockReturnValue(null);
     mockUiSessionsRepo.deleteAll.mockResolvedValue(0);
+    await invalidateAllSessions();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
@@ -112,13 +116,27 @@ describe('UI Session Service', () => {
     });
   });
 
+  describe('asynchronous HTTP password compatibility', () => {
+    it('verifies hashes made by the existing synchronous password implementation', async () => {
+      const stored = hashPassword('existing-password');
+      expect(await verifyPasswordAsync('existing-password', stored)).toBe(true);
+      expect(await verifyPasswordAsync('wrong-password', stored)).toBe(false);
+    });
+
+    it('creates hashes that remain readable by the synchronous implementation', async () => {
+      const stored = await hashPasswordAsync('new-password');
+      expect(stored).toMatch(/^[a-f0-9]{64}:[a-f0-9]{128}$/);
+      expect(verifyPassword('new-password', stored)).toBe(true);
+    });
+  });
+
   // ── Session Management ────────────────────────────────────────────
 
   describe('createSession', () => {
     it('returns token and expiration', async () => {
       mockUiSessionsRepo.createSession.mockResolvedValue(undefined);
       const session = await createSession();
-      expect(session.token).toHaveLength(64); // 32 bytes hex
+      expect(session.token).toMatch(/^v2\.[a-f0-9]{64}$/); // 32 random bytes plus format version
       expect(session.expiresAt).toBeInstanceOf(Date);
       expect(session.expiresAt.getTime()).toBeGreaterThan(Date.now());
       expect(mockUiSessionsRepo.createSession).toHaveBeenCalledTimes(1);
@@ -136,7 +154,7 @@ describe('UI Session Service', () => {
     it('returns token and 30-day expiration', async () => {
       mockUiSessionsRepo.createSession.mockResolvedValue(undefined);
       const session = await createMcpSession();
-      expect(session.token).toHaveLength(64);
+      expect(session.token).toMatch(/^v2\.[a-f0-9]{64}$/);
       expect(session.expiresAt).toBeInstanceOf(Date);
       // Should be roughly 30 days from now
       const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
@@ -171,17 +189,17 @@ describe('UI Session Service', () => {
         metadata: {},
       });
       // Token not in cache → hits DB
-      expect(await validateSession('some-cached-miss-token')).toBe(true);
+      expect(await validateSession('a1'.repeat(32))).toBe(true);
       expect(mockUiSessionsRepo.getByTokenHash).toHaveBeenCalledTimes(1);
 
       // Second call hits cache → no extra DB call
-      expect(await validateSession('some-cached-miss-token')).toBe(true);
+      expect(await validateSession('a1'.repeat(32))).toBe(true);
       expect(mockUiSessionsRepo.getByTokenHash).toHaveBeenCalledTimes(1);
     });
 
     it('returns false for unknown token', async () => {
       mockUiSessionsRepo.getByTokenHash.mockResolvedValue(null);
-      expect(await validateSession('unknown-token')).toBe(false);
+      expect(await validateSession('b2'.repeat(32))).toBe(false);
     });
 
     it('returns false for expired session', async () => {
@@ -193,7 +211,7 @@ describe('UI Session Service', () => {
         expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
         metadata: {},
       });
-      expect(await validateSession('some-token')).toBe(false);
+      expect(await validateSession('c3'.repeat(32))).toBe(false);
     });
 
     it('returns false for session created before password change', async () => {
@@ -207,7 +225,7 @@ describe('UI Session Service', () => {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         metadata: {},
       });
-      expect(await validateSession('old-session-token')).toBe(false);
+      expect(await validateSession('d4'.repeat(32))).toBe(false);
     });
 
     it('returns true when hashCreatedAt is not set (backward compat)', async () => {
@@ -220,7 +238,7 @@ describe('UI Session Service', () => {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         metadata: {},
       });
-      expect(await validateSession('legacy-session-token')).toBe(true);
+      expect(await validateSession('e5'.repeat(32))).toBe(true);
     });
 
     it('cache-hit path also enforces the password-change cutoff (no DB lookup)', async () => {

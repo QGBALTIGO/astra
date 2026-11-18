@@ -15,13 +15,15 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../services/ui-session.js', () => ({
-  hashPassword: vi.fn((pw: string) => `salt:${pw}-hashed`),
-  verifyPassword: vi.fn(() => false), // every credential check fails
+  hashPasswordAsync: vi.fn(async (pw: string) => `salt:${pw}-hashed`),
+  verifyPasswordAsync: vi.fn(async () => false), // every credential check fails
+  UI_PASSWORD_MAX_LENGTH: 1024,
   createSession: vi.fn(),
   invalidateSession: vi.fn(),
   invalidateAllSessions: vi.fn(),
   isPasswordConfigured: vi.fn(() => true),
   getPasswordHash: vi.fn(() => 'salt:anything-hashed'),
+  getPasswordVersion: vi.fn(() => 0),
   setPasswordHash: vi.fn(),
   removePassword: vi.fn(),
   validateSession: vi.fn(() => false),

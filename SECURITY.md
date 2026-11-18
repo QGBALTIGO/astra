@@ -53,10 +53,14 @@ OwnPilot implements multiple layers of security:
 The defaults target a localhost, single-tenant deployment. When exposing the
 gateway beyond localhost (e.g. via a tunnel or `0.0.0.0` bind), also set:
 
-- **`TRUSTED_PROXY=true` + `TRUSTED_PROXY_IPS`** — required for the rate limiter
-  and TLS detection to trust `X-Forwarded-*`. Without it, external clients can
-  collapse into the local-exempt bucket and the global limiter becomes
-  ineffective.
+- **`TRUSTED_PROXY=true` + `TRUSTED_PROXY_IPS`** — explicitly enables proxy
+  header handling for rate limits and TLS detection. This header-only helper
+  does not check a socket peer against the configured list: the deployment must
+  prevent untrusted ingress from bypassing the proxy that overwrites headers.
+  For Railway's public HTTP edge, use `TRUSTED_PROXY_IP_HEADER=x-real-ip`.
+  Railway private-network callers are inside this trust boundary; do not invent
+  a stable Railway edge CIDR allowlist. Without proxy configuration, a gateway
+  bound beyond loopback uses one shared, rate-limited `direct` bucket.
 - **`UI_SESSION_COOKIE_SECURE=true`** (or **`HTTPS_ONLY=true`**) — ensures the UI
   session cookie carries the `Secure` flag when TLS is terminated upstream.
 - **MQTT (edge)** — the bundled Mosquitto broker allows anonymous connections and

@@ -31,6 +31,8 @@ import {
 import { createLoginThrottle } from '../utils/login-throttle.js';
 import { UI_SESSION_COOKIE } from '../utils/ui-session-cookie.js';
 import { sanitizeCorsOriginsFromEnv } from '../utils/cors-origin.js';
+import { getClientIp, isProxyAwareConfigured } from '../utils/client-ip.js';
+import { UiSessionBusyError } from '../services/ui-session-error.js';
 
 // Simple HTML escape to prevent XSS in demo responses
 function escapeHtml(unsafe: string): string {
@@ -53,6 +55,41 @@ const wsLoginThrottle = createLoginThrottle({
   windowMs: 60_000,
   lockoutMs: 0, // no lockout for WS auth
 });
+
+const MAX_PENDING_UPGRADES = 32;
+const UPGRADE_AUTH_TIMEOUT_MS = 10_000;
+
+function getWsClientIp(request: IncomingMessage): string {
+  if (isProxyAwareConfigured()) {
+    const forwardedIp = getClientIp({
+      header: (name: string) => {
+        const value = request.headers[name.toLowerCase()];
+        return typeof value === 'string' ? value : undefined;
+      },
+    });
+    if (forwardedIp !== 'direct') return forwardedIp;
+  }
+  return request.socket.remoteAddress ?? 'unknown';
+}
+
+function rejectUpgrade(
+  socket: import('stream').Duplex,
+  status:
+    | '400 Bad Request'
+    | '401 Unauthorized'
+    | '403 Forbidden'
+    | '429 Too Many Requests'
+    | '503 Service Unavailable',
+  retryAfter?: number
+): void {
+  if (socket.destroyed) return;
+  socket.write(
+    `HTTP/1.1 ${status}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Length: 0\r\n` +
+      (retryAfter === undefined ? '' : `Retry-After: ${retryAfter}\r\n`) +
+      '\r\n'
+  );
+  socket.destroy();
+}
 
 /**
  * Validate a WebSocket authentication token.
@@ -137,7 +174,11 @@ function getCookieValue(cookieHeader: string | undefined, name: string): string 
   for (const part of cookieHeader.split(';')) {
     const [rawKey, ...rawValue] = part.trim().split('=');
     if (rawKey === name) {
-      return decodeURIComponent(rawValue.join('='));
+      try {
+        return decodeURIComponent(rawValue.join('='));
+      } catch {
+        return null;
+      }
     }
   }
   return null;
@@ -312,6 +353,7 @@ export class WSGateway {
   private clientHandler = new ClientEventHandler();
   private httpServer: (HttpServer | HttpsServer | Http2Server | Http2SecureServer) | null = null;
   private upgradeHandler: ((...args: unknown[]) => void) | null = null;
+  private pendingUpgrades = 0;
   private eventBridge: EventBusBridge | null = null;
   private legacyUnsubs: (() => void)[] = [];
 
@@ -381,25 +423,88 @@ export class WSGateway {
       const request = args[0] as IncomingMessage;
       const socket = args[1] as import('stream').Duplex;
       const head = args[2] as Buffer;
-      const url = new URL(request.url ?? '/', `http://${request.headers.host}`);
+      let cancelAdmission: (() => void) | undefined;
+      // Node removes its HTTP socket error listener before emitting 'upgrade'.
+      // Own the socket until ws takes over, including while auth awaits the DB.
+      const onSocketError = () => socket.destroy();
+      const cleanupSocketListeners = () => {
+        socket.removeListener('error', onSocketError);
+        socket.removeListener('close', onSocketClose);
+      };
+      const onSocketClose = () => {
+        cancelAdmission?.();
+        cleanupSocketListeners();
+      };
+      socket.on('error', onSocketError);
+      socket.once('close', onSocketClose);
+      const requestTarget = request.url ?? '/';
+      if (
+        requestTarget.length > 8192 ||
+        !requestTarget.startsWith('/') ||
+        requestTarget.startsWith('//') ||
+        requestTarget.includes('\\')
+      ) {
+        rejectUpgrade(socket, '400 Bad Request');
+        return;
+      }
+      // Only the path/query are needed. Never parse an attacker-controlled Host
+      // as the base URL inside an async EventEmitter listener.
+      let url: URL;
+      try {
+        url = new URL(requestTarget, 'http://gateway.invalid');
+      } catch {
+        rejectUpgrade(socket, '400 Bad Request');
+        return;
+      }
+      if (url.pathname !== this.config.path) {
+        socket.destroy();
+        return;
+      }
+      if (!isOriginAllowed(request.headers.origin, this.config.allowedOrigins)) {
+        rejectUpgrade(socket, '403 Forbidden');
+        return;
+      }
+      if (
+        this.pendingUpgrades >= MAX_PENDING_UPGRADES ||
+        sessionManager.count >= this.config.maxConnections
+      ) {
+        rejectUpgrade(socket, '503 Service Unavailable', 1);
+        return;
+      }
 
-      if (url.pathname === this.config.path) {
+      let authTimer: NodeJS.Timeout | undefined;
+      this.pendingUpgrades++;
+      try {
         // Rate limit auth attempts per IP
-        const clientIp = request.socket.remoteAddress ?? 'unknown';
-        if (!wsLoginThrottle.check(clientIp).allowed) {
-          log.warn('WebSocket auth rate limited', { clientIp });
-          socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
-          socket.destroy();
+        const clientIp = getWsClientIp(request);
+        const throttle = wsLoginThrottle.check(clientIp);
+        if (!throttle.allowed) {
+          rejectUpgrade(
+            socket,
+            '429 Too Many Requests',
+            Math.max(1, Math.ceil(throttle.retryAfterMs / 1000))
+          );
           return;
         }
 
         // Authenticate before upgrading: API key via Authorization header,
         // ownpilot.auth.* subprotocol, deprecated query param, or HttpOnly UI session cookie.
         const auth = getWsAuth(request, url);
-        if (!(await validateWsAuth(auth))) {
-          log.warn('WebSocket connection rejected: invalid or missing token');
-          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-          socket.destroy();
+        const authenticated = await Promise.race([
+          validateWsAuth(auth),
+          new Promise<never>((_resolve, reject) => {
+            cancelAdmission = () => reject(new UiSessionBusyError());
+            authTimer = setTimeout(cancelAdmission, UPGRADE_AUTH_TIMEOUT_MS);
+            authTimer.unref();
+          }),
+        ]);
+        if (!authenticated) {
+          rejectUpgrade(socket, '401 Unauthorized');
+          return;
+        }
+        if (socket.destroyed) return;
+        if (!this.wss || sessionManager.count >= this.config.maxConnections) {
+          rejectUpgrade(socket, '503 Service Unavailable', 1);
           return;
         }
 
@@ -409,11 +514,25 @@ export class WSGateway {
         // second time and spend another login-throttle attempt (round 45).
         this.admittedRequests.add(request);
 
-        this.wss!.handleUpgrade(request, socket, head, (ws) => {
-          this.wss!.emit('connection', ws, request);
+        const wss = this.wss;
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          wss.emit('connection', ws, request);
         });
-      } else {
-        socket.destroy();
+        // ws installs its own error handler synchronously in handleUpgrade.
+        cleanupSocketListeners();
+      } catch (error) {
+        // An EventEmitter does not await async listeners. Every failure must
+        // close the pending socket instead of leaking it to a global rejection.
+        if (!(error instanceof UiSessionBusyError)) {
+          log.warn('WebSocket admission temporarily unavailable', {
+            errorType: error instanceof Error ? error.name : 'unknown',
+          });
+        }
+        rejectUpgrade(socket, '503 Service Unavailable', 1);
+      } finally {
+        if (authTimer) clearTimeout(authTimer);
+        cancelAdmission = undefined;
+        this.pendingUpgrades--;
       }
     };
     server.on('upgrade', this.upgradeHandler);
@@ -431,6 +550,10 @@ export class WSGateway {
       try {
         await this.handleConnection(socket, request);
       } catch (err) {
+        if (err instanceof UiSessionBusyError) {
+          socket.close(1013, 'Authentication temporarily busy; retry');
+          return;
+        }
         log.error('Connection handler error', { error: err });
         socket.close(1011, 'Internal error');
       }
@@ -509,7 +632,7 @@ export class WSGateway {
     // (halving wsLoginThrottle's effective budget). Standalone connections are
     // never marked, so they still run both gates here as the sole funnel.
     if (!this.admittedRequests.has(request)) {
-      const clientIp = request.socket.remoteAddress ?? 'unknown';
+      const clientIp = getWsClientIp(request);
       if (!wsLoginThrottle.check(clientIp).allowed) {
         log.warn('WebSocket auth rate limited', { clientIp });
         socket.close(1008, 'Rate limited');

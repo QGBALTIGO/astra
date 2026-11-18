@@ -207,6 +207,59 @@ describe('createLoginThrottle', () => {
 
   // ── cleanup ───────────────────────────────────────────────────
 
+  it('keeps active lockouts when new identities exhaust the bounded store', () => {
+    const throttle = createLoginThrottle({ ...opts, maxAttempts: 1, maxEntries: 2 });
+    expect(throttle.check('192.0.2.1').allowed).toBe(true);
+    expect(throttle.check('192.0.2.1').allowed).toBe(false);
+    expect(throttle.check('192.0.2.2').allowed).toBe(true);
+    expect(throttle.check('198.51.100.1').allowed).toBe(true);
+    for (let i = 2; i <= 1000; i++) {
+      expect(throttle.check(`overflow-${i}`).allowed).toBe(false);
+    }
+    expect(throttle.check('192.0.2.1').allowed).toBe(false);
+    expect(throttle.isLockedOut('192.0.2.1')).toBe(true);
+    throttle.recordSuccess('198.51.100.1');
+    expect(throttle.check('198.51.100.2').allowed).toBe(false);
+  });
+
+  it('reclaims capacity after expiration without forgetting an active lockout', () => {
+    vi.useFakeTimers();
+    const throttle = createLoginThrottle({ ...opts, maxAttempts: 1, maxEntries: 2 });
+    throttle.check('192.0.2.1');
+    throttle.check('192.0.2.1');
+    throttle.check('192.0.2.2');
+    vi.advanceTimersByTime(11_000);
+    expect(throttle.check('198.51.100.1').allowed).toBe(true);
+    expect(throttle.check('192.0.2.1').allowed).toBe(false);
+    vi.advanceTimersByTime(20_000);
+    expect(throttle.check('192.0.2.1').allowed).toBe(true);
+  });
+
+  it.each([false, true])(
+    'preserves a lockout when a delayed failure outlives its window (overflow=%s)',
+    (overflow) => {
+      vi.useFakeTimers();
+      const throttle = createLoginThrottle({ ...opts, maxAttempts: 2, maxEntries: 1 });
+      if (overflow) throttle.check('192.0.2.1');
+      const ip = '198.51.100.1';
+      throttle.check(ip);
+      throttle.check(ip);
+      expect(throttle.check(ip).allowed).toBe(false);
+      vi.advanceTimersByTime(11_000);
+      throttle.recordFailure(ip);
+      expect(throttle.isLockedOut(ip)).toBe(true);
+      expect(throttle.check(ip).allowed).toBe(false);
+    }
+  );
+
+  it('reports the remaining request window when lockouts are disabled', () => {
+    vi.useFakeTimers();
+    const throttle = createLoginThrottle({ maxAttempts: 1, windowMs: 60_000, lockoutMs: 0 });
+    throttle.check('192.0.2.1');
+    vi.advanceTimersByTime(5_000);
+    expect(throttle.check('192.0.2.1')).toEqual({ allowed: false, retryAfterMs: 55_000 });
+  });
+
   it('cleanup removes expired entries', () => {
     vi.useFakeTimers();
     const throttle = createLoginThrottle(opts);

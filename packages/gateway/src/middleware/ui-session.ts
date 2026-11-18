@@ -14,10 +14,11 @@
  */
 
 import { createMiddleware } from 'hono/factory';
-import { validateSession, isPasswordConfigured } from '../services/ui-session.js';
+import { isPasswordConfigured } from '../services/ui-session.js';
 import { apiError, ERROR_CODES } from '../routes/helpers.js';
 import { getUiSessionAuth } from '../utils/ui-session-cookie.js';
 import { getRequestOrigin } from '../utils/trusted-proxy.js';
+import { validateUiSessionForRequest } from '../utils/ui-session-response.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -99,7 +100,9 @@ export function createUiSessionMiddleware(options: UiSessionMiddlewareOptions = 
     }
 
     const token = sessionAuth.token;
-    if (token && (await validateSession(token))) {
+    const authenticated = token ? await validateUiSessionForRequest(c, token) : false;
+    if (authenticated instanceof Response) return authenticated;
+    if (authenticated) {
       if (shouldEnforceCsrf(c.req.method, sessionAuth.source) && !isTrustedBrowserOrigin(c)) {
         return apiError(
           c,

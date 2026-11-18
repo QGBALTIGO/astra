@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { createUiSessionMiddleware, uiSessionMiddleware } from './ui-session.js';
 import { requestId } from './request-id.js';
 import { createAuthMiddleware } from './auth.js';
+import { UiSessionBusyError } from '../services/ui-session-error.js';
 
 // Mock the ui-session service
 vi.mock('../services/ui-session.js', () => ({
@@ -52,6 +53,17 @@ describe('UI Session Middleware', () => {
     delete process.env.CORS_ORIGINS;
     mockValidateSession.mockReturnValue(false);
     mockIsPasswordConfigured.mockReturnValue(false);
+  });
+
+  it('returns retryable 503 on validation saturation without clearing the session cookie', async () => {
+    mockValidateSession.mockRejectedValueOnce(new UiSessionBusyError());
+    const res = await createApp().request('/api/v1/test', {
+      headers: { Cookie: 'ownpilot_ui_session=valid-session-token' },
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Retry-After')).toBe('1');
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+    expect((await res.json()).error.code).toBe('SERVICE_UNAVAILABLE');
   });
 
   // ── Auth-own paths (bypass API auth) ────────────────────────────

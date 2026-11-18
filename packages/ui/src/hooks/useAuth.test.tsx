@@ -33,6 +33,7 @@ import { apiClient } from '../api/client';
 import { onSessionChanged } from '../utils/session-events';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   document.body.replaceChildren();
 });
@@ -65,6 +66,114 @@ function mountAuth(children?: ReactNode) {
 // ── AuthProvider ──
 
 describe('AuthProvider', () => {
+  it.each([503, 429])(
+    'keeps first-load access closed and retries temporary HTTP %s',
+    async (status) => {
+      vi.useFakeTimers();
+      const statusMock = vi.mocked(authApi.status);
+      statusMock.mockClear();
+      statusMock.mockRejectedValueOnce(Object.assign(new Error('busy'), { status }));
+      statusMock.mockResolvedValue({ passwordConfigured: true, authenticated: true });
+      const t = mountAuth();
+      await act(async () => {});
+      expect(t.resultRef.current!.isLoading).toBe(true);
+      expect(t.resultRef.current!.isAuthenticated).toBe(false);
+      expect(t.resultRef.current!.passwordConfigured).toBe(true);
+      await act(async () => vi.advanceTimersByTimeAsync(999));
+      expect(statusMock).toHaveBeenCalledTimes(1);
+      await act(async () => vi.advanceTimersByTimeAsync(1));
+      expect(statusMock).toHaveBeenCalledTimes(2);
+      expect(t.resultRef.current!.isAuthenticated).toBe(true);
+      expect(t.resultRef.current!.isLoading).toBe(false);
+      t.cleanup();
+    }
+  );
+
+  it.each([503, 429])('preserves a confirmed session on temporary HTTP %s', async (status) => {
+    vi.useFakeTimers();
+    const statusMock = vi.mocked(authApi.status);
+    statusMock.mockResolvedValue({ passwordConfigured: true, authenticated: true });
+    const t = mountAuth();
+    await act(async () => {});
+    statusMock.mockRejectedValueOnce(Object.assign(new Error('busy'), { status }));
+    await act(async () => t.resultRef.current!.refreshStatus());
+    expect(t.resultRef.current!.isAuthenticated).toBe(true);
+    expect(t.resultRef.current!.isLoading).toBe(false);
+    // A later definitive server response still invalidates a revoked session.
+    statusMock.mockResolvedValue({ passwordConfigured: true, authenticated: false });
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(t.resultRef.current!.isAuthenticated).toBe(false);
+    t.cleanup();
+  });
+
+  it('backs off temporary failures and cancels retries when unmounted', async () => {
+    vi.useFakeTimers();
+    const statusMock = vi.mocked(authApi.status);
+    statusMock.mockClear();
+    statusMock.mockRejectedValue(Object.assign(new Error('busy'), { status: 503 }));
+    const t = mountAuth();
+    await act(async () => {});
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(statusMock).toHaveBeenCalledTimes(2);
+    await act(async () => vi.advanceTimersByTimeAsync(1999));
+    expect(statusMock).toHaveBeenCalledTimes(2);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(statusMock).toHaveBeenCalledTimes(3);
+    await act(async () => vi.advanceTimersByTimeAsync(3999));
+    expect(statusMock).toHaveBeenCalledTimes(3);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(statusMock).toHaveBeenCalledTimes(4);
+    t.cleanup();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(statusMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not schedule a retry from a status response that arrives after unmount', async () => {
+    vi.useFakeTimers();
+    let rejectStatus!: (error: Error) => void;
+    const statusMock = vi.mocked(authApi.status);
+    statusMock.mockClear();
+    statusMock.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectStatus = reject;
+        })
+    );
+    const t = mountAuth();
+    t.cleanup();
+    await act(async () => {
+      rejectStatus(Object.assign(new Error('busy'), { status: 503 }));
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(statusMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a stale successful status response after logout', async () => {
+    const statusMock = vi.mocked(authApi.status);
+    statusMock.mockResolvedValue({ passwordConfigured: true, authenticated: true });
+    vi.mocked(authApi.logout).mockResolvedValue(undefined as never);
+    const t = mountAuth();
+    await act(async () => {});
+    let resolveStatus!: (value: { passwordConfigured: boolean; authenticated: boolean }) => void;
+    statusMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        })
+    );
+    let checking!: Promise<void>;
+    act(() => {
+      checking = t.resultRef.current!.refreshStatus();
+    });
+    await act(async () => t.resultRef.current!.logout());
+    await act(async () => {
+      resolveStatus({ passwordConfigured: true, authenticated: true });
+      await checking;
+    });
+    expect(t.resultRef.current!.isAuthenticated).toBe(false);
+    t.cleanup();
+  });
+
   it('starts loading and switches to not-authenticated when status API fails', async () => {
     vi.mocked(authApi.status).mockRejectedValue(new Error('network'));
     const t = mountAuth();

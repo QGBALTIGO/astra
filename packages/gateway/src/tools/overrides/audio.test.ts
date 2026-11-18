@@ -43,6 +43,15 @@ const mockFetch = vi.hoisted(() => vi.fn());
 // Module mocks
 // ---------------------------------------------------------------------------
 
+// Keep the real SSRF checks, but make the public audio fixture independent of
+// external DNS availability. Fetch itself is already stubbed below.
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(async (hostname: string) => {
+    if (hostname === 'example.com') return [{ address: '93.184.216.34', family: 4 }];
+    throw new Error(`Unexpected DNS lookup in audio unit test: ${hostname}`);
+  }),
+}));
+
 vi.mock('../../db/repositories/config-services.js', () => ({
   configServicesRepo: {
     getFieldValue: (...args: unknown[]) => mockGetFieldValue(...args),
