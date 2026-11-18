@@ -1,4 +1,5 @@
 import { scenarios, scenarioState, base, money } from './scenarios.js';
+import { discoverySource } from './discovery.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const pagePath = (path) => (/^\/julio(?:\/|$)/.test(location.pathname) ? '/julio' + path : path);
@@ -248,9 +249,18 @@ function track(event) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ event }),
+    credentials: 'omit',
+    referrerPolicy: 'no-referrer',
     keepalive: true,
   }).catch(() => {});
 }
+// The module runs once per page load; internal navigation has no source attribution.
+const entrySource = discoverySource(location.search, document.referrer);
+if (entrySource) track('visit_' + entrySource);
+document.addEventListener('click', (event) => {
+  if (event.target instanceof Element && event.target.closest('a.trial-cta'))
+    track('trial_start_click');
+});
 function openContact(trigger) {
   if (!contact || contact.open) return;
   contactReturn =

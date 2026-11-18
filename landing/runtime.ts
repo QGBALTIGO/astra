@@ -4,7 +4,8 @@
 import { SQL } from 'bun';
 import { gzipSync, brotliDecompressSync } from 'node:zlib';
 import { createHash, createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
-const RELEASE = 'trial-whatsapp-20261115';
+const RELEASE = 'search-discovery-20261118';
+/* DISCOVERY_CONFIGURATION */
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 /* PUBLIC_ASSET_BUNDLE */
 const preview = Bun.env.LANDING_PREVIEW === 'true';
@@ -65,6 +66,7 @@ const types = {
   svg: 'image/svg+xml',
   png: 'image/png',
   woff2: 'font/woff2',
+  txt: 'text/plain; charset=utf-8',
 };
 const assets = new Map(
   Object.entries(files).map(([path, body]) => {
@@ -308,7 +310,21 @@ async function handle(req) {
     if (path === '/api/evento') {
       if (req.headers.get('dnt') === '1' || req.headers.get('sec-gpc') === '1')
         return new Response(null, { status: 204, headers });
-      if (!['plan_view', 'interest_open', 'contact_open', 'form_error'].includes(input.event))
+      if (
+        ![
+          'plan_view',
+          'interest_open',
+          'contact_open',
+          'form_error',
+          'visit_chatgpt',
+          'visit_google',
+          'visit_bing',
+          'visit_perplexity',
+          'visit_gemini',
+          'visit_copilot',
+          'trial_start_click',
+        ].includes(input.event)
+      )
         return error('Evento inválido', 422);
       if (!(await rate('event:' + Math.floor(Date.now() / 3600000) + ':' + ip, 120, 7200000)))
         return new Response(null, { status: 204, headers });
@@ -348,6 +364,8 @@ async function handle(req) {
             '</urlset>',
       { headers: { ...headers, 'content-type': 'application/xml; charset=utf-8' } }
     );
+  // Public verification only: no arbitrary file serving or private path exceptions.
+  if (!preview && path === '/' + INDEXNOW_KEY + '.txt') return staticResponse(req, path);
   if (path === '/favicon.ico')
     return Response.redirect(publicOrigin + '/assets/brand-ac0b1367fee7.png', 302);
   if (/^\/julio(?:\/|$)/.test(path)) {

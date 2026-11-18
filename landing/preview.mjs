@@ -19,6 +19,7 @@ const types = {
   svg: 'image/svg+xml',
   png: 'image/png',
   woff2: 'font/woff2',
+  txt: 'text/plain; charset=utf-8',
 };
 const runtime = await readFile(join(root, 'runtime.ts'), 'utf8');
 const csp = runtime

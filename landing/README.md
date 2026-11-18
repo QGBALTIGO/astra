@@ -1,5 +1,73 @@
 # Astra landing
 
+## Search discovery, 18 November 2026
+
+The home page and all public pages have consistent, page-specific title, description,
+canonical, Open Graph and Twitter metadata. `src/seo.mjs` owns the verified Google
+Search Console HTML token, the stable public IndexNow ownership key, the home
+metadata and JSON-LD. These verification values are public identifiers, not account
+credentials. Preserve the Google token on the home page after verification.
+
+Structured data identifies Astra, the website, each canonical page and the actual
+software offer (R$ 19,90/month, a three-day trial for new contacts). It does not add
+reviews, ratings, partnerships or unverified product capabilities. Five priority
+pages answer practical questions; the six product pages explain their own use cases.
+
+The existing `User-agent: *` policy already permits search crawlers, including
+Googlebot, bingbot, OAI-SearchBot and PerplexityBot, while retaining `/api/` and
+`/remover` exclusions. Do not add a permissive bot-specific group that drops those
+exclusions. Preview, removal, missing-page and affiliate noindex behavior remains.
+The canonical sitemap has 14 URLs and excludes the affiliate area and the ownership
+key file. No artificial modification dates or AI-specific instructions are published.
+
+### Release and notify
+
+```sh
+npm run build
+npm test
+python3 tests/verify-production.py
+python3 scripts/submit-indexnow.py                 # dry-run: current public inventory
+python3 scripts/submit-indexnow.py --submit        # first release: all changed pages
+python3 scripts/submit-indexnow.py --submit / /financas  # later: only changed paths
+```
+
+Deploy the generated Function to the existing landing service, then run production
+verification and submit IndexNow. The submission command refuses preview releases,
+unknown URLs and a missing or incorrect ownership file. Its receipt is written to
+`artifacts/indexnow-submission.json`. HTTP 200 means received; 202 means ownership
+validation is pending. Neither confirms indexing. Do not resubmit unchanged pages
+on a timer. Search Console sitemap submission and URL inspection require the
+owner's verified account and must be checked separately.
+
+The Function still has Railway's 96 KiB limit even when deployed through an API.
+The existing 130,800-byte base64 transport guard is retained. Brotli data is encoded
+as Z85 inside the Function to keep the complete release within that budget; the
+decoded bundle is checked with SHA-256 before serving anything. Official artwork,
+CSS and browser asset bytes are preserved. The independent published Z85 test
+vector and all compiled runtime contracts are part of `npm test`.
+
+### Aggregate measurement
+
+Recognized external entry signals count as `visit_chatgpt`, `visit_google`,
+`visit_bing`, `visit_perplexity`, `visit_gemini` or `visit_copilot`. `trial_start_click`
+counts a click on the WhatsApp trial link. These are daily aggregate counts, not
+unique visitors, sales, completed trial signups or a way to separate Google's AI
+results from ordinary Google search. Missing referrers can leave visits unclassified.
+UTM values and referrer hostnames use an exact allowlist. Internal navigation never
+creates another attributed entry. No attribution cookie or local storage is added.
+
+The browser sends only a fixed event name without cookies or a Referer header.
+Existing origin checks, rate limits and DNT/GPC handling remain in force. Counts use
+the existing `astra_landing.events` table and its existing 180-day retention. An
+authorized operator can query that aggregate table; no public analytics endpoint
+or customer-level tracking is introduced.
+
+Primary references: [OpenAI crawlers](https://developers.openai.com/api/docs/bots),
+[Google AI features](https://developers.google.com/search/docs/appearance/ai-features),
+[IndexNow](https://www.indexnow.org/documentation),
+[Railway Function limits](https://docs.railway.com/functions), and
+[Z85 transport](https://rfc.zeromq.org/spec/32/).
+
 ## Presentation update, 13 November 2026
 
 The public presentation follows the requested Meu Assessor interaction and composition pattern: centered introduction, wide guided conversation entry, five situations throughout a day, alternating product illustrations, a browser dashboard, capability links, monthly pricing and native disclosure FAQs. Official Astra artwork, blue, product capabilities and R$ 19,90/month remain specific to Astra.
