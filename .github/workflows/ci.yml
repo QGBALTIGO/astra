@@ -263,10 +263,24 @@ jobs:
 
   coverage:
     name: Coverage report
-    # Coverage instrumentation slows the suite down, so PRs skip it.
-    # Main pushes produce a downloadable report artifact instead.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    # Measure the same PostgreSQL paths that release qualification exercises.
+    # Run before merging as well, so a missing coverage gate cannot reach main.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: astratest
+          POSTGRES_PASSWORD: radar-local-tests-only
+          POSTGRES_DB: astratest_radar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astratest -d astratest_radar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -281,14 +295,100 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Test with coverage
-        run: TURBO_FORCE=true pnpm test:coverage
+      - name: Install PostgreSQL 16 preservation qualification client
+        timeout-minutes: 8
+        run: |
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/80-astra-download-timeouts >/dev/null
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          if [ -f /etc/apt/apt-mirrors-security.txt ]; then
+            printf '%s\n' 'https://security.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors-security.txt >/dev/null
+          fi
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          /usr/lib/postgresql/16/bin/pg_dump --version
+          echo '/usr/lib/postgresql/16/bin' >> "$GITHUB_PATH"
+
+      - name: Verify and prepare disposable coverage databases
+        env:
+          PGPASSWORD: radar-local-tests-only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U astratest -d astratest_radar <<'SQL'
+          DO $$ BEGIN
+            IF current_database() <> 'astratest_radar' OR current_user <> 'astratest' THEN
+              RAISE EXCEPTION 'Refusing non-laboratory database';
+            END IF;
+          END $$;
+          CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+          CREATE ROLE astra_auth_lab LOGIN PASSWORD 'astra_customer_pg_ci_only';
+          CREATE DATABASE astra_auth_verification_lab OWNER astra_auth_lab;
+          SQL
+
+      - name: Core, CLI and UI coverage
+        run: TURBO_FORCE=true pnpm test:coverage --filter='!@ownpilot/gateway'
+
+      - name: Build gateway for PostgreSQL coverage
+        run: pnpm --filter @ownpilot/gateway build
+
+      - name: Gateway coverage with real PostgreSQL isolation and recovery
+        env:
+          # Direct invocation preserves these explicit laboratory opt-ins;
+          # Turbo's strict environment intentionally filters unknown variables.
+          DATABASE_URL: ''
+          ASTRA_RADAR_TEST_PORT: '5432'
+          ASTRA_REVIEW_PG_PORT: '5432'
+          ASTRA_REVIEW_PG_DATABASE: astratest_radar
+          ASTRA_REVIEW_PG_USER: astratest
+          ASTRA_REVIEW_PG_PASSWORD: radar-local-tests-only
+          ASTRA_REVIEW_PG_VECTOR: 'true'
+          ASTRA_AUTH_TEST_PORT: '5432'
+          PGPASSWORD: astra_customer_pg_ci_only
+        run: >-
+          pnpm --filter @ownpilot/gateway test:coverage
+          --maxWorkers=4 --reporter=default --reporter=json
+          --outputFile.json="${RUNNER_TEMP}/astra-gateway-coverage-tests.json"
+
+      - name: Require actual PostgreSQL test execution in the coverage report
+        env:
+          TEST_REPORT: ${{ runner.temp }}/astra-gateway-coverage-tests.json
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const report = JSON.parse(readFileSync(process.env.TEST_REPORT, 'utf8'));
+          assert.equal(report.success, true, 'The instrumented suite must pass');
+          const required = [
+            'src/db/repositories/customer-radar.pg.test.ts',
+            'src/db/repositories/channel-reminders-delivery.pg.test.ts',
+            'src/db/repositories/memory-integrity.pg.test.ts',
+            'src/channels/auth/verification-postgres.test.ts',
+            'src/channels/personal-subscriptions.pg.test.ts',
+            'src/channels/personal-tasks.pg.test.ts',
+            'src/channels/calendar-mutation.pg.test.ts',
+            'src/release-backup.pg.test.ts',
+          ];
+          for (const path of required) {
+            const suites = report.testResults.filter((suite) => suite.name.endsWith('/' + path));
+            assert.equal(suites.length, 1, 'Expected exactly one collected suite: ' + path);
+            const suite = suites[0];
+            assert.equal(suite.status, 'passed', 'PostgreSQL suite must pass: ' + path);
+            assert.ok(suite.assertionResults.length > 0, 'PostgreSQL suite must not be empty: ' + path);
+            for (const test of suite.assertionResults) {
+              assert.equal(test.status, 'passed', 'PostgreSQL test must execute: ' + test.fullName);
+            }
+            console.log(JSON.stringify({ suite: path, passed: suite.assertionResults.length, skipped: 0 }));
+          }
+          JS
 
       - name: Upload coverage reports
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-reports
-          path: packages/*/coverage
+          path: |
+            packages/*/coverage
+            ${{ runner.temp }}/astra-gateway-coverage-tests.json
           retention-days: 14
           if-no-files-found: error
 

@@ -6,12 +6,13 @@ on:
       - 'packages/ui/**'
       - '.github/workflows/customer-controls.yml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: customer-controls-${{ github.event.pull_request.number || github.ref }}
+  group: customer-controls-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -54,7 +55,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Install Chromium and WebKit
-        run: pnpm --filter @ownpilot/ui exec playwright install chromium webkit --with-deps
+        timeout-minutes: 8
+        env:
+          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '60000'
+        run: |
+          # The regional EC2 mirror stalled before the browser assertions ran.
+          # Keep signed Ubuntu packages, use official HTTPS mirrors, and bound
+          # dependency retries so installation cannot consume the entire job.
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/80-astra-download-timeouts >/dev/null
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          if [ -f /etc/apt/apt-mirrors-security.txt ]; then
+            printf '%s\n' 'https://security.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors-security.txt >/dev/null
+          fi
+          pnpm --filter @ownpilot/ui exec playwright install chromium webkit --with-deps
       - name: Test touch, keyboard, date navigation and mobile geometry
         run: pnpm --filter @ownpilot/ui exec playwright test --config=e2e/customer-controls.config.ts
       - name: Upload synthetic screenshots and traces
