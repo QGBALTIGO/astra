@@ -43,7 +43,7 @@ export async function readWithAbort<T>(promise: Promise<T>, signal?: AbortSignal
 }
 
 /**
- * Read an SSE response body and yield the payload of each `data: ` line
+ * Read an SSE response body and yield the payload of each `data:` line
  * (trimmed, empty payloads skipped). Handles chunk buffering across reads and
  * always cancels the reader on exit — including when the consumer `return`s
  * out of its `for await` loop mid-stream (generator finalization runs the
@@ -72,8 +72,8 @@ export async function* readSseData(
       for (let newlineIdx; (newlineIdx = buffer.indexOf('\n', offset)) !== -1;) {
         const line = buffer.slice(offset, newlineIdx);
         offset = newlineIdx + 1;
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6).trim();
+        if (line.startsWith('data:')) {
+          const data = line.slice(5).trim();
           if (data) yield data;
         }
       }
@@ -91,8 +91,8 @@ export async function* readSseData(
     // held in `buffer` and would otherwise be dropped, losing usage/cost data
     // or the stream terminator.
     buffer += decoder.decode();
-    if (buffer.startsWith('data: ')) {
-      const data = buffer.slice(6).trim();
+    if (buffer.startsWith('data:')) {
+      const data = buffer.slice(5).trim();
       if (data) yield data;
     }
   } finally {

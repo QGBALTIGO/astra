@@ -83,17 +83,25 @@ export function lruGet<V>(cache: Map<string, V>, key: string): V | undefined {
 export const pendingAgents = new Map<string, Promise<Agent>>();
 export const pendingChatAgents = new Map<string, Promise<Agent>>();
 
+let agentCacheGeneration = 0;
+
+/** Snapshot before asynchronous construction; an invalidated generation cannot be cached. */
+export function getAgentCacheGeneration(): number {
+  return agentCacheGeneration;
+}
+
 /**
  * Clear all agent caches
  * Call this when custom tools, plugins, or other dynamic resources change
  */
 export function invalidateAgentCache(): void {
+  agentCacheGeneration++;
   agentCache.clear();
   agentConfigCache.clear();
   chatAgentCache.clear();
   pendingAgents.clear();
   pendingChatAgents.clear();
-  log.info('Agent cache invalidated due to tool/plugin changes');
+  log.info('Agent cache invalidated due to configuration/tool changes');
 }
 
 /**

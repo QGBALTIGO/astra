@@ -13,6 +13,7 @@ on:
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'scripts/railway-entrypoint.sh'
+      - 'scripts/verify-railway-entrypoint.sh'
       - 'packages/**'
   workflow_dispatch:
 
@@ -73,6 +74,12 @@ jobs:
           set -euo pipefail
           image="ghcr.io/qgbaltigo/astra:sha-${{ github.sha }}"
           docker run --rm "$image" sh -c '[ "$(id -u)" = "1001" ] && printf "release-command-preserved\n"' | grep -Fx 'release-command-preserved'
+          docker run --rm --entrypoint /bin/sh \
+            -v "$PWD/scripts/verify-railway-entrypoint.sh:/tmp/verify-railway-entrypoint.sh:ro" \
+            "$image" /tmp/verify-railway-entrypoint.sh | grep -Fx 'runtime-private-data-readable-without-root'
+          docker run --rm --entrypoint /bin/sh \
+            -v "$PWD/scripts/verify-railway-entrypoint.sh:/tmp/verify-railway-entrypoint.sh:ro" \
+            "$image" /tmp/verify-railway-entrypoint.sh reject-data-symlink | grep -Fx 'runtime-symlink-root-refused'
           status=0
           docker run --rm -e ASTRA_RELEASE_BACKUP_LABEL='../invalid' "$image" sh -c 'printf "command-must-not-run\n"' > backup-refusal.log 2>&1 || status=$?
           if [ "$status" -ne 1 ] || ! grep -Fxq '[ReleaseBackup] INVALID_LABEL; server startup stopped.' backup-refusal.log; then

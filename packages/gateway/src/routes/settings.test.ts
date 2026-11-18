@@ -288,6 +288,7 @@ describe('Settings Routes', () => {
       expect(json.data.configured).toBe(true);
       expect(mockSettingsRepo.set).toHaveBeenCalledWith('api_key:openai', 'sk-test123');
       expect(process.env.OPENAI_API_KEY).toBe('sk-test123');
+      expect(mockInvalidateAgentCache).toHaveBeenCalledOnce();
     });
 
     it('returns 400 when provider or apiKey is missing', async () => {
@@ -317,6 +318,7 @@ describe('Settings Routes', () => {
       expect(json.data.configured).toBe(false);
       expect(mockSettingsRepo.delete).toHaveBeenCalledWith('api_key:openai');
       expect(process.env.OPENAI_API_KEY).toBeUndefined();
+      expect(mockInvalidateAgentCache).toHaveBeenCalledOnce();
     });
   });
 
@@ -337,6 +339,64 @@ describe('Settings Routes', () => {
       expect(json.data.settings).toBeDefined();
       expect(json.data.status).toBeDefined();
     });
+  });
+
+  it('evicts real credential-bound caches so the next lookup uses the rotated or removed key', async () => {
+    const cache = await vi.importActual<typeof import('../services/agent/cache.js')>(
+      '../services/agent/cache.js'
+    );
+    const savedImplementations = {
+      get: mockSettingsRepo.get.getMockImplementation(),
+      set: mockSettingsRepo.set.getMockImplementation(),
+      delete: mockSettingsRepo.delete.getMockImplementation(),
+      local: mockLocalProvidersRepo.getProvider.getMockImplementation(),
+    };
+    const settings = new Map<string, unknown>([
+      ['api_key:cloudflare-workers-ai', 'synthetic-old-token'],
+    ]);
+    const oldAgent = { name: 'synthetic-old-agent' } as import('@ownpilot/core/agent').Agent;
+    const cacheKey = 'chat|cloudflare-workers-ai|@cf/zai-org/glm-4.7-flash';
+    mockSettingsRepo.get.mockImplementation(async (key: string) => settings.get(key));
+    mockSettingsRepo.set.mockImplementation(async (key: string, value: unknown) => {
+      settings.set(key, value);
+    });
+    mockSettingsRepo.delete.mockImplementation(async (key: string) => settings.delete(key));
+    mockLocalProvidersRepo.getProvider.mockResolvedValue(null);
+    mockInvalidateAgentCache
+      .mockImplementationOnce(cache.invalidateAgentCache)
+      .mockImplementationOnce(cache.invalidateAgentCache);
+    process.env.ASTRA_ONLY_GROQ = 'false';
+    process.env.CLOUDFLARE_ACCOUNT_ID = '0123456789abcdef0123456789abcdef';
+    delete process.env.CLOUDFLARE_API_TOKEN;
+    cache.invalidateAgentCache();
+    cache.chatAgentCache.set(cacheKey, oldAgent);
+    cache.agentCache.set('synthetic-agent', oldAgent);
+    try {
+      expect(await cache.getProviderApiKey('cloudflare-workers-ai')).toBe('synthetic-old-token');
+      const rotated = await app.request('/settings/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'cloudflare-workers-ai', apiKey: 'synthetic-new-token' }),
+      });
+      expect(rotated.status).toBe(200);
+      expect(cache.lruGet(cache.chatAgentCache, cacheKey)).toBeUndefined();
+      expect(cache.agentCache.has('synthetic-agent')).toBe(false);
+      expect(await cache.getProviderApiKey('cloudflare-workers-ai')).toBe('synthetic-new-token');
+
+      cache.chatAgentCache.set(cacheKey, oldAgent);
+      const removed = await app.request('/settings/api-keys/cloudflare-workers-ai', {
+        method: 'DELETE',
+      });
+      expect(removed.status).toBe(200);
+      expect(cache.lruGet(cache.chatAgentCache, cacheKey)).toBeUndefined();
+      expect(await cache.getProviderApiKey('cloudflare-workers-ai')).toBeUndefined();
+    } finally {
+      cache.invalidateAgentCache();
+      mockSettingsRepo.get.mockImplementation(savedImplementations.get!);
+      mockSettingsRepo.set.mockImplementation(savedImplementations.set!);
+      mockSettingsRepo.delete.mockImplementation(savedImplementations.delete!);
+      mockLocalProvidersRepo.getProvider.mockImplementation(savedImplementations.local!);
+    }
   });
 
   // ========================================================================
@@ -699,12 +759,13 @@ describe('Settings Routes', () => {
   describe('resolveDefaultProviderAndModel', () => {
     it('resolves "default" provider and model', async () => {
       const { resolveDefaultProviderAndModel } = await import('./settings.js');
-      // getDefaultProvider:
-      mockSettingsRepo.get.mockResolvedValueOnce('openai');
+      mockSettingsRepo.get.mockImplementation(async (key: string) => {
+        if (key === 'default_ai_provider') return 'openai';
+        if (key === 'default_ai_model') return 'gpt-4o';
+        return null;
+      });
       mockLocalProvidersRepo.getProvider.mockResolvedValueOnce(null);
       mockSettingsRepo.has.mockResolvedValueOnce(true);
-      // getDefaultModel:
-      mockSettingsRepo.get.mockResolvedValueOnce('gpt-4o');
 
       const result = await resolveDefaultProviderAndModel('default', 'default');
 

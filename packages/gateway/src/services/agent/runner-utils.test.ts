@@ -627,6 +627,43 @@ describe('agent-runner-utils', () => {
       }
     });
 
+    it('does not let an unavailable local reserve displace a configured cloud backup', async () => {
+      const core = await import('@ownpilot/core/agent');
+      const constructed = vi.spyOn(core, 'createFallbackProvider');
+      vi.stubEnv(
+        'ASTRA_FALLBACK_CHAIN',
+        'zai=glm-4.7-flash,google=gemini-2.5-flash-lite,groq=openai/gpt-oss-20b,openrouter=openrouter/free,cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash,ollama-local=qwen3:4b-instruct'
+      );
+      mockGetProviderApiKey.mockImplementation(async (id: string) =>
+        id === 'ollama-local' ? undefined : 'synthetic-key'
+      );
+      mockLoadProviderConfig.mockReturnValue({
+        type: 'openai-compatible',
+        baseUrl: 'https://example.invalid/v1',
+      });
+      try {
+        await createConfiguredAgent({
+          name: 'Synthetic runner',
+          provider: 'openai',
+          model: 'gpt-4o',
+          systemPrompt: 'Synthetic',
+          userId: 'synthetic',
+          conversationId: 'synthetic-cap',
+        });
+        expect(constructed).toHaveBeenCalledWith(
+          expect.objectContaining({
+            fallbacks: ['zai', 'google', 'groq', 'openrouter', 'cloudflare-workers-ai'].map((id) =>
+              expect.objectContaining({ id })
+            ),
+          })
+        );
+      } finally {
+        constructed.mockRestore();
+        vi.unstubAllEnvs();
+        mockLoadProviderConfig.mockReturnValue(null);
+      }
+    });
+
     it('resolves the fallback provider key when fallback options are given', async () => {
       await createConfiguredAgent({
         name: 'TestAgent',

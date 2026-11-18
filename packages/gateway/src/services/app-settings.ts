@@ -330,8 +330,8 @@ export async function getDefaultModel(provider?: string): Promise<string | null>
   if (process.env.ASTRA_ONLY_GROQ === 'true') {
     return process.env.GROQ_API_KEY ? process.env.ASTRA_GROQ_MODEL || 'openai/gpt-oss-120b' : null;
   }
-  // Keep the legacy DB-first behavior unless Astra explicitly pins a Groq
-  // primary via deployment configuration.
+  // Deployment pins apply only to their provider. A per-process/channel or
+  // request-level provider override must never inherit another provider's model.
   if (
     (provider === undefined || provider === 'ollama-local') &&
     process.env.ASTRA_PRIMARY_PROVIDER === 'ollama-local' &&
@@ -340,10 +340,20 @@ export async function getDefaultModel(provider?: string): Promise<string | null>
     return 'qwen3:4b-instruct';
   }
   const savedModel = await settingsRepo.get<string>(DEFAULT_MODEL_KEY);
-  if (process.env.ASTRA_PRIMARY_PROVIDER === 'groq' && process.env.ASTRA_GROQ_MODEL) {
+  if (
+    (provider === undefined || provider === 'groq') &&
+    process.env.ASTRA_PRIMARY_PROVIDER === 'groq' &&
+    process.env.ASTRA_GROQ_MODEL
+  ) {
     return process.env.ASTRA_GROQ_MODEL;
   }
-  if (savedModel) return savedModel;
+  if (savedModel) {
+    if (provider === undefined) return savedModel;
+    // Keep custom model IDs for the provider they were saved with; do not
+    // require catalog membership, which would exclude local/operator models.
+    const savedProvider = await settingsRepo.get<string>(DEFAULT_PROVIDER_KEY);
+    if (provider === (savedProvider ?? (await getDefaultProvider()))) return savedModel;
+  }
 
   const actualProvider = provider ?? (await getDefaultProvider());
   if (actualProvider === 'groq' && process.env.ASTRA_GROQ_MODEL) {

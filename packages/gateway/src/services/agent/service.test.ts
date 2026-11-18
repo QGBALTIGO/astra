@@ -232,12 +232,14 @@ vi.mock('../../tools/agent-tool-registry.js', () => ({
   CHANNEL_REMINDER_TOOLS: [],
 }));
 
-// Cache maps that we control from tests
-const agentCache = new Map();
-const agentConfigCache = new Map();
-const chatAgentCache = new Map();
-const pendingAgents = new Map();
-const pendingChatAgents = new Map();
+// Use the real maps/invalidation lifecycle while keeping provider/tool setup
+// isolated. This catches constructors racing a live credential rotation.
+const actualCache = await vi.importActual<typeof import('./cache.js')>('./cache.js');
+const agentCache: Map<string, unknown> = actualCache.agentCache;
+const agentConfigCache: Map<string, unknown> = actualCache.agentConfigCache;
+const chatAgentCache: Map<string, unknown> = actualCache.chatAgentCache;
+const pendingAgents: Map<string, unknown> = actualCache.pendingAgents;
+const pendingChatAgents: Map<string, unknown> = actualCache.pendingChatAgents;
 
 const mockLruGet = vi.fn((cache: Map<string, unknown>, key: string) => cache.get(key));
 const mockGetProviderApiKey = vi.fn(async () => 'test-api-key');
@@ -267,6 +269,7 @@ vi.mock('./cache.js', () => ({
   chatAgentCache,
   pendingAgents,
   pendingChatAgents,
+  getAgentCacheGeneration: () => actualCache.getAgentCacheGeneration(),
   lruGet: (...args: unknown[]) => mockLruGet(...(args as [Map<string, unknown>, string])),
   createApprovalCallback: (...args: unknown[]) => mockCreateApprovalCallback(...args),
   createSoulAwareApprovalCallback: vi.fn(() => vi.fn()),
@@ -1492,6 +1495,43 @@ describe('getOrCreateChatAgent', () => {
       }
     }
   );
+
+  it('keeps a configured fifth cloud backup when the requested local reserve is unavailable', async () => {
+    vi.stubEnv(
+      'ASTRA_FALLBACK_CHAIN',
+      'zai=glm-4.7-flash,google=gemini-2.5-flash-lite,groq=openai/gpt-oss-20b,openrouter=openrouter/free,cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash,ollama-local=qwen3:4b-instruct'
+    );
+    try {
+      mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+      mockGetProviderApiKey.mockImplementation(async (id: string) =>
+        id === 'ollama-local' ? undefined : 'synthetic-key'
+      );
+      mockLoadProviderConfig.mockReturnValue({
+        type: 'openai-compatible',
+        baseUrl: 'https://example.invalid/v1',
+      });
+      await mod.getOrCreateChatAgent(
+        'openai',
+        'gpt-4o',
+        undefined,
+        null,
+        'channel:synthetic:available-cap',
+        undefined,
+        true
+      );
+      const core = await import('@ownpilot/core/agent');
+      expect(core.createFallbackProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fallbacks: ['zai', 'google', 'groq', 'openrouter', 'cloudflare-workers-ai'].map((id) =>
+            expect.objectContaining({ id })
+          ),
+          completionTimeoutMs: 24000,
+        })
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 
   it.each([false, true])(
     'gives a usable Cloudflare fallback 12 seconds with local reserve=%s',
@@ -2785,6 +2825,105 @@ describe('ContextBreakdown type exports', () => {
 // =============================================================================
 
 describe('edge cases', () => {
+  it.each(['chat', 'record', 'stored', 'default'] as const)(
+    'does not repopulate the %s cache with an older credential after invalidation',
+    async (kind) => {
+      const record = makeAgentRecord({ id: kind === 'default' ? 'default' : 'rotation-test' });
+      mockAgentsRepo.getById.mockResolvedValue(record);
+      const oldAgent = makeMockAgent().agent;
+      const newAgent = makeMockAgent().agent;
+      let releaseOldKey!: (key: string) => void;
+      let notifyOldLookup!: () => void;
+      const oldLookup = new Promise<void>((resolve) => {
+        notifyOldLookup = resolve;
+      });
+      const oldKey = new Promise<string>((resolve) => {
+        releaseOldKey = resolve;
+      });
+      mockGetProviderApiKey
+        .mockImplementationOnce(async () => {
+          notifyOldLookup();
+          return oldKey;
+        })
+        .mockResolvedValue('synthetic-new-key');
+      mockCreateAgent.mockImplementation((config: { provider: { apiKey: string } }) =>
+        config.provider.apiKey === 'synthetic-old-key' ? oldAgent : newAgent
+      );
+      const start = () =>
+        kind === 'chat'
+          ? mod.getOrCreateChatAgent('openai', 'gpt-4o')
+          : kind === 'record'
+            ? mod.getOrCreateAgentInstance(record)
+            : kind === 'stored'
+              ? mod.getAgent(record.id)
+              : mod.getOrCreateDefaultAgent();
+      const originalRequest = start();
+      await oldLookup;
+      actualCache.invalidateAgentCache();
+      expect(await start()).toBe(newAgent);
+      releaseOldKey('synthetic-old-key');
+      // The in-progress caller still receives its agent; only future reuse is forbidden.
+      expect(await originalRequest).toBe(oldAgent);
+      expect(await start()).toBe(newAgent);
+      expect(mockCreateAgent).toHaveBeenCalledTimes(2);
+      if (kind !== 'chat') {
+        expect(agentConfigCache.get(record.id)).toMatchObject({
+          provider: { apiKey: 'synthetic-new-key' },
+        });
+      }
+    }
+  );
+
+  it.each(['chat', 'record'] as const)(
+    'keeps a new %s creation pending when the old generation finishes',
+    async (kind) => {
+      const record = makeAgentRecord({ id: 'pending-rotation-test' });
+      const oldAgent = makeMockAgent().agent;
+      const newAgent = makeMockAgent().agent;
+      const releases: Array<(key: string) => void> = [];
+      const lookups: Array<() => void> = [];
+      const started = [0, 1].map(
+        () =>
+          new Promise<void>((resolve) => {
+            lookups.push(resolve);
+          })
+      );
+      const keys = [0, 1].map(
+        () =>
+          new Promise<string>((resolve) => {
+            releases.push(resolve);
+          })
+      );
+      let lookupIndex = 0;
+      mockGetProviderApiKey.mockImplementation(async () => {
+        const index = lookupIndex++;
+        lookups[index]?.();
+        return keys[index] ?? 'synthetic-new-key';
+      });
+      mockCreateAgent.mockImplementation((config: { provider: { apiKey: string } }) =>
+        config.provider.apiKey === 'synthetic-old-key' ? oldAgent : newAgent
+      );
+      const start = () =>
+        kind === 'chat'
+          ? mod.getOrCreateChatAgent('openai', 'gpt-4o')
+          : mod.getOrCreateAgentInstance(record);
+      const originalRequest = start();
+      await started[0];
+      actualCache.invalidateAgentCache();
+      const newRequest = start();
+      await started[1];
+      releases[0]!('synthetic-old-key');
+      expect(await originalRequest).toBe(oldAgent);
+      expect((kind === 'chat' ? pendingChatAgents : pendingAgents).size).toBe(1);
+      const concurrentRequest = start();
+      releases[1]!('synthetic-new-key');
+      expect(await newRequest).toBe(newAgent);
+      expect(await concurrentRequest).toBe(newAgent);
+      expect(mockGetProviderApiKey).toHaveBeenCalledTimes(2);
+      expect(mockCreateAgent).toHaveBeenCalledTimes(2);
+    }
+  );
+
   it('getOrCreateAgentInstance deduplicates concurrent requests', async () => {
     const { agent } = makeMockAgent();
     const record = makeAgentRecord({ id: 'dedup-test' });
