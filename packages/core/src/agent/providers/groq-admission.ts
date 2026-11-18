@@ -36,6 +36,13 @@ export function groqDefaultOutputTokens(env: Environment = process.env): number 
   return setting(env, 'GROQ_DEFAULT_OUTPUT_TOKENS', 1_024, 131_072);
 }
 
+/** Total input and output that can fit one minute with the same admission margin. */
+export function groqQuotaRequestTokenLimit(env: Environment = process.env): number {
+  const tokensPerMinute = setting(env, 'GROQ_TOKENS_PER_MINUTE', 6_000, 100_000_000);
+  const marginPercent = setting(env, 'GROQ_TOKEN_MARGIN_PERCENT', 20, 100);
+  return Math.floor(tokensPerMinute / (1 + marginPercent / 100));
+}
+
 function duration(value: string | null): number | undefined {
   if (!value) return;
   const input = value.trim();

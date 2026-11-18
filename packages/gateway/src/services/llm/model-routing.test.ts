@@ -344,6 +344,41 @@ describe('model-routing', () => {
   });
 
   describe('channel-scoped routing', () => {
+    it("resolves the new provider default instead of inheriting another provider's model", async () => {
+      mockSettingsRepo.get.mockImplementation((key: string) => {
+        if (key === 'model_routing:channel:provider') return 'groq';
+        if (key === 'model_routing:channel:model') return 'openai/gpt-oss-20b';
+        if (key === 'model_routing:channel_plugin:channel.whatsapp:provider')
+          return 'cloudflare-workers-ai';
+        return null;
+      });
+      mockGetDefaultModel.mockImplementation(async (provider?: string) =>
+        provider === 'cloudflare-workers-ai' ? '@cf/zai-org/glm-4.7-flash' : 'gpt-4o'
+      );
+      expect(await resolveForChannel('channel.whatsapp')).toMatchObject({
+        provider: 'cloudflare-workers-ai',
+        model: '@cf/zai-org/glm-4.7-flash',
+      });
+    });
+
+    it('does not pair an overridden fallback provider with an inherited incompatible model', async () => {
+      mockSettingsRepo.get.mockImplementation((key: string) => {
+        if (key === 'model_routing:channel:provider') return 'groq';
+        if (key === 'model_routing:channel:model') return 'openai/gpt-oss-20b';
+        if (key === 'model_routing:channel:fallback_provider') return 'openrouter';
+        if (key === 'model_routing:channel:fallback_model') return 'openrouter/free';
+        if (key === 'model_routing:channel_plugin:channel.whatsapp:fallback_provider')
+          return 'cloudflare-workers-ai';
+        return null;
+      });
+      expect(await resolveForChannel('channel.whatsapp')).toMatchObject({
+        provider: 'groq',
+        model: 'openai/gpt-oss-20b',
+        fallbackProvider: 'cloudflare-workers-ai',
+        fallbackModel: null,
+      });
+    });
+
     it('reads plugin-scoped channel routing keys', () => {
       mockSettingsRepo.get.mockImplementation((key: string) => {
         if (key === 'model_routing:channel_plugin:channel.telegram:provider') return 'openai';

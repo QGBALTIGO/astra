@@ -668,8 +668,18 @@ export class GoogleProvider implements IProvider {
       const tools = this.buildGeminiTools(request);
       if (tools) {
         geminiRequest.tools = tools;
-        if (request.toolChoice === 'required')
+        if (request.toolChoice === 'required') {
           geminiRequest.toolConfig = { functionCallingConfig: { mode: 'ANY' } };
+        } else if (request.toolChoice === 'none') {
+          geminiRequest.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
+        } else if (typeof request.toolChoice === 'object') {
+          geminiRequest.toolConfig = {
+            functionCallingConfig: {
+              mode: 'ANY',
+              allowedFunctionNames: [sanitizeToolName(request.toolChoice.name)],
+            },
+          };
+        }
       }
     }
 

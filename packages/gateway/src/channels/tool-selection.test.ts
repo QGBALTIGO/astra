@@ -18,6 +18,59 @@ const financeTools = [
   'core.financial_summary',
 ];
 
+describe('email requests remain in their current domain', () => {
+  it.each([
+    'Quais os últimos gmais importantes que recebi',
+    'Quais os últimos e-mails importantes que recebi',
+    'Me mostre os gmails recebidos hoje',
+    'Quero ver os emails que recebi ontem',
+    'Mostre os e‑mails importantes que recebi',
+    'Quais mensagens importantes chegaram na minha caixa de entrada?',
+    'Mostre os e-mails sobre os pagamentos e parcelas que recebi',
+    'Quais e-mails com receitas de frango recebi?',
+  ])('exposes connected mail tools without ledger tools: %s', (text) => {
+    const tools = channelToolsForMessage(
+      text,
+      'Últimas entradas importantes. Parcelas pendentes, salário recebido, total R$ 200,00.'
+    );
+    expect(tools).toContain('core.run_connected_action');
+    for (const tool of financeTools) expect(tools).not.toContain(tool);
+    expect(tools).not.toContain('core.list_customer_planning');
+  });
+  it('keeps received-message followups in the recent email thread', () => {
+    const tools = channelToolsForMessage(
+      'E os últimos recebidos?',
+      'Seus e-mails do Gmail estão conectados.'
+    );
+    expect(tools).toContain('core.run_connected_action');
+    for (const tool of financeTools) expect(tools).not.toContain(tool);
+  });
+  it.each(['Qual o último jogo do Flamengo?', 'Me indica filmes recentes'])(
+    'does not reinject the old email tools for a new subject: %s',
+    (text) => {
+      const tools = channelToolsForMessage(
+        text,
+        'Seus e-mails do Gmail estão conectados à conta Google.'
+      );
+      expect(tools).not.toContain('core.run_connected_action');
+      expect(tools).not.toContain('core.manage_email_digest');
+    }
+  );
+  it.each(['Quanto recebi hoje?', 'Recebi 200 reais de salário', 'Gastei 25 reais com Gmail'])(
+    'preserves an explicit financial request after an email thread: %s',
+    (text) => {
+      expect(channelToolsForMessage(text, 'Os últimos e-mails importantes do Gmail.')).toContain(
+        'core.list_transactions'
+      );
+    }
+  );
+  it('preserves both explicit requests in an email and finance compound', () => {
+    const tools = channelToolsForMessage('Quais e-mails recebi e quanto gastei hoje?');
+    expect(tools).toContain('core.run_connected_action');
+    expect(tools).toContain('core.list_transactions');
+  });
+});
+
 describe('current intent and cooking advice after financial conversations', () => {
   it.each([
     'Como faço um frango simples na frigideira? Quero uma receita rápida.',

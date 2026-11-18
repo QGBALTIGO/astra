@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import { uiAuthRoutes } from './ui-auth.js';
 import { requestId } from '../middleware/request-id.js';
+import { UiSessionBusyError } from '../services/ui-session-error.js';
 
 // Use vi.hoisted so mocks are available at vi.mock evaluation time
 const { mockCheck, mockIsLockedOut, mockRecordFailure, mockRecordSuccess, mockEmit } = vi.hoisted(
@@ -16,8 +17,9 @@ const { mockCheck, mockIsLockedOut, mockRecordFailure, mockRecordSuccess, mockEm
 
 // Mock the ui-session service
 vi.mock('../services/ui-session.js', () => ({
-  hashPassword: vi.fn((pw: string) => `salt:${pw}-hashed`),
-  verifyPassword: vi.fn((pw: string, stored: string) => stored === `salt:${pw}-hashed`),
+  hashPasswordAsync: vi.fn(async (pw: string) => `salt:${pw}-hashed`),
+  verifyPasswordAsync: vi.fn(async (pw: string, stored: string) => stored === `salt:${pw}-hashed`),
+  UI_PASSWORD_MAX_LENGTH: 1024,
   createSession: vi.fn(() => ({
     token: 'test-token-123',
     expiresAt: new Date('2026-03-01T00:00:00Z'),
@@ -27,6 +29,7 @@ vi.mock('../services/ui-session.js', () => ({
   invalidateAllSessions: vi.fn(),
   isPasswordConfigured: vi.fn(() => false),
   getPasswordHash: vi.fn(() => null),
+  getPasswordVersion: vi.fn(() => 0),
   setPasswordHash: vi.fn(),
   removePassword: vi.fn(),
   getActiveSessionCount: vi.fn(() => 2),
@@ -60,7 +63,18 @@ vi.mock('@ownpilot/core/events', async (importOriginal) => {
 process.env.BOOTSTRAP_TOKEN =
   'test-bootstrap-token-min64chars-padding-padding-padding-padding-extra-padding-padding';
 
-import { isPasswordConfigured, getPasswordHash, validateSession } from '../services/ui-session.js';
+import {
+  isPasswordConfigured,
+  getPasswordHash,
+  getPasswordVersion,
+  validateSession,
+  hashPasswordAsync,
+  verifyPasswordAsync,
+  setPasswordHash,
+  invalidateAllSessions,
+  createSession,
+  invalidateSession,
+} from '../services/ui-session.js';
 
 const mockIsPasswordConfigured = vi.mocked(isPasswordConfigured);
 const mockGetPasswordHash = vi.mocked(getPasswordHash);
@@ -76,9 +90,190 @@ describe('UI Auth Routes', () => {
     // Re-apply per-test mock implementations that vi.clearAllMocks() preserves
     mockIsPasswordConfigured.mockReturnValue(false);
     mockGetPasswordHash.mockReturnValue(null);
+    vi.mocked(getPasswordVersion).mockReturnValue(0);
+    vi.mocked(setPasswordHash).mockImplementation(async (hash) => {
+      mockGetPasswordHash.mockReturnValue(hash);
+    });
     mockValidateSession.mockImplementation((token: string) => token === 'valid-session-token');
     mockCheck.mockReturnValue({ allowed: true });
   });
+
+  it('does not issue a session if the password changes while verification is running', async () => {
+    mockGetPasswordHash.mockReturnValue('salt:old-password-hashed');
+    vi.mocked(verifyPasswordAsync).mockImplementationOnce(async () => {
+      mockGetPasswordHash.mockReturnValue('salt:new-password-hashed');
+      return true;
+    });
+    const res = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'old-password' }),
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+    expect(createSession).not.toHaveBeenCalled();
+    expect(mockRecordFailure).not.toHaveBeenCalled();
+  });
+
+  it('revokes an undisclosed session if credentials change before the login response', async () => {
+    mockGetPasswordHash.mockReturnValue('salt:old-password-hashed');
+    vi.mocked(createSession).mockImplementationOnce(async () => {
+      mockGetPasswordHash.mockReturnValue('salt:new-password-hashed');
+      return { token: 'undisclosed-token', expiresAt: new Date(Date.now() + 60_000) };
+    });
+    const res = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'old-password' }),
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+    expect(invalidateSession).toHaveBeenCalledWith('undisclosed-token');
+    expect(mockRecordSuccess).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite a password changed while hashing a replacement', async () => {
+    mockGetPasswordHash.mockReturnValue('salt:current-password-hashed');
+    vi.mocked(hashPasswordAsync).mockImplementationOnce(async () => {
+      mockGetPasswordHash.mockReturnValue('salt:concurrent-password-hashed');
+      return 'salt:replacement-password-hashed';
+    });
+    const res = await app.request('/auth/password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: 'ownpilot_ui_session=valid-session-token',
+      },
+      body: JSON.stringify({
+        password: 'replacement-password',
+        currentPassword: 'current-password',
+      }),
+    });
+    expect(res.status).toBe(503);
+    expect(setPasswordHash).not.toHaveBeenCalled();
+    expect(invalidateAllSessions).not.toHaveBeenCalled();
+  });
+
+  it('does not create a replacement session after another password change during revocation', async () => {
+    mockGetPasswordHash.mockReturnValue('salt:current-password-hashed');
+    vi.mocked(invalidateAllSessions).mockImplementationOnce(async () => {
+      mockGetPasswordHash.mockReturnValue('salt:concurrent-password-hashed');
+      vi.mocked(getPasswordVersion).mockReturnValue(1);
+    });
+    const res = await app.request('/auth/password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: 'ownpilot_ui_session=valid-session-token',
+      },
+      body: JSON.stringify({
+        password: 'replacement-password',
+        currentPassword: 'current-password',
+      }),
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it('revokes an undisclosed replacement session if another password change finishes before its response', async () => {
+    mockGetPasswordHash.mockReturnValue('salt:current-password-hashed');
+    vi.mocked(createSession).mockImplementationOnce(async () => {
+      mockGetPasswordHash.mockReturnValue('salt:concurrent-password-hashed');
+      return { token: 'undisclosed-replacement', expiresAt: new Date(Date.now() + 60_000) };
+    });
+    const res = await app.request('/auth/password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: 'ownpilot_ui_session=valid-session-token',
+      },
+      body: JSON.stringify({
+        password: 'replacement-password',
+        currentPassword: 'current-password',
+      }),
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+    expect(invalidateSession).toHaveBeenCalledWith('undisclosed-replacement');
+  });
+
+  it('returns retryable 503 without recording a wrong password when the KDF is busy', async () => {
+    mockGetPasswordHash.mockReturnValue('salt:correct-hashed');
+    vi.mocked(verifyPasswordAsync).mockRejectedValueOnce(new UiSessionBusyError());
+    const res = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'correct' }),
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Retry-After')).toBe('1');
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+    expect(mockRecordFailure).not.toHaveBeenCalled();
+    expect(mockRecordSuccess).not.toHaveBeenCalled();
+    expect(mockEmit).not.toHaveBeenCalled();
+  });
+
+  it('keeps the old password and sessions when creating a replacement hash is busy', async () => {
+    mockGetPasswordHash.mockReturnValue('salt:current-password-hashed');
+    vi.mocked(hashPasswordAsync).mockRejectedValueOnce(new UiSessionBusyError());
+    const res = await app.request('/auth/password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: 'ownpilot_ui_session=valid-session-token',
+      },
+      body: JSON.stringify({
+        password: 'replacement-password',
+        currentPassword: 'current-password',
+      }),
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Retry-After')).toBe('1');
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+    expect(setPasswordHash).not.toHaveBeenCalled();
+    expect(invalidateAllSessions).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['/auth/login', { password: 'x'.repeat(1025) }],
+    ['/auth/password', { password: 'x'.repeat(1025) }],
+    ['/auth/password', { password: 'replacement-password', currentPassword: 'x'.repeat(1025) }],
+  ])('rejects oversized credentials on %s before calling the password KDF', async (path, body) => {
+    mockGetPasswordHash.mockReturnValue('salt:current-password-hashed');
+    const res = await app.request(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: 'ownpilot_ui_session=valid-session-token',
+      },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(400);
+    expect(hashPasswordAsync).not.toHaveBeenCalled();
+    expect(verifyPasswordAsync).not.toHaveBeenCalled();
+    expect(mockRecordFailure).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['/auth/status', 'GET'],
+    ['/auth/logout', 'POST'],
+    ['/auth/password', 'DELETE'],
+    ['/auth/sessions', 'GET'],
+  ])(
+    'preserves credentials and returns 503 when %s is temporarily saturated',
+    async (path, method) => {
+      mockValidateSession.mockRejectedValueOnce(new UiSessionBusyError());
+      const res = await app.request(path, {
+        method,
+        headers: { Cookie: 'ownpilot_ui_session=valid-session-token' },
+      });
+      expect(res.status).toBe(503);
+      expect(res.headers.get('Retry-After')).toBe('1');
+      expect(res.headers.get('Set-Cookie')).toBeNull();
+      expect((await res.json()).error.code).toBe('SERVICE_UNAVAILABLE');
+    }
+  );
 
   // ── GET /auth/status ────────────────────────────────────────────
 

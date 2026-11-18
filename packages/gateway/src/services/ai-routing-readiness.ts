@@ -5,7 +5,11 @@ import {
   resolveDefaultProviderAndModel,
 } from './app-settings.js';
 import { getProviderApiKey, loadProviderConfig, NATIVE_PROVIDERS } from './agent/cache.js';
-import { parseAstraFallbackChain, type AstraFallbackRoute } from './agent/fallback-chain.js';
+import {
+  parseAstraFallbackChain,
+  limitAstraFallbacks,
+  type AstraFallbackRoute,
+} from './agent/fallback-chain.js';
 import { resolveForChannel, resolveForProcess } from './llm/model-routing.js';
 import { getLog } from './log.js';
 
@@ -98,18 +102,21 @@ export async function getAstraAiRoutingReadiness(): Promise<AstraAiRoutingReadin
     const candidates = parseAstraFallbackChain(
       rawChain,
       typeof routing.provider === 'string' ? routing.provider : '',
-      explicit
+      explicit,
+      { deferLimit: true }
     );
-    const fallbackChain: AstraFallbackRoute[] = [];
+    const usableCandidates: AstraFallbackRoute[] = [];
     let unrecognizedFallbackCount = 0;
     for (const candidate of candidates) {
       const canonical = canonicalRoute(candidate.provider, candidate.model);
-      if (!canonical) {
-        unrecognizedFallbackCount++;
-        continue;
-      }
-      if (await providerReady(canonical.provider)) fallbackChain.push(canonical);
+      if (!canonical) unrecognizedFallbackCount++;
+      if (await providerReady(candidate.provider)) usableCandidates.push(candidate);
     }
+    // A permitted model absent from the catalog still occupies a runtime slot.
+    // Apply the runtime cap before removing values that cannot safely be logged.
+    const fallbackChain = limitAstraFallbacks(usableCandidates, (candidate) => candidate.provider)
+      .map((candidate) => canonicalRoute(candidate.provider, candidate.model))
+      .filter((candidate): candidate is AstraFallbackRoute => candidate !== null);
     return {
       primary,
       primaryReady: primary ? await providerReady(primary.provider) : false,

@@ -116,6 +116,7 @@ import {
   CHANNEL_AI_QUEUE_BUSY_REPLY,
   runChannelAIWork,
 } from './channel-ai-admission.js';
+import { whatsappNormalizer } from './normalizers/whatsapp.js';
 
 const log = getLog('ChannelService');
 
@@ -135,10 +136,8 @@ function tryGetMessageBus(): IMessageBus | null {
   return hasMessageBus() ? getMessageBus() : null;
 }
 
-// ============================================================================
-// Helper: Check if a plugin is a channel plugin
-// ============================================================================
-
+// =====================================================================// Helper: Check if a plugin is a channel plugin
+// =====================================================================
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -169,10 +168,8 @@ function getChannelPlatform(plugin: Plugin): ChannelPlatform {
   return (plugin.manifest as ChannelPluginManifest).platform ?? 'unknown';
 }
 
-// ============================================================================
-// Implementation
-// ============================================================================
-
+// =====================================================================// Implementation
+// =====================================================================
 export class ChannelServiceImpl implements IChannelService {
   private readonly usersRepo: ChannelUsersRepository;
   private readonly sessionsRepo: ChannelSessionsRepository;
@@ -226,10 +223,8 @@ export class ChannelServiceImpl implements IChannelService {
     this.subscribeToEvents();
   }
 
-  // ==========================================================================
-  // IChannelService Implementation
-  // ==========================================================================
-
+  // ===================================================================  // IChannelService Implementation
+  // ===================================================================
   async send(channelPluginId: string, message: ChannelOutgoingMessage): Promise<string> {
     const api = this.getChannel(channelPluginId);
     if (!api) {
@@ -482,10 +477,8 @@ export class ChannelServiceImpl implements IChannelService {
     }
   }
 
-  // ==========================================================================
-  // Message Processing Pipeline
-  // ==========================================================================
-
+  // ===================================================================  // Message Processing Pipeline
+  // ===================================================================
   /**
    * Process an incoming channel message.
    * This is the main pipeline: auth check -> session lookup -> AI routing.
@@ -1443,6 +1436,10 @@ export class ChannelServiceImpl implements IChannelService {
             )
           : null;
       if (integrationProposal) responseText = integrationProposalMessage(integrationProposal);
+      // Shortcuts, direct replies and personalized confirmations can bypass the
+      // bus normalizer. Apply the same idempotent formatting to every final reply.
+      if (message.platform === 'whatsapp')
+        responseText = whatsappNormalizer.normalizeOutgoing(responseText).join('\n\n');
       let sentMessageId: string;
       if (progress && !replyWithVoice && !dashboardAction) {
         // Replace progress message with final response
@@ -1589,10 +1586,8 @@ export class ChannelServiceImpl implements IChannelService {
     }
   }
 
-  // ==========================================================================
-  // Private Methods — AI Routing (delegated to channel-ai-routing.ts)
-  // ==========================================================================
-
+  // ===================================================================  // Private Methods — AI Routing (delegated to channel-ai-routing.ts)
+  // ===================================================================
   private async processViaBus(
     bus: IMessageBus,
     message: ChannelIncomingMessage,
@@ -1868,10 +1863,8 @@ export class ChannelServiceImpl implements IChannelService {
     });
   }
 
-  // ==========================================================================
-  // Private Methods
-  // ==========================================================================
-
+  // ===================================================================  // Private Methods
+  // ===================================================================
   /**
    * Serialize async operations per key to prevent race conditions.
    * Different keys run concurrently; same key waits for prior call.
@@ -2136,10 +2129,8 @@ export class ChannelServiceImpl implements IChannelService {
     this.sessionLocks.clear();
     log.info('ChannelService disposed');
   }
-  // ============================================================================
-  // DM Pairing Security — delegated to DmPairingService
-  // ============================================================================
-
+  // =====================================================================  // DM Pairing Security — delegated to DmPairingService
+  // =====================================================================
   async approvePendingSender(
     platform: string,
     code: string
@@ -2166,10 +2157,8 @@ export class ChannelServiceImpl implements IChannelService {
   }
 }
 
-// ============================================================================
-// Singleton
-// ============================================================================
-
+// =====================================================================// Singleton
+// =====================================================================
 let _instance: ChannelServiceImpl | null = null;
 
 export function createChannelServiceImpl(pluginRegistry: PluginRegistry): ChannelServiceImpl {

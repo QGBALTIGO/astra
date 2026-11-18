@@ -48,7 +48,13 @@ function instant(v: unknown): string | undefined {
 function rate(v: unknown): string {
   const n = number(v);
   if (n === null || n <= 0 || n >= 1e9) throw new RadarSourceError('invalid_response');
-  return n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+  // Rounding can turn a quote above a threshold into an apparent match (for
+  // example 5.0000004 -> 5). Preserve the provider's numeric value within the
+  // six-decimal contract; unsupported precision is a source error, never a
+  // reason to trigger a financial alert.
+  const exact = String(n);
+  if (!/^\d{1,9}(?:\.\d{1,6})?$/.test(exact)) throw new RadarSourceError('invalid_response');
+  return exact;
 }
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const shift = (d: Date, n: number) => day(new Date(d.getTime() + n * 86400000));

@@ -2,8 +2,9 @@
  * Trusted-proxy aware request origin / URL helpers.
  *
  * `X-Forwarded-Proto` and `X-Forwarded-Host` are honored ONLY when a trusted
- * proxy is configured via `TRUSTED_PROXY=true` + `TRUSTED_PROXY_IPS`
- * (see utils/client-ip.ts). When the gateway is directly exposed, these
+ * proxy is configured via `TRUSTED_PROXY=true` + `TRUSTED_PROXY_IPS` and all
+ * requests arrive through an ingress that overwrites those headers (see the
+ * header-only trust boundary in utils/client-ip.ts). When directly exposed, these
  * headers are attacker-controllable and must be ignored.
  *
  * Used by:
@@ -19,6 +20,13 @@ interface RequestLike {
   header: (name: string) => string | undefined;
 }
 
+function forwardedProtocol(req: RequestLike): 'http' | 'https' | undefined {
+  const value = req.header('X-Forwarded-Proto') ?? req.header('X-Forwarded-Scheme');
+  if (value && /[\u0000-\u001f\u007f]/.test(value)) return undefined;
+  const protocol = value?.trim().toLowerCase();
+  return protocol === 'http' || protocol === 'https' ? protocol : undefined;
+}
+
 /**
  * Resolve the canonical external request origin (scheme + host[:port]).
  *
@@ -29,10 +37,25 @@ interface RequestLike {
 export function getRequestOrigin(req: RequestLike): string {
   const url = new URL(req.url);
   if (isProxyAwareConfigured()) {
-    const forwardedProto = req.header('X-Forwarded-Proto');
-    const forwardedHost = req.header('X-Forwarded-Host');
-    if (forwardedProto && forwardedHost) {
-      return `${forwardedProto}://${forwardedHost}`;
+    const protocol = forwardedProtocol(req);
+    const rawHost = req.header('X-Forwarded-Host');
+    const host = rawHost?.trim();
+    // A forwarded host must be one host[:port], never an origin, userinfo,
+    // comma-separated chain or path. URL validation also rejects invalid ports
+    // and IPv6 syntax. Malformed metadata falls back to the received origin.
+    if (
+      protocol &&
+      host &&
+      host.length <= 512 &&
+      !/[\u0000-\u001f\u007f]/.test(rawHost!) &&
+      !/[\s,/@\\?#]/.test(host) &&
+      !host.endsWith(':')
+    ) {
+      try {
+        return new URL(`${protocol}://${host}`).origin;
+      } catch {
+        // Ignore malformed forwarding metadata.
+      }
     }
   }
   return url.origin;
@@ -54,8 +77,7 @@ export function getRequestUrl(req: RequestLike, path: string): string {
  */
 export function isSecureRequest(req: RequestLike): boolean {
   if (req.url.startsWith('https://')) return true;
-  const forwardedScheme = req.header('X-Forwarded-Proto') ?? req.header('X-Forwarded-Scheme');
-  if (isProxyAwareConfigured() && forwardedScheme?.toLowerCase() === 'https') {
+  if (isProxyAwareConfigured() && forwardedProtocol(req) === 'https') {
     return true;
   }
   return false;

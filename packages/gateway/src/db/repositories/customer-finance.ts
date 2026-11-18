@@ -42,7 +42,7 @@ export interface CustomerTransactionInput {
 }
 
 export interface CustomerTransactionQuery {
-  sort?: 'activity' | 'created' | 'date';
+  sort?: 'activity' | 'created' | 'date' | 'due';
   from?: string;
   to?: string;
   type?: CustomerTransactionType | 'all';
@@ -763,7 +763,7 @@ export class CustomerFinanceRepository extends BaseRepository {
       );
       const rows = await this.query<TransactionRow>(
         `${TRANSACTION_SELECT} WHERE ${where}
-        ORDER BY ${query.sort === 'activity' ? 'COALESCE(e.updated_at, e.created_at) DESC NULLS LAST, e.created_at DESC NULLS LAST, e.id DESC' : query.sort === 'created' ? 'e.created_at DESC NULLS LAST, e.id DESC' : 'e.date DESC, e.created_at DESC NULLS LAST, e.id DESC'} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        ORDER BY ${query.sort === 'activity' ? 'COALESCE(e.updated_at, e.created_at) DESC NULLS LAST, e.created_at DESC NULLS LAST, e.id DESC' : query.sort === 'created' ? 'e.created_at DESC NULLS LAST, e.id DESC' : query.sort === 'due' ? 'e.date ASC, e.created_at ASC NULLS LAST, e.id ASC' : 'e.date DESC, e.created_at DESC NULLS LAST, e.id DESC'} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
         [...params, pageSize, (page - 1) * pageSize]
       );
       return {

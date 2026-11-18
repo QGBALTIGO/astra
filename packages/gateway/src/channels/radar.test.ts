@@ -97,6 +97,44 @@ beforeEach(() => {
   });
 });
 describe('immediate Radar requests without a provider', () => {
+  it.each(['bus', 'direct'] as const)(
+    'creates the screenshot price condition through %s without the AI or a fixed reminder',
+    async (path) => {
+      const model = vi.fn().mockRejectedValue(new Error('Synthetic provider outage'));
+      const msg = message('Me avise se o dólar chegar a 5 reais cravado ou menos');
+      const result =
+        path === 'bus'
+          ? await processViaBus(
+              { process: model } as never,
+              msg,
+              { sessionId: 's', conversationId: null },
+              { ownpilotUserId: user },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : await processDirectAgent(msg, user, async () => true);
+      expect(JSON.stringify(result)).toContain('Alerta de cotação ativado');
+      expect(JSON.stringify(result)).toContain('igual ou abaixo');
+      expect(JSON.stringify(result)).not.toContain('Lembrete agendado');
+      expect(m.follow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'ptax',
+          target: 'USD',
+          delivery: 'threshold',
+          threshold: '5',
+          comparison: 'at_or_below',
+        }),
+        'Dólar (USD)',
+        '07:00'
+      );
+      expect(m.scope).toHaveBeenCalledWith(user);
+      expect(m.save).not.toHaveBeenCalled();
+      expect(model).not.toHaveBeenCalled();
+    }
+  );
   it.each(['bus', 'direct'] as const)('reads a named football team with %s', async (path) => {
     const model = vi.fn().mockRejectedValue(new Error('Synthetic provider outage'));
     const msg = message('Quando o Vasco joga dnv?');

@@ -3,6 +3,9 @@ import { formatAstraMessage } from './response-presentation.js';
 import { integrationItems } from '../services/customer-integration-data.js';
 import { requiredChannelWeatherTool } from './tool-selection.js';
 import { channelOperations } from './receipt-state.js';
+import { hasChannelEmailSubject, isChannelEmailRequest } from './email-intent.js';
+import { isFinanceReadOnlyRequest } from './finance-intent.js';
+import { isSimpleEmailListRequest, verifiedEmailReadReply } from './email-read-reply.js';
 
 const plain = (value: unknown) =>
   typeof value === 'string' ? value.replace(/[\r\n*_`<>]/g, ' ').trim() : '';
@@ -120,7 +123,7 @@ function financialRead(name: string, payload: unknown): string | undefined {
         ? 'Nenhum lançamento encontrado nesta consulta.'
         : 'Nenhum lançamento nesta página.'
     );
-  const lines = rows.slice(0, 5).map((row) => {
+  const lines = rows.map((row) => {
     const entry = row!;
     const kind =
       entry.type === 'income'
@@ -138,6 +141,9 @@ function financialRead(name: string, payload: unknown): string | undefined {
   return (
     lines.join('\n\n') +
     `\n\nExibindo ${lines.length} de ${data.total} lançamentos encontrados · página ${data.page}.` +
+    (data.page * data.pageSize < data.total
+      ? `\nPara continuar, peça “página ${data.page + 1} desta lista”.`
+      : '') +
     '\nOs valores da lista não representam um saldo total.'
   );
 }
@@ -215,6 +221,8 @@ export function verifiedReadChannelFacts(
   receipts: ChannelToolReceipt[],
   context: { timeZone?: string; requestText?: string } = {}
 ): string | undefined {
+  if (isChannelEmailRequest(context.requestText ?? ''))
+    return verifiedEmailReadReply(receipts, context);
   const operations = channelOperations(receipts);
   const name = (receipt: ChannelToolReceipt) =>
     receipt.name.replace(/__/g, '.').replace(/^core\./, '');
@@ -235,6 +243,42 @@ export function verifiedReadChannelFacts(
   if (replies.length < latest.size)
     replies.push('Uma parte da consulta não ficou disponível agora.');
   return replies.join('\n\n');
+}
+
+/** Finish a complete read from its raw tool results before memory truncation or another LLM turn. */
+export function verifiedChannelToolReply(
+  response: { content: string; toolCalls?: readonly { name: string; arguments?: string }[] },
+  results: readonly { content: string; isError: boolean }[],
+  context: { timeZone?: string; requestText?: string } = {}
+): string | undefined {
+  const radar = verifiedRadarToolReply(response, results);
+  if (radar) return radar;
+  const calls = response.toolCalls ?? [];
+  // Rejected approvals can change result order in a multi-call round.
+  // These new read shortcuts require one unambiguous call/result pair.
+  if (calls.length !== 1 || results.length !== 1) return;
+  const receipts = results.map((entry, index) => ({
+    ...entry,
+    name: calls[index]!.name,
+    arguments: calls[index]!.arguments ?? '',
+  }));
+  const email = verifiedEmailReadReply(receipts, context, true);
+  if (email) return email;
+  const request = context.requestText ?? '';
+  const input = request.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  if (
+    !isFinanceReadOnlyRequest(request) ||
+    hasChannelEmailSubject(request) ||
+    /\b(?:tarefas?|lembretes?|agenda|compromissos?|radar|assinaturas?|google|drive|todoist|trello|notion)\b/iu.test(
+      request
+    ) ||
+    /\b(?:e|depois|tambem|alem|entao|apos|resumo|resuma|resumir|saldo|total|quanto|soma|somar|calcule|calcular|compare|separe|agrupe)\b|[;\n]/.test(
+      input
+    ) ||
+    !/^(?:core\.)?list_transactions$/.test(calls[0]!.name.replace(/__/g, '.'))
+  )
+    return;
+  return verifiedReadChannelFacts(receipts, context);
 }
 /** Keep a short AI greeting; numerical and operational facts come only from receipts. */
 function opening(text: string): string {
@@ -310,6 +354,11 @@ export function verifiedChannelFacts(
   receipts: ChannelToolReceipt[],
   context: { timeZone?: string; requestText?: string } = {}
 ): string | undefined {
+  const email =
+    !text.trim() || isSimpleEmailListRequest(context.requestText ?? '')
+      ? verifiedEmailReadReply(receipts, context)
+      : undefined;
+  if (email) return email;
   const radar = receipts.findLast((r) =>
     /^(?:core[._])?manage_radar$/.test(r.name.replace(/__/g, '.'))
   );

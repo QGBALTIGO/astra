@@ -19,6 +19,7 @@ interface LoginThrottleOptions {
   maxAttempts: number;
   windowMs: number;
   lockoutMs: number;
+  maxEntries?: number;
 }
 
 interface LoginThrottleCheck {
@@ -46,10 +47,26 @@ interface ThrottleEntry {
 export function createLoginThrottle(opts: LoginThrottleOptions) {
   const { maxAttempts, windowMs, lockoutMs } = opts;
   const attempts = new Map<string, ThrottleEntry>();
+  const maxEntries = Math.max(1, opts.maxEntries ?? 10_000);
+  const overflowKey = '\u0000overflow';
+  let nextCapacityCleanupAt = 0;
+
+  function keyFor(ip: string, now: number): string {
+    if (attempts.has(ip) || attempts.size < maxEntries) return ip;
+    // Prune at most once per second under identity churn. Never evict a live
+    // lockout to make room: new identities share one bounded overflow budget.
+    if (now >= nextCapacityCleanupAt) {
+      cleanup();
+      nextCapacityCleanupAt = now + 1000;
+      if (attempts.size < maxEntries) return ip;
+    }
+    return overflowKey;
+  }
 
   function check(ip: string): LoginThrottleResult {
     const now = Date.now();
-    const entry = attempts.get(ip);
+    const key = keyFor(ip, now);
+    const entry = attempts.get(key);
 
     // Active lockout
     if (entry && entry.lockedUntil > now) {
@@ -61,14 +78,14 @@ export function createLoginThrottle(opts: LoginThrottleOptions) {
       if (entry.count >= maxAttempts) {
         const lockedUntil = now + lockoutMs;
         entry.lockedUntil = lockedUntil;
-        return { allowed: false, retryAfterMs: lockoutMs };
+        return { allowed: false, retryAfterMs: Math.max(lockoutMs, entry.resetAt - now) };
       }
       entry.count++;
       return { allowed: true };
     }
 
     // New or expired window
-    attempts.set(ip, { count: 1, resetAt: now + windowMs, lockedUntil: 0 });
+    attempts.set(key, { count: 1, resetAt: now + windowMs, lockedUntil: 0 });
     return { allowed: true };
   }
 
@@ -84,10 +101,15 @@ export function createLoginThrottle(opts: LoginThrottleOptions) {
    */
   function recordFailure(ip: string): void {
     const now = Date.now();
-    const entry = attempts.get(ip);
+    const key = keyFor(ip, now);
+    const entry = attempts.get(key);
+
+    // A slow attempt may finish after its window while a later request has
+    // already armed a longer lockout. Its outcome must not reset that lockout.
+    if (entry && entry.lockedUntil > now) return;
 
     if (!entry || entry.resetAt <= now) {
-      attempts.set(ip, { count: 1, resetAt: now + windowMs, lockedUntil: 0 });
+      attempts.set(key, { count: 1, resetAt: now + windowMs, lockedUntil: 0 });
       return;
     }
 
@@ -97,6 +119,7 @@ export function createLoginThrottle(opts: LoginThrottleOptions) {
   }
 
   function recordSuccess(ip: string): void {
+    // A successful overflow identity must not reset other users' shared cap.
     attempts.delete(ip);
   }
 
@@ -109,7 +132,8 @@ export function createLoginThrottle(opts: LoginThrottleOptions) {
    * reads (audit fields, health reporting) so observing the state cannot change it.
    */
   function isLockedOut(ip: string): boolean {
-    const entry = attempts.get(ip);
+    const entry =
+      attempts.get(ip) ?? (attempts.size >= maxEntries ? attempts.get(overflowKey) : undefined);
     return !!entry && entry.lockedUntil > Date.now();
   }
 
@@ -124,6 +148,7 @@ export function createLoginThrottle(opts: LoginThrottleOptions) {
 
   function reset(): void {
     attempts.clear();
+    nextCapacityCleanupAt = 0;
   }
 
   return { check, isLockedOut, recordFailure, recordSuccess, cleanup, reset };

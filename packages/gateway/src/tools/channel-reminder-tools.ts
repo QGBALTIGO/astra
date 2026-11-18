@@ -11,6 +11,11 @@ import {
 } from '../db/repositories/channel-reminders.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDateTime, validCalendarDay } from '../services/customer-date.js';
+import {
+  channelReminderRequestError,
+  completeChannelReminderRequest,
+  isConditionalNotificationRequest,
+} from '../channels/reminder-request.js';
 
 const MAX_REMINDER_DELAY_SECONDS = 366 * 24 * 60 * 60;
 
@@ -19,7 +24,7 @@ const createReminderDef: ToolDefinition = {
   category: 'Automation',
   brief: 'Agendar lembrete com entrega real por WhatsApp ou Telegram',
   description:
-    'Agenda envio real de lembrete na conversa atual. Use para "me lembre daqui 20 segundos", "me lembre em 1 minuto", "me avise amanhã às 8h" e pedidos de alerta. Aceita segundos; não peça ao usuário para converter em minutos. Não use add_task para prometer notificação. Nunca invente horário ou assunto: se não estiver claro, pergunte antes. Informe title e exatamente um entre delay_seconds, delay_minutes, local_datetime ou remind_at. Prefira delay_seconds para intervalos em segundos ou mistos (1 minuto e 20 segundos = 80). Prefira local_datetime para hora local: o servidor resolve o fuso cadastrado; não invente offsets.',
+    'Agenda envio real de lembrete com prazo informado pelo cliente na conversa atual. Use para "me lembre daqui 20 segundos", "me lembre em 1 minuto", "me avise amanhã às 8h". Não monitora condições: "me avise se o dólar chegar a 5" exige manage_radar, e "quando o Codex voltar" exige monitoramento que esta ferramenta não faz. Nunca converta condição em horário, nem copie o horário de outro assunto. Aceita segundos; não peça ao usuário para converter em minutos. Não use add_task para prometer notificação. Nunca invente horário ou assunto: se não estiver claro, pergunte antes. Informe title e exatamente um entre delay_seconds, delay_minutes, local_datetime ou remind_at. Prefira delay_seconds para intervalos em segundos ou mistos (1 minuto e 20 segundos = 80). Prefira local_datetime para hora local: o servidor resolve o fuso cadastrado; não invente offsets.',
   parameters: {
     type: 'object',
     properties: {
@@ -219,6 +224,18 @@ export async function executeChannelReminderTool(
   if (toolName !== 'schedule_channel_reminder' && !rescheduling) {
     return { success: false, error: 'Ferramenta de lembrete desconhecida.' };
   }
+  const requestError = channelReminderRequestError(userId, ctx);
+  if (requestError)
+    return {
+      success: false,
+      result: {
+        kind: 'reminder_request_validation',
+        reason: isConditionalNotificationRequest(ctx.channelRequestText ?? '')
+          ? 'condition_requires_monitor'
+          : 'time_required',
+      },
+      error: requestError,
+    };
 
   const title = typeof args.title === 'string' ? args.title.trim() : '';
   if (!rescheduling && (!title || title.length > 160)) {
@@ -330,6 +347,7 @@ export async function executeChannelReminderTool(
           saved.channelPluginId === ctx.channelPluginId &&
           saved.platformChatId === ctx.platformChatId
         ) {
+          completeChannelReminderRequest(userId, ctx);
           return {
             success: true,
             result: {
@@ -364,6 +382,7 @@ export async function executeChannelReminderTool(
         ctx.platformChatId,
         remindAt
       );
+      if (saved) completeChannelReminderRequest(userId, ctx);
       return saved
         ? {
             success: true,
@@ -386,6 +405,7 @@ export async function executeChannelReminderTool(
       platformChatId: ctx.platformChatId,
       dedupeKey,
     });
+    completeChannelReminderRequest(userId, ctx);
     return {
       success: true,
       result: {

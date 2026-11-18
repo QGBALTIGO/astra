@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { AgentConfig } from '@ownpilot/core/agent';
+import type { ToolDefinition } from '@ownpilot/core/tools';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before the dynamic import
@@ -12,6 +14,7 @@ const mockGetServiceRegistry = vi.fn();
 const mockHasProviderService = vi.fn(() => false);
 const mockGetProviderService = vi.fn();
 const mockBuildSoulPrompt = vi.fn(() => '');
+const mockGetDefinitionsByNames = vi.fn<() => ToolDefinition[]>(() => []);
 const mockGetByAgentId = vi.fn(async () => null as unknown);
 const mockCountUnread = vi.fn(async () => 0 as unknown);
 
@@ -88,6 +91,7 @@ vi.mock('@ownpilot/core/tools', async (importOriginal) => {
     getNames = vi.fn(() => []);
     unregister = vi.fn();
     setConfigCenter = vi.fn();
+    getDefinitionsByNames = mockGetDefinitionsByNames;
   }
   return {
     ...actual,
@@ -232,12 +236,14 @@ vi.mock('../../tools/agent-tool-registry.js', () => ({
   CHANNEL_REMINDER_TOOLS: [],
 }));
 
-// Cache maps that we control from tests
-const agentCache = new Map();
-const agentConfigCache = new Map();
-const chatAgentCache = new Map();
-const pendingAgents = new Map();
-const pendingChatAgents = new Map();
+// Use the real maps/invalidation lifecycle while keeping provider/tool setup
+// isolated. This catches constructors racing a live credential rotation.
+const actualCache = await vi.importActual<typeof import('./cache.js')>('./cache.js');
+const agentCache: Map<string, unknown> = actualCache.agentCache;
+const agentConfigCache: Map<string, unknown> = actualCache.agentConfigCache;
+const chatAgentCache: Map<string, unknown> = actualCache.chatAgentCache;
+const pendingAgents: Map<string, unknown> = actualCache.pendingAgents;
+const pendingChatAgents: Map<string, unknown> = actualCache.pendingChatAgents;
 
 const mockLruGet = vi.fn((cache: Map<string, unknown>, key: string) => cache.get(key));
 const mockGetProviderApiKey = vi.fn(async () => 'test-api-key');
@@ -267,6 +273,7 @@ vi.mock('./cache.js', () => ({
   chatAgentCache,
   pendingAgents,
   pendingChatAgents,
+  getAgentCacheGeneration: () => actualCache.getAgentCacheGeneration(),
   lruGet: (...args: unknown[]) => mockLruGet(...(args as [Map<string, unknown>, string])),
   createApprovalCallback: (...args: unknown[]) => mockCreateApprovalCallback(...args),
   createSoulAwareApprovalCallback: vi.fn(() => vi.fn()),
@@ -414,6 +421,7 @@ beforeEach(() => {
   // A legacy describe replaces process.env. Pin this opt-in switch per test
   // so dedicated chain fixtures cannot change unrelated manual-fallback cases.
   vi.stubEnv('ASTRA_FALLBACK_CHAIN', '');
+  vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '');
   agentCache.clear();
   agentConfigCache.clear();
   chatAgentCache.clear();
@@ -442,6 +450,7 @@ beforeEach(() => {
   mockGetByAgentId.mockResolvedValue(null);
   mockCountUnread.mockResolvedValue(0);
   mockBuildSoulPrompt.mockReturnValue('');
+  mockGetDefinitionsByNames.mockReturnValue([]);
 
   // Restore default ChatRepository mirror mocks — vi.clearAllMocks() wipes
   // call history but also resets the once-queue, so default behavior must be
@@ -1494,6 +1503,43 @@ describe('getOrCreateChatAgent', () => {
     }
   );
 
+  it('keeps a configured fifth cloud backup when the requested local reserve is unavailable', async () => {
+    vi.stubEnv(
+      'ASTRA_FALLBACK_CHAIN',
+      'zai=glm-4.7-flash,google=gemini-2.5-flash-lite,groq=openai/gpt-oss-20b,openrouter=openrouter/free,cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash,ollama-local=qwen3:4b-instruct'
+    );
+    try {
+      mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+      mockGetProviderApiKey.mockImplementation(async (id: string) =>
+        id === 'ollama-local' ? undefined : 'synthetic-key'
+      );
+      mockLoadProviderConfig.mockReturnValue({
+        type: 'openai-compatible',
+        baseUrl: 'https://example.invalid/v1',
+      });
+      await mod.getOrCreateChatAgent(
+        'openai',
+        'gpt-4o',
+        undefined,
+        null,
+        'channel:synthetic:available-cap',
+        undefined,
+        true
+      );
+      const core = await import('@ownpilot/core/agent');
+      expect(core.createFallbackProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fallbacks: ['zai', 'google', 'groq', 'openrouter', 'cloudflare-workers-ai'].map((id) =>
+            expect.objectContaining({ id })
+          ),
+          completionTimeoutMs: 24000,
+        })
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it.each([false, true])(
     'gives a usable Cloudflare fallback 12 seconds with local reserve=%s',
     async (localReserve) => {
@@ -2166,6 +2212,150 @@ describe('getOrCreateChatAgent', () => {
     const call = mockCreateAgent.mock.calls[0];
     const config = call?.[0] as { memory: { maxTokens: number } } | undefined;
     expect(config?.memory.maxTokens).toBe(1024);
+  });
+});
+
+// =============================================================================
+// Groq operator request-budget planning (owner/scheduled agents, not channels)
+// =============================================================================
+
+describe('operator Groq request budgets', () => {
+  beforeEach(() => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
+    vi.stubEnv('GROQ_TOKENS_PER_MINUTE', '6000');
+    vi.stubEnv('GROQ_TOKEN_MARGIN_PERCENT', '20');
+    vi.stubEnv('GROQ_API_KEY', 'test-api-key');
+    vi.stubEnv('GROQ_API_KEY_2', 'synthetic-backup-key');
+    for (let index = 3; index <= 10; index++) vi.stubEnv(`GROQ_API_KEY_${index}`, '');
+    mockLoadProviderConfig.mockReturnValue({ baseUrl: 'https://api.groq.com/openai/v1' });
+    mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  const createdConfig = () => mockCreateAgent.mock.calls[0]![0] as AgentConfig;
+
+  it('fits a scheduled owner request within the operator allowance without changing its scope', async () => {
+    await mod.getOrCreateChatAgent(
+      'groq',
+      'openai/gpt-oss-20b',
+      undefined,
+      null,
+      'trigger-fixture'
+    );
+    const config = createdConfig();
+    expect(config.model.maxTokens).toBe(1250);
+    expect(config.memory?.maxTokens).toBeLessThan(2500);
+    expect(config.systemPrompt).toBe('Test system prompt');
+    expect(mockInjectMemoryIntoPrompt).toHaveBeenCalledWith(
+      'Test system prompt',
+      expect.objectContaining({
+        userId: 'default',
+        includeProfile: true,
+        includeInstructions: true,
+        includeToolDescriptions: false,
+      })
+    );
+  });
+
+  it('counts meta schemas and reduces output before overrunning the history floor', async () => {
+    const prompt = 'P'.repeat(4000);
+    const schema: ToolDefinition = {
+      name: 'use_tool',
+      description: 'D'.repeat(4000),
+      parameters: { type: 'object', properties: {} },
+    };
+    mockInjectMemoryIntoPrompt.mockResolvedValueOnce({ systemPrompt: prompt });
+    mockGetDefinitionsByNames.mockReturnValue([schema]);
+    await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+    const config = createdConfig();
+    const serialized = JSON.stringify({
+      messages: [{ role: 'system', content: prompt }],
+      tools: [{ type: 'function', function: schema }],
+      max_completion_tokens: config.model.maxTokens,
+    });
+    expect(config.model.maxTokens).toBeGreaterThanOrEqual(1024);
+    expect(config.model.maxTokens).toBeLessThan(2000);
+    expect(config.memory?.maxTokens).toBeGreaterThanOrEqual(1024);
+    expect(
+      Math.ceil(serialized.length / 4) + config.model.maxTokens! + config.memory!.maxTokens!
+    ).toBeLessThan(5000);
+  });
+
+  it('uses a smaller explicit request cap when the configured quota has more capacity', async () => {
+    vi.stubEnv('GROQ_TOKENS_PER_MINUTE', '12000');
+    await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+    expect(createdConfig().model.maxTokens).toBe(2000);
+    expect(createdConfig().memory?.maxTokens).toBeLessThan(8000);
+  });
+
+  it('honors a smaller model window and output ceiling', async () => {
+    mockResolveContextWindow.mockReturnValue(4096);
+    mockResolveMaxOutput.mockReturnValue(512);
+    await mod.getOrCreateChatAgent('groq', 'small-output-model');
+    const config = createdConfig();
+    expect(config.model.maxTokens).toBe(512);
+    expect(config.memory?.maxTokens).toBeLessThan(4096 - 512);
+  });
+
+  it('keeps the conversational channel allowance smaller than the owner allowance', async () => {
+    await mod.getOrCreateChatAgent(
+      'groq',
+      'openai/gpt-oss-20b',
+      undefined,
+      null,
+      'channel-fixture',
+      undefined,
+      true,
+      'customer-fixture'
+    );
+    expect(createdConfig().model.maxTokens).toBe(768);
+    expect(createdConfig().memory?.maxTokens).toBeLessThanOrEqual(1536);
+  });
+
+  it.each(['', '0', 'invalid', '1e4', '9007199254740992'])(
+    'plans within the quota allowance when the explicit request cap is absent or invalid (%s)',
+    async (value) => {
+      vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', value);
+      await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+      expect(createdConfig().model.maxTokens).toBe(1250);
+      expect(createdConfig().memory?.maxTokens).toBeLessThan(5000);
+    }
+  );
+
+  it.each([
+    ['custom URL', { baseUrl: 'https://example.test/openai/v1' }],
+    ['custom endpoint', { baseUrl: 'https://api.groq.com/openai/v1', endpoint: '/responses' }],
+    [
+      'auth override',
+      {
+        baseUrl: 'https://api.groq.com/openai/v1',
+        headers: { Authorization: 'Bearer tenant-key' },
+      },
+    ],
+  ])('does not apply operator limits to %s', async (_name, config) => {
+    mockLoadProviderConfig.mockReturnValue(config);
+    await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+    expect(createdConfig().model.maxTokens).toBe(8192);
+    expect(createdConfig().memory?.maxTokens).toBeGreaterThan(8000);
+  });
+
+  it('does not apply the operator pool limit to a tenant credential', async () => {
+    mockGetProviderApiKey.mockResolvedValue('tenant-api-key');
+    await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+    expect(createdConfig().model.maxTokens).toBe(8192);
+  });
+
+  it('plans against the same quota with a single operator credential', async () => {
+    vi.stubEnv('GROQ_API_KEY_2', '');
+    await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+    expect(createdConfig().model.maxTokens).toBe(1250);
+  });
+
+  it('does not restrict unrelated providers', async () => {
+    await mod.getOrCreateChatAgent('openai', 'gpt-4o');
+    expect(createdConfig().model.maxTokens).toBe(8192);
+    expect(createdConfig().memory?.maxTokens).toBeGreaterThan(8000);
   });
 });
 
@@ -2978,6 +3168,105 @@ describe('ContextBreakdown type exports', () => {
 // =============================================================================
 
 describe('edge cases', () => {
+  it.each(['chat', 'record', 'stored', 'default'] as const)(
+    'does not repopulate the %s cache with an older credential after invalidation',
+    async (kind) => {
+      const record = makeAgentRecord({ id: kind === 'default' ? 'default' : 'rotation-test' });
+      mockAgentsRepo.getById.mockResolvedValue(record);
+      const oldAgent = makeMockAgent().agent;
+      const newAgent = makeMockAgent().agent;
+      let releaseOldKey!: (key: string) => void;
+      let notifyOldLookup!: () => void;
+      const oldLookup = new Promise<void>((resolve) => {
+        notifyOldLookup = resolve;
+      });
+      const oldKey = new Promise<string>((resolve) => {
+        releaseOldKey = resolve;
+      });
+      mockGetProviderApiKey
+        .mockImplementationOnce(async () => {
+          notifyOldLookup();
+          return oldKey;
+        })
+        .mockResolvedValue('synthetic-new-key');
+      mockCreateAgent.mockImplementation((config: { provider: { apiKey: string } }) =>
+        config.provider.apiKey === 'synthetic-old-key' ? oldAgent : newAgent
+      );
+      const start = () =>
+        kind === 'chat'
+          ? mod.getOrCreateChatAgent('openai', 'gpt-4o')
+          : kind === 'record'
+            ? mod.getOrCreateAgentInstance(record)
+            : kind === 'stored'
+              ? mod.getAgent(record.id)
+              : mod.getOrCreateDefaultAgent();
+      const originalRequest = start();
+      await oldLookup;
+      actualCache.invalidateAgentCache();
+      expect(await start()).toBe(newAgent);
+      releaseOldKey('synthetic-old-key');
+      // The in-progress caller still receives its agent; only future reuse is forbidden.
+      expect(await originalRequest).toBe(oldAgent);
+      expect(await start()).toBe(newAgent);
+      expect(mockCreateAgent).toHaveBeenCalledTimes(2);
+      if (kind !== 'chat') {
+        expect(agentConfigCache.get(record.id)).toMatchObject({
+          provider: { apiKey: 'synthetic-new-key' },
+        });
+      }
+    }
+  );
+
+  it.each(['chat', 'record'] as const)(
+    'keeps a new %s creation pending when the old generation finishes',
+    async (kind) => {
+      const record = makeAgentRecord({ id: 'pending-rotation-test' });
+      const oldAgent = makeMockAgent().agent;
+      const newAgent = makeMockAgent().agent;
+      const releases: Array<(key: string) => void> = [];
+      const lookups: Array<() => void> = [];
+      const started = [0, 1].map(
+        () =>
+          new Promise<void>((resolve) => {
+            lookups.push(resolve);
+          })
+      );
+      const keys = [0, 1].map(
+        () =>
+          new Promise<string>((resolve) => {
+            releases.push(resolve);
+          })
+      );
+      let lookupIndex = 0;
+      mockGetProviderApiKey.mockImplementation(async () => {
+        const index = lookupIndex++;
+        lookups[index]?.();
+        return keys[index] ?? 'synthetic-new-key';
+      });
+      mockCreateAgent.mockImplementation((config: { provider: { apiKey: string } }) =>
+        config.provider.apiKey === 'synthetic-old-key' ? oldAgent : newAgent
+      );
+      const start = () =>
+        kind === 'chat'
+          ? mod.getOrCreateChatAgent('openai', 'gpt-4o')
+          : mod.getOrCreateAgentInstance(record);
+      const originalRequest = start();
+      await started[0];
+      actualCache.invalidateAgentCache();
+      const newRequest = start();
+      await started[1];
+      releases[0]!('synthetic-old-key');
+      expect(await originalRequest).toBe(oldAgent);
+      expect((kind === 'chat' ? pendingChatAgents : pendingAgents).size).toBe(1);
+      const concurrentRequest = start();
+      releases[1]!('synthetic-new-key');
+      expect(await newRequest).toBe(newAgent);
+      expect(await concurrentRequest).toBe(newAgent);
+      expect(mockGetProviderApiKey).toHaveBeenCalledTimes(2);
+      expect(mockCreateAgent).toHaveBeenCalledTimes(2);
+    }
+  );
+
   it('getOrCreateAgentInstance deduplicates concurrent requests', async () => {
     const { agent } = makeMockAgent();
     const record = makeAgentRecord({ id: 'dedup-test' });

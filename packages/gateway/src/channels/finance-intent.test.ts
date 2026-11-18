@@ -37,4 +37,13 @@ describe('financial read intent', () => {
     expect(requiredFinanceReadTool('Mostre meus gastos na planilha Google')).toBeUndefined();
     expect(requiredFinanceReadTool('Mostre os gastos deste exemplo fictício')).toBeUndefined();
   });
+  it.each([
+    'Quais os últimos gmais importantes que recebi',
+    'Quais os últimos e-mails importantes que recebi',
+    'Mostre os e-mails sobre os gastos e parcelas que recebi',
+    'Liste meus gmails recebidos sobre o saldo da conta',
+  ])('does not classify an email subject as a ledger lookup: %s', (text) => {
+    expect(isFinanceReadOnlyRequest(text)).toBe(false);
+    expect(requiredFinanceReadTool(text)).toBeUndefined();
+  });
 });

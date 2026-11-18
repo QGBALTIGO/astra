@@ -63,6 +63,18 @@ function isAllowedFreeRoute(route: AstraFallbackRoute): boolean {
   );
 }
 
+/** Limit usable reserves, preserving cloud priority and keeping local inference last. */
+export function limitAstraFallbacks<T>(
+  candidates: readonly T[],
+  providerId: (candidate: T) => string | undefined
+): T[] {
+  const local = candidates.find((candidate) => providerId(candidate) === 'ollama-local');
+  const cloud = candidates
+    .filter((candidate) => providerId(candidate) !== 'ollama-local')
+    .slice(0, local ? 4 : 5);
+  return local ? [...cloud, local] : cloud;
+}
+
 /**
  * ASTRA_FALLBACK_CHAIN is a comma-separated provider=model list.
  * For example: zai=glm-4.7-flash,openrouter=openrouter/free.
@@ -74,7 +86,8 @@ function isAllowedFreeRoute(route: AstraFallbackRoute): boolean {
 export function parseAstraFallbackChain(
   chain: string | undefined,
   primaryProvider: string,
-  explicitFallback?: AstraFallbackRoute
+  explicitFallback?: AstraFallbackRoute,
+  options?: { deferLimit?: boolean }
 ): AstraFallbackRoute[] {
   if (!chain?.trim()) {
     return explicitFallback &&
@@ -104,9 +117,13 @@ export function parseAstraFallbackChain(
     if (seen.has(candidate.provider) || !isAllowedFreeRoute(candidate)) continue;
     seen.add(candidate.provider);
     if (candidate.provider === 'ollama-local') localReserve = candidate;
-    else if (routes.length < 5) routes.push(candidate);
+    else routes.push(candidate);
   }
   // Local inference must never displace a healthy cloud attempt, even if a
   // stored explicit fallback or the environment lists it first.
-  return localReserve ? [...routes.slice(0, 4), localReserve] : routes;
+  const ordered = localReserve ? [...routes, localReserve] : routes;
+  // Runtime callers filter credentials/endpoints first, so unavailable entries
+  // cannot consume one of the five slots. Policy validation/deduplication still
+  // happens here even when the size limit is deferred.
+  return options?.deferLimit ? ordered : limitAstraFallbacks(ordered, (route) => route.provider);
 }

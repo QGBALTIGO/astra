@@ -845,6 +845,68 @@ describe('createContextInjectionMiddleware', () => {
   // =========================================================================
 
   describe('stripInjectedSections behavior', () => {
+    it.each([false, true])(
+      'keeps repeated customer turns bounded and retains base policy (time block: %s)',
+      async (hasTimeBlock) => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-11-18T00:38:00Z'));
+        try {
+          const timeAndPolicy = hasTimeBlock
+            ? '\n\n---\n\n## Current Context\n- Old time' +
+              '\n\n---\n\n## Code Execution\nCode execution is DISABLED.' +
+              '\n\n---\n\n## File Operations\nRespect the authorized workspace.'
+            : '';
+          let prompt = BASE_PROMPT + timeAndPolicy;
+          const agent = createAgent({
+            getConversation: vi.fn(() => ({ systemPrompt: prompt })),
+            updateSystemPrompt: vi.fn((nextPrompt: string) => {
+              prompt = nextPrompt;
+            }),
+          });
+          mockHasMemoryService.mockReturnValue(false);
+          mockBuildEnhancedSystemPrompt.mockImplementation(async (base: string) => ({
+            prompt: base + INJECTED_SUFFIX,
+            stats: DEFAULT_STATS,
+          }));
+          const ctx = createContext({
+            store: { agent, userId: 'whatsapp:synthetic-repeat', agentId: 'same-agent' },
+          });
+          const message = createMessage({
+            metadata: { source: 'channel', platform: 'whatsapp' },
+          });
+          const next = vi.fn().mockResolvedValue(createNextResult());
+          const rendered: string[] = [];
+          for (let turn = 0; turn < 12; turn++) {
+            await middleware(message, ctx, next);
+            rendered.push(prompt);
+          }
+          expect(new Set(rendered).size).toBe(1);
+          expect(prompt.match(/## User Context \(from memory\)/g)).toHaveLength(1);
+          expect(prompt.match(/## Active Goals/g)).toHaveLength(1);
+          expect(prompt.match(/## Astra customer clock/g)).toHaveLength(1);
+          if (hasTimeBlock) {
+            expect(prompt).toContain('## Current Context');
+            expect(prompt).toContain('Code execution is DISABLED.');
+            expect(prompt).toContain('Respect the authorized workspace.');
+          }
+          expect(mockBuildEnhancedSystemPrompt).toHaveBeenCalledTimes(1);
+
+          clearInjectionCache('whatsapp:synthetic-repeat');
+          mockBuildEnhancedSystemPrompt.mockImplementation(async (base: string) => ({
+            prompt: base + '\n---\n## User Context (from memory)\n- New memory',
+            stats: { memoriesUsed: 1, goalsUsed: 0 },
+          }));
+          await middleware(message, ctx, next);
+          expect(prompt).toContain('New memory');
+          expect(prompt).not.toContain('Memory 1');
+          expect(prompt).not.toContain('Goal 1');
+          if (hasTimeBlock) expect(prompt).toContain('Code execution is DISABLED.');
+        } finally {
+          vi.useRealTimers();
+        }
+      }
+    );
+
     it('should strip User Context section from prompt on cache re-apply', async () => {
       const agent = createAgent();
 

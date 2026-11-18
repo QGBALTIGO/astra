@@ -112,6 +112,7 @@ function authHeader(config: { resolvedAuth?: ResolvedAuth; apiKey?: string }): s
 interface OpenAIChoice {
   message?: {
     content?: string | null;
+    refusal?: string | null;
     tool_calls?: Array<{
       id: string;
       type: string;
@@ -123,7 +124,8 @@ interface OpenAIChoice {
     reasoning_content?: string; // DeepSeek R1
   };
   delta?: {
-    content?: string;
+    content?: string | null;
+    refusal?: string | null;
     reasoning_content?: string; // DeepSeek R1 streaming
     tool_calls?: Array<{
       index: number;
@@ -140,6 +142,7 @@ interface OpenAIChoice {
 interface OpenAIResponse {
   id?: string;
   choices?: OpenAIChoice[];
+  error?: unknown;
   model?: string;
   created?: number;
   usage?: {
@@ -364,9 +367,12 @@ export class OpenAICompatibleProvider implements IProvider {
         return err(new InternalError(`No response from ${this.providerId}`));
       }
 
-      // Handle reasoning content (DeepSeek R1, QwQ, etc.)
-      let content = choice.message?.content ?? '';
-      if (choice.message?.reasoning_content) {
+      // Refusals are meaningful responses. Preserve them so fallback cannot
+      // mistake a declined request for an empty transport result and retry it.
+      const refusal = choice.message?.refusal;
+      const refused = !!refusal || choice.finish_reason === 'content_filter';
+      let content = refusal || choice.message?.content || '';
+      if (!refused && choice.message?.reasoning_content) {
         content = `<thinking>\n${choice.message.reasoning_content}\n</thinking>\n\n${content}`;
       }
 
@@ -377,8 +383,10 @@ export class OpenAICompatibleProvider implements IProvider {
       return ok({
         id: data.id ?? '',
         content,
-        toolCalls: this.parseToolCalls(choice.message?.tool_calls),
-        finishReason: this.mapFinishReason(choice.finish_reason ?? 'stop'),
+        toolCalls: refused ? undefined : this.parseToolCalls(choice.message?.tool_calls),
+        finishReason: refused
+          ? 'content_filter'
+          : this.mapFinishReason(choice.finish_reason ?? 'stop'),
         usage: data.usage ? this.mapUsage(data.usage) : undefined,
         model: data.model ?? model,
         createdAt: new Date((data.created ?? Date.now() / 1000) * 1000),
@@ -438,6 +446,8 @@ export class OpenAICompatibleProvider implements IProvider {
 
       let reasoningBuffer = '';
       let reasoningDone = false;
+      let refused = false;
+      let emittedToolCalls = false;
 
       for await (const data of readSseData(response.body, signal)) {
         if (process.env.OWNPILOT_DEBUG_STREAM) {
@@ -447,6 +457,7 @@ export class OpenAICompatibleProvider implements IProvider {
           yield ok({
             id: '',
             done: true,
+            ...(refused ? { finishReason: 'content_filter' as const } : {}),
             ...(bridgeConvId || bridgeSessionId
               ? {
                   responseMetadata: { bridgeConversationId: bridgeConvId, bridgeSessionId },
@@ -458,11 +469,25 @@ export class OpenAICompatibleProvider implements IProvider {
 
         try {
           const parsed = JSON.parse(data) as OpenAIResponse;
+          if (parsed.error) {
+            yield err(new InternalError(`${this.providerId} returned a stream error`));
+            return;
+          }
           const choice = parsed.choices?.[0];
           const delta = choice?.delta ?? {};
+          if (delta.refusal || choice?.finish_reason === 'content_filter') {
+            refused = true;
+            if (emittedToolCalls) {
+              // The agent has already buffered these calls. Only an error can
+              // prevent it from executing them after a later provider refusal.
+              yield err(new InternalError(`${this.providerId} declined streamed tool calls`));
+              return;
+            }
+          }
+          emittedToolCalls ||= !refused && !!delta.tool_calls?.length;
 
           // Handle reasoning content streaming (DeepSeek R1, QwQ, MiniMax-M2)
-          if (delta.reasoning_content) {
+          if (!refused && delta.reasoning_content) {
             reasoningBuffer += delta.reasoning_content;
             yield ok({
               id: parsed.id ?? '',
@@ -481,7 +506,7 @@ export class OpenAICompatibleProvider implements IProvider {
           }
 
           // When switching from reasoning to content
-          if (reasoningBuffer && !reasoningDone && delta.content) {
+          if (reasoningBuffer && !reasoningDone && (delta.content || delta.refusal)) {
             reasoningDone = true;
             yield ok({
               id: parsed.id ?? '',
@@ -492,21 +517,25 @@ export class OpenAICompatibleProvider implements IProvider {
 
           yield ok({
             id: parsed.id ?? '',
-            content: delta.content,
-            toolCalls: delta.tool_calls?.map((tc) => ({
-              // Forward the streamed index so the agent loop can reassemble
-              // argument fragments of parallel tool calls into the right slot
-              // (matches openai-provider.ts). Without it, fragments of a 2nd+
-              // tool call are misrouted to the last slot, corrupting arguments.
-              index: (tc as { index?: number }).index,
-              id: tc.id,
-              name: tc.function?.name ? desanitizeToolName(tc.function.name) : undefined,
-              arguments: tc.function?.arguments,
-            })),
+            content: delta.refusal || delta.content || undefined,
+            toolCalls: refused
+              ? undefined
+              : delta.tool_calls?.map((tc) => ({
+                  // Forward the streamed index so the agent loop can reassemble
+                  // argument fragments of parallel tool calls into the right slot
+                  // (matches openai-provider.ts). Without it, fragments of a 2nd+
+                  // tool call are misrouted to the last slot, corrupting arguments.
+                  index: (tc as { index?: number }).index,
+                  id: tc.id,
+                  name: tc.function?.name ? desanitizeToolName(tc.function.name) : undefined,
+                  arguments: tc.function?.arguments,
+                })),
             done: choice?.finish_reason != null,
-            finishReason: choice?.finish_reason
-              ? this.mapFinishReason(choice.finish_reason)
-              : undefined,
+            finishReason: refused
+              ? 'content_filter'
+              : choice?.finish_reason
+                ? this.mapFinishReason(choice.finish_reason)
+                : undefined,
             usage: parsed.usage ? this.mapUsage(parsed.usage) : undefined,
             ...(choice?.finish_reason != null && (bridgeConvId || bridgeSessionId)
               ? {
@@ -515,7 +544,10 @@ export class OpenAICompatibleProvider implements IProvider {
               : {}),
           });
         } catch {
-          // Skip malformed chunks
+          // Discarding an event can silently corrupt text or tool arguments.
+          // Do not expose the raw event, which may contain private content.
+          yield err(new InternalError(`${this.providerId} returned an invalid stream event`));
+          return;
         }
       }
     } catch (error) {
@@ -632,7 +664,10 @@ export class OpenAICompatibleProvider implements IProvider {
       if (tools) {
         body.tools = tools;
         if (request.toolChoice) {
-          body.tool_choice = request.toolChoice;
+          body.tool_choice =
+            typeof request.toolChoice === 'object'
+              ? { type: 'function', function: { name: sanitizeToolName(request.toolChoice.name) } }
+              : request.toolChoice;
         }
       }
     }

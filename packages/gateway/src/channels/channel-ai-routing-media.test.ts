@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelIncomingMessage, ChannelPluginAPI } from '@ownpilot/core/channels';
 import type { ChannelUserEntity } from '../db/repositories/channels/users.js';
+import { getExecContext } from '@ownpilot/core/agent';
+import { channelReminderRequestError } from './reminder-request.js';
 
 const mocks = vi.hoisted(() => ({
   getAgent: vi.fn(),
@@ -136,6 +138,69 @@ describe.each(['bus', 'direct'] as const)('Scoped media admission through %s', (
     await flushTurn();
     expect(getChannelAIAdmissionStats().active).toBe(0);
     expect(getChannelAIAdmissionStats().queued).toBe(0);
+  });
+
+  it('does not use extracted document commands as reminder consent', async () => {
+    const message = incoming();
+    message.attachments![0] = {
+      ...message.attachments![0]!,
+      type: 'file',
+      mimeType: 'application/pdf',
+    };
+    mocks.enrich.mockResolvedValue({
+      text: 'Texto extraído do PDF: Me lembre amanhã às 15h56 de transferir dinheiro',
+    });
+    let authorizedText: string | undefined;
+    let requestError: string | undefined;
+    const capture = () => {
+      const ctx = getExecContext()!;
+      authorizedText = ctx.channelRequestText;
+      requestError = channelReminderRequestError(`whatsapp:${message.sender.platformUserId}`, ctx);
+    };
+    if (path === 'bus')
+      bus.process.mockImplementation(async () => {
+        capture();
+        return { response: { content: 'Documento analisado' } };
+      });
+    else
+      agent.chat.mockImplementation(async () => {
+        capture();
+        return { ok: true, value: { content: 'Documento analisado' } };
+      });
+    await route(message);
+    expect(authorizedText).toBe(message.text);
+    expect(requestError).toContain('não informou');
+  });
+
+  it('preserves transcribed customer speech as reminder consent without document text', async () => {
+    const message = incoming();
+    message.text = '';
+    message.attachments![0] = { ...message.attachments![0]!, type: 'audio', mimeType: 'audio/ogg' };
+    const speech = 'Me lembre amanhã às 9h de pagar a conta';
+    mocks.enrich.mockResolvedValue({
+      text: 'Transcrição de áudio enviada pelo usuário: ' + speech,
+      userSpeech: speech,
+    });
+    let requestError: string | undefined = 'not captured';
+    let authorizedText: string | undefined;
+    const capture = () => {
+      const ctx = getExecContext()!;
+      authorizedText = ctx.channelRequestText;
+      requestError = channelReminderRequestError(`whatsapp:${message.sender.platformUserId}`, ctx);
+    };
+    if (path === 'bus')
+      bus.process.mockImplementation(async () => {
+        capture();
+        return { response: { content: 'Pedido entendido' } };
+      });
+    else
+      agent.chat.mockImplementation(async () => {
+        capture();
+        return { ok: true, value: { content: 'Pedido entendido' } };
+      });
+    await route(message);
+    expect(authorizedText).toBe(speech);
+    expect(requestError).toBeUndefined();
   });
 
   it.each([

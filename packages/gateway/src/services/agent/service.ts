@@ -16,6 +16,9 @@ import {
   createFallbackProvider,
   type ResolvedAuth,
   buildSoulPrompt,
+  getGroqEffectiveRequestTokenLimit,
+  GROQ_MIN_OUTPUT_TOKENS,
+  groqPoolKeys,
 } from '@ownpilot/core/agent';
 import { ToolRegistry, getBaseName, EXPENSE_TRACKER_TOOLS } from '@ownpilot/core/tools';
 import { hasProviderService, getProviderService } from '@ownpilot/core/services';
@@ -77,6 +80,7 @@ import {
   chatAgentCache,
   pendingAgents,
   pendingChatAgents,
+  getAgentCacheGeneration,
   lruGet,
   createApprovalCallback,
   createSoulAwareApprovalCallback,
@@ -91,6 +95,7 @@ import {
 import { getLLMRouter, getConfigCenter } from '@ownpilot/core/services';
 import {
   parseAstraFallbackChain,
+  limitAstraFallbacks,
   ASTRA_LOCAL_FALLBACK_TIMEOUT_MS,
   ASTRA_LOCAL_FALLBACK_MAX_TOKENS,
   astraChannelFallbackBudgetMs,
@@ -136,7 +141,7 @@ export function getCliCorrelationId(agent: Agent): string | undefined {
 /**
  * Create runtime Agent instance from database record
  */
-async function createAgentFromRecord(record: AgentRecord): Promise<Agent> {
+async function createAgentFromRecord(record: AgentRecord, cacheGeneration: number): Promise<Agent> {
   // Resolve "default" provider/model to actual values via IProviderService
   const providerSvc = hasProviderService() ? getProviderService() : null;
 
@@ -308,16 +313,18 @@ async function createAgentFromRecord(record: AgentRecord): Promise<Agent> {
 
   const agent = createAgent(config, { tools });
 
-  // Evict oldest entry if cache is at capacity
-  if (agentCache.size >= MAX_AGENT_CACHE_SIZE) {
-    const oldestKey = agentCache.keys().next().value;
-    if (oldestKey) {
-      evictAgentFromCache(oldestKey);
+  // A rotation may have happened while auth/tools/prompts were loading. The
+  // original request may finish, but must not evict or replace fresh agents.
+  if (cacheGeneration === getAgentCacheGeneration()) {
+    if (agentCache.size >= MAX_AGENT_CACHE_SIZE) {
+      const oldestKey = agentCache.keys().next().value;
+      if (oldestKey) {
+        evictAgentFromCache(oldestKey);
+      }
     }
+    agentCache.set(record.id, agent);
+    agentConfigCache.set(record.id, config);
   }
-
-  agentCache.set(record.id, agent);
-  agentConfigCache.set(record.id, config);
 
   return agent;
 }
@@ -334,8 +341,9 @@ export async function getOrCreateAgentInstance(record: AgentRecord): Promise<Age
   const pending = pendingAgents.get(record.id);
   if (pending) return pending;
 
-  const promise = createAgentFromRecord(record).finally(() => {
-    pendingAgents.delete(record.id);
+  const cacheGeneration = getAgentCacheGeneration();
+  const promise = createAgentFromRecord(record, cacheGeneration).finally(() => {
+    if (pendingAgents.get(record.id) === promise) pendingAgents.delete(record.id);
   });
   pendingAgents.set(record.id, promise);
 
@@ -369,12 +377,13 @@ export async function getAgent(id: string): Promise<Agent | undefined> {
     }
   }
 
+  const cacheGeneration = getAgentCacheGeneration();
   const promise = (async () => {
     const record = await agentsRepo.getById(id);
     if (!record) return undefined;
-    return createAgentFromRecord(record);
+    return createAgentFromRecord(record, cacheGeneration);
   })().finally(() => {
-    pendingAgents.delete(id);
+    if (pendingAgents.get(id) === promise) pendingAgents.delete(id);
   });
   pendingAgents.set(id, promise as Promise<Agent>);
 
@@ -397,6 +406,7 @@ export async function getOrCreateDefaultAgent(): Promise<Agent> {
   const pending = pendingAgents.get(defaultId);
   if (pending) return pending;
 
+  const cacheGeneration = getAgentCacheGeneration();
   const promise = (async () => {
     let record = await agentsRepo.getById(defaultId);
 
@@ -428,9 +438,9 @@ export async function getOrCreateDefaultAgent(): Promise<Agent> {
       });
     }
 
-    return createAgentFromRecord(record);
+    return createAgentFromRecord(record, cacheGeneration);
   })().finally(() => {
-    pendingAgents.delete(defaultId);
+    if (pendingAgents.get(defaultId) === promise) pendingAgents.delete(defaultId);
   });
   pendingAgents.set(defaultId, promise);
 
@@ -493,7 +503,7 @@ export async function getOrCreateChatAgent(
     channelMode,
     userId
   ).finally(() => {
-    pendingChatAgents.delete(cacheKey);
+    if (pendingChatAgents.get(cacheKey) === promise) pendingChatAgents.delete(cacheKey);
   });
   pendingChatAgents.set(cacheKey, promise);
 
@@ -515,6 +525,7 @@ async function createChatAgentInstance(
   channelMode = false,
   userId = 'default'
 ): Promise<Agent> {
+  const cacheGeneration = getAgentCacheGeneration();
   // ── CLI Chat Provider path ──
   // CLI providers (cli-claude, cli-codex, cli-gemini) use login-based auth
   // and don't require API keys. They spawn CLI processes for completions.
@@ -541,6 +552,24 @@ async function createChatAgentInstance(
     : NATIVE_PROVIDERS.has(provider)
       ? provider
       : (providerConfig?.type ?? 'openai');
+
+  // Match the transport's operator-pool boundary: tenant credentials, custom
+  // endpoints and authorization overrides do not inherit an operator quota.
+  // Channel agents already have their own compact prompt/history/output policy.
+  const groqRequestBudget =
+    !channelMode &&
+    provider === 'groq' &&
+    groqPoolKeys({
+      providerId: provider,
+      baseUrl: baseUrl ?? 'https://api.groq.com/openai/v1',
+      endpoint: providerConfig?.endpoint,
+      authorization:
+        new Headers({ Authorization: `Bearer ${apiKey}`, ...providerConfig?.headers }).get(
+          'authorization'
+        ) ?? '',
+    })
+      ? getGroqEffectiveRequestTokenLimit()
+      : undefined;
 
   const tools = new ToolRegistry();
   registerAllTools(tools);
@@ -673,9 +702,10 @@ async function createChatAgentInstance(
     includeProfile: true,
     includeInstructions: true,
     includeTimeContext: true,
-    // Channel models discover tools through the four meta functions; injecting
-    // every full tool schema burns thousands of Groq TPM on each short message.
-    includeToolDescriptions: !isCliProvider && !channelMode,
+    // Both channel agents and a budgeted operator Groq agent discover tools
+    // through the same four meta functions. Omit their redundant catalog in
+    // the prompt without changing the registry, user scope or permissions.
+    includeToolDescriptions: !isCliProvider && !channelMode && groqRequestBudget === undefined,
   });
 
   // Extension sections are now injected per-request by the context-injection middleware
@@ -684,7 +714,17 @@ async function createChatAgentInstance(
   const chatMetaToolFilter = AI_META_TOOL_NAMES.map((name) => unsafeToolId(name));
 
   const router = getLLMRouter();
-  const ctxWindow = router.getContextWindow(provider, model);
+  const modelContextWindow = router.getContextWindow(provider, model);
+  // The model's context window is not the operator's effective request allowance.
+  // Plan against the same per-minute quota margin and explicit cap as transport,
+  // so a larger/absent request cap cannot create a request admission must refuse.
+  // Scheduled/owner chats use this same path and previously reserved 8192
+  // output tokens even with an 8000-token Groq admission ceiling, making every
+  // request fail locally before a credential could be used.
+  const ctxWindow =
+    groqRequestBudget === undefined
+      ? modelContextWindow
+      : Math.min(modelContextWindow, groqRequestBudget);
   // For chat we DO include the dynamic-injection reserve because
   // context-injection middleware grows the system prompt per request with
   // extensions, skills, page context, tool suggestions, and data hints.
@@ -692,15 +732,63 @@ async function createChatAgentInstance(
   const modelMaxOutput = router.getMaxOutput(provider, model);
   // Reserve fewer output tokens for conversational channel requests on Groq;
   // a full 8192-token reservation exhausts the 8000-TPM allowance.
-  const outputBuffer = Math.min(
+  const requestedOutput = Math.min(
     AGENT_DEFAULT_MAX_TOKENS,
     modelMaxOutput,
     channelMode ? (provider === 'ollama-local' ? 1536 : 768) : Number.POSITIVE_INFINITY
   );
+  const minimumOutput = Math.min(requestedOutput, GROQ_MIN_OUTPUT_TOKENS);
+  const toolSchemaTokens =
+    groqRequestBudget === undefined
+      ? 0
+      : Math.ceil(
+          JSON.stringify(
+            tools
+              .getDefinitionsByNames(chatMetaToolFilter)
+              .map(({ name, description, parameters }) => ({
+                type: 'function',
+                function: { name, description, parameters },
+              }))
+          ).length / 4
+        );
+  const fixedContextTokens = systemPromptTokens + toolSchemaTokens;
+  // computeMemoryMaxTokens retains a 1024-token history floor and safety
+  // margin. Do not reserve optional injections at the expense of that floor
+  // or of a useful response. Impossible fixed prompts still fail at transport;
+  // they are never shortened or stripped of access instructions here.
+  const memoryFloor = 1024;
+  const safetyMargin = 1024;
+  const dynamicInjectionReserve =
+    groqRequestBudget === undefined
+      ? undefined
+      : Math.min(
+          8192,
+          Math.floor(ctxWindow / 4),
+          Math.max(0, ctxWindow - fixedContextTokens - minimumOutput - memoryFloor - safetyMargin)
+        );
+  // Leave most of a bounded request for instructions, messages and tools.
+  // Keep a useful response allowance (or a smaller model/channel limit), not a
+  // few-token response that could falsely appear to finish a scheduled task.
+  // The transport still measures the serialized request and rejects payloads
+  // that cannot fit; this planning budget never disables that final guard.
+  const outputBuffer =
+    groqRequestBudget === undefined
+      ? requestedOutput
+      : Math.min(
+          requestedOutput,
+          Math.max(
+            minimumOutput,
+            Math.min(
+              Math.floor(ctxWindow / 4),
+              ctxWindow - fixedContextTokens - dynamicInjectionReserve! - memoryFloor - safetyMargin
+            )
+          )
+        );
   const computedMemoryMaxTokens = router.computeMemoryMaxTokens({
     ctxWindow,
-    systemPromptTokens,
+    systemPromptTokens: fixedContextTokens,
     outputBuffer,
+    ...(dynamicInjectionReserve === undefined ? {} : { dynamicInjectionReserve }),
   });
   // The model's context window is not the provider's tokens-per-minute quota.
   // Keep conversational history bounded for Groq channels: even a 128K context
@@ -816,11 +904,12 @@ async function createChatAgentInstance(
     const candidates = parseAstraFallbackChain(
       process.env.ASTRA_FALLBACK_CHAIN,
       provider,
-      fallback
+      fallback,
+      { deferLimit: true }
     );
 
     try {
-      const usableFallbacks = [];
+      const configuredFallbacks = [];
       for (const candidate of candidates) {
         // A candidate is available only when credentials AND a supported
         // endpoint have been configured. Never use a catalog's paid default.
@@ -836,7 +925,7 @@ async function createChatAgentInstance(
           ? candidate.provider
           : (fbConfig?.type ?? 'openai-compatible');
 
-        usableFallbacks.push({
+        configuredFallbacks.push({
           id: candidate.provider,
           provider: fbType as AIProvider,
           apiKey: fbApiKey,
@@ -871,6 +960,7 @@ async function createChatAgentInstance(
         });
       }
 
+      const usableFallbacks = limitAstraFallbacks(configuredFallbacks, (candidate) => candidate.id);
       if (usableFallbacks.length > 0) {
         const hasLocalReserve = usableFallbacks.some(
           (candidate) => candidate.id === 'ollama-local'
@@ -941,11 +1031,6 @@ async function createChatAgentInstance(
     }
   }
 
-  if (chatAgentCache.size >= MAX_CHAT_AGENT_CACHE_SIZE) {
-    const oldestKey = chatAgentCache.keys().next().value;
-    if (oldestKey) chatAgentCache.delete(oldestKey);
-  }
-
   const agent = createAgent(config, { tools, provider: providerInstance });
 
   // Store correlation ID for CLI agents (used by SSE stream to forward MCP events)
@@ -953,7 +1038,11 @@ async function createChatAgentInstance(
     cliCorrelationIds.set(agent, correlationId);
   }
 
-  if (!isCliProvider) {
+  if (!isCliProvider && cacheGeneration === getAgentCacheGeneration()) {
+    if (chatAgentCache.size >= MAX_CHAT_AGENT_CACHE_SIZE) {
+      const oldestKey = chatAgentCache.keys().next().value;
+      if (oldestKey) chatAgentCache.delete(oldestKey);
+    }
     chatAgentCache.set(cacheKey, agent);
   }
 

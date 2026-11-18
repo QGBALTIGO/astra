@@ -172,7 +172,7 @@ export const radarInputSchema = z
       .string()
       .regex(/^\d{1,8}(?:[.,]\d{1,6})?$/)
       .optional(),
-    comparison: z.enum(['above', 'below']).optional(),
+    comparison: z.enum(['above', 'below', 'at_or_above', 'at_or_below']).optional(),
     leadMinutes: z.number().int().min(15).max(1440).default(60),
   })
   .strict()
@@ -289,11 +289,20 @@ export function decimalUnits(value: string): bigint {
 export function thresholdMatches(
   value: string,
   threshold: string,
-  comparison: 'above' | 'below'
+  comparison: NonNullable<RadarInput['comparison']>
 ): boolean {
-  return comparison === 'above'
-    ? decimalUnits(value) > decimalUnits(threshold)
-    : decimalUnits(value) < decimalUnits(threshold);
+  const actual = decimalUnits(value),
+    limit = decimalUnits(threshold);
+  switch (comparison) {
+    case 'above':
+      return actual > limit;
+    case 'below':
+      return actual < limit;
+    case 'at_or_above':
+      return actual >= limit;
+    case 'at_or_below':
+      return actual <= limit;
+  }
 }
 export function localClock(now: Date, timeZone: string): { day: string; time: string } {
   const p = new Intl.DateTimeFormat('en-CA', {

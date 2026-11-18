@@ -44,7 +44,9 @@ jobs:
           src/agent/providers/groq-admission.test.ts
           src/agent/providers/groq-key-pool.test.ts
           src/agent/providers/groq-pool-telemetry.test.ts
+          src/agent/providers/groq-request-budget.test.ts
           src/agent/providers/groq-fallback.integration.test.ts
+          src/agent/providers/fallback-concurrency.test.ts
           src/agent/providers/fallback-latency.test.ts
           src/agent/providers/cloudflare-fallback.integration.test.ts
           src/agent/providers/native-request-cancellation.test.ts
@@ -64,6 +66,16 @@ jobs:
           src/services/channel-asset-store.test.ts
       - name: Screenshot cases, memory, dates and financial safety
         run: pnpm --filter @ownpilot/gateway exec vitest run src/channels/whatsapp-reliability.test.ts src/channels/restore-history.test.ts src/channels/channel-ai-routing-access.test.ts src/channels/channel-ai-routing-concurrency.test.ts src/tools/channel-reminder-tools.test.ts src/tools/customer-finance-tools.test.ts src/db/repositories/channel-reminders-reliability.test.ts src/db/repositories/chat/messages.test.ts src/services/middleware/agent-execution.test.ts src/services/middleware/context-injection.test.ts src/services/customer-date.test.ts
+      - name: Conditional currency alerts and customer-authorized reminder times
+        run: >-
+          pnpm --filter @ownpilot/gateway exec vitest run
+          src/channels/reminder-request.test.ts
+          src/services/radar/currency-intent.test.ts
+          src/services/radar/chat-intent.test.ts
+          src/services/radar/chat.test.ts
+          src/services/radar/contracts.test.ts
+          src/services/radar/worker.test.ts
+          src/channels/radar.test.ts
       - name: Reply presentation, reminder delivery and WhatsApp transport
         run: >-
           pnpm --filter @ownpilot/gateway exec vitest run

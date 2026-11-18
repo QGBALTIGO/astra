@@ -196,6 +196,9 @@ settingsRoutes.post('/api-keys', async (c) => {
       const envVarName = `${sanitizedProvider}_API_KEY`;
       process.env[envVarName] = body.apiKey;
     }
+    // Provider instances capture credentials when constructed. Future requests
+    // must rebuild them after a rotation rather than reusing the old token.
+    invalidateAgentCache();
 
     return apiResponse(c, {
       provider: body.provider,
@@ -222,6 +225,7 @@ settingsRoutes.delete('/api-keys/:provider', async (c) => {
     const envVarName = `${sanitizedProvider}_API_KEY`;
     delete process.env[envVarName];
   }
+  invalidateAgentCache();
 
   return apiResponse(c, {
     provider,

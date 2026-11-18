@@ -99,6 +99,34 @@ describe.skipIf(!process.env.ASTRA_RADAR_TEST_PORT)(
       expect(r.status).toBe(201);
       return (await r.json()).data.interest;
     }
+    it('round-trips inclusive currency conditions through the authenticated API', async () => {
+      const created = await request('a', '/radar/interests', 'POST', {
+        ...body,
+        delivery: 'threshold',
+        threshold: '5.000000',
+        comparison: 'at_or_below',
+      });
+      expect(created.status).toBe(201);
+      const saved = (await created.json()).data.interest;
+      expect(saved).toMatchObject({
+        delivery: 'threshold',
+        threshold: '5.000000',
+        comparison: 'at_or_below',
+      });
+      expect(
+        (await request('b', '/radar/interests/' + saved.id, 'PATCH', { comparison: 'at_or_above' }))
+          .status
+      ).toBe(404);
+      const changed = await request('a', '/radar/interests/' + saved.id, 'PATCH', {
+        comparison: 'at_or_above',
+      });
+      expect(changed.status).toBe(200);
+      expect((await changed.json()).data.interest).toMatchObject({
+        threshold: '5.000000',
+        comparison: 'at_or_above',
+      });
+      expect((await (await request('b')).json()).data.interests).toEqual([]);
+    });
     it('requires a real customer cookie and never trusts only an account header', async () => {
       expect((await request(null)).status).toBe(401);
       expect(

@@ -203,9 +203,43 @@ describe('lruGet', () => {
 });
 
 // ---------------------------------------------------------------------------
+// evictChatAgentInstance
+// ---------------------------------------------------------------------------
+describe('evictChatAgentInstance', () => {
+  it('releases only the owned scheduled agent and preserves interactive chats', () => {
+    const scheduled = { id: 'scheduled' } as never;
+    const interactive = { id: 'interactive' } as never;
+    mod.chatAgentCache.set('scheduled-run', scheduled);
+    mod.chatAgentCache.set('owner-chat', interactive);
+
+    mod.evictChatAgentInstance(scheduled);
+
+    expect(mod.chatAgentCache.has('scheduled-run')).toBe(false);
+    expect(mod.chatAgentCache.get('owner-chat')).toBe(interactive);
+  });
+
+  it('does not remove a replacement instance when an older run finishes', () => {
+    const old = { id: 'old' } as never;
+    const replacement = { id: 'replacement' } as never;
+    mod.chatAgentCache.set('same-key', old);
+    mod.chatAgentCache.set('same-key', replacement);
+
+    mod.evictChatAgentInstance(old);
+
+    expect(mod.chatAgentCache.get('same-key')).toBe(replacement);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // invalidateAgentCache
 // ---------------------------------------------------------------------------
 describe('invalidateAgentCache', () => {
+  it('advances the generation even when no completed agents have been cached yet', () => {
+    const before = mod.getAgentCacheGeneration();
+    mod.invalidateAgentCache();
+    expect(mod.getAgentCacheGeneration()).toBe(before + 1);
+  });
+
   it('clears agentCache', () => {
     mod.agentCache.set('a1', {} as never);
     mod.invalidateAgentCache();

@@ -187,7 +187,7 @@ const patchSchema = z
       .string()
       .regex(/^\d{1,8}(?:[.,]\d{1,6})?$/)
       .optional(),
-    comparison: z.enum(['above', 'below']).optional(),
+    comparison: z.enum(['above', 'below', 'at_or_above', 'at_or_below']).optional(),
     leadMinutes: z.number().int().min(15).max(1440).optional(),
   })
   .strict()

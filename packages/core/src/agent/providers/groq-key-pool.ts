@@ -1,7 +1,11 @@
 /** Process-local transport health. Only hashes are retained; credentials stay in request scope. */
 import { createHash } from 'node:crypto';
 import { ignoreError } from '../../utils/ignore-error.js';
-import { groqPoolRequestFacts, reportGroqPoolFailure } from './groq-pool-telemetry.js';
+import { reportGroqPoolFailure } from './groq-pool-telemetry.js';
+import {
+  applyGroqRequestBudget,
+  getGroqEffectiveRequestTokenLimit,
+} from './groq-request-budget.js';
 import {
   groqQuotaGroup,
   groqDefaultOutputTokens,
@@ -194,31 +198,36 @@ export async function fetchGroqPool(input: {
 }): Promise<GroqPoolResponse> {
   const { controller, keys, model } = input;
   const began = Date.now();
-  let options = input.options;
+  controller.signal.throwIfAborted();
+  let body = input.options.body;
   // A default output reservation must also be an actual provider-side output cap.
-  if (typeof options.body === 'string') {
+  if (typeof body === 'string') {
     try {
-      const payload: unknown = JSON.parse(options.body);
+      const payload: unknown = JSON.parse(body);
       if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-        const body = payload as Record<string, unknown>;
-        if (body.max_tokens === undefined && body.max_completion_tokens === undefined)
-          options = {
-            ...options,
-            body: JSON.stringify({ ...body, max_tokens: groqDefaultOutputTokens() }),
-          };
+        const requestBody = payload as Record<string, unknown>;
+        if (
+          Array.isArray(requestBody.messages) &&
+          requestBody.max_tokens === undefined &&
+          requestBody.max_completion_tokens === undefined
+        )
+          body = JSON.stringify({ ...requestBody, max_tokens: groqDefaultOutputTokens() });
       }
     } catch {
       // The original invalid body is still rejected normally; never log its contents.
     }
   }
-  const request = groqPoolRequestFacts(options.body);
-  // Opt-in operator budget: reject this payload without consuming any credential or model health.
-  const configuredLimit = process.env.GROQ_MAX_REQUEST_TOKENS;
-  const requestTokenLimit =
-    configuredLimit && /^\d+$/u.test(configuredLimit) ? Number(configuredLimit) : 0;
+  // Fit the output allowance to both the operator's request cap and a complete
+  // organization minute, including admission's safety margin. This changes no
+  // messages or tools and never uses already-spent quota to shrink the answer.
+  const requestTokenLimit = getGroqEffectiveRequestTokenLimit();
+  const budgeted = applyGroqRequestBudget(body, requestTokenLimit);
+  const options = { ...input.options, body: budgeted.body };
+  const { request } = budgeted;
+  // The final guard rejects contexts without useful output room before using
+  // any credential. Only an output ceiling may be reduced; input stays intact.
   if (
-    Number.isSafeInteger(requestTokenLimit) &&
-    requestTokenLimit > 0 &&
+    requestTokenLimit !== undefined &&
     request.requestTokensApprox + request.maxOutputTokens > requestTokenLimit
   ) {
     const errorText =
@@ -320,6 +329,7 @@ export async function fetchGroqPool(input: {
       lease.used = ++sequence;
       const headers = new Headers(options.headers);
       headers.set('Authorization', `Bearer ${selected.key}`);
+      if (budgeted.body !== input.options.body) headers.delete('Content-Length');
       let response: Response;
       try {
         response = await withAbort(

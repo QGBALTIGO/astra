@@ -1,6 +1,6 @@
 # Astra: reply pacing and bounded channel capacity
 
-Implementation and verification record, 2026-11-17. This change controls a
+Implementation and verification record, updated 2026-11-18. This change controls a
 single gateway process. It does not certify a sustained production load of
 300 real people or guarantee that WhatsApp will not restrict an account.
 
@@ -72,6 +72,16 @@ atomic and shared across provider instances in this process. Defaults are four
 concurrent requests, 20 requests/minute and 6,000 tokens/minute per organization
 group and model. If no output limit is supplied, the actual request is capped
 at 1,024 output tokens so the reservation corresponds to a bounded request.
+
+The integrated request budget uses the smaller of `GROQ_MAX_REQUEST_TOKENS`
+and the quota-derived allowance. With the default 6,000 TPM and 20% margin,
+the estimated input plus reserved output must fit within 5,000 tokens.
+Scheduled briefing prompt/memory planning and transport use this same ceiling.
+The transport may lower the requested output maximum while retaining a useful
+1,024-token allowance, or a smaller explicitly requested maximum. It never
+silently removes conversation messages or tool receipts. Requests whose input
+cannot fit with that output allowance are refused before external transport so
+the existing fallback policy can run.
 
 Multiple API keys are not assumed to mean multiple organizations. Unknown keys
 share one conservative quota group. `GROQ_QUOTA_GROUPS` can map environment
@@ -167,7 +177,9 @@ The relay saturation test admits one of 300 concurrent synthetic requests and
 returns 429 for the other 299. It deliberately does not promise 300 local
 inferences in parallel. A completion-budget regression spends 28.996 seconds
 on configured cloud attempts and 34.500 seconds locally, succeeding within a
-65-second budget. The original 19.220-second case also succeeds under its new
+65-second budget. The Cloudflare variant spends 37.995 seconds on cloud attempts
+and the same 34.500 seconds locally, within its 74-second budget.
+The original 19.220-second case also succeeds under its new
 local deadline.
 
 Queues in this patch are in memory. Persisted inbound history and assets are
@@ -178,6 +190,45 @@ depends on actual token availability, model/tool latency, database load and
 external delivery. This release establishes bounded behavior under a burst;
 it does not certify a sustained 300-user service level.
 
+## Conditional alerts and reminder authorization
+
+The 2026-11-18 screenshot showed a conditional USD request being persisted as
+an ordinary reminder at the same wall-clock time as a different subject.
+The channel shortcut now recognizes an explicit supported currency condition
+and passes the original request to the existing Radar subscription flow.
+`USD <= 5` uses PTAX sale-rate reference data and an inclusive comparison.
+Confirmation describes the reference source, periodic polling and configured
+quiet hours. PTAX is not an intraday market-price feed. Its collector polls at
+30-minute intervals; the provider adapter uses the latest closing bulletin.
+
+Scheduled reminder writes require a customer-authored notification request
+and a concrete time or a scoped continuation of that request. The short-lived
+continuation record is bounded by 5,000 user/channel/chat keys and a ten-minute
+expiry. It cannot inherit a time from an unrelated completed request, another
+customer or a quoted assistant promise. Original typed text and direct user
+speech can provide authority; OCR/PDF interpretation cannot. Conditional event
+requests cannot be converted to a fixed reminder by fabricated tool arguments.
+An unsupported event such as service availability requires an honest response
+about monitoring, rather than a scheduled-success receipt.
+
+This guard proves request intent and the presence of customer-supplied timing.
+It is not a complete natural-language date parser comparing every possible
+utterance against all model-generated date arguments. The existing date,
+timezone and reminder-argument validators still apply.
+
+Radar comparisons support strict and inclusive upper/lower bounds with exact
+fixed-point arithmetic. Equivalent decimal spellings such as `5` and `5.00`
+do not rearm a duplicate subscription. Provider values with unsupported decimal
+precision fail validation instead of being rounded across a threshold.
+Recovery from an expired delivery requires explicit proof that transport was
+not attempted and current account/interest revisions. Confirmed, partial or
+uncertain transport is never automatically replayed by that recovery.
+
+Regressions cover the exact screenshot request, boundary equality, source
+precision, wrong units, unsupported date restrictions, reminder conversation
+scope, typed/speech versus extracted-document authority, and PostgreSQL
+subscription persistence, isolation, deduplication and delivery recovery.
+
 ## External references
 
 - [Groq rate limits](https://console.groq.com/docs/rate-limits): quotas are
@@ -187,3 +238,6 @@ it does not certify a sustained 300-user service level.
 - [WhatsApp Business Messaging Policy](https://business.whatsapp.com/policy):
   expected/consented messaging and opt-out obligations still apply. A typing
   pause is not a published guarantee against platform restrictions.
+- [Banco Central exchange-rate bulletins](https://dadosabertos.bcb.gov.br/dataset/taxas-de-cambio-todos-os-boletins-diarios):
+  the closing PTAX bulletin is the arithmetic mean of the day's reference
+  consultation bulletins, not a continuous market-price stream.

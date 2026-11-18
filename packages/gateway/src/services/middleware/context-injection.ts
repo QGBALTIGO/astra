@@ -517,30 +517,42 @@ function buildDataHintSection(routing: RequestRouting | undefined): string {
  * orchestrator sections (memories, goals, resources, autonomy).
  */
 function stripInjectedSections(prompt: string): string {
-  const markers = [
-    '\n\n---\n\n## Astra customer clock',
+  const headings = [
+    'Astra customer clock',
     // Extension sections (injected by context-injection or agent-service at creation)
-    '\n\n## Extension:',
-    '\n\n## Skill:',
+    'Extension:',
+    'Skill:',
     // Soul skills section (injected by context-injection)
-    '\n\n## Your Available Skills',
+    'Your Available Skills',
     // Tool suggestions and data hints (from preprocessor routing)
-    '\n\n## Suggested Tools',
-    '\n\n## Available Data',
+    'Suggested Tools',
+    'Available Data',
+    'Page Context',
     // Request focus (from request-preprocessor)
-    '\n---\n## Request Focus',
+    'Request Focus',
     // Query-relevant memory section (dynamic, per-message)
-    '\n\n---\n\n## Relevant to this message (from memory)',
+    'Relevant to this message (from memory)',
     // Orchestrator sections (from buildEnhancedSystemPrompt)
-    '\n---\n## User Context (from memory)',
-    '\n---\n## Active Goals',
-    '\n---\n## Available Data Resources',
-    '\n---\n## Autonomy Level:',
+    'User Context (from memory)',
+    'Active Goals',
+    'Available Data Resources',
+    'Autonomy Level:',
   ];
-  let earliest = prompt.length;
-  for (const marker of markers) {
-    const idx = prompt.indexOf(marker);
-    if (idx >= 0 && idx < earliest) earliest = idx;
-  }
-  return earliest < prompt.length ? prompt.slice(0, earliest) : prompt;
+  // Channel recall uses blank lines around separators; the orchestrator uses
+  // single newlines. Both are the same injected section, not a new base prompt.
+  const marker = new RegExp(
+    '(?:\\r?\\n)+(?:---(?:\\r?\\n)+)?## (?:' +
+      headings.map((heading) => heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') +
+      ')'
+  );
+  const earliest = prompt.search(marker);
+  if (earliest < 0) return prompt;
+
+  // Cached recall is inserted BEFORE the stable time/execution sections.
+  // Removing it must retain those policies and the clock's refresh anchor.
+  const stableTail = prompt.indexOf('\n\n---\n\n## Current Context', earliest);
+  return (
+    prompt.slice(0, earliest) +
+    (stableTail >= 0 ? stripInjectedSections(prompt.slice(stableTail)) : '')
+  );
 }

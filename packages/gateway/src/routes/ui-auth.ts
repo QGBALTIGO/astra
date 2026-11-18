@@ -8,16 +8,17 @@
 import { Hono } from 'hono';
 import { apiResponse, apiError, ERROR_CODES, parseJsonBody, safeKeyCompare } from './helpers.js';
 import {
-  hashPassword,
-  verifyPassword,
+  hashPasswordAsync,
+  verifyPasswordAsync,
+  UI_PASSWORD_MAX_LENGTH,
   createSession,
   invalidateSession,
   invalidateAllSessions,
   isPasswordConfigured,
   getPasswordHash,
+  getPasswordVersion,
   setPasswordHash,
   removePassword,
-  validateSession,
   getActiveSessionCount,
 } from '../services/ui-session.js';
 import { createLoginThrottle } from '../utils/login-throttle.js';
@@ -28,6 +29,11 @@ import {
 } from '../utils/ui-session-cookie.js';
 import { getEventSystem } from '@ownpilot/core/events';
 import { MS_PER_MINUTE } from '../config/defaults.js';
+import {
+  runUiAuthOperation,
+  uiAuthBusyResponse,
+  validateUiSessionForRequest,
+} from '../utils/ui-session-response.js';
 
 const MIN_PASSWORD_LENGTH = 8;
 // H-S13: minimum entropy for BOOTSTRAP_TOKEN. Plan 02 / Plan 15 raise the
@@ -72,7 +78,8 @@ uiAuthRoutes.get('/status', async (c) => {
 
   // Check if the request has a valid session token
   const token = getUiSessionToken(c);
-  const authenticated = token ? await validateSession(token) : false;
+  const authenticated = token ? await validateUiSessionForRequest(c, token) : false;
+  if (authenticated instanceof Response) return authenticated;
 
   return apiResponse(c, {
     passwordConfigured,
@@ -105,14 +112,33 @@ uiAuthRoutes.post('/login', async (c) => {
   if (!password || typeof password !== 'string') {
     return apiError(c, { code: ERROR_CODES.INVALID_INPUT, message: 'Password is required' }, 400);
   }
+  if (password.length > UI_PASSWORD_MAX_LENGTH) {
+    return apiError(
+      c,
+      {
+        code: ERROR_CODES.INVALID_INPUT,
+        message: `Password must not exceed ${UI_PASSWORD_MAX_LENGTH} characters`,
+      },
+      400
+    );
+  }
 
   const storedHash = getPasswordHash();
+  const credentialVersion = getPasswordVersion();
+  if (credentialVersion === null) return uiAuthBusyResponse(c);
   if (!storedHash) {
     loginThrottle.recordFailure(clientIp);
     return apiError(c, { code: ERROR_CODES.INVALID_INPUT, message: 'No password configured' }, 400);
   }
 
-  if (!verifyPassword(password, storedHash)) {
+  const validPassword = await runUiAuthOperation(c, () =>
+    verifyPasswordAsync(password, storedHash)
+  );
+  if (validPassword instanceof Response) return validPassword;
+  if (getPasswordHash() !== storedHash || getPasswordVersion() !== credentialVersion) {
+    return uiAuthBusyResponse(c);
+  }
+  if (!validPassword) {
     loginThrottle.recordFailure(clientIp);
     getEventSystem().emit('audit.auth.loginFailed', 'ui-auth', {
       ip: clientIp,
@@ -122,8 +148,14 @@ uiAuthRoutes.post('/login', async (c) => {
     return apiError(c, { code: ERROR_CODES.ACCESS_DENIED, message: 'Invalid password' }, 403);
   }
 
+  const session = await runUiAuthOperation(c, createSession);
+  if (session instanceof Response) return session;
+  if (getPasswordHash() !== storedHash || getPasswordVersion() !== credentialVersion) {
+    const invalidated = await runUiAuthOperation(c, () => invalidateSession(session.token));
+    if (invalidated instanceof Response) return invalidated;
+    return uiAuthBusyResponse(c);
+  }
   loginThrottle.recordSuccess(clientIp);
-  const session = await createSession();
   setUiSessionCookie(c, session.token, session.expiresAt);
   // Audit successful logins as well as failures — without this, the
   // audit log shows only attacker noise (failed attempts) and never
@@ -143,11 +175,13 @@ uiAuthRoutes.post('/login', async (c) => {
  */
 uiAuthRoutes.post('/logout', async (c) => {
   const token = getUiSessionToken(c);
-  if (!token || !(await validateSession(token))) {
+  const authenticated = token ? await validateUiSessionForRequest(c, token) : false;
+  if (authenticated instanceof Response) return authenticated;
+  if (!authenticated) {
     return apiError(c, { code: ERROR_CODES.UNAUTHORIZED, message: 'Not authenticated' }, 401);
   }
 
-  await invalidateSession(token);
+  await invalidateSession(token!);
   clearUiSessionCookie(c);
   getEventSystem().emit('audit.auth.logout', 'ui-auth', {
     ip: getClientIpHttp(c),
@@ -173,6 +207,16 @@ uiAuthRoutes.post('/password', async (c) => {
   if (!password || typeof password !== 'string') {
     return apiError(c, { code: ERROR_CODES.INVALID_INPUT, message: 'Password is required' }, 400);
   }
+  if (password.length > UI_PASSWORD_MAX_LENGTH) {
+    return apiError(
+      c,
+      {
+        code: ERROR_CODES.INVALID_INPUT,
+        message: `Password must not exceed ${UI_PASSWORD_MAX_LENGTH} characters`,
+      },
+      400
+    );
+  }
 
   if (password.length < MIN_PASSWORD_LENGTH) {
     return apiError(
@@ -186,11 +230,15 @@ uiAuthRoutes.post('/password', async (c) => {
   }
 
   const existingHash = getPasswordHash();
+  const credentialVersion = getPasswordVersion();
+  if (credentialVersion === null) return uiAuthBusyResponse(c);
 
   if (existingHash) {
     // Changing password — require valid session + current password
     const token = getUiSessionToken(c);
-    if (!token || !(await validateSession(token))) {
+    const authenticated = token ? await validateUiSessionForRequest(c, token) : false;
+    if (authenticated instanceof Response) return authenticated;
+    if (!authenticated) {
       return apiError(
         c,
         { code: ERROR_CODES.UNAUTHORIZED, message: 'Authentication required' },
@@ -208,8 +256,25 @@ uiAuthRoutes.post('/password', async (c) => {
         400
       );
     }
+    if (currentPassword.length > UI_PASSWORD_MAX_LENGTH) {
+      return apiError(
+        c,
+        {
+          code: ERROR_CODES.INVALID_INPUT,
+          message: `Current password must not exceed ${UI_PASSWORD_MAX_LENGTH} characters`,
+        },
+        400
+      );
+    }
 
-    if (!verifyPassword(currentPassword, existingHash)) {
+    const validPassword = await runUiAuthOperation(c, () =>
+      verifyPasswordAsync(currentPassword, existingHash)
+    );
+    if (validPassword instanceof Response) return validPassword;
+    if (getPasswordHash() !== existingHash || getPasswordVersion() !== credentialVersion) {
+      return uiAuthBusyResponse(c);
+    }
+    if (!validPassword) {
       return apiError(
         c,
         { code: ERROR_CODES.ACCESS_DENIED, message: 'Current password is incorrect' },
@@ -287,14 +352,32 @@ uiAuthRoutes.post('/password', async (c) => {
   }
 
   // Hash and store the new password
-  const hash = hashPassword(password);
-  await setPasswordHash(hash);
+  const hash = await runUiAuthOperation(c, () => hashPasswordAsync(password));
+  if (hash instanceof Response) return hash;
+  if (getPasswordHash() !== existingHash || getPasswordVersion() !== credentialVersion) {
+    return uiAuthBusyResponse(c);
+  }
+  const changed = await runUiAuthOperation(c, () =>
+    setPasswordHash(hash, { hash: existingHash, version: credentialVersion })
+  );
+  if (changed instanceof Response) return changed;
+  const committedVersion = getPasswordVersion();
+  if (committedVersion === null || getPasswordHash() !== hash) return uiAuthBusyResponse(c);
 
   // Invalidate all existing sessions
   await invalidateAllSessions();
+  if (getPasswordHash() !== hash || getPasswordVersion() !== committedVersion) {
+    return uiAuthBusyResponse(c);
+  }
 
   // Create a fresh session for the user who just set/changed the password
-  const session = await createSession();
+  const session = await runUiAuthOperation(c, createSession);
+  if (session instanceof Response) return session;
+  if (getPasswordHash() !== hash || getPasswordVersion() !== committedVersion) {
+    const invalidated = await runUiAuthOperation(c, () => invalidateSession(session.token));
+    if (invalidated instanceof Response) return invalidated;
+    return uiAuthBusyResponse(c);
+  }
   setUiSessionCookie(c, session.token, session.expiresAt);
 
   // Audit password set/change. This is the highest-value sensitive
@@ -321,8 +404,13 @@ uiAuthRoutes.post('/password', async (c) => {
  * Remove the UI password (disables UI authentication).
  */
 uiAuthRoutes.delete('/password', async (c) => {
+  const existingHash = getPasswordHash();
+  const credentialVersion = getPasswordVersion();
+  if (credentialVersion === null) return uiAuthBusyResponse(c);
   const token = getUiSessionToken(c);
-  if (!token || !(await validateSession(token))) {
+  const authenticated = token ? await validateUiSessionForRequest(c, token) : false;
+  if (authenticated instanceof Response) return authenticated;
+  if (!authenticated) {
     return apiError(c, { code: ERROR_CODES.UNAUTHORIZED, message: 'Authentication required' }, 401);
   }
 
@@ -330,7 +418,10 @@ uiAuthRoutes.delete('/password', async (c) => {
     return apiError(c, { code: ERROR_CODES.INVALID_INPUT, message: 'No password configured' }, 400);
   }
 
-  await removePassword();
+  const removed = await runUiAuthOperation(c, () =>
+    removePassword({ hash: existingHash, version: credentialVersion })
+  );
+  if (removed instanceof Response) return removed;
   clearUiSessionCookie(c);
   // Audit password removal — disabling UI auth is a privilege-relevant
   // change that should be visible in incident response.
@@ -346,7 +437,9 @@ uiAuthRoutes.delete('/password', async (c) => {
  */
 uiAuthRoutes.get('/sessions', async (c) => {
   const token = getUiSessionToken(c);
-  if (!token || !(await validateSession(token))) {
+  const authenticated = token ? await validateUiSessionForRequest(c, token) : false;
+  if (authenticated instanceof Response) return authenticated;
+  if (!authenticated) {
     return apiError(c, { code: ERROR_CODES.UNAUTHORIZED, message: 'Authentication required' }, 401);
   }
 

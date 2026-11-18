@@ -6,6 +6,7 @@ import {
   astraChannelFallbackBudgetMs,
   getAstraChannelFallbackBudget,
   parseAstraFallbackChain,
+  limitAstraFallbacks,
 } from './fallback-chain.js';
 
 describe('Astra free-only fallback policy', () => {
@@ -53,6 +54,33 @@ describe('Astra free-only fallback policy', () => {
     expect(
       parseAstraFallbackChain(undefined, 'groq', { provider: 'openai', model: 'gpt-4o' })
     ).toEqual([{ provider: 'openai', model: 'gpt-4o' }]);
+  });
+
+  it('keeps the five-reserve cap and stored priority after filtering unavailable candidates', () => {
+    const chain =
+      'zai=glm-4.7-flash,google=gemini-2.5-flash-lite,groq=openai/gpt-oss-20b,openrouter=openrouter/free,cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash,ollama-local=qwen3:4b-instruct,openrouter=paid-model,unknown=secret';
+    const explicit = { provider: 'openrouter', model: 'openrouter/free' };
+    const candidates = parseAstraFallbackChain(chain, 'openai', explicit, { deferLimit: true });
+    expect(candidates.map((candidate) => candidate.provider)).toEqual([
+      'openrouter',
+      'zai',
+      'google',
+      'groq',
+      'cloudflare-workers-ai',
+      'ollama-local',
+    ]);
+    expect(
+      parseAstraFallbackChain(chain, 'openai', explicit).map((route) => route.provider)
+    ).toEqual(['openrouter', 'zai', 'google', 'groq', 'ollama-local']);
+    expect(limitAstraFallbacks(candidates, (route) => route.provider)).toEqual(
+      parseAstraFallbackChain(chain, 'openai', explicit)
+    );
+    expect(
+      limitAstraFallbacks(
+        candidates.filter((route) => route.provider !== 'zai'),
+        (route) => route.provider
+      ).map((route) => route.provider)
+    ).toEqual(['openrouter', 'google', 'groq', 'cloudflare-workers-ai', 'ollama-local']);
   });
 
   it('selects a deterministic multi-provider chain and excludes the primary', () => {

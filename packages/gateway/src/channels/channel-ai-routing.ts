@@ -1,6 +1,7 @@
 import { tryQuickFinanceReply } from './quick-finance.js';
 import { tryPendingFinanceDeletion } from './finance-bulk-routing.js';
 import { isBulkFinanceDeletionRequest } from './finance-bulk-intent.js';
+import { hasChannelEmailSubject } from './email-intent.js';
 import { tryReceivableChannelReply } from './receivable-routing.js';
 import { tryCustomerPlanningChannelReply } from './customer-planning-routing.js';
 /**
@@ -71,10 +72,20 @@ import { expenseConfirmationKey, expenseDuplicateGuard } from './expense-duplica
 import { tryDailyGreetingChannelReply } from './daily-greeting.js';
 import { tryMorningBriefingChannelReply } from './morning-briefing.js';
 import { tryRadarChannelReply } from './radar.js';
-import { verifiedRadarToolReply } from './verified-facts.js';
+import { verifiedChannelToolReply } from './verified-facts.js';
 import { isPendingRadarReply } from '../services/radar/chat-pending.js';
 import { withContactStyleContext } from './channel-personalization.js';
 import { inboundChannelAssetScope } from './whatsapp-inbound-identity.js';
+import { channelHelpReply } from './channel-help.js';
+import { observeChannelReminderRequest, forgetChannelReminderRequest } from './reminder-request.js';
+
+/** Captions and transcribed speech are requests; OCR/document text remains data. */
+function customerAuthoredChannelRequest(
+  message: ChannelIncomingMessage,
+  interpreted: NormalizedIncoming
+): string {
+  return [message.text, interpreted.userSpeech].filter(Boolean).join('\n');
+}
 
 /** Generate the standard demo-mode reply. */
 function demoModeReply(text: string): string {
@@ -412,11 +423,16 @@ function tryAuthorizedChannelShortcut(
     const radarReply = await tryRadarChannelReply(message, userId, () =>
       canProcessChannelMessage(message, isAccessAllowed)
     );
-    if (radarReply) return radarReply;
+    if (radarReply) {
+      forgetChannelReminderRequest(userId, message);
+      return radarReply;
+    }
     if (!(await canProcessChannelMessage(message, isAccessAllowed))) {
       expenseDuplicateGuard.observe(key, '');
+      forgetChannelReminderRequest(userId, message);
       return INACTIVE_CHANNEL_ACCESS_REPLY;
     }
+    observeChannelReminderRequest(userId, message);
     // Media captions cannot confirm a previous financial operation.
     const scopeReply = await tryAstraScopeReply(message.channelPluginId, message.text);
     if (scopeReply) return scopeReply;
@@ -425,9 +441,14 @@ function tryAuthorizedChannelShortcut(
     const hasMedia = Boolean(message.attachments?.length);
     expenseDuplicateGuard.observe(key, hasMedia ? '' : message.text);
     if (hasMedia) return null;
+    const help = channelHelpReply(message.platform, message.text, {
+      connectedAppsEnabled: process.env.ASTRA_CUSTOMER_OAUTH_ENABLED === 'true',
+    });
+    if (help) return help;
     const integrationReply = await tryIntegrationConfirmation(message, userId);
     if (integrationReply) return integrationReply;
     if (
+      hasChannelEmailSubject(message.text) ||
       /\b(?:google|gmail|drive|planilh\w*|todoist|notion|trello|conex[õo]\w*|sincroniz\w*|e-?mails?)\b/i.test(
         message.text
       )
@@ -738,7 +759,7 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
         channelMessageTimestamp: message.timestamp?.getTime(),
-        channelRequestText: message.text,
+        channelRequestText: customerAuthoredChannelRequest(message, interpreted),
         channelIsPrivate: integrationPrivateChat(message),
         channelConversationOnly: isConversationalOnlyChannelRequest(message.text),
         channelFinanceDeletes: new Map(),
@@ -916,6 +937,10 @@ async function processDirectAgentInSession(
       : clockPrompt
   );
   const channelReceipts: ChannelToolReceipt[] = [];
+  const completedRead = (
+    response: Parameters<typeof verifiedChannelToolReply>[0],
+    results: Parameters<typeof verifiedChannelToolReply>[1]
+  ) => verifiedChannelToolReply(response, results, { timeZone, requestText: interpreted.text });
   const conversationOnly =
     isConversationalOnlyChannelRequest(message.text) ||
     (!interpreted.attachments?.length && isConversationalOnlyChannelRequest(interpreted.text));
@@ -940,7 +965,7 @@ async function processDirectAgentInSession(
         platformChatId: message.platformChatId,
         channelMessageId: message.id,
         channelMessageTimestamp: message.timestamp?.getTime(),
-        channelRequestText: interpreted.text,
+        channelRequestText: customerAuthoredChannelRequest(message, interpreted),
         onToolResult: (receipt) => channelReceipts.push({ ...receipt, arguments: '' }),
         channelIsPrivate: integrationPrivateChat(message),
         channelConversationOnly: conversationOnly,
@@ -975,11 +1000,12 @@ async function processDirectAgentInSession(
                       recentChannelText(agent.getConversation())
                     ) ??
                     requiredChannelSubscriptionTool(interpreted.text),
-                  onToolResults: verifiedRadarToolReply,
+                  onToolResults: completedRead,
                 }
               )
             : agent.chat(
-                withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts)
+                withRecentReceiptContext(interpreted.text, message.metadata?.astraRecentReceipts),
+                { onToolResults: completedRead }
               )
     ).finally(() => agent.clearAdditionalTools?.());
   } catch (error) {

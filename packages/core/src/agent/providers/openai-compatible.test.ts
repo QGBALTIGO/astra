@@ -580,6 +580,40 @@ describe('OpenAICompatibleProvider', () => {
       }
     });
 
+    it.each([false, true])(
+      'serializes a named tool choice with its sanitized name (stream=%s)',
+      async (stream) => {
+        const provider = new OpenAICompatibleProvider(mockConfig);
+        const fetchMock = stream
+          ? mockFetchStream(['data: [DONE]\n\n'])
+          : mockFetchResponse({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] });
+        vi.stubGlobal('fetch', fetchMock);
+        const request = makeRequest({
+          tools: [
+            {
+              name: 'core.add_task',
+              description: 'Create a task',
+              parameters: { type: 'object', properties: {}, required: [] },
+            },
+          ],
+          toolChoice: { name: 'core.add_task' },
+        });
+
+        if (stream) {
+          for await (const chunk of provider.stream(request)) expect(chunk.ok).toBe(true);
+        } else {
+          expect((await provider.complete(request)).ok).toBe(true);
+        }
+
+        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(body.tools[0].function.name).toBe('core__add_task');
+        expect(body.tool_choice).toEqual({
+          type: 'function',
+          function: { name: 'core__add_task' },
+        });
+      }
+    );
+
     it('handles tool calls in the response', async () => {
       const provider = new OpenAICompatibleProvider(mockConfig);
       const apiResponse = {
@@ -619,6 +653,69 @@ describe('OpenAICompatibleProvider', () => {
         ]);
       }
     });
+
+    it('preserves an explicit refusal instead of returning an empty completion', async () => {
+      const provider = new OpenAICompatibleProvider(mockConfig);
+      vi.stubGlobal(
+        'fetch',
+        mockFetchResponse({
+          choices: [
+            {
+              message: { content: null, refusal: 'I cannot help with that request.' },
+              finish_reason: 'stop',
+            },
+          ],
+        })
+      );
+
+      const result = await provider.complete(makeRequest());
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.content).toBe('I cannot help with that request.');
+        expect(result.value.finishReason).toBe('content_filter');
+        expect(result.value.toolCalls).toBeUndefined();
+      }
+    });
+
+    it.each([
+      { refusal: 'I cannot perform that action.', finish_reason: 'stop' },
+      { refusal: null, finish_reason: 'content_filter' },
+    ])(
+      'does not return tool calls from a declined completion: $finish_reason',
+      async (declined) => {
+        const provider = new OpenAICompatibleProvider(mockConfig);
+        vi.stubGlobal(
+          'fetch',
+          mockFetchResponse({
+            choices: [
+              {
+                message: {
+                  content: null,
+                  refusal: declined.refusal,
+                  tool_calls: [
+                    {
+                      id: 'task-1',
+                      type: 'function',
+                      function: { name: 'add_task', arguments: '{}' },
+                    },
+                  ],
+                },
+                finish_reason: declined.finish_reason,
+              },
+            ],
+          })
+        );
+
+        const result = await provider.complete(makeRequest());
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value.finishReason).toBe('content_filter');
+          expect(result.value.toolCalls).toBeUndefined();
+        }
+      }
+    );
 
     it('returns InternalError on non-ok response', async () => {
       const provider = new OpenAICompatibleProvider(mockConfig);
@@ -930,7 +1027,7 @@ describe('OpenAICompatibleProvider', () => {
       expect(chunks[0].ok && chunks[0].value.toolCalls?.[0].name).toBe('get_weather');
     });
 
-    it('skips malformed chunks without crashing', async () => {
+    it('stops on malformed chunks instead of silently returning incomplete content', async () => {
       const provider = new OpenAICompatibleProvider(mockConfig);
       const sseLines = [
         'data: {"id":"x","choices":[{"delta":{"content":"A"}}]}\n\n',
@@ -942,15 +1039,100 @@ describe('OpenAICompatibleProvider', () => {
 
       const chunks: Array<Result<StreamChunk, InternalError>> = [];
       for await (const chunk of provider.stream(makeRequest())) {
-        if (chunk.ok) {
-          chunks.push(chunk);
-        }
+        chunks.push(chunk);
       }
 
-      // Should have A, B, and DONE (the malformed chunk is silently skipped)
       const contentChunks = chunks.filter((c) => c.ok && c.value.content);
-      expect(contentChunks.map((c) => c.ok && c.value.content)).toContain('A');
-      expect(contentChunks.map((c) => c.ok && c.value.content)).toContain('B');
+      expect(contentChunks.map((c) => c.ok && c.value.content)).toEqual(['A']);
+      expect(chunks.at(-1)).toMatchObject({
+        ok: false,
+        error: { code: 'INTERNAL_ERROR' },
+      });
+      expect(chunks.some((c) => c.ok && c.value.done)).toBe(false);
+    });
+
+    it('preserves streamed refusal fragments and the refusal finish reason', async () => {
+      const provider = new OpenAICompatibleProvider(mockConfig);
+      vi.stubGlobal(
+        'fetch',
+        mockFetchStream([
+          'data: {"id":"x","choices":[{"delta":{"refusal":"I cannot help "}}]}\n\n',
+          'data: {"id":"x","choices":[{"delta":{"refusal":"with that request."}}]}\n\n',
+          'data: {"id":"x","choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ])
+      );
+
+      const chunks: Array<Result<StreamChunk, InternalError>> = [];
+      for await (const chunk of provider.stream(makeRequest())) chunks.push(chunk);
+
+      expect(chunks.every((chunk) => chunk.ok)).toBe(true);
+      expect(chunks.map((chunk) => (chunk.ok ? (chunk.value.content ?? '') : '')).join('')).toBe(
+        'I cannot help with that request.'
+      );
+      expect(
+        chunks.some((chunk) => chunk.ok && chunk.value.finishReason === 'content_filter')
+      ).toBe(true);
+    });
+
+    it('does not accept tool arguments after a malformed stream event', async () => {
+      const provider = new OpenAICompatibleProvider(mockConfig);
+      vi.stubGlobal(
+        'fetch',
+        mockFetchStream([
+          'data: {"id":"x","choices":[{"delta":{"tool_calls":[{"index":0,"id":"task-1","function":{"name":"add_task","arguments":"{"}}]}}]}\n\n',
+          'data: {INVALID JSON}\n\n',
+          'data: {"id":"x","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+          'data: [DONE]\n\n',
+        ])
+      );
+
+      const chunks: Array<Result<StreamChunk, InternalError>> = [];
+      for await (const chunk of provider.stream(makeRequest())) chunks.push(chunk);
+
+      expect(chunks.at(-1)).toMatchObject({ ok: false });
+      expect(chunks.some((chunk) => chunk.ok && chunk.value.done)).toBe(false);
+    });
+
+    it.each([
+      { delta: { refusal: 'I cannot perform that action.' }, finish_reason: 'stop' },
+      { delta: {}, finish_reason: 'content_filter' },
+    ])('rejects tool deltas followed by a refusal: $finish_reason', async (declined) => {
+      const provider = new OpenAICompatibleProvider(mockConfig);
+      vi.stubGlobal(
+        'fetch',
+        mockFetchStream([
+          'data: {"id":"x","choices":[{"delta":{"tool_calls":[{"index":0,"id":"task-1","function":{"name":"add_task","arguments":"{}"}}]}}]}\n\n',
+          `data: ${JSON.stringify({ id: 'x', choices: [declined] })}\n\n`,
+          'data: [DONE]\n\n',
+        ])
+      );
+
+      const chunks: Array<Result<StreamChunk, InternalError>> = [];
+      for await (const chunk of provider.stream(makeRequest())) chunks.push(chunk);
+
+      // Once a tool delta was delivered, an error prevents the agent from
+      // converting those buffered arguments into an executable completion.
+      expect(chunks.at(-1)).toMatchObject({ ok: false });
+      expect(chunks.some((chunk) => chunk.ok && chunk.value.done)).toBe(false);
+    });
+
+    it('returns an error for an SSE error envelope before any output', async () => {
+      const provider = new OpenAICompatibleProvider(mockConfig);
+      vi.stubGlobal(
+        'fetch',
+        mockFetchStream([
+          'data: {"error":{"message":"private-provider-details","code":"server_error"}}\n\n',
+          'data: [DONE]\n\n',
+        ])
+      );
+
+      const chunks: Array<Result<StreamChunk, InternalError>> = [];
+      for await (const chunk of provider.stream(makeRequest())) chunks.push(chunk);
+
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0]).toMatchObject({ ok: false, error: { code: 'INTERNAL_ERROR' } });
+      expect(JSON.stringify(chunks)).not.toContain('private-provider-details');
     });
 
     it('yields InternalError on non-ok fetch response', async () => {

@@ -25,7 +25,7 @@ function makeComplete(
 ): (prompt: string) => Promise<string> {
   return async (prompt: string) => {
     const { createConfiguredAgent } = await import('../services/agent/runner-utils.js');
-    const { getLLMRouter } = await import('@ownpilot/core');
+    const { getLLMRouter } = await import('@ownpilot/core/services');
     const { provider, model } = await getLLMRouter().pick({
       process: 'pulse',
       errorContext: label,
@@ -81,7 +81,8 @@ export function registerTriggerActionHandlers(triggerEngine: TriggerEngine): voi
   // chats get context injection, persistence, audit logging, and post-processing.
   triggerEngine.setChatHandler(async (message, _payload) => {
     const { getOrCreateChatAgent } = await import('../services/agent/service.js');
-    const { getLLMRouter } = await import('@ownpilot/core');
+    const { evictChatAgentInstance } = await import('../services/agent/cache.js');
+    const { getLLMRouter } = await import('@ownpilot/core/services');
     const resolved = await getLLMRouter().pick({ process: 'pulse' });
     const provider = resolved.provider ?? 'openai';
     const model = resolved.model ?? 'gpt-4o-mini';
@@ -89,39 +90,71 @@ export function registerTriggerActionHandlers(triggerEngine: TriggerEngine): voi
       resolved.fallbackProvider && resolved.fallbackModel
         ? { provider: resolved.fallbackProvider, model: resolved.fallbackModel }
         : undefined;
-    const agent = await getOrCreateChatAgent(provider, model, fallback);
+    const userId = triggerEngine.getUserId();
+    // A scheduled run must never reset or reuse the interactive owner's chat.
+    // Give every execution its own agent; release its cache entry on every exit.
+    const agent = await getOrCreateChatAgent(
+      provider,
+      model,
+      fallback,
+      undefined,
+      `trigger-${randomUUID()}`,
+      undefined,
+      false,
+      userId
+    );
 
-    // Reset conversation for each trigger fire — prevents stale context from
-    // previous executions causing "Empty conversation context" errors.
-    agent.reset();
+    try {
+      const { getMessageBus } = await import('@ownpilot/core/services');
+      const bus = getMessageBus();
+      const conversationId = agent.getConversation().id;
+      const normalized: NormalizedMessage = {
+        id: randomUUID(),
+        sessionId: conversationId,
+        role: 'user',
+        content: message,
+        metadata: { source: 'scheduler', provider, model },
+        timestamp: new Date(),
+      };
 
-    const { getMessageBus } = await import('@ownpilot/core');
-    const bus = getMessageBus();
-    const conversationId = agent.getConversation().id;
-    const normalized: NormalizedMessage = {
-      id: randomUUID(),
-      sessionId: conversationId,
-      role: 'user',
-      content: message,
-      metadata: { source: 'scheduler', provider, model },
-      timestamp: new Date(),
-    };
+      const result = await bus.process(normalized, {
+        context: {
+          agent,
+          userId,
+          agentId: 'chat',
+          provider,
+          model,
+          conversationId,
+        },
+      });
 
-    const result = await bus.process(normalized, {
-      context: {
-        agent,
-        userId: 'default',
-        agentId: 'chat',
-        provider,
-        model,
-        conversationId,
-      },
-    });
+      // MessageBus resolves operational failures into response metadata instead
+      // of rejecting. Treat that structured outcome as a failed trigger; an
+      // error rendered as assistant text is not a completed scheduled task.
+      // Do not infer failure from content or warnings: successful tool-only
+      // replies may be empty, and warnings can be non-fatal.
+      const metadata = result.response.metadata ?? {};
+      if (
+        [metadata.error, metadata.errorCode, metadata.errorStage].some((value) =>
+          typeof value === 'string' ? value.trim().length > 0 : Boolean(value)
+        ) ||
+        metadata.aborted === true
+      ) {
+        // Provider error bodies can contain credentials or private payloads.
+        // TriggerEngine persists and logs this message, so never forward those
+        // bodies (or attach them as a cause) across this boundary.
+        throw new Error(
+          metadata.aborted === true ? 'Scheduled chat was aborted' : 'Scheduled chat failed'
+        );
+      }
 
-    return {
-      content: result.response.content,
-      toolCalls: result.response.metadata?.toolCalls?.length ?? 0,
-    };
+      return {
+        content: result.response.content,
+        toolCalls: metadata.toolCalls?.length ?? 0,
+      };
+    } finally {
+      evictChatAgentInstance(agent);
+    }
   });
 
   // 'workflow' — run a workflow by id

@@ -178,6 +178,75 @@ describe('bounded short channel completion', () => {
     expect(config.fallbacks[0].timeout).toBeLessThanOrEqual(4000);
     expect(config.completionTimeoutMs).toBeLessThanOrEqual(4000);
   });
+  it('never starts a completion after fallback credential resolution exhausts the deadline', async () => {
+    vi.stubEnv('ASTRA_FALLBACK_CHAIN', 'cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash');
+    vi.useFakeTimers();
+    let resolveKey!: (key: string) => void;
+    const pendingKey = new Promise<string>((resolve) => {
+      resolveKey = resolve;
+    });
+    mock.key.mockImplementation(async (id: string) =>
+      id === 'cloudflare-workers-ai' ? pendingKey : 'synthetic-key'
+    );
+    try {
+      const reply = writeShortChannelReply(
+        'channel.whatsapp',
+        'Synthetic',
+        'Synthetic',
+        42,
+        Date.now() + 5000
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(await reply).toBeNull();
+      resolveKey('synthetic-key');
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mock.complete).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('cancels an in-flight completion when the caller deadline expires', async () => {
+    vi.stubEnv('ASTRA_FALLBACK_CHAIN', '');
+    vi.useFakeTimers();
+    mock.complete.mockImplementation(() => new Promise(() => {}));
+    try {
+      const reply = writeShortChannelReply(
+        'channel.whatsapp',
+        'Synthetic',
+        'Synthetic',
+        42,
+        Date.now() + 5000
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      const signal = mock.complete.mock.calls[0]![0].signal as AbortSignal | undefined;
+      expect(signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(await reply).toBeNull();
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('keeps a configured cloud reserve when a requested local reserve is unavailable', async () => {
+    vi.stubEnv(
+      'ASTRA_FALLBACK_CHAIN',
+      'zai=glm-4.7-flash,google=gemini-2.5-flash-lite,groq=openai/gpt-oss-20b,openrouter=openrouter/free,cloudflare-workers-ai=@cf/zai-org/glm-4.7-flash,ollama-local=qwen3:4b-instruct'
+    );
+    mock.route.mockResolvedValue({ provider: 'openai', model: 'gpt-4o' });
+    mock.key.mockImplementation(async (id: string) =>
+      id === 'ollama-local' ? undefined : 'synthetic-key'
+    );
+    await writeShortChannelReply(
+      'channel.whatsapp',
+      'Synthetic',
+      'Synthetic',
+      42,
+      Date.now() + 5000
+    );
+    expect(
+      mock.fallback.mock.calls[0]![0].fallbacks.map((candidate: { id: string }) => candidate.id)
+    ).toEqual(['zai', 'google', 'groq', 'openrouter', 'cloudflare-workers-ai']);
+  });
   it('preserves short attempt limits when Cloudflare has no credential', async () => {
     vi.stubEnv(
       'ASTRA_FALLBACK_CHAIN',

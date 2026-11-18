@@ -80,10 +80,57 @@ beforeEach(() => {
   f.update.mockImplementation(async (id, value) => ({ id, ...value }));
   f.remove.mockResolvedValue(true);
 });
+
+it.each([
+  'list_transactions',
+  'financial_summary',
+  'record_transaction',
+  'update_transaction',
+  'delete_transaction',
+])(
+  'does not let a discovered %s tool operate on the ledger for an email-only request',
+  async (tool) => {
+    f.ctx.channelRequestText = 'Mostre os gmails que eu recebi hoje';
+    f.list.mockResolvedValue({ transactions: [], total: 0, page: 1, pageSize: 20 });
+    f.summary.mockResolvedValue({ income: 0, expenses: 0 });
+    const args =
+      tool === 'list_transactions'
+        ? { type: 'income', status: 'pending' }
+        : tool === 'financial_summary'
+          ? { from: '2026-11-01', to: '2026-11-30' }
+          : { ...data, transaction_id: 'synthetic-target' };
+    const result = await executeCustomerFinanceTool(tool, args, 'fixture-user');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('e-mails');
+    expect(f.owner).not.toHaveBeenCalled();
+    expect(f.list).not.toHaveBeenCalled();
+    expect(f.summary).not.toHaveBeenCalled();
+    expect(f.create).not.toHaveBeenCalled();
+    expect(f.update).not.toHaveBeenCalled();
+    expect(f.remove).not.toHaveBeenCalled();
+  }
+);
+
+it.each(['Quanto recebi hoje?', 'Mostre meus e-mails e registre uma entrada de 50 reais'])(
+  'preserves a financial instruction in %s',
+  async (request) => {
+    f.ctx.channelRequestText = request;
+    f.list.mockResolvedValue({ transactions: [], total: 0, page: 1, pageSize: 20 });
+    const result = await executeCustomerFinanceTool(
+      'list_transactions',
+      { type: 'income' },
+      'fixture-user'
+    );
+    expect(result.success).toBe(true);
+    expect(f.list).toHaveBeenCalledTimes(1);
+  }
+);
+
 it.each([
   'Remova todos',
   'Quero remover todos que estão pendentes',
   'Remova todos os lançamentos pendentes',
+  'Remova todos as entradas pendentes',
   'confirmo excluir os pendentes',
   'Remova todos os meus lançamentos pendentes',
   'Apaga todos os lançamentos pendentes',
@@ -515,12 +562,45 @@ describe('same-ledger finance tools', () => {
       search: 'Cakto',
       type: 'income',
       status: 'pending',
+      sort: 'due',
     });
     expect(result.result).toMatchObject({
+      total: 1,
       timeZone: 'America/Cuiaba',
       transactions: [{ id: 'saved', createdLocal: expect.stringContaining('09:25:40') }],
     });
   });
+  it('keeps the entire transaction page and its total available to the channel formatter', async () => {
+    const transactions = Array.from({ length: 20 }, (_, index) => ({
+      id: `synthetic-pending-${index}`,
+      description: `Recebimento sintético ${index + 1}`,
+      amount: 50 + index,
+      currency: 'BRL',
+      type: 'income',
+      status: 'pending',
+      date: '2026-11-' + String(18 + Math.floor(index / 2)),
+      categoryId: 'synthetic-category',
+      categoryName: 'Outras entradas',
+      categoryColor: '#123456',
+      notes: null,
+      source: 'channel',
+      createdAt: '2026-11-18T10:00:00.000Z',
+      updatedAt: '2026-11-18T10:00:00.000Z',
+    }));
+    f.list.mockResolvedValueOnce({ transactions, total: 42, page: 1, pageSize: 20 });
+    const output = await executeCustomerFinanceTool(
+      'list_transactions',
+      { type: 'income', status: 'pending' },
+      'user-a'
+    );
+    expect(output.success).toBe(true);
+    expect(output.result).toMatchObject({ total: 42, page: 1, pageSize: 20 });
+    const result = output.result as { transactions: Record<string, unknown>[] };
+    expect(result.transactions).toHaveLength(20);
+    expect(result.transactions.map(({ id }) => id)).toEqual(transactions.map(({ id }) => id));
+    expect(result.transactions.at(-1)).toMatchObject(transactions.at(-1)!);
+  });
+
   it('preserves actual/pending totals returned by the shared ledger', async () => {
     const totals = {
       income: 100,

@@ -27,7 +27,7 @@ import {
   calculatePayloadBreakdown,
 } from '../debug.js';
 import { getErrorMessage } from '../../services/error-utils.js';
-import { desanitizeToolName } from '../tool-namespace.js';
+import { desanitizeToolName, sanitizeToolName } from '../tool-namespace.js';
 import { getAuthHeader, type ResolvedAuth } from './configs/types.js';
 import { readSseData, runProviderHealthCheck } from './shared.js';
 import { groqResponseOptions } from './groq-response-options.js';
@@ -141,7 +141,10 @@ export class OpenAIProvider extends BaseProvider {
       presence_penalty: request.model.presencePenalty,
       stop: request.model.stop,
       tools: this.buildTools(request),
-      tool_choice: request.toolChoice,
+      tool_choice:
+        typeof request.toolChoice === 'object'
+          ? { type: 'function', function: { name: sanitizeToolName(request.toolChoice.name) } }
+          : request.toolChoice,
       response_format:
         request.model.responseFormat === 'json' ? { type: 'json_object' } : undefined,
       user: request.user,
@@ -272,7 +275,10 @@ export class OpenAIProvider extends BaseProvider {
       max_tokens: request.model.maxTokens,
       temperature: request.model.temperature,
       tools: this.buildTools(request),
-      tool_choice: request.toolChoice,
+      tool_choice:
+        typeof request.toolChoice === 'object'
+          ? { type: 'function', function: { name: sanitizeToolName(request.toolChoice.name) } }
+          : request.toolChoice,
       stream: true,
       stream_options: { include_usage: true },
     };

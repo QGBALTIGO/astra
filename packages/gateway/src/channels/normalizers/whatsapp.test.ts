@@ -106,6 +106,65 @@ describe('whatsappNormalizer', () => {
   // =========================================================================
 
   describe('normalizeOutgoing', () => {
+    it.each(['***Importante***', '____Importante____', '~~Importante~~'])(
+      'normalizes nested emphasis once for both bus and final send boundary: %s',
+      (input) => {
+        const once = whatsappNormalizer.normalizeOutgoing(input).join('\n\n');
+        const twice = whatsappNormalizer.normalizeOutgoing(once).join('\n\n');
+        expect(twice).toBe(once);
+        expect(once).toMatch(/^[*_~]Importante[*_~]$/);
+      }
+    );
+
+    it('keeps HTML anchor destinations when converting prose to WhatsApp text', () => {
+      const input =
+        '<a href="https://example.com/painel?x=1&amp;y=2">Painel</a><br>' +
+        "<a href='http://example.com/help'>Ajuda</a><br>" +
+        '<a href=https://example.com/account>https://example.com/account</a>';
+      const once = whatsappNormalizer.normalizeOutgoing(input).join('\n\n');
+      expect(once).toBe(
+        'Painel: https://example.com/painel?x=1&y=2\nAjuda: http://example.com/help\nhttps://example.com/account'
+      );
+      expect(whatsappNormalizer.normalizeOutgoing(once).join('\n\n')).toBe(once);
+    });
+
+    it('preserves entity-like strings and formatting characters inside literal URLs', () => {
+      const url = 'https://example.com/search?q=one&nbsp;two&name=__literal__&part=**value**';
+      const input = '**Veja**<br>' + url + '<br>um&nbsp;texto';
+      const once = whatsappNormalizer.normalizeOutgoing(input).join('\n\n');
+      expect(once).toBe('*Veja*\n' + url + '\num texto');
+      expect(whatsappNormalizer.normalizeOutgoing(once).join('\n\n')).toBe(once);
+    });
+
+    it('keeps anchor examples inside code literal and does not emit non-HTTP hrefs', () => {
+      const code = '~~~html\n<a href="https://example.com/?q=one&nbsp;two">**Literal**</a>\n~~~';
+      const input = code + '\n<a href="javascript:alert(1)">Rótulo</a>';
+      const once = whatsappNormalizer.normalizeOutgoing(input).join('\n\n');
+      expect(once).toBe(code + '\nRótulo');
+      expect(whatsappNormalizer.normalizeOutgoing(once).join('\n\n')).toBe(once);
+    });
+
+    it('renders HTML line breaks and ordinary HTML formatting as WhatsApp text', () => {
+      const [text] = whatsappNormalizer.normalizeOutgoing(
+        '<p>**Finanças**<br>Registre uma despesa.<BR />Veja seus pendentes.</p><p><strong>Lembretes</strong><br/>Avise amanhã.</p>'
+      );
+      expect(text).toBe(
+        '*Finanças*\nRegistre uma despesa.\nVeja seus pendentes.\n\n*Lembretes*\nAvise amanhã.'
+      );
+      expect(text).not.toMatch(/<[^>]*>|\*\*/);
+    });
+
+    it('preserves literal code, existing WhatsApp markup and URLs through repeated normalization', () => {
+      const input =
+        '*Já formatado*\n**Novo**<br>https://example.com/a__b__?q=**x**\n```\n**literal** <br>\n```\n`**outro** <br>`';
+      const once = whatsappNormalizer.normalizeOutgoing(input).join('\n\n');
+      const twice = whatsappNormalizer.normalizeOutgoing(once).join('\n\n');
+      expect(once).toContain('*Já formatado*\n*Novo*\nhttps://example.com/a__b__?q=**x**');
+      expect(once).toContain('```\n**literal** <br>\n```');
+      expect(once).toContain('`**outro** <br>`');
+      expect(twice).toBe(once);
+    });
+
     it('returns empty array for empty response', () => {
       expect(whatsappNormalizer.normalizeOutgoing('')).toEqual([]);
     });

@@ -26,7 +26,7 @@ export interface RadarInput {
   delivery: 'digest' | 'before' | 'threshold' | 'matchday';
   notifyTime?: string;
   threshold?: string;
-  comparison?: 'above' | 'below';
+  comparison?: 'above' | 'below' | 'at_or_above' | 'at_or_below';
   leadMinutes: number;
 }
 export interface RadarInterest extends RadarInput {

@@ -137,7 +137,17 @@ export function reportGroqPoolFailure(input: Parameters<typeof groqPoolFailureFa
     const facts = groqPoolFailureFacts(input);
     // Backpressure is expected admission behavior, not a transport incident per waiting user.
     if (facts.admissionReason) log.debug('Groq request deferred by local admission', facts);
-    else log.warn('Groq transport unavailable', facts);
+    else {
+      const localAdmission =
+        input.status === 413 &&
+        input.errorText?.startsWith('request_too_large: groq_local_admission') === true;
+      log.warn(
+        localAdmission
+          ? 'Groq request rejected by local token budget'
+          : 'Groq transport unavailable',
+        facts
+      );
+    }
   } catch {
     /* Diagnostics must not change transport behavior or print the failed logger's arguments. */
   }

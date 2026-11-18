@@ -19,6 +19,7 @@ import {
 } from '../services/radar/chat-intent.js';
 import { customerAccountBinding } from './customer-channel-access.js';
 import { isConversationalOnlyChannelRequest } from './tool-selection.js';
+import { currencyThresholdRequest } from '../services/radar/currency-intent.js';
 
 /** Narrow, zero-inference intents. Ordinary reminders and unrelated messages are untouched. */
 export async function tryRadarChannelReply(
@@ -43,6 +44,7 @@ export async function tryRadarChannelReply(
       text
     );
   const gameAlert = gameAlertRequest(message.text);
+  const currencyAlert = currencyThresholdRequest(message.text);
   const preview = radarPreviewRequest(message.text);
   const conversationOnly = isConversationalOnlyChannelRequest(message.text);
   if (!stop && !list && conversationOnly) return null;
@@ -76,6 +78,7 @@ export async function tryRadarChannelReply(
     !list &&
     !preview &&
     !gameAlert &&
+    !currencyAlert &&
     !footballFollowUp &&
     !pendingCandidate &&
     !contextCandidate
@@ -132,6 +135,7 @@ export async function tryRadarChannelReply(
       !list &&
       !preview &&
       !gameAlert &&
+      !currencyAlert &&
       !footballFollowUp &&
       !contextualReply &&
       (!validPending || !pendingReply)
@@ -157,6 +161,7 @@ export async function tryRadarChannelReply(
     if (
       preview ||
       gameAlert ||
+      currencyAlert ||
       footballFollowUp ||
       contextualReply ||
       (pendingReply && validPending)
@@ -192,6 +197,7 @@ export async function tryRadarChannelReply(
           manageRadarChat(
             account.dataUserId,
             preview ??
+              (currencyAlert ? { ...currencyAlert } : undefined) ??
               (gameAlert ? { action: 'follow', ...(time && { time }) } : { action: 'status' })
           )
       );

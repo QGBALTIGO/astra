@@ -53,6 +53,149 @@ const reminder = (status = 'pending'): ChannelToolReceipt => ({
   }),
 });
 
+const reminderValidation = (
+  reason: 'time_required' | 'condition_requires_monitor',
+  name = 'core.schedule_channel_reminder'
+): ChannelToolReceipt => ({
+  name,
+  arguments: '{}',
+  isError: true,
+  content: JSON.stringify({
+    success: false,
+    result: { kind: 'reminder_request_validation', reason },
+    error: 'Internal validation at core.schedule_channel_reminder; never echo this detail.',
+  }),
+});
+
+describe('Pre-write reminder refusals use their exact receipt', () => {
+  it.each([true, false])(
+    'asks for a real deadline instead of echoing an invented 15:56 confirmation (isError=%s)',
+    (isError) => {
+      const reply = safeChannelResponse(
+        '✅ Lembrete agendado: Codex voltou. Data e hora: 18/11/2026, 15:56.',
+        [{ ...reminderValidation('time_required'), isError }],
+        { requestText: 'Só me avise' }
+      );
+      expect(reply).toBe(
+        'Não agendei esse lembrete. Diga o dia e a hora ou um intervalo para o aviso.'
+      );
+      expect(reply).not.toMatch(/15:56|18\/11|core\.|Internal validation|Confira seus registros/);
+    }
+  );
+  it('does not imply that an existing reminder was removed after a refused reschedule', () => {
+    expect(
+      safeChannelResponse(
+        'Reagendei para 15:56.',
+        [reminderValidation('time_required', 'core.reschedule_channel_reminder')],
+        { requestText: 'Mude esse lembrete' }
+      )
+    ).toBe(
+      'Não alterei o horário desse lembrete. Diga o dia e a hora ou um intervalo para o aviso.'
+    );
+  });
+  it('does not promise to detect the return of Codex', () => {
+    const reply = safeChannelResponse(
+      'Lembrete agendado às 15:56. Vou avisar quando o Codex voltar.',
+      [reminderValidation('condition_requires_monitor')],
+      { requestText: 'Me avise quando o Codex voltar' }
+    );
+    expect(reply).toContain('Não agendei esse lembrete.');
+    expect(reply).toContain('não detecta quando o Codex volta');
+    expect(reply).toContain('não posso prometer esse aviso');
+    expect(reply).not.toMatch(/15:56|Vou avisar|core\./);
+  });
+  it('directs a refused price condition to Radar without confirming an alert', () => {
+    const reply = safeChannelResponse(
+      'Alerta ativado! Lembrete agendado às 15:56.',
+      [reminderValidation('condition_requires_monitor')],
+      { requestText: 'Me avise se o dólar chegar a 5 reais cravado ou menos' }
+    );
+    expect(reply).toContain('Não agendei esse lembrete.');
+    expect(reply).toContain('configurar a moeda e a condição no Radar');
+    expect(reply).toContain('Ainda não tenho confirmação de ativação');
+    expect(reply).not.toMatch(/Alerta ativado|15:56|core\./);
+  });
+  it('explains the missing event monitor without inventing one', () => {
+    const reply = safeChannelResponse(
+      'Vou avisar quando seu pacote chegar.',
+      [reminderValidation('condition_requires_monitor')],
+      { requestText: 'Me avise quando meu pacote chegar' }
+    );
+    expect(reply).toContain('não monitora essa condição');
+    expect(reply).toContain('um lembrete para conferir');
+    expect(reply).not.toContain('Vou avisar');
+  });
+  it.each([
+    'Um aviso quando o dólar baixar depende de monitoramento de cotação.',
+    'Se você quiser, posso explicar como funciona um alerta de cotação.',
+  ])('keeps a legitimate explanation without a refused operation: %s', (text) => {
+    expect(safeChannelResponse(text, [], { requestText: 'Como funciona um alerta?' })).toBe(text);
+  });
+  it('does not erase a saved task in a mixed turn', () => {
+    const saved: ChannelToolReceipt = {
+      name: 'core.add_task',
+      arguments: '{}',
+      isError: false,
+      content: JSON.stringify({ success: true, result: { id, title: 'Conferir a cotação' } }),
+    };
+    const reply = safeChannelResponse('Tarefa e lembrete criados às 15:56.', [
+      saved,
+      reminderValidation('time_required'),
+    ]);
+    expect(reply).toContain('Tarefa criada');
+    expect(reply).toContain('Conferir a cotação');
+    expect(reply).toContain('ainda não tenho confirmação');
+    expect(reply).not.toContain('15:56');
+    expect(reply).not.toContain('Não agendei esse lembrete.');
+  });
+  it('does not erase an earlier saved reminder after another attempt was refused', () => {
+    const reply = safeChannelResponse('Lembrete agendado às 15:56.', [
+      reminder(),
+      reminderValidation('time_required'),
+    ]);
+    expect(reply).toContain('Lembrete agendado');
+    expect(reply).toContain('12/11/2026, 11:46');
+    expect(reply).toContain('ainda não tenho confirmação');
+    expect(reply).not.toContain('15:56');
+    expect(reply).not.toContain('Não agendei esse lembrete.');
+  });
+  it('keeps a generic write failure uncertain even beside a validation refusal', () => {
+    const unknown: ChannelToolReceipt = {
+      ...reminderValidation('time_required'),
+      content: JSON.stringify({ success: false, error: 'database response unavailable' }),
+    };
+    for (const receipts of [[unknown], [unknown, reminderValidation('time_required')]]) {
+      const reply = safeChannelResponse('Lembrete agendado às 15:56.', receipts);
+      expect(reply).toContain('Essa alteração ainda não está confirmada.');
+      expect(reply).toContain('evitar duplicidade');
+      expect(reply).not.toContain('Não agendei esse lembrete.');
+    }
+  });
+  it('does not trust a marker from another tool or an unrecognized validation reason', () => {
+    const malformed = {
+      ...reminderValidation('time_required'),
+      content: JSON.stringify({
+        success: false,
+        error: 'unrecognized',
+        result: { kind: 'reminder_request_validation', reason: 'unrecognized' },
+      }),
+    };
+    for (const receipt of [reminderValidation('time_required', 'core.add_task'), malformed]) {
+      const reply = safeChannelResponse('Tudo agendado às 15:56.', [receipt]);
+      expect(reply).toContain('Essa alteração ainda não está confirmada.');
+      expect(reply).not.toContain('Não agendei esse lembrete.');
+    }
+  });
+  it('allows harmless discovery receipts without exposing their internal details', () => {
+    const reply = safeChannelResponse('Use core.schedule_channel_reminder.', [
+      { name: 'core.search_tools', arguments: '{}', content: '{}', isError: false },
+      reminderValidation('time_required'),
+    ]);
+    expect(reply).toContain('Não agendei esse lembrete.');
+    expect(reply).not.toMatch(/core\.|search_tools/);
+  });
+});
+
 describe('Channel responses use persisted facts without internal details', () => {
   it('does not extend a finance deletion into a claim that the whole account was erased', () => {
     const receipt: ChannelToolReceipt = {

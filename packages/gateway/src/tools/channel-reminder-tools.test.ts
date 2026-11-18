@@ -6,6 +6,7 @@ const fixtures = vi.hoisted(() => ({
     platformChatId: 'chat-123',
     channelMessageId: 'message-123',
     channelMessageTimestamp: undefined as number | undefined,
+    channelRequestText: 'Me lembre daqui 20 segundos de verificar o teste' as string | undefined,
   },
   schedule: vi.fn(),
   getByDedupeKeyForChat: vi.fn(),
@@ -32,6 +33,10 @@ vi.mock('../db/repositories/customer-accounts.js', () => ({
 }));
 
 import { CHANNEL_REMINDER_TOOLS, executeChannelReminderTool } from './channel-reminder-tools.js';
+import {
+  clearChannelReminderRequests,
+  observeChannelReminderRequest,
+} from '../channels/reminder-request.js';
 
 describe('Channel reminders: 1.000 simulated durations without external calls', () => {
   beforeEach(() => {
@@ -42,6 +47,8 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
     fixtures.ctx.platformChatId = 'chat-123';
     fixtures.ctx.channelMessageId = 'message-123';
     fixtures.ctx.channelMessageTimestamp = undefined;
+    fixtures.ctx.channelRequestText = 'Me lembre daqui 20 segundos de verificar o teste';
+    clearChannelReminderRequests();
     fixtures.schedule.mockImplementation(async (input) => ({
       id: 'reminder-123',
       status: 'pending',
@@ -58,6 +65,95 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
     fixtures.cancel.mockResolvedValue(true);
   });
   afterEach(() => vi.useRealTimers());
+
+  it.each([
+    'Só me avise',
+    'Me avise quando o Codex voltar',
+    'Me avise se o dólar chegar a 5 reais cravado ou menos',
+    'Me avise se o dólar ficar em R$ 5 ou menos amanhã às 10h',
+    undefined,
+  ])('rejects a model-invented clock for %s before persistence', async (text) => {
+    fixtures.ctx.channelRequestText = text;
+    const response = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      {
+        title: 'Dólar em 5',
+        local_datetime: '2026-11-08T15:56',
+      },
+      'customer-a'
+    );
+    expect(response.success).toBe(false);
+    expect(response.result).toMatchObject({
+      kind: 'reminder_request_validation',
+      reason:
+        text?.includes(' se ') || text?.includes('quando')
+          ? 'condition_requires_monitor'
+          : 'time_required',
+    });
+    expect(fixtures.schedule).not.toHaveBeenCalled();
+    expect(fixtures.reschedule).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'Me lembre de verificar o dólar amanhã às 10h',
+    'Me lembre amanhã às 10h de conferir se o dólar caiu',
+    'Me avise quando der 15h56',
+  ])('preserves a customer-authored fixed reminder: %s', async (text) => {
+    fixtures.ctx.channelRequestText = text;
+    const response = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      {
+        title: 'Verificar cotação',
+        local_datetime: '2026-11-08T10:00',
+      },
+      'customer-a'
+    );
+    expect(response.success).toBe(true);
+    expect(fixtures.schedule).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a scoped confirmation of the customer time, then refuses its reuse for another condition', async () => {
+    observeChannelReminderRequest('customer-a', {
+      id: 'prior',
+      channelPluginId: 'channel.telegram',
+      platformChatId: 'chat-123',
+      text: 'Me lembre amanhã às 15h56',
+    });
+    fixtures.ctx.channelRequestText = 'Pagar a conta';
+    observeChannelReminderRequest('customer-a', {
+      id: fixtures.ctx.channelMessageId,
+      channelPluginId: 'channel.telegram',
+      platformChatId: 'chat-123',
+      text: fixtures.ctx.channelRequestText,
+    });
+    expect(
+      (
+        await executeChannelReminderTool(
+          'schedule_channel_reminder',
+          { title: 'Pagar a conta', local_datetime: '2026-11-08T15:56' },
+          'customer-a'
+        )
+      ).success
+    ).toBe(true);
+    fixtures.ctx.channelMessageId = 'new-message';
+    fixtures.ctx.channelRequestText = 'Me avise se o dólar chegar a 5 reais cravado ou menos';
+    observeChannelReminderRequest('customer-a', {
+      id: fixtures.ctx.channelMessageId,
+      channelPluginId: 'channel.telegram',
+      platformChatId: 'chat-123',
+      text: fixtures.ctx.channelRequestText,
+    });
+    expect(
+      (
+        await executeChannelReminderTool(
+          'schedule_channel_reminder',
+          { title: 'Dólar em 5', local_datetime: '2026-11-08T15:56' },
+          'customer-a'
+        )
+      ).success
+    ).toBe(false);
+    expect(fixtures.schedule).toHaveBeenCalledTimes(1);
+  });
 
   it('lists saved deadlines in the customer timezone, including the preceding local day', async () => {
     fixtures.ctx.channelPluginId = 'channel.whatsapp';

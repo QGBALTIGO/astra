@@ -15,6 +15,7 @@ import {
 } from './response-safety.js';
 import { isConversationalOnlyChannelRequest, isCulinaryChannelAdvice } from './tool-selection.js';
 import { verifiedReadChannelFacts } from './verified-facts.js';
+import { isChannelEmailRequest } from './email-intent.js';
 
 /** Technical categories stay in diagnostics. Never copy the provider body into a channel reply. */
 export function channelFailureKind(details: string) {
@@ -44,6 +45,12 @@ export function channelFailureKind(details: string) {
 
 type Failure = ReturnType<typeof channelFailureKind>;
 const guidance = {
+  email: {
+    check: 'Você pode conferir seus e-mails na sua caixa de entrada.',
+    read: 'Não consegui concluir a consulta dos seus e-mails agora. Pode me pedir para tentar de novo em instantes?',
+    write:
+      'Ainda não consegui confirmar essa ação nos seus e-mails. Confira sua caixa de entrada antes de repetir o pedido.',
+  },
   calendar: {
     check: 'Você pode conferir o compromisso em Agenda no painel.',
     read: 'Não consegui consultar sua agenda agora. Pode tentar de novo em instantes?',
@@ -180,16 +187,18 @@ function classifyRequest(text: string) {
   const listedDomain = domains.find((entry) => entry.words.test(s))?.name;
   // Ordinary activities become calendar candidates only when the speaker asks
   // to check an arrangement on a date. A reminder needs a future memory cue.
-  const domain = isCulinaryChannelAdvice(text)
-    ? undefined
-    : (listedDomain ??
-      (/\b(?:pra|para)(?: eu)? nao (?:me )?esquecer\b/.test(s)
-        ? 'reminder'
-        : readRequest &&
-            /\b(?:almoco|jantar|cafe|aula|encontro)\b/.test(s) &&
-            /\b(?:hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(s)
-          ? 'calendar'
-          : undefined));
+  const domain: keyof typeof guidance | undefined = isChannelEmailRequest(text)
+    ? 'email'
+    : isCulinaryChannelAdvice(text)
+      ? undefined
+      : (listedDomain ??
+        (/\b(?:pra|para)(?: eu)? nao (?:me )?esquecer\b/.test(s)
+          ? 'reminder'
+          : readRequest &&
+              /\b(?:almoco|jantar|cafe|aula|encontro)\b/.test(s) &&
+              /\b(?:hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(s)
+            ? 'calendar'
+            : undefined));
   const conversion =
     query &&
     /\b(?:fuso|brasilia|cuiaba|horario de)\b/.test(s) &&

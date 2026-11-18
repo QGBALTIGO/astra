@@ -14,16 +14,36 @@ import { getClientIp as getClientIpShared, isProxyAwareConfigured } from '../uti
 const log = getLog('RateLimit');
 const LOCAL_IPS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1', 'localhost']);
 
-function isLoopbackBind(): boolean {
-  const host = (process.env.HOST ?? '127.0.0.1').trim().toLowerCase();
+interface RateLimitOptions {
+  /** The actual application bind host takes precedence over the environment. */
+  host?: string;
+}
+
+export const HEALTH_CHECK_PATHS = [
+  '/health',
+  '/health/live',
+  '/health/ready',
+  '/api/v1/health',
+  '/api/v1/health/live',
+  '/api/v1/health/ready',
+  '/api/v2/health',
+  '/api/v2/health/live',
+  '/api/v2/health/ready',
+];
+
+function isLoopbackBind(bindHost?: string): boolean {
+  const host = (bindHost ?? process.env.HOST ?? '127.0.0.1').trim().toLowerCase();
   return (
     host === 'localhost' || host === '::1' || host === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(host)
   );
 }
 
-function shouldBypassRateLimit(ip: string): boolean {
+function shouldBypassRateLimit(ip: string, bindHost?: string): boolean {
+  // A proxy-derived loopback address is still an external request. In
+  // particular, it must not turn a forwarded header into a limiter exemption.
+  if (isProxyAwareConfigured()) return false;
   if (LOCAL_IPS.has(ip)) return true;
-  return ip === 'direct' && !isProxyAwareConfigured() && isLoopbackBind();
+  return ip === 'direct' && isLoopbackBind(bindHost);
 }
 
 /**
@@ -67,7 +87,7 @@ export function stopAllRateLimiters(): void {
  * - Path exclusions: skip certain endpoints
  * - Disabled mode: for development
  */
-export function createRateLimitMiddleware(config: RateLimitConfig) {
+export function createRateLimitMiddleware(config: RateLimitConfig, options: RateLimitOptions = {}) {
   // Skip if disabled
   if (config.disabled) {
     return createMiddleware(async (_c, next) => {
@@ -76,8 +96,11 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
   }
 
   const store = new Map<string, RateLimitEntry>();
+  // New identities share one bounded bucket at capacity; never evict a live
+  // client's counter, which would let identity churn reset enforced limits.
+  let overflowEntry: RateLimitEntry | undefined;
   const burstLimit = config.burstLimit ?? Math.floor(config.maxRequests * 1.5);
-  const excludePaths = config.excludePaths ?? ['/health', '/api/v1/health'];
+  const excludePaths = new Set(config.excludePaths ?? HEALTH_CHECK_PATHS);
 
   /**
    * Local-only IPs that should never be rate-limited.
@@ -91,10 +114,11 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
   const cleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of store.entries()) {
-      if (entry.resetAt < now) {
+      if (entry.resetAt <= now) {
         store.delete(key);
       }
     }
+    if (overflowEntry && overflowEntry.resetAt <= now) overflowEntry = undefined;
   }, config.windowMs);
 
   // Don't prevent process exit and track for cleanup
@@ -105,7 +129,7 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
     const path = c.req.path;
 
     // Check if path is excluded
-    if (excludePaths.some((p) => path.startsWith(p))) {
+    if (excludePaths.has(path)) {
       return next();
     }
 
@@ -117,7 +141,7 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
     // so all clients intentionally share the `direct` bucket and are limited
     // together rather than bypassing the limiter entirely.
     const ip = getClientIp(c);
-    if (shouldBypassRateLimit(ip)) {
+    if (shouldBypassRateLimit(ip, options.host)) {
       return next();
     }
 
@@ -127,29 +151,23 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
 
     const now = Date.now();
     let entry = store.get(key);
+    const useOverflow = !entry && store.size >= maxStoreSize;
+    if (useOverflow) entry = overflowEntry;
 
     // Reset if window expired
-    if (!entry || entry.resetAt < now) {
-      // Prevent unbounded growth from many unique IPs
-      if (!entry && store.size >= maxStoreSize) {
-        // Evict oldest entry (first key in insertion order) instead of rejecting
-        const oldestKey = store.keys().next().value;
-        if (oldestKey) {
-          store.delete(oldestKey);
-          log.debug(`[RateLimit] Evicted oldest entry to make room for new client`);
-        }
-      }
+    if (!entry || entry.resetAt <= now) {
       entry = {
         count: 0,
         burstCount: 0,
         resetAt: now + config.windowMs,
         warned: false,
       };
-      store.set(key, entry);
+      if (useOverflow) overflowEntry = entry;
+      else store.set(key, entry);
     }
 
     // Increment count
-    entry.count++;
+    entry.count = Math.min(entry.count + 1, Math.max(config.maxRequests, burstLimit) + 1);
 
     // Set rate limit headers
     const remaining = Math.max(0, config.maxRequests - entry.count);
@@ -178,12 +196,16 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
     // Check if over burst limit
     if (entry.count > burstLimit) {
       c.header('Retry-After', String(reset));
+      c.header('Cache-Control', 'no-store');
 
       // Soft limit: warn but don't block
       if (config.softLimit) {
         c.header('X-RateLimit-SoftLimit', 'true');
         c.header('X-RateLimit-Warning', 'Rate limit exceeded, but soft limit is enabled');
-        log.warn(`[RateLimit] Soft limit exceeded for ${key}: ${entry.count} requests`);
+        if (!entry.warned) {
+          entry.warned = true;
+          log.warn(`[RateLimit] Soft limit exceeded for ${key}`);
+        }
         return next();
       }
 
@@ -206,7 +228,10 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
  * Create a sliding window rate limiter
  * More accurate but uses more memory
  */
-export function createSlidingWindowRateLimiter(config: RateLimitConfig) {
+export function createSlidingWindowRateLimiter(
+  config: RateLimitConfig,
+  options: RateLimitOptions = {}
+) {
   if (config.disabled) {
     return createMiddleware(async (_c, next) => {
       return next();
@@ -214,8 +239,9 @@ export function createSlidingWindowRateLimiter(config: RateLimitConfig) {
   }
 
   const requests = new Map<string, number[]>();
+  let overflowTimestamps: number[] = [];
   const burstLimit = config.burstLimit ?? Math.floor(config.maxRequests * 1.5);
-  const excludePaths = config.excludePaths ?? ['/health', '/api/v1/health'];
+  const excludePaths = new Set(config.excludePaths ?? HEALTH_CHECK_PATHS);
   const maxStoreSize = RATE_LIMIT_MAX_STORE_SIZE;
 
   // Clean up old entries
@@ -229,6 +255,7 @@ export function createSlidingWindowRateLimiter(config: RateLimitConfig) {
         requests.set(key, filtered);
       }
     }
+    overflowTimestamps = overflowTimestamps.filter((timestamp) => timestamp > cutoff);
   }, config.windowMs / 4);
 
   // Don't prevent process exit and track for cleanup
@@ -238,12 +265,12 @@ export function createSlidingWindowRateLimiter(config: RateLimitConfig) {
   return createMiddleware(async (c, next) => {
     const path = c.req.path;
 
-    if (excludePaths.some((p) => path.startsWith(p))) {
+    if (excludePaths.has(path)) {
       return next();
     }
 
     const ip = getClientIp(c);
-    if (shouldBypassRateLimit(ip)) {
+    if (shouldBypassRateLimit(ip, options.host)) {
       return next();
     }
 
@@ -255,19 +282,13 @@ export function createSlidingWindowRateLimiter(config: RateLimitConfig) {
 
     // Get or create timestamps array
     let timestamps = requests.get(key);
-
-    // Prevent unbounded growth from many unique IPs
-    if (!timestamps && requests.size >= maxStoreSize) {
-      // Evict oldest entry instead of rejecting
-      const oldestKey = requests.keys().next().value;
-      if (oldestKey) {
-        requests.delete(oldestKey);
-        log.debug(`[RateLimit] Evicted oldest entry in sliding window to make room`);
-      }
-    }
+    const useOverflow = !timestamps && requests.size >= maxStoreSize;
+    if (useOverflow) timestamps = overflowTimestamps;
 
     // Filter out old timestamps
     timestamps = (timestamps ?? []).filter((t) => t > cutoff);
+    if (useOverflow) overflowTimestamps = timestamps;
+    else requests.set(key, timestamps);
 
     // Set headers
     const remaining = Math.max(0, config.maxRequests - timestamps.length);
@@ -281,6 +302,7 @@ export function createSlidingWindowRateLimiter(config: RateLimitConfig) {
 
       c.header('X-RateLimit-Reset', String(retryAfter));
       c.header('Retry-After', String(retryAfter));
+      c.header('Cache-Control', 'no-store');
 
       if (config.softLimit) {
         c.header('X-RateLimit-SoftLimit', 'true');
@@ -289,7 +311,6 @@ export function createSlidingWindowRateLimiter(config: RateLimitConfig) {
         if (timestamps.length < burstLimit + 50) {
           timestamps.push(now);
         }
-        requests.set(key, timestamps);
         return next();
       }
 
@@ -305,7 +326,6 @@ export function createSlidingWindowRateLimiter(config: RateLimitConfig) {
 
     // Add current timestamp
     timestamps.push(now);
-    requests.set(key, timestamps);
 
     return next();
   });

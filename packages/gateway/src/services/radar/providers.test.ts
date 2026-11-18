@@ -40,6 +40,47 @@ describe('free Radar provider contracts', () => {
     expect(s.items[0]).toMatchObject({ value: '5.651' });
     expect(s.sourceUpdatedAt).toBe('2026-11-16');
   });
+  it.each([5, 5.000001, 4.999999, 0.000001])(
+    'preserves a supported GBP quote exactly: %s',
+    async (rate) => {
+      m.json.mockResolvedValue([{ date: '2026-11-16', base: 'GBP', quote: 'BRL', rate }]);
+      const snapshot = await fetchSource('currency', 'GBP');
+      expect(snapshot.items[0]?.value).toBe(String(rate));
+    }
+  );
+  it.each([5.0000004, 4.9999996, 0.0000001])(
+    'rejects excess currency precision instead of rounding a threshold: %s',
+    async (rate) => {
+      m.json.mockResolvedValue([{ date: '2026-11-16', base: 'GBP', quote: 'BRL', rate }]);
+      await expect(fetchSource('currency', 'GBP')).rejects.toMatchObject({
+        code: 'invalid_response',
+      });
+    }
+  );
+  it.each([5, 5.6518])('preserves PTAX sale quotes without rounding: %s', async (rate) => {
+    m.json.mockResolvedValue({
+      value: [
+        {
+          dataHoraCotacao: '2026-11-13 13:10:00.0',
+          cotacaoVenda: rate,
+          tipoBoletim: 'Fechamento',
+        },
+      ],
+    });
+    expect((await fetchSource('ptax', 'USD')).items[0]?.value).toBe(String(rate));
+  });
+  it('refuses a PTAX quote that would round into an exact threshold', async () => {
+    m.json.mockResolvedValue({
+      value: [
+        {
+          dataHoraCotacao: '2026-11-13 13:10:00.0',
+          cotacaoVenda: 5.0000004,
+          tipoBoletim: 'Fechamento',
+        },
+      ],
+    });
+    await expect(fetchSource('ptax', 'USD')).rejects.toMatchObject({ code: 'invalid_response' });
+  });
   it.each([null, 0, -1, '5.65', NaN, Infinity])(
     'refuses a missing or malformed price %s',
     async (rate) => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompletionRequest } from '../types.js';
 import type { ResolvedProviderConfig } from './configs/types.js';
-import { groqPoolKeys, groqPoolRead, groqRetryDelayMs } from './groq-key-pool.js';
+import { fetchGroqPool, groqPoolKeys, groqPoolRead, groqRetryDelayMs } from './groq-key-pool.js';
 import { OpenAICompatibleProvider } from './openai-compatible.js';
 import { createProvider } from '../provider.js';
 import { FallbackProvider, providerCooldownMs } from './fallback.js';
@@ -156,7 +156,7 @@ describe('bounded Groq pool transport', () => {
     expect((await provider.complete(request())).ok).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
-  it('includes the reserved output budget in the opt-in admission estimate', async () => {
+  it('fits the default output reserve inside the total budget without refusing a valid request', async () => {
     vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
     const fetch = vi.fn().mockImplementation(async () => success());
     vi.stubGlobal('fetch', fetch);
@@ -164,11 +164,123 @@ describe('bounded Groq pool transport', () => {
       (
         await new OpenAICompatibleProvider(config()).complete({
           ...request(),
-          model: { model: 'model-a', maxTokens: 8_000 },
+          model: { model: 'model-a', maxTokens: 8192 },
         })
       ).ok
-    ).toBe(false);
+    ).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const sent = body(fetch, 0);
+    expect(sent.max_tokens).toBeGreaterThanOrEqual(1024);
+    expect(sent.max_tokens).toBeLessThan(8000);
+    expect(
+      Math.ceil(Buffer.byteLength(fetch.mock.calls[0]![1].body) / 4) + sent.max_tokens
+    ).toBeLessThanOrEqual(8000);
+  });
+  it('rejects context without a useful response allowance before credentials or admission hooks are used', async () => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
+    const fetch = vi.fn();
+    const beforeFetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const controller = new AbortController();
+    const original = JSON.stringify({
+      messages: [{ role: 'user', content: 'x'.repeat(30_800) }],
+      max_completion_tokens: 8192,
+    });
+    const result = await fetchGroqPool({
+      keys,
+      model: 'model-a',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      options: { body: original },
+      controller,
+      timeoutMs: 500,
+      beforeFetch,
+    });
+    expect(result.response.status).toBe(413);
+    expect(result.errorText).toContain('groq_local_admission');
     expect(fetch).not.toHaveBeenCalled();
+    expect(beforeFetch).not.toHaveBeenCalled();
+    expect(result.signal).toBe(controller.signal);
+  });
+  it('uses the same bounded completion allowance across independently budgeted retry credentials', async () => {
+    independentOrganizations();
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(failure(429, { 'Retry-After': '30' }))
+      .mockResolvedValueOnce(success());
+    vi.stubGlobal('fetch', fetch);
+    const original = JSON.stringify({
+      messages: [{ role: 'user', content: 'Agenda '.repeat(900) }],
+      max_completion_tokens: 8192,
+    });
+    const result = await fetchGroqPool({
+      keys,
+      model: 'budget-retry',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      options: {
+        body: original,
+        headers: { 'Content-Length': String(Buffer.byteLength(original)) },
+      },
+      controller: new AbortController(),
+      timeoutMs: 500,
+    });
+    expect(result.response.ok).toBe(true);
+    result.finish();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(body(fetch, 0)).toEqual(body(fetch, 1));
+    expect(body(fetch, 0).max_completion_tokens).toBeGreaterThanOrEqual(1024);
+    expect(body(fetch, 0).max_completion_tokens).toBeLessThan(8192);
+    expect(body(fetch, 0)).not.toHaveProperty('max_tokens');
+    expect(new Headers(fetch.mock.calls[0]![1].headers).has('content-length')).toBe(false);
+    expect(authorization(fetch, 0)).not.toBe(authorization(fetch, 1));
+  });
+  it('does not start a budgeted request that was already cancelled', async () => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      fetchGroqPool({
+        keys,
+        model: 'cancelled-budget',
+        url: 'https://api.groq.com/openai/v1/chat/completions',
+        options: { body: JSON.stringify({ messages: [], max_tokens: 8192 }) },
+        controller,
+        timeoutMs: 500,
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('keeps a budgeted SSE request complete while preserving the streaming contract', async () => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
+    const ending =
+      'data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] }) + '\n\n';
+    const fetch = vi.fn(
+      async () =>
+        new Response(sse('Bom dia, sua agenda está livre.') + ending + 'data: [DONE]\n\n', {
+          headers: { 'content-type': 'text/event-stream' },
+        })
+    );
+    vi.stubGlobal('fetch', fetch);
+    const output = [];
+    for await (const chunk of new OpenAICompatibleProvider(config()).stream({
+      ...request(),
+      model: { model: 'model-a', maxTokens: 8192 },
+    }))
+      output.push(chunk);
+    expect(output.some((chunk) => chunk.ok && chunk.value.content?.includes('Bom dia'))).toBe(true);
+    expect(
+      output.some((chunk) => chunk.ok && chunk.value.done && chunk.value.finishReason === 'stop')
+    ).toBe(true);
+    const sent = body(fetch, 0);
+    expect(sent.stream).toBe(true);
+    expect(sent.max_tokens).toBeGreaterThanOrEqual(1024);
+    expect(sent.max_tokens).toBeLessThan(8192);
+    expect(
+      Math.ceil(Buffer.byteLength(fetch.mock.calls[0]![1].body) / 4) + sent.max_tokens
+    ).toBeLessThanOrEqual(8000);
+    expect(output.every((chunk) => chunk.ok)).toBe(true);
   });
   it('bounds the operator by default without applying its budget to tenant-owned credentials', async () => {
     const fetch = vi.fn().mockImplementation(async () => success());

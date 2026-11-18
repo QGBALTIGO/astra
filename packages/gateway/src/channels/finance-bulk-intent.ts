@@ -21,16 +21,22 @@ export function financeBulkIntent(
     return 'confirm';
   if (/^(?:nao|cancele a exclusao|cancelar exclusao|desisti)$/u.test(input)) return 'cancel';
   if (
-    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:todos )?(?:os )?(?:meus )?(?:lancamentos|registros|transacoes)(?: financeiros)? (?:(?:que )?(?:estao|ficaram|estiverem) )?pendentes$/u.test(
+    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:todos|todas) (?:(?:os|as) )?(?:(?:meus|minhas) )?(?:entradas|receitas|recebimentos|saidas|despesas) (?:(?:que )?(?:estao|ficaram|estiverem) )?pendentes$/u.test(
       input
     )
   )
     return 'global';
   if (
-    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:(?:esses|essas|estes|estas|aqueles|aquelas|os|as)(?: (?:meus|minhas))? )?(?:(?:lancamentos|registros|transacoes|recebimentos|contas|valores) )?(?:pendentes|pendencias)$/u.test(
+    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:(?:todos|todas) )?(?:(?:os|as) )?(?:(?:meus|minhas) )?(?:lancamentos|registros|transacoes)(?: financeiros)? (?:(?:que )?(?:estao|ficaram|estiverem) )?pendentes$/u.test(
+      input
+    )
+  )
+    return 'global';
+  if (
+    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:(?:esses|essas|estes|estas|aqueles|aquelas|os|as)(?: (?:meus|minhas))? )?(?:(?:lancamentos|registros|transacoes|recebimentos|entradas|receitas|saidas|despesas|contas|valores) )?(?:pendentes|pendencias)$/u.test(
       input
     ) ||
-    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:esses|essas|estes|estas|aqueles|aquelas)(?: (?:lancamentos|registros|transacoes|recebimentos|contas|valores))?$/u.test(
+    /^(?:(?:quero|pode|poderia) )?(?:remov[ae]r?|exclu[ai]r?|apag(?:a|ue|ar)|delet[ae]r?) (?:esses|essas|estes|estas|aqueles|aquelas)(?: (?:lancamentos|registros|transacoes|recebimentos|entradas|receitas|saidas|despesas|contas|valores))?$/u.test(
       input
     )
   )
@@ -46,6 +52,17 @@ export function financeBulkIntent(
     return 'context';
   return null;
 }
+
+/** An explicit type narrows a review; it never authorizes a deletion itself. */
+export function financeBulkTransactionType(text: string): 'income' | 'expense' | undefined {
+  const intent = financeBulkIntent(text);
+  if (intent !== 'global' && intent !== 'context') return undefined;
+  const input = normalized(text);
+  if (/\b(?:entradas|receitas|recebimentos)\b/u.test(input)) return 'income';
+  if (/\b(?:saidas|despesas)\b/u.test(input)) return 'expense';
+  return undefined;
+}
+
 export function isBulkFinanceDeletionRequest(text: string): boolean {
   const intent = financeBulkIntent(text);
   const input = normalized(text);

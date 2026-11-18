@@ -91,6 +91,18 @@ describe('readSseData', () => {
     expect(results).toEqual(['hello']);
   });
 
+  it.each(['\n', '\r\n'])(
+    'accepts data without an optional space using %j line endings',
+    async (newline) => {
+      const stream = createStream([
+        'da',
+        `ta:{"content":"hello"}${newline}${newline}data:`,
+        '[DONE]',
+      ]);
+      expect(await Array.fromAsync(readSseData(stream))).toEqual(['{"content":"hello"}', '[DONE]']);
+    }
+  );
+
   it('skips empty data lines', async () => {
     const stream = createStream(['data: \n\n', 'data: value\n\n']);
     const results: string[] = [];

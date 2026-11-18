@@ -1,6 +1,7 @@
 import { createProvider, createFallbackProvider, type ProviderConfig } from '@ownpilot/core/agent';
 import {
   parseAstraFallbackChain,
+  limitAstraFallbacks,
   ASTRA_CLOUDFLARE_TIMEOUT_MS,
 } from '../services/agent/fallback-chain.js';
 import { resolveForChannel } from '../services/llm/model-routing.js';
@@ -23,17 +24,31 @@ export async function writeShortChannelReply(
 ): Promise<string | null> {
   const remaining = deadline - Date.now();
   if (remaining <= 0) return null;
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      complete(channel, system, prompt, tokens, deadline, responseFormat, temperature),
+      complete(
+        channel,
+        system,
+        prompt,
+        tokens,
+        deadline,
+        responseFormat,
+        temperature,
+        controller.signal
+      ),
       new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), remaining);
+        timer = setTimeout(() => {
+          resolve(null);
+          controller.abort();
+        }, remaining);
         timer.unref?.();
       }),
     ]);
   } finally {
     if (timer) clearTimeout(timer);
+    controller.abort();
   }
 }
 
@@ -44,17 +59,18 @@ async function complete(
   tokens: number,
   deadline: number,
   responseFormat: 'text' | 'json',
-  temperature: number
+  temperature: number,
+  signal: AbortSignal
 ): Promise<string | null> {
   const { provider, model, fallbackProvider, fallbackModel } = await resolveForChannel(channel);
-  if (!provider || !model || provider.startsWith('cli-')) return null;
+  if (signal.aborted || !provider || !model || provider.startsWith('cli-')) return null;
   const config = loadProviderConfig(provider);
   const native = NATIVE_PROVIDERS.has(provider);
   if (!native && !config?.baseUrl) return null;
   const resolvedAuth = await resolveAuthForRequest(provider);
   const apiKey = resolvedAuth?.value ?? (await getProviderApiKey(provider));
   const remaining = deadline - Date.now();
-  if (!apiKey || remaining <= 0) return null;
+  if (signal.aborted || !apiKey || remaining <= 0) return null;
   const primary: ProviderConfig = {
     id: provider,
     provider: (native ? provider : (config?.type ?? 'openai')) as ProviderConfig['provider'],
@@ -74,19 +90,22 @@ async function complete(
       ...(provider === 'ollama-local' ? { 'X-Astra-Deadline': String(deadline) } : {}),
     },
   };
-  const fallbacks: ProviderConfig[] = [];
+  const configuredFallbacks: ProviderConfig[] = [];
   for (const candidate of parseAstraFallbackChain(
     process.env.ASTRA_FALLBACK_CHAIN,
     provider,
     fallbackProvider && fallbackModel
       ? { provider: fallbackProvider, model: fallbackModel }
-      : undefined
+      : undefined,
+    { deferLimit: true }
   )) {
+    if (signal.aborted || deadline <= Date.now()) return null;
     const fbAuth = await resolveAuthForRequest(candidate.provider);
     const fbKey = fbAuth?.value ?? (await getProviderApiKey(candidate.provider));
+    if (signal.aborted || deadline <= Date.now()) return null;
     const fb = loadProviderConfig(candidate.provider);
     if (!fbKey || (!fb?.baseUrl && !NATIVE_PROVIDERS.has(candidate.provider))) continue;
-    fallbacks.push({
+    configuredFallbacks.push({
       id: candidate.provider,
       provider: (NATIVE_PROVIDERS.has(candidate.provider)
         ? candidate.provider
@@ -103,18 +122,26 @@ async function complete(
       maxRetries: 0,
     });
   }
+  const completionRemaining = deadline - Date.now();
+  if (signal.aborted || completionRemaining <= 0) return null;
+  const boundedPrimary = {
+    ...primary,
+    timeout: Math.min(primary.timeout!, completionRemaining),
+  };
+  const fallbacks = limitAstraFallbacks(configuredFallbacks, (candidate) => candidate.id);
   const writer = fallbacks.length
     ? createFallbackProvider({
-        primary,
+        primary: boundedPrimary,
         fallbacks,
         circuitBreakerThreshold: 1,
         circuitBreakerCooldown: 300000,
         sharedCircuitBreaker: true,
         preferLastSuccessful: true,
-        completionTimeoutMs: Math.max(1, deadline - Date.now()),
+        completionTimeoutMs: completionRemaining,
       })
-    : createProvider(primary);
+    : createProvider(boundedPrimary);
   const result = await writer.complete({
+    signal,
     model: {
       model,
       maxTokens: tokens,

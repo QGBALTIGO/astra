@@ -418,37 +418,21 @@ export class PomodoroRepository extends BaseRepository {
     if (stats.length === 0) return 0;
 
     let streak = 0;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const expectedDate = new Date();
 
-    // "Allow for today or yesterday to count as start": anchor the walk at
-    // the most recent completed day. When that day is YESTERDAY the streak is
-    // not broken — today hasn't been missed until it ends — so the walk must
-    // start at yesterday. Anchoring at today made the first comparison always
-    // fail and reset yesterday-anchored streaks to 0 (round 22).
-    const firstStatDate = new Date(stats[0]!.date);
-    firstStatDate.setHours(0, 0, 0, 0);
-    const anchor = firstStatDate.getTime() < today.getTime() ? firstStatDate : today;
+    // Stored YYYY-MM-DD values are civil dates, not UTC instants. Compare
+    // them directly with local calendar days; parsing then applying setHours
+    // shifts the stored date backward in negative UTC offsets. Calendar steps
+    // also avoid treating a daylight-saving transition as a partial day.
+    if (stats[0]!.date !== this.localDayString(expectedDate)) {
+      expectedDate.setDate(expectedDate.getDate() - 1);
+      if (stats[0]!.date !== this.localDayString(expectedDate)) return 0;
+    }
 
-    for (let i = 0; i < stats.length; i++) {
-      const stat = stats[i]!;
-      const statDate = new Date(stat.date);
-      statDate.setHours(0, 0, 0, 0);
-
-      const expectedDate = new Date(anchor);
-      expectedDate.setDate(anchor.getDate() - streak);
-
-      // Allow for today or yesterday to count as start
-      if (i === 0) {
-        const diffDays = Math.floor((today.getTime() - statDate.getTime()) / MS_PER_DAY);
-        if (diffDays > 1) return 0; // Streak is broken
-      }
-
-      if (statDate.getTime() === expectedDate.getTime()) {
-        streak++;
-      } else {
-        break;
-      }
+    for (const stat of stats) {
+      if (stat.date !== this.localDayString(expectedDate)) break;
+      streak++;
+      expectedDate.setDate(expectedDate.getDate() - 1);
     }
 
     return streak;

@@ -2,7 +2,7 @@
  * Health Routes Tests
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 
 const mockOnboarding = vi.hoisted(() => vi.fn());
@@ -78,8 +78,14 @@ vi.mock('../db/adapters/types.js', () => ({
   getDatabaseConfig: () => mockGetDatabaseConfig(),
 }));
 
-import { healthRoutes } from './health.js';
+import { healthRoutes, resetDatabaseReadinessCache } from './health.js';
 import { requestId } from '../middleware/request-id.js';
+
+beforeEach(() => resetDatabaseReadinessCache());
+afterEach(() => {
+  resetDatabaseReadinessCache();
+  vi.useRealTimers();
+});
 
 function createApp(opts: { authenticated?: boolean } = {}) {
   const app = new Hono();
@@ -656,17 +662,124 @@ describe('Health Routes — public mount auth gating (HEALTH-AUTH)', () => {
   });
 
   it('publishes only readiness and preserves the status code on failure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
     mockIsConnected.mockReturnValue(true);
     const ready = await publicApp.request('/health/ready');
     expect(ready.status).toBe(200);
     expect((await ready.json()).data).toEqual({ status: 'ready' });
     mockQueryOne.mockResolvedValue({ exists: null });
+    vi.setSystemTime(2_000);
     const missing = await publicApp.request('/health/ready');
     expect(missing.status).toBe(503);
     expect((await missing.json()).data).toEqual({ status: 'not_ready' });
     mockQueryOne.mockRejectedValue(new Error('private database error detail'));
+    vi.setSystemTime(3_000);
     const failed = await publicApp.request('/health/ready');
     expect(failed.status).toBe(503);
     expect(await failed.text()).not.toContain('private database error detail');
   });
+});
+
+describe('Readiness probe database amplification limits', () => {
+  let publicApp: Hono;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    vi.clearAllMocks();
+    publicApp = createApp({ authenticated: false });
+    mockGetAdapterSync.mockReturnValue({ isConnected: mockIsConnected, queryOne: mockQueryOne });
+    mockIsConnected.mockReturnValue(true);
+    mockQueryOne.mockResolvedValue({ exists: 'table' });
+  });
+
+  it('shares one database batch across concurrent probes and caches success for exactly 2 seconds', async () => {
+    let releaseQuery!: (row: { exists: string }) => void;
+    let queryStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      queryStarted = resolve;
+    });
+    const pendingQuery = new Promise<{ exists: string }>((resolve) => {
+      releaseQuery = resolve;
+    });
+    mockQueryOne.mockImplementationOnce(() => {
+      queryStarted();
+      return pendingQuery;
+    });
+    const authenticatedApp = createApp();
+    const probes = Array.from({ length: 40 }, (_, index) =>
+      (index % 2 === 0 ? publicApp : authenticatedApp).request('/health/ready')
+    );
+    await started;
+    expect(mockGetAdapterSync).toHaveBeenCalledTimes(1);
+    expect(mockQueryOne).toHaveBeenCalledTimes(1);
+    releaseQuery({ exists: 'settings' });
+    const responses = await Promise.all(probes);
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(responses[0]!.headers.get('Cache-Control')).toBe('no-store');
+    expect((await responses[0]!.json()).data).toEqual({ status: 'ready' });
+    expect((await responses[1]!.json()).data.checks[0].name).toBe('database');
+    expect(mockQueryOne).toHaveBeenCalledTimes(7);
+
+    vi.setSystemTime(1_999);
+    expect((await publicApp.request('/health/ready')).status).toBe(200);
+    expect(mockQueryOne).toHaveBeenCalledTimes(7);
+    vi.setSystemTime(2_000);
+    expect((await publicApp.request('/health/ready')).status).toBe(200);
+    expect(mockQueryOne).toHaveBeenCalledTimes(14);
+  });
+
+  it('coalesces rejected queries into 503s and retries after the 1-second failure cache', async () => {
+    mockQueryOne.mockRejectedValue(new Error('private query failure'));
+    const responses = await Promise.all(
+      Array.from({ length: 40 }, () => publicApp.request('/health/ready'))
+    );
+    expect(responses.every((response) => response.status === 503)).toBe(true);
+    expect(await responses[0]!.text()).not.toContain('private query failure');
+    expect(mockGetAdapterSync).toHaveBeenCalledTimes(1);
+    expect(mockQueryOne).toHaveBeenCalledTimes(1);
+
+    mockQueryOne.mockResolvedValue({ exists: 'table' });
+    vi.setSystemTime(999);
+    expect((await publicApp.request('/health/ready')).status).toBe(503);
+    expect(mockQueryOne).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(1_000);
+    expect((await publicApp.request('/health/ready')).status).toBe(200);
+    expect(mockGetAdapterSync).toHaveBeenCalledTimes(2);
+    expect(mockQueryOne).toHaveBeenCalledTimes(8);
+  });
+
+  it('keeps missing-table results at 503 until the short failure cache expires', async () => {
+    mockQueryOne.mockResolvedValue({ exists: null });
+    expect((await publicApp.request('/health/ready')).status).toBe(503);
+    mockQueryOne.mockResolvedValue({ exists: 'table' });
+    vi.setSystemTime(999);
+    expect((await publicApp.request('/health/ready')).status).toBe(503);
+    expect(mockQueryOne).toHaveBeenCalledTimes(7);
+    vi.setSystemTime(1_000);
+    expect((await publicApp.request('/health/ready')).status).toBe(200);
+    expect(mockQueryOne).toHaveBeenCalledTimes(14);
+  });
+
+  it.each(['disconnected', 'uninitialized'] as const)(
+    'coalesces a %s adapter failure and recovers on the next permitted check',
+    async (failure) => {
+      if (failure === 'disconnected') mockIsConnected.mockReturnValue(false);
+      else
+        mockGetAdapterSync.mockImplementation(() => {
+          throw new Error('not initialized');
+        });
+      const responses = await Promise.all(
+        Array.from({ length: 40 }, () => publicApp.request('/health/ready'))
+      );
+      expect(responses.every((response) => response.status === 503)).toBe(true);
+      expect(mockGetAdapterSync).toHaveBeenCalledTimes(1);
+      expect(mockQueryOne).not.toHaveBeenCalled();
+      mockGetAdapterSync.mockReturnValue({ isConnected: mockIsConnected, queryOne: mockQueryOne });
+      mockIsConnected.mockReturnValue(true);
+      vi.setSystemTime(1_000);
+      expect((await publicApp.request('/health/ready')).status).toBe(200);
+      expect(mockQueryOne).toHaveBeenCalledTimes(7);
+    }
+  );
 });

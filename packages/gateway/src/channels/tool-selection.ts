@@ -1,9 +1,10 @@
 import { isAstraAccessAnswerRequested } from './astra-access.js';
+import { hasChannelEmailSubject, isChannelEmailRequest } from './email-intent.js';
 import { isFinanceReadOnlyRequest, isNonExecutableFinanceCorrection } from './finance-intent.js';
 
 /** Read saved subscription facts rather than searching payment transactions. */
 export function requiredChannelSubscriptionTool(text: string): string | undefined {
-  if (isConversationalOnlyChannelRequest(text)) return undefined;
+  if (isChannelEmailRequest(text) || isConversationalOnlyChannelRequest(text)) return undefined;
   const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
   if (
     !/\bassinaturas?\b/.test(input) ||
@@ -38,11 +39,11 @@ export function requiredChannelEmailDigestTool(
   )
     return undefined;
   const dailyEmail =
-    /\b(?:gmail|e-?mails?)\b/.test(input) &&
+    hasChannelEmailSubject(input) &&
     /\bresumo\b/.test(input) &&
     /\b(?:diario|diariamente|todo dia|todos os dias|toda manha)\b/.test(input);
   const timeAnswer =
-    /\b(?:gmail|e-?mails?)\b/i.test(previousText.slice(-500)) &&
+    hasChannelEmailSubject(previousText.slice(-500)) &&
     /em qual horário você quer receber o resumo/i.test(previousText.slice(-500)) &&
     /^\s*(?:[aà]s?\s*)?\d{1,2}(?:(?:h|:)\d{0,2})?\s*(?:horas?)?[.!]?\s*$/i.test(text);
   return dailyEmail || timeAnswer ? 'core.manage_email_digest' : undefined;
@@ -141,6 +142,7 @@ export function isConversationalOnlyChannelQuestion(text: string): boolean {
 
 /** Cooking advice is conversation, even after a financial thread used "receita" as income. */
 export function isCulinaryChannelAdvice(text: string): boolean {
+  if (hasChannelEmailSubject(text)) return false;
   const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
   if (
     /\b(?:registr[ae]|anot[ae]|salv[ae]|agend[ae]|lembre|avis[ae]|cancele|exclua|apag[ae]|pague|transfira|corrija|atualize|altere)\b/u.test(
@@ -238,7 +240,9 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
   // replies must not attach unrelated action schemas to a new weather request.
   // Elliptical follow-ups still use recent conversation for intent resolution.
   const current = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const emailRequest = isChannelEmailRequest(text, previousText);
   const explicitSubject =
+    hasChannelEmailSubject(text) ||
     /\b(?:assinaturas?|mensalidades?|temperatura|clima|chuva|previsao|cidade|moro|google|gmail|drive|planilh\w*|todoist|notion|trello|conexo\w*|integra\w*|sincroniz\w*|e-?mails?|lembre\w*|avis\w*|alarme|reagend\w*|financeiro|financas|reais|recebi|receber|ganhei|gastei|gastos?|paguei|pagamentos?|saldo|lancamentos?|faturas?|metas?|objetivos?|financiamentos?|tarefas?|afazeres?|dentista|reuniao|compromisso|calendario|agenda|memoria|memorize|radar|noticias?|jogos?|futebol)\b|r\s*\$/u.test(
       current
     );
@@ -261,9 +265,15 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     /\b(?:como (?:esta|ta|vai) o tempo|tempo (?:agora|hoje|amanha|aqui|em))\b/.test(input)
   )
     add('get_local_weather', 'set_weather_city');
+  // A new subject must not inherit mail tools just because an older response
+  // mentioned Gmail. Explicit mail continuations and digest time answers retain them.
+  const integrationInput = hasChannelEmailSubject(previousText) && !emailRequest ? current : input;
   if (
+    emailRequest ||
+    hasChannelEmailSubject(text) ||
+    requiredChannelEmailDigestTool(text, previousText) ||
     /\b(?:google|gmail|drive|planilh\w*|todoist|notion|trello|conexo\w*|integra\w*|sincroniz\w*|e-?mails?)\b/.test(
-      input
+      integrationInput
     )
   )
     add(
@@ -293,10 +303,11 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     );
   }
   if (
-    mentionsFinancialIncome ||
-    /\b(?:reais|recebi|receber|recebimentos?|ganhei|ganhar|salarios?|entrada|entradas|saida|saidas|despesa|despesas|gastei|gastar|gastos?|paguei|pagar|pagamentos?|financeiro|saldo|valor|cakto|lancamento|lancamentos|faturas?)\b|\b\d[\d.,]*\s*real\b|r\s*\$/.test(
-      input
-    )
+    !emailRequest &&
+    (mentionsFinancialIncome ||
+      /\b(?:reais|recebi|receber|recebimentos?|ganhei|ganhar|salarios?|entrada|entradas|saida|saidas|despesa|despesas|gastei|gastar|gastos?|paguei|pagar|pagamentos?|financeiro|saldo|valor|cakto|lancamento|lancamentos|faturas?)\b|\b\d[\d.,]*\s*real\b|r\s*\$/.test(
+        input
+      ))
   ) {
     add(
       'record_transaction',
@@ -310,15 +321,17 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
   // Portuguese requests. Do not confuse generic "guardar" (remember/save a
   // note) with saving money: require an explicit goal/savings/debt term.
   if (
-    /\b(?:metas?|objetivos?|economiz(?:ar|ando)|poup(?:ar|ando)|junt(?:ar|ando)|financiamentos?|quitar|quitacao|contribuicao|contribuicoes)\b/.test(
+    !emailRequest &&
+    (/\b(?:metas?|objetivos?|economiz(?:ar|ando)|poup(?:ar|ando)|junt(?:ar|ando)|financiamentos?|quitar|quitacao|contribuicao|contribuicoes)\b/.test(
       input
     ) ||
-    /\bguardar\s+(?:r\$|\d|dinheiro)\b/.test(input)
+      /\bguardar\s+(?:r\$|\d|dinheiro)\b/.test(input))
   ) {
     add('create_goal', 'list_goals', 'update_goal', 'get_goal_details', 'get_goal_stats');
     add('list_customer_planning');
   }
-  if (/\b(?:orcamentos?|parcelas?|planejamento)\b/.test(input)) add('list_customer_planning');
+  if (!emailRequest && /\b(?:orcamentos?|parcelas?|planejamento)\b/.test(input))
+    add('list_customer_planning');
   if (/\b(?:tarefa|tarefas|afazer|afazeres)\b/.test(input)) add('add_task', 'list_tasks');
   if (/\b(?:consulta|dentista|reuniao|compromisso|calendario|agenda)\b/.test(input))
     add('add_calendar_event', 'list_calendar_events');

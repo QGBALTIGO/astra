@@ -326,6 +326,41 @@ describe('actual pooled transport admission', () => {
     result.finish();
   });
 
+  it('fits a long requested output to quota and reserves that same allowance atomically', async () => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
+    const fetch = vi.fn(async (_url: string, _options: RequestInit) =>
+      Response.json({ choices: [] })
+    );
+    vi.stubGlobal('fetch', fetch);
+    const messages = [{ role: 'user', content: 'Conferir a agenda completa.' }];
+    const tools = [{ type: 'function', function: { name: 'list_tasks', parameters: {} } }];
+    const result = await call(new AbortController(), {
+      max_tokens: undefined,
+      max_completion_tokens: 8192,
+      messages,
+      tools,
+    });
+    expect(result.response.ok).toBe(true);
+    const sent = String(fetch.mock.calls[0]![1].body);
+    const payload = JSON.parse(sent);
+    expect(payload.max_completion_tokens).toBeGreaterThanOrEqual(1024);
+    expect(payload.max_completion_tokens).toBeLessThan(5000);
+    expect(payload).not.toHaveProperty('max_tokens');
+    expect(payload.messages).toEqual(messages);
+    expect(payload.tools).toEqual(tools);
+    expect(
+      Math.ceil((Math.ceil(Buffer.byteLength(sent) / 4) + payload.max_completion_tokens) * 1.2)
+    ).toBeLessThanOrEqual(6000);
+    await result.response.text();
+    result.finish();
+    // A second answer cannot spend the first one's reserved token allowance,
+    // even after its concurrency slot has been released.
+    const refused = await call();
+    expect(refused.response.status).toBe(429);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    refused.finish();
+  });
+
   it('does not rotate five unknown credentials after one organization429', async () => {
     const fetch = vi.fn(
       async () => new Response('limited', { status: 429, headers: { 'Retry-After': '120' } })

@@ -431,6 +431,23 @@ describe('financial reports and pending settlement', () => {
     expect(query[1]).toEqual([user]);
   });
 
+  it('lists the nearest pending dates first without changing the ledger default or total', async () => {
+    adapter.queryOne.mockResolvedValueOnce({ total: '21' });
+    const result = await repo.listTransactions({
+      type: 'income',
+      status: 'pending',
+      sort: 'due',
+      pageSize: 20,
+    });
+    const list = adapter.query.mock.calls.find(([sql]) => String(sql).includes('LIMIT $'))!;
+    expect(list[0]).toContain('ORDER BY e.date ASC, e.created_at ASC NULLS LAST, e.id ASC');
+    expect(result).toMatchObject({ total: 21, page: 1, pageSize: 20 });
+    adapter.query.mockClear();
+    await repo.listTransactions({});
+    const defaultList = adapter.query.mock.calls.find(([sql]) => String(sql).includes('LIMIT $'))!;
+    expect(defaultList[0]).toContain('ORDER BY e.date DESC');
+  });
+
   it('settles one pending record once across new repository instances', async () => {
     const created = await repo.createTransaction({ ...input, status: 'pending' });
     const request = {
