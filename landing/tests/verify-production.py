@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 import urllib.request, urllib.error, json, base64, gzip, hashlib, sys
 root=Path(__file__).resolve().parents[1]
 base='https://astraacessor.pro'
-def get(path):
- req=urllib.request.Request(base+path,headers={'Accept-Encoding':'identity','DNT':'1','User-Agent':'Astra-release-verification/1.0'})
+def get(path, agent='Astra-release-verification/1.0'):
+ req=urllib.request.Request(base+path,headers={'Accept-Encoding':'identity','DNT':'1','User-Agent':agent})
  try:
   response=urllib.request.urlopen(req,timeout=25)
  except urllib.error.HTTPError as response:
@@ -24,6 +24,11 @@ def verify(entry):
  assert status==(404 if file=='/404.html' else 200),(path,status)
  assert body==expected,(path,'published bytes differ',hashlib.sha256(body).hexdigest())
  assert headers.get('X-Frame-Options',headers.get('x-frame-options'))=='DENY',path
+ robots=headers.get('X-Robots-Tag',headers.get('x-robots-tag','')).lower()
+ if file.endswith('.html'):
+  if file.startswith('/julio') or file in ['/remover.html','/404.html']: assert 'noindex' in robots,path
+  else: assert 'noindex' not in robots and 'nosnippet' not in robots,path
+ if file.endswith('.txt'): assert 'text/plain' in headers.get('Content-Type',headers.get('content-type','')),path
  return {'path':path,'bytes':len(body)}
 with ThreadPoolExecutor(max_workers=4) as pool: verified=list(pool.map(verify,bundle.items()))
 status,_,body=get('/health');health=json.loads(body)
@@ -34,4 +39,12 @@ for path in public:assert ('<loc>'+base+path+'</loc>').encode() in sitemap,path
 assert b'/remover' not in sitemap
 unknown_status,_,_=get('/not-a-real-astra-route');assert unknown_status==404
 status,_,robots=get('/robots.txt');assert status==200 and b'Disallow: /\n' not in robots
-print(json.dumps({'release':health['release'],'bundle_sha256':build['sha256'],'verified_files':len(verified),'public_sitemap_urls':len(public),'unknown_route_status':unknown_status,'exact_bytes':True,'preview':health['preview']},ensure_ascii=False))
+key=build['indexNowKey']
+status,_,body=get('/'+key+'.txt');assert status==200 and body.decode()==key
+crawler_checks=[]
+for agent in ['Googlebot','bingbot','OAI-SearchBot','PerplexityBot']:
+ status,headers,body=get('/financas',agent)
+ assert status==200 and body==bundle['/financas.html'].encode(),agent
+ assert 'noindex' not in headers.get('X-Robots-Tag',headers.get('x-robots-tag','')).lower(),agent
+ crawler_checks.append(agent)
+print(json.dumps({'crawlers':crawler_checks,'indexnow_key_verified':True,'release':health['release'],'bundle_sha256':build['sha256'],'verified_files':len(verified),'public_sitemap_urls':len(public),'unknown_route_status':unknown_status,'exact_bytes':True,'preview':health['preview']},ensure_ascii=False))

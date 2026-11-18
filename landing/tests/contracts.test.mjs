@@ -9,6 +9,7 @@ import { publicPages } from '../src/public-pages.mjs';
 import { scenarios, scenarioState, money } from '../src/assets/scenarios.js';
 import { requests, unavailableEvents } from './sql-double.mjs';
 import { trialStartUrl, trialCtas, trialAffiliateHtml } from '../src/trial.mjs';
+import { homeMetadata, indexNowKey, googleSiteVerification, release } from '../src/seo.mjs';
 
 const bundle = JSON.parse(await readFile(new URL('../dist/bundle.json', import.meta.url), 'utf8'));
 const build = JSON.parse(await readFile(new URL('../dist/build.json', import.meta.url), 'utf8'));
@@ -44,6 +45,16 @@ test('the deployed form and HTTP handler code is preserved under source formatti
     source = source.replace(
       /  if \(\/\^\\\/julio\(\?:\\\/\|\$\)\/\.test\(path\)\) \{[\s\S]*?\n  \}\n/,
       ''
+    );
+    // Reviewed additions: one exact public verification path and a bounded event enum.
+    // All pre-existing form, origin, CSRF and rate-limit handling remains compared.
+    source = source.replace(
+      "  if (!preview && path === '/' + INDEXNOW_KEY + '.txt') return staticResponse(req, path);\n",
+      ''
+    );
+    source = source.replace(
+      /\[\s*'plan_view',\s*'interest_open',\s*'contact_open',\s*'form_error',\s*'visit_chatgpt',\s*'visit_google',\s*'visit_bing',\s*'visit_perplexity',\s*'visit_gemini',\s*'visit_copilot',\s*'trial_start_click',\s*\]/,
+      "['plan_view', 'interest_open', 'contact_open', 'form_error']"
     );
     // Only the public sitemap now follows the complete public route inventory.
     source = source.replace(
@@ -110,7 +121,9 @@ test('canonical, social images, JSON-LD, login links and sitemap publish the new
     }
   }
   assert.equal(
-    JSON.parse(home.match(/<script type="application\/ld\+json">([\s\S]+?)<\/script>/)[1]).url,
+    JSON.parse(home.match(/<script type="application\/ld\+json">([\s\S]+?)<\/script>/)[1])[
+      '@graph'
+    ].find((item) => item['@type'] === 'SoftwareApplication').url,
     origin + '/'
   );
   assert.equal(home.match(/href="https:\/\/app\.astraacessor\.pro\/cliente\/entrar"/g)?.length, 5);
@@ -508,6 +521,120 @@ test('navigation and icon symbols resolve on every marketing page', () => {
             Object.values(pages).some((p) => p.path === href),
           href
         );
+    }
+  }
+});
+
+test('public discovery metadata and structured data agree with every canonical page', async () => {
+  const inventory = [
+    homeMetadata,
+    ...publicPages,
+    ...Object.values(pages).filter((page) => !page.noindex),
+  ];
+  const titles = new Set();
+  for (const page of inventory) {
+    const response = await send(page.path);
+    const html = await response.text();
+    assert.equal(response.status, 200, page.path);
+    assert.equal(response.headers.get('x-robots-tag'), null, page.path);
+    assert.doesNotMatch(html, /<meta name="robots" content="[^"]*(?:noindex|nosnippet)/);
+    assert.ok(html.includes(`<meta name="twitter:title" content="${page.title}">`), page.path);
+    assert.ok(
+      html.includes(`<meta name="twitter:description" content="${page.description}">`),
+      page.path
+    );
+    assert.ok(!titles.has(page.title), page.title);
+    titles.add(page.title);
+    const data = JSON.parse(
+      html.match(/<script type="application\/ld\+json">([\s\S]+?)<\/script>/)[1]
+    );
+    const webPage = data['@graph'].find((item) => item['@type'] === 'WebPage');
+    assert.equal(webPage.url, origin + page.path);
+    assert.equal(webPage.name, page.title);
+    assert.equal(webPage.description, page.description);
+    assert.doesNotMatch(JSON.stringify(data), /aggregateRating|ratingValue|reviewCount/);
+  }
+  const home = bundle['/index.html'];
+  assert.ok(
+    home.includes(`<meta name="google-site-verification" content="${googleSiteVerification}">`)
+  );
+  const data = JSON.parse(
+    home.match(/<script type="application\/ld\+json">([\s\S]+?)<\/script>/)[1]
+  );
+  const product = data['@graph'].find((item) => item['@type'] === 'SoftwareApplication');
+  assert.equal(product.offers.price, '19.90');
+  assert.equal(product.offers.priceCurrency, 'BRL');
+  assert.equal((await (await send('/health')).json()).release, release);
+});
+
+test('IndexNow serves only the exact UTF-8 key and keeps it out of the sitemap', async () => {
+  const path = '/' + indexNowKey + '.txt';
+  const response = await send(path);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8');
+  assert.equal(await response.text(), indexNowKey);
+  assert.equal(await (await send(path, { method: 'HEAD' })).text(), '');
+  assert.equal((await send('/unknown-indexnow-key.txt')).status, 404);
+  assert.equal((await send('/julio' + path)).status, 404);
+  assert.equal((await send(path, { method: 'POST' })).status, 405);
+  assert.doesNotMatch(await (await send('/sitemap.xml')).text(), new RegExp(indexNowKey));
+});
+
+test('search crawlers receive the public page and retain private-path exclusions', async () => {
+  const robots = await (await send('/robots.txt')).text();
+  assert.match(robots, /User-agent: \*\nAllow: \/\n/);
+  assert.match(robots, /Disallow: \/api\/\n/);
+  assert.match(robots, /Disallow: \/remover\n/);
+  assert.equal((robots.match(/User-agent:/g) || []).length, 1);
+  for (const agent of ['Googlebot', 'bingbot', 'OAI-SearchBot', 'PerplexityBot']) {
+    const response = await send('/financas', { headers: { 'User-Agent': agent } });
+    assert.equal(response.status, 200, agent);
+    assert.equal(response.headers.get('x-robots-tag'), null, agent);
+    assert.equal(await response.text(), bundle['/financas.html']);
+  }
+});
+
+test('discovery counters accept a fixed event list and honor privacy preferences', async () => {
+  const events = [
+    'visit_chatgpt',
+    'visit_google',
+    'visit_bing',
+    'visit_perplexity',
+    'visit_gemini',
+    'visit_copilot',
+    'trial_start_click',
+  ];
+  for (const event of events) {
+    const response = await jsonPost('/api/evento', { event }, '', {
+      'x-real-ip': 'discovery-' + event,
+    });
+    assert.equal(response.status, 204, event);
+  }
+  assert.equal(
+    (
+      await jsonPost(
+        '/api/evento',
+        { event: 'visit_https://private.example/search?q=secret' },
+        '',
+        { 'x-real-ip': 'discovery-unknown' }
+      )
+    ).status,
+    422
+  );
+  for (const privacy of ['dnt', 'sec-gpc']) {
+    unavailableEvents.add('visit_chatgpt');
+    try {
+      assert.equal(
+        (
+          await jsonPost('/api/evento', { event: 'visit_chatgpt' }, '', {
+            [privacy]: '1',
+            'x-real-ip': 'discovery-' + privacy,
+          })
+        ).status,
+        204
+      );
+    } finally {
+      unavailableEvents.delete('visit_chatgpt');
     }
   }
 });
