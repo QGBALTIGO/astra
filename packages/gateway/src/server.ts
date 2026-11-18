@@ -36,6 +36,8 @@ for (const envPath of envPaths) {
 
 import { serve } from '@hono/node-server';
 import type { Server } from 'node:http';
+import { HTTP_SERVER_OPTIONS, configureHttpServer } from './config/http-server.js';
+import { isProxyAwareConfigured } from './utils/client-ip.js';
 import { createApp, sanitizeCorsOriginsFromEnv } from './app.js';
 import type { GatewayConfig } from './types/index.js';
 import { wsGateway, setWsAuthConfig } from './ws/index.js';
@@ -765,6 +767,9 @@ async function main() {
   }
 
   log.info('Starting OwnPilot...', {
+    proxyClientIpConfigured: isProxyAwareConfigured(),
+    proxyClientIpHeader:
+      process.env.TRUSTED_PROXY_IP_HEADER === 'x-real-ip' ? 'x-real-ip' : 'x-forwarded-for',
     port,
     host,
     auth: config.auth?.type ?? 'none',
@@ -780,6 +785,7 @@ async function main() {
       fetch: app.fetch,
       port,
       hostname: host,
+      serverOptions: HTTP_SERVER_OPTIONS,
     },
     (info) => {
       log.info(`Server running at http://${info.address}:${info.port}`);
@@ -787,6 +793,7 @@ async function main() {
       log.info(`Health: http://${info.address}:${info.port}/health`);
     }
   );
+  configureHttpServer(server as Server);
 
   // Astra: verify the configured Groq credential and selected model once
   // without blocking startup or logging the secret. This is a metadata-only

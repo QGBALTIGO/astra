@@ -70,4 +70,13 @@ describe.each([
       expect(response.headers.get('X-RateLimit-Limit')).toBeNull();
     }
   });
+
+  it('uses the actual public bind host even when HOST is absent or loopback', async () => {
+    process.env.HOST = '127.0.0.1';
+    const app = createApp(
+      createLimiter({ windowMs: 60_000, maxRequests: 1, burstLimit: 1 }, { host: '0.0.0.0' })
+    );
+    expect((await app.request('/test')).status).toBe(200);
+    expect((await app.request('/test')).status).toBe(429);
+  });
 });

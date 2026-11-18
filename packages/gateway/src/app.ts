@@ -56,6 +56,8 @@ export { sanitizeCorsOriginsFromEnv } from './utils/cors-origin.js';
 import { sanitizeCorsOriginsFromEnv as _sanitizeCorsOriginsFromEnv } from './utils/cors-origin.js';
 import { getRequestOrigin, isSecureRequest } from './utils/trusted-proxy.js';
 import { ASTRA_CUSTOMER_LOGIN_URL } from './config/astra-public-urls.js';
+import { canServeSpaFallback, publicPerimeter } from './middleware/public-perimeter.js';
+import { HEALTH_CHECK_PATHS } from './middleware/rate-limit.js';
 
 // Resolve UI dist path relative to this file (works in both dev and Docker)
 const __appDirname = dirname(fileURLToPath(import.meta.url));
@@ -89,7 +91,7 @@ const DEFAULT_CONFIG: GatewayConfig = {
     maxRequests: RATE_LIMIT_MAX_REQUESTS,
     burstLimit: RATE_LIMIT_BURST,
     softLimit: false, // Enforce rate limits
-    excludePaths: ['/health', '/api/v1/health'],
+    excludePaths: HEALTH_CHECK_PATHS,
   },
   auth: {
     type: 'api-key',
@@ -170,6 +172,10 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
     })
   );
 
+  // Reject invalid URLs and private/development file paths before redirects,
+  // request logging, body parsing or static-file filesystem lookups.
+  app.use('*', publicPerimeter);
+
   // Relaxed CSP for API routes that serve no HTML content
   app.use('/api/*', async (c, next) => {
     // API endpoints don't serve HTML, so we use a very restrictive CSP
@@ -248,6 +254,34 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
     })
   );
 
+  // Rate-limit before reading request bodies or logging every rejected request.
+  // Public pages/assets have a separate, generous budget so a normal SPA load
+  // (including many parallel hashed assets) does not consume the API allowance.
+  if (fullConfig.rateLimit) {
+    const options = { host: fullConfig.host };
+    app.use('/api/*', createRateLimitMiddleware(fullConfig.rateLimit, options));
+    app.use('/webhooks/*', createRateLimitMiddleware(fullConfig.rateLimit, options));
+    const publicLimiter = createRateLimitMiddleware(
+      {
+        windowMs: 60_000,
+        maxRequests: 1_200,
+        burstLimit: 1_800,
+        softLimit: false,
+        disabled: fullConfig.rateLimit.disabled,
+        excludePaths: HEALTH_CHECK_PATHS,
+      },
+      options
+    );
+    app.use('*', (c, next) =>
+      c.req.path === '/api' ||
+      c.req.path.startsWith('/api/') ||
+      c.req.path === '/webhooks' ||
+      c.req.path.startsWith('/webhooks/')
+        ? next()
+        : publicLimiter(c, next)
+    );
+  }
+
   // Body size limit (configurable via BODY_SIZE_LIMIT env var, default 1 MB).
   // Applies to BOTH /api/* and /webhooks/* — webhook signature checks happen
   // after body parsing, so an unbounded webhook body is a pre-auth DoS vector.
@@ -294,12 +328,6 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
   // Logger (skip in test environment)
   if (process.env.NODE_ENV !== 'test') {
     app.use('*', logger());
-  }
-
-  // Rate limiting — webhooks too (brute-force / abuse protection on external endpoints)
-  if (fullConfig.rateLimit) {
-    app.use('/api/*', createRateLimitMiddleware(fullConfig.rateLimit));
-    app.use('/webhooks/*', createRateLimitMiddleware(fullConfig.rateLimit));
   }
 
   // Bearer-authenticated outbound-only local inference bridge. This path is
@@ -589,29 +617,21 @@ export function createApp(config: Partial<GatewayConfig> = {}): Hono {
     // SPA fallback — serve index.html for non-API GET requests
     app.get('*', (c) => {
       const path = c.req.path;
-      if (
-        path.startsWith('/api/') ||
-        path.startsWith('/health') ||
-        path.startsWith('/webhooks/') ||
-        path.startsWith('/ws') ||
-        path.startsWith('/mcp')
-      ) {
+      // Missing assets, service URLs and standards files are real 404s, while
+      // normal client-side deep links (including dotted IDs) still receive HTML.
+      if (!canServeSpaFallback(path)) {
         return c.notFound();
       }
-      // Never serve HTML for a missing static asset — that produces a MIME
-      // mismatch in the browser. A miss here means a stale/renamed hashed file
-      // (e.g. after a UI rebuild); return a clean 404 instead.
-      if (path.startsWith('/assets/')) {
-        return c.notFound();
-      }
-      // Read index.html fresh so UI rebuilds are picked up without a gateway
-      // restart; fall back to the boot-time copy if the read fails. Served
-      // no-cache so browsers always revalidate and pick up new asset hashes.
+      // Production images are immutable: serve the boot-time copy without
+      // synchronous disk I/O on every public navigation or unknown SPA path.
+      // Development still reads fresh so rebuilding the UI needs no restart.
       let html = INDEX_HTML;
-      try {
-        html = readFileSync(resolve(UI_DIST_PATH, 'index.html'), 'utf-8');
-      } catch {
-        // keep boot-time copy
+      if (process.env.NODE_ENV !== 'production') {
+        try {
+          html = readFileSync(resolve(UI_DIST_PATH, 'index.html'), 'utf-8');
+        } catch {
+          // keep boot-time copy
+        }
       }
       c.header('Cache-Control', 'no-cache, must-revalidate');
       return c.html(html);

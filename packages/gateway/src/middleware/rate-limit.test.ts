@@ -183,7 +183,7 @@ describe('createRateLimitMiddleware', () => {
       expect(res.headers.get('X-RateLimit-Limit')).toBeNull();
     });
 
-    it('uses startsWith matching so /health/deep is also excluded', async () => {
+    it('does not exempt unregistered paths beneath the health prefix', async () => {
       const app = new Hono();
       const mw = createRateLimitMiddleware({
         windowMs: 60_000,
@@ -198,8 +198,8 @@ describe('createRateLimitMiddleware', () => {
       await app.request('/health/deep');
 
       const res = await app.request('/health/deep');
-      expect(res.status).toBe(200);
-      expect(res.headers.get('X-RateLimit-Limit')).toBeNull();
+      expect(res.status).toBe(429);
+      expect(res.headers.get('X-RateLimit-Limit')).toBe('1');
     });
 
     it('applies custom excludePaths and does NOT exclude the default paths', async () => {
@@ -774,7 +774,7 @@ describe('createRateLimitMiddleware', () => {
   // -------------------------------------------------------------------------
 
   describe('store overflow', () => {
-    it('evicts oldest entry and admits new client when the store is at capacity', async () => {
+    it('admits new clients into the bounded overflow allowance when the store is at capacity', async () => {
       vi.useFakeTimers();
       const now = Date.now();
       vi.setSystemTime(now);
@@ -792,8 +792,7 @@ describe('createRateLimitMiddleware', () => {
         await app.request('/test', { headers: { 'X-Forwarded-For': ip } });
       }
 
-      // A brand-new IP must be admitted (oldest entry is evicted, not the new client rejected).
-      // This prevents DoS where an attacker fills the store to block all new legitimate IPs.
+      // New clients share a small overflow allowance without evicting active limits.
       const res = await app.request('/test', {
         headers: { 'X-Forwarded-For': '99.99.99.99' },
       });
@@ -1358,7 +1357,7 @@ describe('createSlidingWindowRateLimiter', () => {
   // -------------------------------------------------------------------------
 
   describe('store overflow', () => {
-    it('evicts oldest entry and admits new client when store is at capacity', async () => {
+    it('admits new clients into the bounded overflow allowance when the store is at capacity', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(Date.now());
 
@@ -1375,8 +1374,7 @@ describe('createSlidingWindowRateLimiter', () => {
         await app.request('/test', { headers: { 'X-Forwarded-For': ip } });
       }
 
-      // A brand-new IP must be admitted (oldest entry is evicted, not the new client rejected).
-      // This prevents DoS where an attacker fills the store to block all new legitimate IPs.
+      // New clients share a small overflow allowance without evicting active limits.
       const res = await app.request('/test', {
         headers: { 'X-Forwarded-For': '99.99.99.99' },
       });

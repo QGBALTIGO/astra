@@ -49,12 +49,67 @@ healthRoutes.use('/sandbox', requireAuthenticatedHealth);
 healthRoutes.use('/sandbox/*', requireAuthenticatedHealth);
 healthRoutes.use('/tool-dependencies', requireAuthenticatedHealth);
 
-async function checkDatabaseReadiness(): Promise<{
+interface DatabaseReadiness {
   status: 'pass' | 'fail';
   connected: boolean;
   missingTables: string[];
   message: string;
-}> {
+}
+
+type ReadinessOutcome = { ok: true; database: DatabaseReadiness } | { ok: false; message: string };
+
+// Public probes are exempt from per-client limits. Share their database work
+// across all mounts and concurrent callers. A successful result can lag by at
+// most 2 seconds; a failed result is retried after 1 second to recover quickly.
+const READINESS_SUCCESS_TTL_MS = 2_000;
+const READINESS_FAILURE_TTL_MS = 1_000;
+let readinessCached: { expiresAt: number; outcome: ReadinessOutcome } | undefined;
+let readinessInFlight: Promise<ReadinessOutcome> | undefined;
+
+/** Invalidate the short-lived result after adapter lifecycle changes or in tests. */
+export function resetDatabaseReadinessCache(): void {
+  readinessCached = undefined;
+  readinessInFlight = undefined;
+}
+
+async function checkDatabaseReadiness(): Promise<DatabaseReadiness> {
+  const now = Date.now();
+  let outcome =
+    readinessCached && readinessCached.expiresAt > now ? readinessCached.outcome : undefined;
+  if (!outcome) {
+    if (!readinessInFlight) {
+      // Convert a rejected query into a resolved failure value. The shared
+      // promise is always released; one failed check cannot poison recovery.
+      const pending: Promise<ReadinessOutcome> = queryDatabaseReadiness()
+        .then<ReadinessOutcome, ReadinessOutcome>(
+          (database) => ({ ok: true, database }),
+          (error: unknown) => ({
+            ok: false,
+            message: getErrorMessage(error, 'Failed to check readiness'),
+          })
+        )
+        .then((result) => {
+          if (readinessInFlight === pending) {
+            const ttl =
+              result.ok && result.database.status === 'pass'
+                ? READINESS_SUCCESS_TTL_MS
+                : READINESS_FAILURE_TTL_MS;
+            readinessCached = { expiresAt: Date.now() + ttl, outcome: result };
+          }
+          return result;
+        })
+        .finally(() => {
+          if (readinessInFlight === pending) readinessInFlight = undefined;
+        });
+      readinessInFlight = pending;
+    }
+    outcome = await readinessInFlight;
+  }
+  if (!outcome.ok) throw new Error(outcome.message);
+  return outcome.database;
+}
+
+async function queryDatabaseReadiness(): Promise<DatabaseReadiness> {
   let adapter;
   try {
     adapter = await getAdapter();
@@ -221,6 +276,7 @@ healthRoutes.get('/live', (c) => {
  * Readiness probe (Kubernetes)
  */
 healthRoutes.get('/ready', async (c) => {
+  c.header('Cache-Control', 'no-store');
   try {
     const database = await checkDatabaseReadiness();
     const ready = database.status === 'pass';

@@ -9,7 +9,7 @@ import {
   referralTokenHash,
   ReferralError,
 } from '../db/repositories/customer-referrals.js';
-import { validateSession } from '../services/ui-session.js';
+import { validateUiSessionForRequest } from '../utils/ui-session-response.js';
 import { getUiSessionAuth } from '../utils/ui-session-cookie.js';
 import { requireCustomerRequestOrigin } from '../middleware/customer-session.js';
 
@@ -36,7 +36,9 @@ export const referralsAdminRoutes = new Hono();
 referralsAdminRoutes.use('*', requireCustomerRequestOrigin);
 referralsAdminRoutes.use('*', async (c, next) => {
   const auth = getUiSessionAuth(c);
-  if (!auth.token || !(await validateSession(auth.token)))
+  const authenticated = auth.token ? await validateUiSessionForRequest(c, auth.token) : false;
+  if (authenticated instanceof Response) return authenticated;
+  if (!authenticated)
     return apiError(
       c,
       { code: 'UNAUTHORIZED', message: 'Entre na conta de administração para revisar indicações.' },

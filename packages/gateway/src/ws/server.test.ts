@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WebSocket, RawData } from 'ws';
 import { SignJWT } from 'jose';
+import { EventEmitter } from 'node:events';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -161,10 +162,27 @@ vi.mock('../services/ui-session.js', () => ({
 }));
 
 import { validateSession, isPasswordConfigured } from '../services/ui-session.js';
+import { UiSessionBusyError } from '../services/ui-session-error.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function createMockUpgradeSocket() {
+  const socket = Object.assign(new EventEmitter(), {
+    destroyed: false,
+    write: vi.fn(),
+    destroy: vi.fn(),
+  });
+  socket.destroy.mockImplementation(() => {
+    if (!socket.destroyed) {
+      socket.destroyed = true;
+      socket.emit('close');
+    }
+    return socket;
+  });
+  return socket;
+}
 
 function createMockSocket(readyState = 1): WebSocket {
   return {
@@ -248,7 +266,7 @@ describe('WSGateway', () => {
     mockWss.close.mockImplementation((cb?: (err?: Error) => void) => cb?.());
     delete process.env.API_KEYS;
     vi.mocked(isPasswordConfigured).mockReturnValue(false);
-    vi.mocked(validateSession).mockResolvedValue(false);
+    vi.mocked(validateSession).mockReset().mockResolvedValue(false);
 
     // Restore channel service defaults
     mockChannelServiceInst.connect.mockResolvedValue(undefined);
@@ -1512,12 +1530,134 @@ describe('WSGateway', () => {
       return { gw, upgradeHandler, mockHttpServer };
     }
 
+    it('rejects a foreign browser origin before validating a session', async () => {
+      const { upgradeHandler } = setupGatewayWithUpgrade();
+      const socket = createMockUpgradeSocket();
+      await upgradeHandler(
+        createMockRequest('/ws', {
+          origin: 'https://attacker.invalid',
+          cookie: 'ownpilot_ui_session=stolen',
+        }),
+        socket,
+        Buffer.alloc(0)
+      );
+      expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('403 Forbidden'));
+      expect(validateSession).not.toHaveBeenCalled();
+      expect(mockWss.handleUpgrade).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed cookie without leaving the upgrade pending', async () => {
+      vi.mocked(isPasswordConfigured).mockReturnValue(true);
+      const { upgradeHandler } = setupGatewayWithUpgrade();
+      const socket = createMockUpgradeSocket();
+      await expect(
+        upgradeHandler(
+          createMockRequest('/ws', { cookie: 'ownpilot_ui_session=%E0%A4%A' }),
+          socket,
+          Buffer.alloc(0)
+        )
+      ).resolves.toBeUndefined();
+      expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('401 Unauthorized'));
+      expect(socket.destroy).toHaveBeenCalled();
+      expect(validateSession).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      '//invalid/ws',
+      '/\\[bad/ws',
+      '/\\%zz/ws',
+      'https://invalid/ws',
+      '/' + 'x'.repeat(8192),
+    ])('rejects an invalid request target without an unhandled rejection', async (target) => {
+      const { upgradeHandler } = setupGatewayWithUpgrade();
+      const socket = createMockUpgradeSocket();
+      await expect(
+        upgradeHandler(createMockRequest(target), socket, Buffer.alloc(0))
+      ).resolves.toBeUndefined();
+      expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('400 Bad Request'));
+      expect(mockWss.handleUpgrade).not.toHaveBeenCalled();
+    });
+
+    it.each([new UiSessionBusyError(), new Error('database unavailable')])(
+      'closes the socket with retryable 503 when authentication fails operationally',
+      async (error) => {
+        vi.mocked(validateSession).mockRejectedValueOnce(error);
+        const { upgradeHandler } = setupGatewayWithUpgrade();
+        const socket = createMockUpgradeSocket();
+        await expect(
+          upgradeHandler(
+            createMockRequest('/ws', { cookie: 'ownpilot_ui_session=valid-session' }),
+            socket,
+            Buffer.alloc(0)
+          )
+        ).resolves.toBeUndefined();
+        expect(socket.write).toHaveBeenCalledWith(
+          expect.stringContaining('503 Service Unavailable')
+        );
+        expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('Retry-After: 1'));
+        expect(socket.destroy).toHaveBeenCalled();
+        expect(mockWss.handleUpgrade).not.toHaveBeenCalled();
+      }
+    );
+
+    it('bounds outstanding authentication upgrades and expires stalled sockets', async () => {
+      vi.mocked(validateSession).mockImplementation(() => new Promise(() => {}));
+      const { upgradeHandler } = setupGatewayWithUpgrade();
+      const sockets = Array.from({ length: 32 }, () => createMockUpgradeSocket());
+      const pending = sockets.map((socket, i) =>
+        upgradeHandler(
+          createMockRequest(
+            '/ws',
+            { cookie: 'ownpilot_ui_session=pending' },
+            `198.51.100.${i + 1}`
+          ),
+          socket,
+          Buffer.alloc(0)
+        )
+      );
+      const overflow = createMockUpgradeSocket();
+      await upgradeHandler(createMockRequest('/ws', {}, '203.0.113.5'), overflow, Buffer.alloc(0));
+      expect(overflow.write).toHaveBeenCalledWith(
+        expect.stringContaining('503 Service Unavailable')
+      );
+      expect(validateSession).toHaveBeenCalledTimes(32);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.all(pending);
+      for (const socket of sockets) expect(socket.destroy).toHaveBeenCalledOnce();
+      vi.mocked(validateSession).mockResolvedValue(true);
+      const recovered = createMockUpgradeSocket();
+      await upgradeHandler(
+        createMockRequest('/ws', { cookie: 'ownpilot_ui_session=valid' }, '203.0.113.6'),
+        recovered,
+        Buffer.alloc(0)
+      );
+      expect(recovered.write).not.toHaveBeenCalled();
+      expect(mockWss.handleUpgrade).toHaveBeenCalledOnce();
+    });
+
+    it('handles socket errors and releases pending admission before authentication completes', async () => {
+      vi.mocked(validateSession).mockImplementation(() => new Promise(() => {}));
+      const { upgradeHandler } = setupGatewayWithUpgrade();
+      const socket = createMockUpgradeSocket();
+      const pending = upgradeHandler(
+        createMockRequest('/ws', { cookie: 'ownpilot_ui_session=pending' }),
+        socket,
+        Buffer.alloc(0)
+      );
+      expect(() => socket.emit('error', new Error('Connection reset'))).not.toThrow();
+      await pending;
+      expect(socket.destroyed).toBe(true);
+      expect(socket.listenerCount('error')).toBe(0);
+      expect(socket.listenerCount('close')).toBe(0);
+      expect(mockWss.handleUpgrade).not.toHaveBeenCalled();
+    });
+
     it('handles upgrade for matching path', async () => {
       const { upgradeHandler } = setupGatewayWithUpgrade();
-      const mockSocket = { write: vi.fn(), destroy: vi.fn() };
+      const mockSocket = createMockUpgradeSocket();
       const request = {
         url: '/ws',
-        headers: { host: 'localhost' },
+        headers: { host: 'localhost', origin: 'http://localhost:8199' },
         socket: { remoteAddress: '127.0.0.1' },
       };
       const head = Buffer.from('');
@@ -1536,10 +1676,10 @@ describe('WSGateway', () => {
 
     it('destroys socket for non-matching path', async () => {
       const { upgradeHandler } = setupGatewayWithUpgrade();
-      const mockSocket = { write: vi.fn(), destroy: vi.fn() };
+      const mockSocket = createMockUpgradeSocket();
       const request = {
         url: '/other-path',
-        headers: { host: 'localhost' },
+        headers: { host: 'localhost', origin: 'http://localhost:8199' },
         socket: { remoteAddress: '127.0.0.1' },
       };
       const head = Buffer.from('');
@@ -1553,17 +1693,19 @@ describe('WSGateway', () => {
     it('rejects upgrade when token is invalid and API_KEYS are set', async () => {
       process.env.API_KEYS = 'valid-key';
       const { upgradeHandler } = setupGatewayWithUpgrade();
-      const mockSocket = { write: vi.fn(), destroy: vi.fn() };
+      const mockSocket = createMockUpgradeSocket();
       const request = {
         url: '/ws?token=wrong-key',
-        headers: { host: 'localhost' },
+        headers: { host: 'localhost', origin: 'http://localhost:8199' },
         socket: { remoteAddress: '127.0.0.1' },
       };
       const head = Buffer.from('');
 
       await upgradeHandler(request, mockSocket, head);
 
-      expect(mockSocket.write).toHaveBeenCalledWith('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      expect(mockSocket.write).toHaveBeenCalledWith(
+        expect.stringContaining('HTTP/1.1 401 Unauthorized\r\n')
+      );
       expect(mockSocket.destroy).toHaveBeenCalled();
       expect(mockWss.handleUpgrade).not.toHaveBeenCalled();
     });
@@ -1571,10 +1713,14 @@ describe('WSGateway', () => {
     it('allows upgrade when valid Bearer token is provided', async () => {
       process.env.API_KEYS = 'valid-key';
       const { upgradeHandler } = setupGatewayWithUpgrade();
-      const mockSocket = { write: vi.fn(), destroy: vi.fn() };
+      const mockSocket = createMockUpgradeSocket();
       const request = {
         url: '/ws',
-        headers: { host: 'localhost', authorization: 'Bearer valid-key' },
+        headers: {
+          host: 'localhost',
+          origin: 'http://localhost:8199',
+          authorization: 'Bearer valid-key',
+        },
         socket: { remoteAddress: '127.0.0.1' },
       };
       const head = Buffer.from('');
@@ -1594,10 +1740,14 @@ describe('WSGateway', () => {
     it('allows upgrade when valid UI session cookie is provided', async () => {
       vi.mocked(validateSession).mockResolvedValueOnce(true);
       const { upgradeHandler } = setupGatewayWithUpgrade();
-      const mockSocket = { write: vi.fn(), destroy: vi.fn() };
+      const mockSocket = createMockUpgradeSocket();
       const request = {
         url: '/ws',
-        headers: { host: 'localhost', cookie: 'ownpilot_ui_session=valid-session-token' },
+        headers: {
+          host: 'localhost',
+          origin: 'http://localhost:8199',
+          cookie: 'ownpilot_ui_session=valid-session-token',
+        },
         socket: { remoteAddress: '127.0.0.1' },
       };
       const head = Buffer.from('');
@@ -1619,10 +1769,10 @@ describe('WSGateway', () => {
       vi.mocked(isPasswordConfigured).mockReturnValue(true);
       vi.mocked(validateSession).mockResolvedValueOnce(true);
       const { upgradeHandler } = setupGatewayWithUpgrade();
-      const mockSocket = { write: vi.fn(), destroy: vi.fn() };
+      const mockSocket = createMockUpgradeSocket();
       const request = {
         url: '/ws?token=valid-session-token',
-        headers: { host: 'localhost' },
+        headers: { host: 'localhost', origin: 'http://localhost:8199' },
         socket: { remoteAddress: '127.0.0.1' },
       };
       const head = Buffer.from('');
@@ -1631,7 +1781,9 @@ describe('WSGateway', () => {
 
       expect(validateSession).not.toHaveBeenCalled();
       expect(mockWss.handleUpgrade).not.toHaveBeenCalled();
-      expect(mockSocket.write).toHaveBeenCalledWith('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      expect(mockSocket.write).toHaveBeenCalledWith(
+        expect.stringContaining('HTTP/1.1 401 Unauthorized\r\n')
+      );
       expect(mockSocket.destroy).toHaveBeenCalled();
     });
   });
@@ -1771,21 +1923,21 @@ describe('WSGateway', () => {
 
       const makeReq = () => ({
         url: '/ws',
-        headers: { host: 'localhost' },
+        headers: { host: 'localhost', origin: 'http://localhost:8199' },
         socket: { remoteAddress: '10.1.1.2' },
       });
 
       // Fill rate limit bucket for this IP (10 calls)
       for (let i = 0; i < 10; i++) {
-        upgradeHandler(makeReq(), { write: vi.fn(), destroy: vi.fn() }, Buffer.from(''));
+        upgradeHandler(makeReq(), createMockUpgradeSocket(), Buffer.from(''));
       }
 
       // 11th is rate limited
-      const rateLimitedSocket = { write: vi.fn(), destroy: vi.fn() };
+      const rateLimitedSocket = createMockUpgradeSocket();
       upgradeHandler(makeReq(), rateLimitedSocket, Buffer.from(''));
 
       expect(rateLimitedSocket.write).toHaveBeenCalledWith(
-        'HTTP/1.1 429 Too Many Requests\r\n\r\n'
+        expect.stringContaining('HTTP/1.1 429 Too Many Requests\r\n')
       );
       expect(rateLimitedSocket.destroy).toHaveBeenCalled();
     });
