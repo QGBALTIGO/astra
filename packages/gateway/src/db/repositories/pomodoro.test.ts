@@ -646,7 +646,7 @@ describe('PomodoroRepository', () => {
 
     it('should return streak count for consecutive days', async () => {
       // Build date strings using local date formatting to match how
-      // getStreak() constructs "today" via new Date() + setHours(0,0,0,0)
+      // getStreak() compares stored civil dates with the local calendar day.
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const yesterday = new Date(today);
@@ -735,6 +735,44 @@ describe('PomodoroRepository', () => {
       ]);
 
       expect(await repo.getStreak()).toBe(3);
+    });
+
+    it.each([
+      {
+        label: 'year boundary just after local midnight',
+        now: new Date(2026, 0, 1, 0, 15),
+        days: ['2025-12-31', '2025-12-30'],
+        expected: 2,
+      },
+      {
+        label: 'leap-day boundary late in the local day',
+        now: new Date(2024, 2, 1, 23, 30),
+        days: ['2024-02-29', '2024-02-28'],
+        expected: 2,
+      },
+      {
+        label: 'a missed civil day across a daylight-saving change',
+        now: new Date(2018, 10, 5, 0, 30),
+        days: ['2018-11-03', '2018-11-02'],
+        expected: 0,
+      },
+      {
+        label: 'a gap within an otherwise current streak',
+        now: new Date(2026, 10, 18, 23, 30),
+        days: ['2026-11-18', '2026-11-17', '2026-11-15'],
+        expected: 2,
+      },
+    ])('compares civil dates at $label', async ({ now, days, expected }) => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(now);
+        mockAdapter.query.mockResolvedValueOnce(
+          days.map((date) => makeDailyStatsRow({ date, completed_sessions: 1 }))
+        );
+        expect(await repo.getStreak()).toBe(expected);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('should query for completed_sessions > 0 ordered by date DESC', async () => {

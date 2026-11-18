@@ -121,6 +121,21 @@ Both UI and website production builds emitted no source-map files. Developer
 tools/F12 remain available: the security boundary is the server and its access
 checks, not hiding files that a browser must download to render the application.
 
+## Full-suite follow-up
+
+The first full gateway run exposed 27 pre-existing audio/RSS unit-test failures
+caused by real DNS lookups in tests that already mocked HTTP. The same failures
+were reproduced on the baseline with Vitest 4.1.10. The tests now provide
+deterministic public/loopback DNS fixtures while retaining the real SSRF policy
+and all assertions; the dedicated safe-fetch and SSRF suites pass alongside them.
+
+Two further pre-existing failures exposed a Pomodoro civil-date calculation
+that interpreted `YYYY-MM-DD` as UTC before applying local midnight. The small
+follow-up fix compares civil dates and advances calendar days directly. All 55
+Pomodoro tests pass in both UTC and America/Campo_Grande, including year and
+leap-day boundaries and a daylight-saving interval. These validation fixes are
+kept in a separate commit from the security controls.
+
 ## Deployment boundary and operational limitations
 
 - Railway's public HTTP ingress overwrites the forwarding headers used here;
