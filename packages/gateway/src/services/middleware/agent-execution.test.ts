@@ -955,6 +955,28 @@ describe('createAgentExecutionMiddleware', () => {
       const result = await middleware(msg, ctx, next);
 
       expect(result.response.content).toBe('Error: Unknown error');
+      expect(result.response.metadata).toMatchObject({
+        errorCode: 'AGENT_EXECUTION_FAILED',
+        errorStage: 'agent-execution',
+      });
+    });
+
+    it('retains a stable failure marker when the provider error message is empty', async () => {
+      const agent = createAgent();
+      agent.chat.mockResolvedValue({ ok: false, error: { message: '' } });
+      const ctx = createContext({ store: { agent } });
+
+      const result = await middleware(
+        createMessage({ metadata: { source: 'scheduler' } }),
+        ctx,
+        vi.fn()
+      );
+
+      expect(result.response.metadata).toMatchObject({
+        error: '',
+        errorCode: 'AGENT_EXECUTION_FAILED',
+        errorStage: 'agent-execution',
+      });
     });
 
     it('should set streamed flag based on stream presence', async () => {
@@ -990,6 +1012,28 @@ describe('createAgentExecutionMiddleware', () => {
       expect(result.response.sessionId).toBe('sess-throw');
       expect(result.stages).toEqual(['agent-execution']);
       expect(result.warnings).toEqual(['Agent execution error: Network timeout']);
+      expect(result.response.metadata).toMatchObject({
+        errorCode: 'AGENT_EXECUTION_ERROR',
+        errorStage: 'agent-execution',
+      });
+    });
+
+    it('retains a stable failure marker for a thrown Error without a message', async () => {
+      const agent = createAgent();
+      agent.chat.mockRejectedValue(new Error());
+      const ctx = createContext({ store: { agent } });
+
+      const result = await middleware(
+        createMessage({ metadata: { source: 'scheduler' } }),
+        ctx,
+        vi.fn()
+      );
+
+      expect(result.response.metadata).toMatchObject({
+        error: '',
+        errorCode: 'AGENT_EXECUTION_ERROR',
+        errorStage: 'agent-execution',
+      });
     });
 
     it('hides thrown provider errors from Telegram messages', async () => {

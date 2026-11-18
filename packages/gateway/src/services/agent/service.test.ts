@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { AgentConfig } from '@ownpilot/core/agent';
+import type { ToolDefinition } from '@ownpilot/core/tools';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before the dynamic import
@@ -12,6 +14,7 @@ const mockGetServiceRegistry = vi.fn();
 const mockHasProviderService = vi.fn(() => false);
 const mockGetProviderService = vi.fn();
 const mockBuildSoulPrompt = vi.fn(() => '');
+const mockGetDefinitionsByNames = vi.fn<() => ToolDefinition[]>(() => []);
 const mockGetByAgentId = vi.fn(async () => null as unknown);
 const mockCountUnread = vi.fn(async () => 0 as unknown);
 
@@ -88,6 +91,7 @@ vi.mock('@ownpilot/core/tools', async (importOriginal) => {
     getNames = vi.fn(() => []);
     unregister = vi.fn();
     setConfigCenter = vi.fn();
+    getDefinitionsByNames = mockGetDefinitionsByNames;
   }
   return {
     ...actual,
@@ -417,6 +421,7 @@ beforeEach(() => {
   // A legacy describe replaces process.env. Pin this opt-in switch per test
   // so dedicated chain fixtures cannot change unrelated manual-fallback cases.
   vi.stubEnv('ASTRA_FALLBACK_CHAIN', '');
+  vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '');
   agentCache.clear();
   agentConfigCache.clear();
   chatAgentCache.clear();
@@ -445,6 +450,7 @@ beforeEach(() => {
   mockGetByAgentId.mockResolvedValue(null);
   mockCountUnread.mockResolvedValue(0);
   mockBuildSoulPrompt.mockReturnValue('');
+  mockGetDefinitionsByNames.mockReturnValue([]);
 
   // Restore default ChatRepository mirror mocks — vi.clearAllMocks() wipes
   // call history but also resets the once-queue, so default behavior must be
@@ -2013,6 +2019,141 @@ describe('getOrCreateChatAgent', () => {
     const call = mockCreateAgent.mock.calls[0];
     const config = call?.[0] as { memory: { maxTokens: number } } | undefined;
     expect(config?.memory.maxTokens).toBe(1024);
+  });
+});
+
+// =============================================================================
+// Groq operator request-budget planning (owner/scheduled agents, not channels)
+// =============================================================================
+
+describe('operator Groq request budgets', () => {
+  beforeEach(() => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '8000');
+    vi.stubEnv('GROQ_API_KEY', 'test-api-key');
+    vi.stubEnv('GROQ_API_KEY_2', 'synthetic-backup-key');
+    for (let index = 3; index <= 10; index++) vi.stubEnv(`GROQ_API_KEY_${index}`, '');
+    mockLoadProviderConfig.mockReturnValue({ baseUrl: 'https://api.groq.com/openai/v1' });
+    mockCreateAgent.mockReturnValue(makeMockAgent().agent);
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  const createdConfig = () => mockCreateAgent.mock.calls[0]![0] as AgentConfig;
+
+  it('fits a scheduled owner request within the operator allowance without changing its scope', async () => {
+    await mod.getOrCreateChatAgent(
+      'groq',
+      'openai/gpt-oss-20b',
+      undefined,
+      null,
+      'trigger-fixture'
+    );
+    const config = createdConfig();
+    expect(config.model.maxTokens).toBe(2000);
+    expect(config.memory?.maxTokens).toBeLessThan(4000);
+    expect(config.systemPrompt).toBe('Test system prompt');
+    expect(mockInjectMemoryIntoPrompt).toHaveBeenCalledWith(
+      'Test system prompt',
+      expect.objectContaining({
+        userId: 'default',
+        includeProfile: true,
+        includeInstructions: true,
+        includeToolDescriptions: false,
+      })
+    );
+  });
+
+  it('counts meta schemas and reduces output before overrunning the history floor', async () => {
+    const prompt = 'P'.repeat(4000);
+    const schema: ToolDefinition = {
+      name: 'use_tool',
+      description: 'D'.repeat(4000),
+      parameters: { type: 'object', properties: {} },
+    };
+    mockInjectMemoryIntoPrompt.mockResolvedValueOnce({ systemPrompt: prompt });
+    mockGetDefinitionsByNames.mockReturnValue([schema]);
+    await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+    const config = createdConfig();
+    const serialized = JSON.stringify({
+      messages: [{ role: 'system', content: prompt }],
+      tools: [{ type: 'function', function: schema }],
+      max_completion_tokens: config.model.maxTokens,
+    });
+    expect(config.model.maxTokens).toBeGreaterThanOrEqual(1024);
+    expect(config.model.maxTokens).toBeLessThan(2000);
+    expect(config.memory?.maxTokens).toBeGreaterThanOrEqual(1024);
+    expect(
+      Math.ceil(serialized.length / 4) + config.model.maxTokens! + config.memory!.maxTokens!
+    ).toBeLessThan(8000);
+  });
+
+  it('honors a smaller model window and output ceiling', async () => {
+    mockResolveContextWindow.mockReturnValue(4096);
+    mockResolveMaxOutput.mockReturnValue(512);
+    await mod.getOrCreateChatAgent('groq', 'small-output-model');
+    const config = createdConfig();
+    expect(config.model.maxTokens).toBe(512);
+    expect(config.memory?.maxTokens).toBeLessThan(4096 - 512);
+  });
+
+  it('keeps the conversational channel allowance smaller than the owner allowance', async () => {
+    await mod.getOrCreateChatAgent(
+      'groq',
+      'openai/gpt-oss-20b',
+      undefined,
+      null,
+      'channel-fixture',
+      undefined,
+      true,
+      'customer-fixture'
+    );
+    expect(createdConfig().model.maxTokens).toBe(768);
+    expect(createdConfig().memory?.maxTokens).toBeLessThanOrEqual(1536);
+  });
+
+  it.each(['', '0', 'invalid', '1e4', '9007199254740992'])(
+    'preserves defaults when the operator budget is disabled or invalid (%s)',
+    async (value) => {
+      vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', value);
+      await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+      expect(createdConfig().model.maxTokens).toBe(8192);
+      expect(createdConfig().memory?.maxTokens).toBeGreaterThan(8000);
+    }
+  );
+
+  it.each([
+    ['custom URL', { baseUrl: 'https://example.test/openai/v1' }],
+    ['custom endpoint', { baseUrl: 'https://api.groq.com/openai/v1', endpoint: '/responses' }],
+    [
+      'auth override',
+      {
+        baseUrl: 'https://api.groq.com/openai/v1',
+        headers: { Authorization: 'Bearer tenant-key' },
+      },
+    ],
+  ])('does not apply operator limits to %s', async (_name, config) => {
+    mockLoadProviderConfig.mockReturnValue(config);
+    await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+    expect(createdConfig().model.maxTokens).toBe(8192);
+    expect(createdConfig().memory?.maxTokens).toBeGreaterThan(8000);
+  });
+
+  it('does not apply the operator pool limit to a tenant credential', async () => {
+    mockGetProviderApiKey.mockResolvedValue('tenant-api-key');
+    await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+    expect(createdConfig().model.maxTokens).toBe(8192);
+  });
+
+  it('preserves the legacy single-key transport contract', async () => {
+    vi.stubEnv('GROQ_API_KEY_2', '');
+    await mod.getOrCreateChatAgent('groq', 'openai/gpt-oss-20b');
+    expect(createdConfig().model.maxTokens).toBe(8192);
+  });
+
+  it('does not restrict unrelated providers', async () => {
+    await mod.getOrCreateChatAgent('openai', 'gpt-4o');
+    expect(createdConfig().model.maxTokens).toBe(8192);
+    expect(createdConfig().memory?.maxTokens).toBeGreaterThan(8000);
   });
 });
 

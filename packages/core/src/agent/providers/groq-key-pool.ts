@@ -1,7 +1,8 @@
 /** Process-local transport health. Only hashes are retained; credentials stay in request scope. */
 import { createHash } from 'node:crypto';
 import { ignoreError } from '../../utils/ignore-error.js';
-import { groqPoolRequestFacts, reportGroqPoolFailure } from './groq-pool-telemetry.js';
+import { reportGroqPoolFailure } from './groq-pool-telemetry.js';
+import { applyGroqRequestBudget, getGroqRequestTokenLimit } from './groq-request-budget.js';
 
 interface ModelHealth {
   inFlight: number;
@@ -185,14 +186,14 @@ export async function fetchGroqPool(input: {
 }): Promise<GroqPoolResponse> {
   const { controller, keys, model } = input;
   const began = Date.now();
-  const request = groqPoolRequestFacts(input.options.body);
-  // Opt-in operator budget: reject this payload without consuming any credential or model health.
-  const configuredLimit = process.env.GROQ_MAX_REQUEST_TOKENS;
-  const requestTokenLimit =
-    configuredLimit && /^\d+$/u.test(configuredLimit) ? Number(configuredLimit) : 0;
+  controller.signal.throwIfAborted();
+  const requestTokenLimit = getGroqRequestTokenLimit();
+  const budgeted = applyGroqRequestBudget(input.options.body, requestTokenLimit);
+  const { request } = budgeted;
+  // The final guard rejects contexts without useful output room before using
+  // any credential. Only an output ceiling may be reduced; input stays intact.
   if (
-    Number.isSafeInteger(requestTokenLimit) &&
-    requestTokenLimit > 0 &&
+    requestTokenLimit !== undefined &&
     request.requestTokensApprox + request.maxOutputTokens > requestTokenLimit
   ) {
     const errorText =
@@ -274,11 +275,13 @@ export async function fetchGroqPool(input: {
       lease.used = ++sequence;
       const headers = new Headers(input.options.headers);
       headers.set('Authorization', `Bearer ${selected.key}`);
+      if (budgeted.body !== input.options.body) headers.delete('Content-Length');
       let response: Response;
       try {
         response = await withAbort(
           fetch(input.url, {
             ...input.options,
+            body: budgeted.body,
             headers,
             signal: controller.signal,
             redirect: 'error',

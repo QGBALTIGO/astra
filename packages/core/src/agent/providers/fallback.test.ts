@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock dependencies
+const logs = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock('../../services/get-log.js', () => ({
-  getLog: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+  getLog: () => logs,
 }));
 
 vi.mock('../debug.js', () => ({
@@ -704,6 +705,152 @@ describe('createProviderWithFallbacks', () => {
 });
 
 describe('Astra multi-provider resilience', () => {
+  it('records the local timeout allowance and static phase without logging exception details', async () => {
+    const { provider, primary } = createTestProvider();
+    primary.complete.mockRejectedValue(new TimeoutError('PRIVATE_REQUEST_BODY', 12_000));
+    expect((await provider.complete(dummyRequest)).ok).toBe(true);
+    expect(logs.error).toHaveBeenCalledWith('Provider openai threw exception: timeout', {
+      timeoutMs: 12_000,
+      timeoutPhase: 'completion',
+    });
+    expect(JSON.stringify(logs.error.mock.calls)).not.toContain('PRIVATE_REQUEST_BODY');
+  });
+  it('records a streaming timeout without the private operation or an error body', async () => {
+    const { provider, primary } = createTestProvider();
+    primary.stream.mockImplementation(() =>
+      (async function* () {
+        yield ok({ content: 'partial', done: false });
+        throw new TimeoutError('PRIVATE_STREAM_OPERATION', 12_000);
+      })()
+    );
+    for await (const _chunk of provider.stream(dummyRequest)) {
+      /* consume */
+    }
+    expect(logs.error).toHaveBeenCalledWith('Stream: Provider openai threw exception: timeout', {
+      timeoutMs: 12_000,
+      timeoutPhase: 'stream',
+    });
+    expect(JSON.stringify(logs.error.mock.calls)).not.toContain('PRIVATE_STREAM_OPERATION');
+  });
+  it.each([false, true])(
+    'does not open a circuit on local admission failures (shared=%s)',
+    async (sharedCircuitBreaker) => {
+      const { provider, primary, fallback } = createTestProvider({
+        sharedCircuitBreaker,
+        circuitBreakerThreshold: 1,
+        primary: { provider: 'openai', apiKey: `local-admission-${sharedCircuitBreaker}` },
+        fallbacks: [
+          { provider: 'anthropic', apiKey: `local-admission-backup-${sharedCircuitBreaker}` },
+        ],
+      });
+      primary.complete.mockResolvedValue(
+        err(
+          new InternalError(
+            'API error 413 - request_too_large: groq_local_admission; estimated input plus reserved output exceeds configured request budget'
+          )
+        )
+      );
+      for (let i = 0; i < 3; i++) expect((await provider.complete(dummyRequest)).ok).toBe(true);
+      primary.complete.mockResolvedValue(
+        ok({ content: 'valid smaller request', finishReason: 'stop', usage: {} })
+      );
+      const result = await provider.complete(dummyRequest);
+      expect(result.ok && result.value.content).toBe('valid smaller request');
+      expect(primary.complete).toHaveBeenCalledTimes(4);
+      expect(fallback.complete).toHaveBeenCalledTimes(3);
+    }
+  );
+  it.each([false, true])(
+    'does not accept a truncated completion or poison provider health (shared=%s)',
+    async (sharedCircuitBreaker) => {
+      const { provider, primary, fallback } = createTestProvider({
+        sharedCircuitBreaker,
+        circuitBreakerThreshold: 1,
+        primary: { provider: 'openai', apiKey: `output-ceiling-${sharedCircuitBreaker}` },
+        fallbacks: [
+          { provider: 'anthropic', apiKey: `output-ceiling-backup-${sharedCircuitBreaker}` },
+        ],
+      });
+      primary.complete.mockResolvedValue(
+        ok({ content: 'unfinished summary', finishReason: 'length', usage: {} })
+      );
+      for (let i = 0; i < 3; i++) {
+        const result = await provider.complete(dummyRequest);
+        expect(result.ok && result.value.content).toBe('from anthropic');
+      }
+      primary.complete.mockResolvedValue(
+        ok({ content: 'complete answer', finishReason: 'stop', usage: {} })
+      );
+      const result = await provider.complete(dummyRequest);
+      expect(result.ok && result.value.content).toBe('complete answer');
+      expect(primary.complete).toHaveBeenCalledTimes(4);
+      expect(fallback.complete).toHaveBeenCalledTimes(3);
+    }
+  );
+  it('does not authorize a tool call from a completion stopped at the output ceiling', async () => {
+    const { provider, primary, fallback } = createTestProvider();
+    primary.complete.mockResolvedValue(
+      ok({
+        content: '',
+        finishReason: 'length',
+        usage: {},
+        toolCalls: [{ id: 'partial-write', name: 'create_record', arguments: '{"amount":10}' }],
+      })
+    );
+    fallback.complete.mockResolvedValue(err(new InternalError('backup unavailable')));
+    const result = await provider.complete(dummyRequest);
+    expect(result.ok).toBe(false);
+    expect(fallback.complete).toHaveBeenCalledTimes(1);
+  });
+  it('can use a fallback for a length terminal before any response was emitted', async () => {
+    const { provider, primary, fallback } = createTestProvider();
+    primary.stream.mockImplementation(() =>
+      (async function* () {
+        yield ok({ content: 'unfinished first chunk', done: true, finishReason: 'length' });
+      })()
+    );
+    const output = [];
+    for await (const chunk of provider.stream(dummyRequest)) output.push(chunk);
+    expect(output.some((r) => r.ok && r.value.content === 'unfinished first chunk')).toBe(false);
+    expect(output.some((r) => r.ok && r.value.content === 'chunk-anthropic')).toBe(true);
+    expect(fallback.stream).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    { content: 'partial summary', done: false },
+    { content: '', toolCalls: [{ id: 'call-1', arguments: '{' }], done: false },
+  ])(
+    'reports an incomplete stream without replay after visible content/tool fragments: %j',
+    async (partial) => {
+      const { provider, primary, fallback } = createTestProvider();
+      primary.stream.mockImplementation(() =>
+        (async function* () {
+          yield ok(partial);
+          yield ok({ content: '', done: true, finishReason: 'length' });
+        })()
+      );
+      const output = [];
+      for await (const chunk of provider.stream(dummyRequest)) output.push(chunk);
+      expect(output).toHaveLength(2);
+      expect(output[0]?.ok).toBe(true);
+      expect(output[1]?.ok).toBe(false);
+      expect(fallback.stream).not.toHaveBeenCalled();
+    }
+  );
+  it('keeps the primary available after a request-limited stream', async () => {
+    const { provider, primary } = createTestProvider({ circuitBreakerThreshold: 1 });
+    primary.stream.mockImplementation(() =>
+      (async function* () {
+        yield ok({ content: 'partial', done: false });
+        yield ok({ content: '', done: true, finishReason: 'length' });
+      })()
+    );
+    for await (const _chunk of provider.stream(dummyRequest)) {
+      /* consume */
+    }
+    const result = await provider.complete(dummyRequest);
+    expect(result.ok && result.value.content).toBe('from openai');
+    expect(primary.complete).toHaveBeenCalledTimes(1);
+  });
   it('keeps circuits independent when several vendors are OpenAI-compatible', async () => {
     const primary = makeMockProvider('openai-compatible');
     const backupA = makeMockProvider('openai-compatible');
