@@ -57,10 +57,8 @@ test('expanded public explanations keep readable FAQs on small and large screens
 }, testInfo) => {
   for (const path of ['/financas', '/lembretes', '/metas', '/como-usar', '/sobre']) {
     await page.goto(path);
-    const faq = page
-      .locator('details')
-      .filter({ has: page.locator('summary') })
-      .last();
+    const faq = page.locator('main .faq-section details').last();
+    await expect(faq.locator('summary')).toBeVisible();
     await faq.locator('summary').click();
     await expect(faq).toHaveAttribute('open', '');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
