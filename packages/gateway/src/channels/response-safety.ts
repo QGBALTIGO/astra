@@ -4,6 +4,7 @@ import { isFinanceReadOnlyRequest } from './finance-intent.js';
 import { verifiedChannelFacts, verifiedReadChannelFacts } from './verified-facts.js';
 import { verifiedFinancingConfirmation } from './financing-receipts.js';
 import { verifiedFinancialRefusalReply } from './financial-refusal-receipts.js';
+import { verifiedConnectedActionFailureReply } from './connected-action-failure-receipts.js';
 import {
   formatAstraMessage,
   formatReminderConfirmation,
@@ -414,6 +415,8 @@ export function safeChannelResponse(
 ): string {
   const rejectedFinancialWrite = verifiedFinancialRefusalReply(receipts);
   if (rejectedFinancialWrite) return rejectedFinancialWrite;
+  const connectedFailure = verifiedConnectedActionFailureReply(receipts);
+  if (connectedFailure) return connectedFailure;
   const rejectedReminder = reminderValidationReply(receipts, context.requestText ?? '');
   if (rejectedReminder) return rejectedReminder;
   // A saved row returned by a lookup is evidence of an existing item, never a

@@ -14,6 +14,13 @@ on:
       - 'packages/gateway/src/channels/customer-planning-routing*'
       - 'packages/gateway/src/channels/channel-ai-routing*'
       - 'packages/gateway/src/channels/tool-selection*'
+      - 'packages/gateway/src/channels/connected-action-failure-receipts*'
+      - 'packages/gateway/src/channels/channel-failure*'
+      - 'packages/gateway/src/channels/response-safety*'
+      - 'packages/gateway/src/services/customer-integration*'
+      - 'packages/gateway/src/services/middleware/agent-execution*'
+      - 'packages/gateway/src/services/agent/prompt*'
+      - 'packages/gateway/src/tools/customer-integration-tools*'
       - 'packages/gateway/src/tools/customer-planning-tools*'
       - 'scripts/railway-entrypoint.sh'
       - 'Dockerfile'
@@ -102,6 +109,18 @@ jobs:
           src/routes/customer/finance.test.ts
       - name: Optional encrypted pre-start preservation safety contracts
         run: pnpm --filter @ownpilot/gateway exec vitest run src/release-backup.test.ts
+      - name: Connected action schemas, failure evidence and channel recovery
+        run: >-
+          pnpm --filter @ownpilot/gateway exec vitest run
+          src/services/customer-integration-failure.test.ts
+          src/services/customer-integrations.test.ts
+          src/tools/customer-integration-tools.test.ts
+          src/channels/connected-action-failure-receipts.test.ts
+          src/channels/channel-failure.test.ts
+          src/channels/response-safety.test.ts
+          src/channels/tool-selection.test.ts
+          src/services/agent/prompt.test.ts
+          src/services/middleware/agent-execution.test.ts
       - name: Independent manual ledger and market valuation reference scenarios
         working-directory: packages/gateway
         run: |

@@ -8,6 +8,7 @@ import {
 } from './astra-access.js';
 import { channelOperations } from './receipt-state.js';
 import { verifiedFinancialRefusalReply } from './financial-refusal-receipts.js';
+import { verifiedConnectedActionFailureReply } from './connected-action-failure-receipts.js';
 import { formatAstraMessage } from './response-presentation.js';
 import {
   CHANNEL_UNVERIFIED_REPLY,
@@ -250,6 +251,8 @@ export function channelFailureReply(
 ): string {
   const rejectedFinancialWrite = verifiedFinancialRefusalReply(receipts);
   if (rejectedFinancialWrite) return rejectedFinancialWrite;
+  const connectedFailure = verifiedConnectedActionFailureReply(receipts);
+  if (connectedFailure) return connectedFailure;
   const details = verifiedWriteDetails(receipts, timeZone);
   const operations = channelOperations(receipts);
   const reminderCancellations = operations.filter(

@@ -43,6 +43,7 @@ vi.mock('./composio-service.js', () => ({
 import { CustomerIntegrationService, integrationProposalMessage } from './customer-integrations.js';
 import type { IntegrationAction } from '../db/repositories/customer-integrations.js';
 import { integrationHash } from './customer-integration-policy.js';
+import { parseConnectedActionFailure } from './customer-integration-failure.js';
 const read = {
   slug: 'GMAIL_FETCH_EMAILS',
   name: 'Consultar e-mails',
@@ -101,6 +102,133 @@ beforeEach(() => {
     app: input.app,
   }));
 });
+
+describe('connected action failures retain safe execution evidence', () => {
+  it('identifies an unavailable action before any provider execution or proposal', async () => {
+    mocks.specs.mockRejectedValueOnce(new Error('HTTP 503 token=secret'));
+    const error = await service.run('customer-a', 'gmail', read.slug, {}).catch((caught) => caught);
+    expect(parseConnectedActionFailure(error.failure)).toMatchObject({
+      stage: 'schema',
+      reason: 'schema_failed',
+      app: 'gmail',
+      action: read.slug,
+      externalMutation: 'not_attempted',
+      localMutation: 'not_attempted',
+    });
+    expect(error.message).not.toMatch(/secret|HTTP/);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.repo.propose).not.toHaveBeenCalled();
+  });
+
+  it('keeps a known missing argument useful without exposing a provider schema in chat', async () => {
+    const error = await runInExecContext(privateContext, () =>
+      service.run('customer-a', 'gmail', write.slug, { body: 'Mensagem fictícia' })
+    ).catch((caught) => caught);
+    expect(parseConnectedActionFailure(error.failure)).toMatchObject({
+      stage: 'validation',
+      reason: 'missing_argument',
+      requiredField: 'to',
+      externalMutation: 'not_attempted',
+      localMutation: 'not_attempted',
+    });
+    expect(error.message).toContain('destinatário');
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.repo.propose).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['FREE_MONTHLY_LIMIT', 'monthly_limit', 'franquia gratuita'],
+    ['CUSTOMER_DAILY_LIMIT', 'daily_limit', 'hoje'],
+  ])('retains an application quota refusal: %s', async (code, reason, message) => {
+    mocks.repo.reserveCall.mockRejectedValueOnce(new Error(code));
+    const error = await service.run('customer-a', 'gmail', read.slug, {}).catch((caught) => caught);
+    expect(parseConnectedActionFailure(error.failure)).toMatchObject({
+      stage: 'read_request',
+      reason,
+      externalMutation: 'not_attempted',
+      localMutation: 'unknown',
+    });
+    expect(error.message).toContain(message);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it('does not treat arbitrary provider error text as an application quota refusal', async () => {
+    mocks.execute.mockRejectedValueOnce(new Error('FREE_MONTHLY_LIMIT'));
+    const error = await service.run('customer-a', 'gmail', read.slug, {}).catch((caught) => caught);
+    expect(parseConnectedActionFailure(error.failure)).toMatchObject({
+      stage: 'read_request',
+      reason: 'read_not_confirmed',
+      localMutation: 'unknown',
+    });
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps provider-read failure distinct from schema validation', async () => {
+    mocks.execute.mockRejectedValueOnce(new Error('secret raw provider body'));
+    const error = await service.run('customer-a', 'gmail', read.slug, {}).catch((caught) => caught);
+    expect(parseConnectedActionFailure(error.failure)).toMatchObject({
+      stage: 'read_request',
+      reason: 'read_not_confirmed',
+      app: 'gmail',
+      action: read.slug,
+      externalMutation: 'not_attempted',
+      localMutation: 'unknown',
+    });
+    expect(error.message).not.toMatch(/secret|provider body/);
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks a returned read as unconfirmed when its provider envelope reports failure', async () => {
+    mocks.execute.mockResolvedValueOnce({ successful: false, error: 'private response' });
+    const error = await service.run('customer-a', 'gmail', read.slug, {}).catch((caught) => caught);
+    expect(parseConnectedActionFailure(error.failure)).toMatchObject({
+      stage: 'read_result',
+      reason: 'read_not_confirmed',
+      localMutation: 'unknown',
+    });
+    expect(error.message).not.toContain('private response');
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not claim proposal persistence was rolled back when the store fails', async () => {
+    mocks.repo.propose.mockRejectedValueOnce(new Error('Database connection lost'));
+    const error = await runInExecContext(privateContext, () =>
+      service.run('customer-a', 'gmail', write.slug, { to: 'own@example.test', body: 'Teste' })
+    ).catch((caught) => caught);
+    expect(parseConnectedActionFailure(error.failure)).toMatchObject({
+      stage: 'proposal',
+      reason: 'proposal_not_confirmed',
+      externalMutation: 'not_attempted',
+      localMutation: 'unknown',
+    });
+    expect(error.message).toContain('proposta pendente');
+    expect(mocks.repo.propose).toHaveBeenCalledTimes(1);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes a missing connection from a transient connection lookup failure', async () => {
+    mocks.connections.mockResolvedValueOnce([]);
+    const missing = await service
+      .run('customer-a', 'gmail', read.slug, {})
+      .catch((caught) => caught);
+    expect(parseConnectedActionFailure(missing.failure)).toMatchObject({
+      stage: 'binding',
+      reason: 'connection_required',
+    });
+    expect(missing.message).toContain('/cliente/conexoes');
+    mocks.connections.mockRejectedValueOnce(new Error('private upstream response'));
+    const unavailable = await service
+      .run('customer-a', 'gmail', read.slug, {})
+      .catch((caught) => caught);
+    expect(parseConnectedActionFailure(unavailable.failure)).toMatchObject({
+      stage: 'binding',
+      reason: 'binding_failed',
+    });
+    expect(unavailable.message).not.toContain('Conecte esse');
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+});
+
 describe('customer bound integration execution', () => {
   it.each([
     ['2026-11-15T11:20:00', '15/11/2026, 11:20'],
@@ -333,7 +461,12 @@ describe('customer bound integration execution', () => {
       now += 11000;
     });
     await expect(service.run('customer-a', 'gmail', read.slug, {})).rejects.toMatchObject({
-      name: 'INTEGRATION_NOT_SENT',
+      failure: {
+        stage: 'read_request',
+        reason: 'read_not_sent',
+        externalMutation: 'not_attempted',
+        localMutation: 'unknown',
+      },
     });
     expect(mocks.execute).not.toHaveBeenCalled();
   });
@@ -439,9 +572,10 @@ describe('customer bound integration execution', () => {
   });
   it('charges a provider call before executing it and stops at the free limit', async () => {
     mocks.repo.reserveCall.mockRejectedValue(new Error('FREE_MONTHLY_LIMIT'));
-    await expect(service.run('customer-a', 'gmail', read.slug, {})).rejects.toThrow(
-      'FREE_MONTHLY_LIMIT'
-    );
+    await expect(service.run('customer-a', 'gmail', read.slug, {})).rejects.toMatchObject({
+      failure: { stage: 'read_request', reason: 'monthly_limit' },
+      message: expect.stringContaining('franquia gratuita deste mês'),
+    });
     expect(mocks.execute).not.toHaveBeenCalled();
   });
   it('does not truncate the content a person is asked to confirm', () => {

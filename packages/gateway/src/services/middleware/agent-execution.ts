@@ -32,6 +32,7 @@ import {
   requiredChannelSubscriptionTool,
 } from '../../channels/tool-selection.js';
 import { requiredFinanceReadTool } from '../../channels/finance-intent.js';
+import { verifiedConnectedActionFailureReply } from '../../channels/connected-action-failure-receipts.js';
 
 import {
   channelFailureKind,
@@ -52,6 +53,8 @@ export function userFacingAgentError(
   timeZone?: string
 ): string {
   if (message.metadata?.source !== 'channel') return 'Error: ' + details;
+  const connectedFailure = verifiedConnectedActionFailureReply(receipts);
+  if (connectedFailure) return connectedFailure;
   const verified = verifiedChannelFacts('', receipts, { timeZone, requestText: message.content });
   if (verified) return verified;
   if (requiredChannelRadarTool(message.content))
@@ -197,6 +200,10 @@ export function createAgentExecutionMiddleware(): MessageMiddleware {
           response: Parameters<typeof verifiedChannelToolReply>[0],
           results: Parameters<typeof verifiedChannelToolReply>[1]
         ) =>
+          // A proven integration failure already has a truthful next step.
+          // Finish from the complete invocation history instead of spending
+          // another model turn rediscovering or replaying the same action.
+          verifiedConnectedActionFailureReply(channelReceipts) ??
           verifiedChannelToolReply(response, results, {
             timeZone: ctx.get<string>('channelTimeZone'),
             requestText: message.content,

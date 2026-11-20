@@ -18,6 +18,58 @@ const financeTools = [
   'core.financial_summary',
 ];
 
+const connectedAppTools = [
+  'core.connected_apps_status',
+  'core.manage_email_digest',
+  'core.search_connected_actions',
+  'core.run_connected_action',
+  'core.sync_connected_app',
+];
+
+describe('connected application discovery', () => {
+  it.each([
+    'Quais aplicativos estão conectados?',
+    'Consulte meus apps conectados.',
+    'Você consegue acessar as contas que conectei?',
+    'Confira os dados dos meus serviços vinculados.',
+    'Consulte a conta que vinculei.',
+    'Mostre minhas conexões.',
+    'Consulte os itens no Todoist.',
+  ])('exposes status, real action discovery and execution together: %s', (text) => {
+    const tools = channelToolsForMessage(text, 'Gastei 35 reais com frango.');
+    expect(tools).toEqual(connectedAppTools);
+  });
+
+  it('keeps the integration family for a referential followup in the same recent conversation', () => {
+    const previous = recentChannelText({
+      messages: [{ content: 'Seus aplicativos estão conectados.' }],
+    });
+    expect(channelToolsForMessage('Consulte esses dados.', previous)).toEqual(connectedAppTools);
+    expect(channelToolsForMessage('Consulte esses dados.')).toEqual([]);
+  });
+
+  it.each([
+    'Qual a temperatura hoje?',
+    'Quanto gastei este mês?',
+    'Como faço frango na frigideira?',
+  ])('does not carry linked-account tools into a new subject: %s', (text) => {
+    const tools = channelToolsForMessage(
+      text,
+      'Os aplicativos conectados estão disponíveis para consulta.'
+    );
+    for (const tool of connectedAppTools) expect(tools).not.toContain(tool);
+  });
+
+  it.each([
+    'Meu computador está conectado na internet?',
+    'Qual aplicativo você recomenda para estudar?',
+    'As contas de luz estão pagas?',
+  ])('does not infer a connected application from a generic account or connection: %s', (text) => {
+    const tools = channelToolsForMessage(text);
+    for (const tool of connectedAppTools) expect(tools).not.toContain(tool);
+  });
+});
+
 describe('email requests remain in their current domain', () => {
   it.each([
     'Quais os últimos gmais importantes que recebi',

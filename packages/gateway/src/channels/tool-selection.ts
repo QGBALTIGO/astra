@@ -233,6 +233,17 @@ export function needsConversationalRewrite(text: string): boolean {
   );
 }
 
+/** Generic linked-account requests need the same schemas as a named application. */
+function hasConnectedAppSubject(input: string): boolean {
+  return (
+    /\b(?:google|gmail|drive|planilh\w*|todoist|notion|trello|conexo\w*|integra\w*|sincroniz\w*|e-?mails?)\b/.test(
+      input
+    ) ||
+    (/\b(?:apps?|aplicativos?|contas?|servicos?)\b/.test(input) &&
+      /\b(?:conectad[oa]s?|conectei|vinculad[oa]s?|vinculei)\b/.test(input))
+  );
+}
+
 /** Small native tool set per intent; discovery remains available for everything else. */
 export function channelToolsForMessage(text: string, previousText = ''): string[] {
   if (isConversationalOnlyChannelRequest(text)) return [];
@@ -243,7 +254,8 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
   const emailRequest = isChannelEmailRequest(text, previousText);
   const explicitSubject =
     hasChannelEmailSubject(text) ||
-    /\b(?:assinaturas?|mensalidades?|temperatura|clima|chuva|previsao|cidade|moro|google|gmail|drive|planilh\w*|todoist|notion|trello|conexo\w*|integra\w*|sincroniz\w*|e-?mails?|lembre\w*|avis\w*|alarme|reagend\w*|financeiro|financas|reais|recebi|receber|ganhei|gastei|gastos?|paguei|pagamentos?|saldo|lancamentos?|faturas?|metas?|objetivos?|financiamentos?|tarefas?|afazeres?|dentista|reuniao|compromisso|calendario|agenda|memoria|memorize|radar|noticias?|jogos?|futebol)\b|r\s*\$/u.test(
+    hasConnectedAppSubject(current) ||
+    /\b(?:assinaturas?|mensalidades?|temperatura|clima|chuva|previsao|cidade|moro|lembre\w*|avis\w*|alarme|reagend\w*|financeiro|financas|reais|recebi|receber|ganhei|gastei|gastos?|paguei|pagamentos?|saldo|lancamentos?|faturas?|metas?|objetivos?|financiamentos?|tarefas?|afazeres?|dentista|reuniao|compromisso|calendario|agenda|memoria|memorize|radar|noticias?|jogos?|futebol)\b|r\s*\$/u.test(
       current
     );
   const input = (explicitSubject ? text : `${text}\n${previousText.slice(-2500)}`)
@@ -272,9 +284,7 @@ export function channelToolsForMessage(text: string, previousText = ''): string[
     emailRequest ||
     hasChannelEmailSubject(text) ||
     requiredChannelEmailDigestTool(text, previousText) ||
-    /\b(?:google|gmail|drive|planilh\w*|todoist|notion|trello|conexo\w*|integra\w*|sincroniz\w*|e-?mails?)\b/.test(
-      integrationInput
-    )
+    hasConnectedAppSubject(integrationInput)
   )
     add(
       'connected_apps_status',
