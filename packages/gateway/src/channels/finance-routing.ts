@@ -1,5 +1,11 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
 import { isFinanceReadOnlyRequest } from './finance-intent.js';
+import {
+  financeMetadataCorrectionField,
+  financialWriteClarification,
+  financingClarificationReply,
+} from './financial-write-clarification.js';
+import { classifyFinancingPaymentAuthority } from './financing-intent.js';
 /**
  * Deterministic financing operations for WhatsApp/Telegram. Bypasses LLM
  * rate limits and invalid direct core.* tool calls on unambiguous requests.
@@ -21,46 +27,14 @@ import { formatAstraMessage, formatTransactionConfirmation } from './response-pr
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDay } from '../services/customer-date.js';
 
+import {
+  parseBrlCents,
+  parseFinancingIntent,
+  normalizeFinancingText as normalize,
+} from './financing-intent.js';
+export { parseBrlCents, parseFinancingIntent } from './financing-intent.js';
+
 const log = getLog('ChannelFinancing');
-
-type ParsedIntent =
-  | { kind: 'unconfirmed' }
-  | { kind: 'create'; name: string; principalCents: number; openingCents: number }
-  | { kind: 'query'; name: string }
-  | { kind: 'payment'; name: string; amountCents: number };
-
-function normalize(text: string): string {
-  return text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase('pt-BR')
-    .trim();
-}
-
-/** Parse explicit Brazilian currency: 72 mil, 72.000, 930, 470,50. */
-export function parseBrlCents(raw: string, multiplier?: string): number | null {
-  // WhatsApp sentences often put a comma immediately after the amount.
-  const compact = raw.replace(/\s/g, '').replace(/[.,]+$/g, '');
-  let normalized: string;
-  if (/^\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(compact)) {
-    normalized = compact.replace(/\./g, '').replace(',', '.');
-  } else if (/^\d+(?:,\d{1,2})?$/.test(compact)) {
-    normalized = compact.replace(',', '.');
-  } else if (/^\d+\.\d{1,2}$/.test(compact)) {
-    normalized = compact;
-  } else {
-    return null;
-  }
-  const number = Number(normalized);
-  const value = number * (multiplier && /^(?:mil|k)$/.test(multiplier) ? 1000 : 1);
-  const cents = Math.round(value * 100);
-  return Number.isSafeInteger(cents) && cents > 0 && cents <= 9_000_000_000_000 ? cents : null;
-}
-
-function safeName(name: string): string | null {
-  const clean = name.replace(/\s+/g, ' ').trim();
-  return /^[a-z0-9][a-z0-9 -]{1,59}$/.test(clean) ? clean : null;
-}
 
 export interface ParsedChannelExpense {
   amountCents: number;
@@ -74,6 +48,7 @@ export interface ParsedChannelExpense {
  * with the assistant instead of causing an automatic financial write.
  */
 export function parseChannelExpense(input: string): ParsedChannelExpense | null {
+  if (financialWriteClarification(input)) return null;
   const text = input.trim();
   const normalized = normalize(text);
   if (
@@ -169,6 +144,12 @@ export async function tryExpenseRecordChannelReply(
 ): Promise<string | null> {
   if (isFinanceReadOnlyRequest(message.text))
     return tryCustomerFinancialChannelReply(message, userId);
+  const clarification = financialWriteClarification(message.text);
+  if (clarification)
+    return clarification.reason === 'financing_payment_requires_link' ||
+      clarification.reason === 'financial_metadata_correction_requires_update'
+      ? null
+      : clarification.message;
   const pendingKey = expenseConfirmationKey(userId, message);
   const undo =
     /^(?:apague|remova|exclua) (?:apenas |somente )?o gasto de hoje de r\$\s*(\d{1,8}(?:,\d{2})?) com (?:a descrição )?["“]([^"”\r\n]{2,160})["”][.!]?$/iu.exec(
@@ -373,69 +354,6 @@ export async function tryExpenseRecordChannelReply(
   }
 }
 
-export function parseFinancingIntent(input: string): ParsedIntent | null {
-  const text = normalize(input);
-  const prefix = /^(?:astra[,!:]?\s+)?(?:(?:registr[ae]|anot[ae])\s+que\s+)?$/u;
-
-  // "O valor do carro é 72 mil, já foi pago 930, vai registrando..."
-  // Requires BOTH the total and opening amount; never guesses missing data.
-  const setup = text.match(
-    /\bvalor\s+(?:total\s+)?(?:do|da)\s+([a-z0-9 -]{2,60}?)\s+(?:e|de|foi)\s+(?:r\$\s*)?(\d[\d.,]*)\s*(mil|k)?\s*[,;]?\s*(?:ja\s+(?:foi\s+)?pago|ja\s+paguei|ja\s+pagamos|ja\s+(?:foi\s+)?quitado)\s*(?:r\$\s*)?(\d[\d.,]*)\s*(mil|k)?/u
-  );
-  if (setup) {
-    const before = text.slice(0, setup.index).replace(/\bo\s+$/u, '');
-    const after = text.slice(setup.index! + setup[0].length).trim();
-    if (
-      !prefix.test(before) ||
-      !/^(?:[,;]?\s*(?:acompanha(?: mensalmente)?|vai registrando(?: e dando baixa todo mes)?))?[.!]?$/u.test(
-        after
-      )
-    ) {
-      return { kind: 'unconfirmed' };
-    }
-    const name = safeName(setup[1] ?? '');
-    const principalCents = parseBrlCents(setup[2] ?? '', setup[3]);
-    const openingCents = parseBrlCents(setup[4] ?? '', setup[5]);
-    if (name && principalCents && openingCents !== null && openingCents <= principalCents) {
-      return { kind: 'create', name, principalCents, openingCents };
-    }
-    // A recognizable but invalid debt request must not be misread as a payment.
-    return null;
-  }
-
-  // "Quanto falta pagar do carro?" / "Saldo do carro?"
-  const query = text.match(
-    /\b(?:quanto\s+(?:falta|resta)\s+(?:pagar\s+)?(?:do|da)|saldo\s+(?:restante\s+)?(?:do|da)|quanto\s+(?:ja\s+)?paguei\s+(?:do|da))\s+([a-z0-9 -]{2,60}?)(?:[?!.]|$)/u
-  );
-  if (query) {
-    const name = safeName(query[1] ?? '');
-    if (name) return { kind: 'query', name };
-  }
-
-  // Only unambiguous, completed payments. A scheduled/expected installment
-  // or "vou pagar" must never be automatically deducted.
-  const paid = text.match(
-    /\b(?:paguei|abati|dei\s+baixa\s+em)\s+(?:mais\s+)?(?:r\$\s*)?(\d[\d.,]*)\s*(mil|k)?\s*(?:real|reais)?\s+(?:do|da)\s+([a-z0-9 -]{2,60})(?![a-z0-9 -])/u
-  );
-  if (paid) {
-    const before = text.slice(0, paid.index).replace(/\beu\s+$/u, '');
-    const after = text.slice(paid.index! + paid[0].length).trim();
-    const amountCents = parseBrlCents(paid[1] ?? '', paid[2]);
-    const name = safeName(paid[3] ?? '');
-    // A payment clause inside a question, quotation, correction or compound
-    // request does not authorize a ledger write, including through AI fallback.
-    if (
-      !prefix.test(before) ||
-      !/^[.!]?$/u.test(after) ||
-      /\b(?:nao|nunca|nem|mas|porem|se|talvez|acho|mentira|brincadeira|ou|e)\b/u.test(paid[3]!)
-    ) {
-      return { kind: 'unconfirmed' };
-    }
-    if (name && amountCents) return { kind: 'payment', name, amountCents };
-  }
-  return null;
-}
-
 function currency(cents: number): string {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
@@ -444,10 +362,18 @@ function currency(cents: number): string {
 }
 
 export async function tryFinancingChannelReply(
-  message: Pick<ChannelIncomingMessage, 'text' | 'id' | 'channelPluginId' | 'platformChatId'>,
+  message: Pick<ChannelIncomingMessage, 'text' | 'id' | 'channelPluginId' | 'platformChatId'> &
+    Partial<Pick<ChannelIncomingMessage, 'timestamp'>>,
   userId: string
 ): Promise<string | null> {
-  const intent = parseFinancingIntent(message.text);
+  if (financeMetadataCorrectionField(message.text)) return null;
+  const clarification = financingClarificationReply(message.text);
+  if (clarification) return clarification;
+  const authority = classifyFinancingPaymentAuthority(message.text);
+  const intent =
+    authority.kind === 'new_payment'
+      ? { kind: 'payment' as const, name: authority.name, amountCents: authority.amountCents }
+      : parseFinancingIntent(message.text);
   if (!intent) return null;
   if (intent.kind === 'unconfirmed') {
     return 'Nenhuma alteração foi feita no financiamento. Para consultar, pergunte pelo saldo. Para registrar um pagamento já feito, envie uma mensagem separada com o valor e o nome do financiamento.';
@@ -505,13 +431,21 @@ export async function tryFinancingChannelReply(
         const sourceKey = createHash('sha256')
           .update([userId, message.channelPluginId, message.platformChatId, message.id].join('|'))
           .digest('hex');
-        const result = await repo.recordPayment(intent.name, intent.amountCents, sourceKey);
+        const result = await repo.recordPayment(
+          intent.name,
+          intent.amountCents,
+          sourceKey,
+          message.timestamp
+        );
         if (result.status === 'missing') {
           return (
             'Ainda não encontrei o financiamento de ' +
             intent.name +
             '. Informe o valor total e quanto já pagou antes de dar baixa.'
           );
+        }
+        if (result.status === 'conflict') {
+          return 'Esta mensagem já foi usada para registrar outro pagamento. Para corrigir, confira o pagamento existente; não registrei outro valor.';
         }
         const balance = result.balance;
         if (result.status === 'exceeds') {
@@ -528,7 +462,7 @@ export async function tryFinancingChannelReply(
             // The transaction commits this exact amount only for a new payment.
             // A replay returns the current balance, not its original payment.
             ...(result.status === 'recorded'
-              ? [{ label: 'Valor', value: currency(intent.amountCents) }]
+              ? [{ label: 'Valor', value: currency(result.payment.amountCents) }]
               : []),
             { label: 'Pago', value: currency(balance.paidCents) },
             { label: 'Falta pagar', value: currency(balance.remainingCents) },

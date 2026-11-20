@@ -5,7 +5,14 @@
 import { createHash } from 'node:crypto';
 import { getExecContext } from '@ownpilot/core/agent';
 import type { ToolDefinition } from '@ownpilot/core/tools';
-import { FinanceObligationsRepository } from '../db/repositories/finance-obligations.js';
+import {
+  FinanceObligationsRepository,
+  financeNameKey,
+} from '../db/repositories/finance-obligations.js';
+import {
+  classifyFinancingPaymentAuthority,
+  parseFinancingIntent,
+} from '../channels/financing-intent.js';
 
 export const FINANCING_TOOLS: ToolDefinition[] = [
   {
@@ -13,7 +20,7 @@ export const FINANCING_TOOLS: ToolDefinition[] = [
     category: 'Finance',
     brief: 'Registrar dívida ou financiamento com valor total e valor já pago',
     description:
-      'Cria um financiamento separado das despesas. alreadyPaid é um saldo histórico, não é uma nova despesa. Nunca invente o valor total ou quanto já foi pago.',
+      'Cria um financiamento separado das despesas somente quando a mensagem atual do usuário informa nome, valor total e valor já pago. alreadyPaid é saldo histórico, nunca nova despesa. Uma correção de categoria ou um pagamento não autoriza criar financiamento nem inventar valores. Se faltarem dados, pergunte.',
     parameters: {
       type: 'object',
       properties: {
@@ -40,7 +47,7 @@ export const FINANCING_TOOLS: ToolDefinition[] = [
     category: 'Finance',
     brief: 'Registrar um pagamento confirmado e abater do financiamento',
     description:
-      'Só registre se o usuário informou um pagamento já realizado, nunca previsão nem promessa de pagamento. Salva o pagamento na dívida e nas despesas numa única transação.',
+      'Registra somente um novo pagamento confirmado na mensagem atual, com nome e valor exatos. Consulte financing_balance antes. Um total acumulado já pago ou uma correção de lançamento não é novo pagamento: peça esclarecimento. Salva dívida e despesa numa única transação; nunca registre a mesma quantia também como despesa separada.',
     parameters: {
       type: 'object',
       properties: {
@@ -60,10 +67,43 @@ function amountToCents(value: unknown, allowZero = false): number | null {
   return Math.abs(value * 100 - cents) < 1e-6 ? cents : null;
 }
 
+type FinancingValidationReason =
+  | 'payment_confirmation_required'
+  | 'historical_payment_requires_clarification'
+  | 'financing_details_required'
+  | 'request_mismatch'
+  | 'financing_not_found'
+  | 'payment_exceeds_balance'
+  | 'payment_replay_conflict';
+
+function refusal(reason: FinancingValidationReason, message: string) {
+  return {
+    success: false,
+    result: {
+      kind: 'financing_request_validation',
+      reason,
+      mutation: 'not_attempted',
+      message,
+    },
+    error: message,
+  };
+}
+
+function hasCurrentChannelRequest(context: ReturnType<typeof getExecContext>): boolean {
+  return !!(
+    context?.channelMessageId &&
+    context.channelPluginId &&
+    context.platformChatId &&
+    context.channelRequestText?.trim() &&
+    context.channelIsPrivate !== false &&
+    !context.channelConversationOnly
+  );
+}
+
 export async function executeFinancingTool(
   toolName: string,
   args: Record<string, unknown>,
-  userId = 'default'
+  userId = ''
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   const name = typeof args.name === 'string' ? args.name.trim() : '';
   if (!name || !userId) {
@@ -78,6 +118,26 @@ export async function executeFinancingTool(
         if (total === null || paid === null || paid > total) {
           return { success: false, error: 'Informe valores válidos para total e já pago.' };
         }
+        const context = getExecContext();
+        const request = hasCurrentChannelRequest(context)
+          ? parseFinancingIntent(context!.channelRequestText!)
+          : null;
+        if (request?.kind !== 'create') {
+          return refusal(
+            'financing_details_required',
+            'Para cadastrar o financiamento, informe o nome, o valor total e quanto já foi pago na mesma mensagem. Exemplo: "O valor do carro é 72 mil, já paguei 28 mil". Nenhum financiamento foi criado.'
+          );
+        }
+        if (
+          financeNameKey(name) !== financeNameKey(request.name) ||
+          total !== request.principalCents ||
+          paid !== request.openingCents
+        ) {
+          return refusal(
+            'request_mismatch',
+            'Os dados do financiamento não correspondem à sua mensagem. Confirme o nome, o valor total e o valor já pago; nenhum financiamento foi criado.'
+          );
+        }
         const result = await repo.createOrFind(name, total, paid);
         return { success: true, result };
       }
@@ -90,37 +150,72 @@ export async function executeFinancingTool(
       case 'record_financing_payment': {
         const amount = amountToCents(args.amount);
         const context = getExecContext();
+        if (amount === null || !hasCurrentChannelRequest(context)) {
+          return refusal(
+            'payment_confirmation_required',
+            'Para registrar um pagamento novo, envie o valor pago e o nome do financiamento na conversa privada. Nenhum novo pagamento foi registrado.'
+          );
+        }
+        const authority = classifyFinancingPaymentAuthority(context!.channelRequestText!);
+        if (['historical', 'ambiguous', 'correction'].includes(authority.kind)) {
+          return refusal(
+            'historical_payment_requires_clarification',
+            'Esse valor é o total que você já pagou do financiamento ou um pagamento novo? Confirme também o nome do financiamento. Nenhum novo pagamento foi registrado.'
+          );
+        }
+        const parsed = parseFinancingIntent(context!.channelRequestText!);
+        const payment =
+          authority.kind === 'new_payment' ? authority : parsed?.kind === 'payment' ? parsed : null;
+        if (!payment) {
+          return refusal(
+            'payment_confirmation_required',
+            'Confirme um pagamento novo com valor e nome, por exemplo: "Paguei mais 500 do carro hoje". Nenhum novo pagamento foi registrado.'
+          );
+        }
         if (
-          amount === null ||
-          !context?.channelMessageId ||
-          !context.channelPluginId ||
-          !context.platformChatId
+          financeNameKey(name) !== financeNameKey(payment.name) ||
+          amount !== payment.amountCents
         ) {
-          return {
-            success: false,
-            error: 'Pagamento exige valor válido e confirmação pelo canal autenticado.',
-          };
+          return refusal(
+            'request_mismatch',
+            'O valor ou o financiamento não corresponde à sua mensagem. Confira esses dados; nenhum novo pagamento foi registrado.'
+          );
         }
         const sourceKey = createHash('sha256')
           .update(
             [
               userId,
-              context.channelPluginId,
-              context.platformChatId,
-              context.channelMessageId,
+              context!.channelPluginId,
+              context!.platformChatId,
+              context!.channelMessageId,
             ].join('|')
           )
           .digest('hex');
-        const result = await repo.recordPayment(name, amount, sourceKey);
-        return result.status === 'recorded' || result.status === 'duplicate'
-          ? { success: true, result }
-          : {
-              success: false,
-              error:
-                result.status === 'missing'
-                  ? 'Financiamento não encontrado.'
-                  : 'O pagamento ultrapassa o saldo restante.',
-            };
+        const result = await repo.recordPayment(
+          name,
+          amount,
+          sourceKey,
+          new Date(context!.channelMessageTimestamp ?? Date.now())
+        );
+        if (result.status === 'recorded' || result.status === 'duplicate') {
+          return { success: true, result };
+        }
+        if (result.status === 'conflict') {
+          return refusal(
+            'payment_replay_conflict',
+            'Esta mensagem já foi usada em outro pagamento. Confira o lançamento original antes de informar um novo pagamento.'
+          );
+        }
+        if (result.status === 'missing') {
+          return refusal(
+            'financing_not_found',
+            'Não encontrei esse financiamento. Informe o nome já cadastrado. Para cadastrar uma dívida nova, informe o nome, o valor total e quanto já foi pago.'
+          );
+        }
+        return refusal(
+          'payment_exceeds_balance',
+          'O pagamento ultrapassa o saldo restante. Consulte o saldo e confirme o valor antes de registrar um pagamento novo.'
+        );
       }
       default:
         return { success: false, error: 'Operação de financiamento desconhecida.' };
@@ -128,7 +223,8 @@ export async function executeFinancingTool(
   } catch {
     return {
       success: false,
-      error: 'Não foi possível confirmar a gravação do financiamento. Tente novamente.',
+      error:
+        'Não foi possível confirmar a gravação do financiamento. Consulte o saldo e os lançamentos antes de tentar registrar o pagamento novamente.',
     };
   }
 }

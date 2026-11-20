@@ -83,6 +83,15 @@ beforeEach(() => {
 });
 
 describe('explicit financial parsing', () => {
+  it.each([
+    'Paguei 28 mil já do carro, debita lá',
+    'Paguei 28000 do carro hoje',
+    'Já paguei 28000 no total do carro hoje',
+    'Não, do parcelamento do carro',
+    'O valor do carro é 72 mil, já foi pago 930',
+  ])('keeps financing amounts out of the standalone ledger route: %s', (text) => {
+    expect(parseChannelFinanceRecord(text)).toBeNull();
+  });
   it('understands the reported receipt with a payer but no preposition', () => {
     expect(parseChannelFinanceRecord('Recebi 500 reais Lucas Riquelme')).toMatchObject({
       type: 'income',

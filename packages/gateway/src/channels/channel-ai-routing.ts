@@ -24,6 +24,7 @@ import type { ChannelSessionsRepository } from '../db/repositories/channels/sess
 import type { ChannelNormalizer, NormalizedIncoming } from './normalizers/types.js';
 import { truncate } from '../utils/common.js';
 import { tryExpenseRecordChannelReply, tryFinancingChannelReply } from './finance-routing.js';
+import { financingClarificationReply } from './financial-write-clarification.js';
 import { runInSessionLane } from '../services/agent/session-lane.js';
 import { runWithChannelAIAdmission } from './channel-ai-admission.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
@@ -477,6 +478,7 @@ function tryAuthorizedChannelShortcut(
     );
     if (deletion) return deletion;
     return (
+      financingClarificationReply(message.text) ??
       financialCapabilityReply(message.platform, message.text) ??
       tryAstraAccessReply(message.text) ??
       (await tryPersonalTaskReply(message, userId, () =>

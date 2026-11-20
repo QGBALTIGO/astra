@@ -32,6 +32,32 @@ beforeEach(() => {
 
 describe('executeExpenseTool', () => {
   it.each(['add_expense', 'batch_add_expenses', 'update_expense', 'delete_expense'])(
+    'blocks legacy %s from bypassing financing clarification',
+    async (toolName) => {
+      const result = await runInExecContext(
+        { channelRequestText: 'Paguei 28 mil já do carro, debita lá' },
+        () =>
+          executeExpenseTool(
+            toolName,
+            { amount: 28000, expenses: [{ amount: 28000 }] },
+            'fixture-user'
+          )
+      );
+      expect(result).toMatchObject({
+        success: false,
+        result: {
+          operation: 'financial_write_refusal',
+          reason: 'ambiguous_financing_amount',
+          mutation: 'not_attempted',
+        },
+      });
+      expect(mockRepo.create).not.toHaveBeenCalled();
+      expect(mockRepo.update).not.toHaveBeenCalled();
+      expect(mockRepo.delete).not.toHaveBeenCalled();
+      expect(mockAccount).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['add_expense', 'batch_add_expenses', 'update_expense', 'delete_expense'])(
     'blocks %s for a financial lookup before touching the ledger',
     async (toolName) => {
       const result = await runInExecContext(

@@ -49,6 +49,99 @@ vi.mock('../db/repositories/customer-finance.js', async (original) => ({
   },
 }));
 import { CUSTOMER_FINANCE_TOOLS, executeCustomerFinanceTool } from './customer-finance-tools.js';
+
+describe('financing authority before ledger writes', () => {
+  it('preserves an explicit category correction while refusing an added amount change', async () => {
+    f.ctx.channelRequestText =
+      'Corrija apenas a categoria da despesa Parcela do carro para Transporte';
+    f.categories.mockResolvedValue([
+      { id: 'transport', name: 'Transporte', type: 'expense', archived: false },
+    ]);
+    const result = await executeCustomerFinanceTool(
+      'update_transaction',
+      { transaction_id: 'saved', category: 'Transporte' },
+      'fixture-user'
+    );
+    expect(result.success).toBe(true);
+    expect(f.update).toHaveBeenCalledWith('saved', { categoryId: 'transport' });
+    const changedAmount = await executeCustomerFinanceTool(
+      'update_transaction',
+      { transaction_id: 'saved', category: 'Transporte', amount: 28000 },
+      'fixture-user'
+    );
+    expect(changedAmount).toMatchObject({ success: false, result: { mutation: 'not_attempted' } });
+    expect(f.update).toHaveBeenCalledTimes(1);
+    const recreation = await executeCustomerFinanceTool(
+      'record_transaction',
+      { description: 'Parcela do carro', amount: 28000 },
+      'fixture-user'
+    );
+    expect(recreation.success).toBe(false);
+    expect(f.create).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['Paguei 28 mil já do carro, debita lá', 'ambiguous_financing_amount'],
+    ['Já paguei 28 mil no total do carro', 'historical_financing_amount'],
+    ['Não, do parcelamento do carro', 'financing_correction_requires_review'],
+    ['Já paguei 500 hoje do carro', 'financing_payment_requires_link'],
+    ['O valor do carro é 72 mil, já foi pago 930', 'historical_financing_amount'],
+  ])('does not turn %s into a separate expense or inferred correction', async (request, reason) => {
+    f.ctx.channelRequestText = request;
+    for (const tool of ['record_transaction', 'update_transaction', 'delete_transaction']) {
+      const result = await executeCustomerFinanceTool(
+        tool,
+        {
+          description: 'Despesa inventada pelo modelo',
+          amount: 28000,
+          type: 'expense',
+          status: 'settled',
+          date: '2026-11-10',
+          transaction_id: 'another-record',
+        },
+        'fixture-user'
+      );
+      expect(result).toMatchObject({
+        success: false,
+        result: { operation: 'financial_write_refusal', reason, mutation: 'not_attempted' },
+      });
+    }
+    expect(f.owner).not.toHaveBeenCalled();
+    expect(f.categories).not.toHaveBeenCalled();
+    expect(f.create).not.toHaveBeenCalled();
+    expect(f.update).not.toHaveBeenCalled();
+    expect(f.remove).not.toHaveBeenCalled();
+  });
+
+  it('allows inspecting existing records before a financing correction', async () => {
+    f.ctx.channelRequestText = 'Não, do parcelamento do carro';
+    f.list.mockResolvedValue({ transactions: [], total: 0, page: 1, pageSize: 20 });
+    const result = await executeCustomerFinanceTool(
+      'list_transactions',
+      { search: 'carro' },
+      'fixture-user'
+    );
+    expect(result.success).toBe(true);
+    expect(f.list).toHaveBeenCalledTimes(1);
+    expect(f.create).not.toHaveBeenCalled();
+  });
+
+  it('preserves an ordinary completed fuel expense', async () => {
+    f.ctx.channelRequestText = 'Paguei 100 de gasolina';
+    const result = await executeCustomerFinanceTool(
+      'record_transaction',
+      {
+        description: 'Gasolina',
+        amount: 100,
+        type: 'expense',
+        status: 'settled',
+        date: '2026-11-10',
+      },
+      'fixture-user'
+    );
+    expect(result.success).toBe(true);
+    expect(f.create).toHaveBeenCalledTimes(1);
+  });
+});
 const data = {
   description: 'Recebimento Cakto',
   amount: 770,
@@ -374,6 +467,34 @@ describe('same-ledger finance tools', () => {
     expect(f.create.mock.calls[0]![1]).toBe(f.create.mock.calls[1]![1]);
     await executeCustomerFinanceTool('record_transaction', data, 'user-b');
     expect(f.create.mock.calls[2]![1]).not.toBe(f.create.mock.calls[0]![1]);
+  });
+
+  it('keeps one request identity when the model rephrases a single transaction', async () => {
+    f.ctx.channelRequestText = 'Recebi 770 reais da Cakto';
+    await executeCustomerFinanceTool('record_transaction', data, 'fixture-user');
+    await executeCustomerFinanceTool(
+      'record_transaction',
+      { ...data, description: 'Entrada da Cakto' },
+      'fixture-user'
+    );
+    expect(f.create).toHaveBeenCalledTimes(2);
+    expect(f.create.mock.calls[0]![1]).toEqual(f.create.mock.calls[1]![1]);
+  });
+
+  it('keeps separate identities only for explicit items in the original message', async () => {
+    f.ctx.channelRequestText = 'R$ 20 café; R$ 30 almoço';
+    await executeCustomerFinanceTool(
+      'record_transaction',
+      { description: 'Café', amount: 20, type: 'expense', status: 'settled', date: '2026-11-10' },
+      'fixture-user'
+    );
+    await executeCustomerFinanceTool(
+      'record_transaction',
+      { description: 'Almoço', amount: 30, type: 'expense', status: 'settled', date: '2026-11-10' },
+      'fixture-user'
+    );
+    expect(f.create).toHaveBeenCalledTimes(2);
+    expect(f.create.mock.calls[0]![1]).not.toEqual(f.create.mock.calls[1]![1]);
   });
   it('does not create without an authenticated incoming message', async () => {
     f.ctx.channelMessageId = '';

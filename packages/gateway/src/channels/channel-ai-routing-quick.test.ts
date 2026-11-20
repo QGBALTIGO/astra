@@ -189,6 +189,57 @@ describe('complete receivable balance through both authenticated channel entry p
   );
 });
 
+describe('financing ambiguity at channel entry', () => {
+  beforeEach(() => vi.clearAllMocks());
+  it.each(
+    ['whatsapp', 'telegram'].flatMap((platform) =>
+      ['bus', 'direct'].flatMap((route) =>
+        ['Paguei 28 mil já do carro, debita lá', 'Não, do parcelamento do carro'].map((text) => ({
+          platform,
+          route,
+          text,
+        }))
+      )
+    )
+  )(
+    'clarifies without model execution or financial writes on $platform/$route: $text',
+    async ({ platform, route, text }) => {
+      const input = {
+        id: 'fixture-ambiguous-payment',
+        channelPluginId: `channel.${platform}`,
+        platform,
+        platformChatId: 'fixture-private-chat',
+        text,
+        timestamp: new Date('2026-11-20T01:54:00Z'),
+        metadata: { chatType: 'private' },
+        attachments: [],
+        sender: { platformUserId: 'fixture-private-chat', platform, displayName: 'Pessoa Exemplo' },
+      };
+      const bus = { process: vi.fn() };
+      const answer =
+        route === 'bus'
+          ? await processViaBus(
+              bus as never,
+              input as never,
+              { sessionId: 'fixture-session', conversationId: null },
+              { ownpilotUserId: 'fixture-user' },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : await processDirectAgent(input as never, 'fixture-user', async () => true);
+      expect(answer).toMatch(/total.*j[aá] pag|total que voc[eê] j[aá] pag/i);
+      expect(answer).toContain('novo pagamento');
+      expect(answer).not.toContain('✅');
+      expect(bus.process).not.toHaveBeenCalled();
+      expect(mockExpense).not.toHaveBeenCalled();
+      expect(mockSchedule).not.toHaveBeenCalled();
+    }
+  );
+});
+
 describe('Astra respostas gratuitas e instantâneas', () => {
   it.each([
     ['oi', 'Olá'],

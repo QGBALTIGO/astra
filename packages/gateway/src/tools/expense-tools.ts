@@ -1,6 +1,10 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
 import { getExecContext } from '@ownpilot/core/agent';
 import { isFinanceReadOnlyRequest } from '../channels/finance-intent.js';
+import {
+  financialWriteRefusal,
+  isOnlyRequestedFinanceMetadataUpdate,
+} from '../channels/financial-write-clarification.js';
 /**
  * Expense Tools — Gateway DB-backed Implementation
  *
@@ -38,6 +42,17 @@ export async function executeExpenseTool(
   args: Record<string, unknown>,
   userId = 'default'
 ): Promise<ToolExecutionResult> {
+  const currentRequest = getExecContext()?.channelRequestText ?? '';
+  if (
+    ['add_expense', 'batch_add_expenses', 'update_expense', 'delete_expense'].includes(toolName) &&
+    !(
+      toolName === 'update_expense' &&
+      isOnlyRequestedFinanceMetadataUpdate(currentRequest, args, 'expenseId')
+    )
+  ) {
+    const refusal = financialWriteRefusal(currentRequest);
+    if (refusal) return refusal;
+  }
   if (
     ['add_expense', 'batch_add_expenses', 'update_expense', 'delete_expense'].includes(toolName) &&
     isFinanceReadOnlyRequest(getExecContext()?.channelRequestText ?? '')

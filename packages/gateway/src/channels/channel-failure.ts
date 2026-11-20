@@ -7,6 +7,7 @@ import {
   isWeeklyPortalGuide,
 } from './astra-access.js';
 import { channelOperations } from './receipt-state.js';
+import { verifiedFinancialRefusalReply } from './financial-refusal-receipts.js';
 import { formatAstraMessage } from './response-presentation.js';
 import {
   CHANNEL_UNVERIFIED_REPLY,
@@ -247,6 +248,8 @@ export function channelFailureReply(
   receipts: ChannelToolReceipt[] = [],
   timeZone?: string
 ): string {
+  const rejectedFinancialWrite = verifiedFinancialRefusalReply(receipts);
+  if (rejectedFinancialWrite) return rejectedFinancialWrite;
   const details = verifiedWriteDetails(receipts, timeZone);
   const operations = channelOperations(receipts);
   const reminderCancellations = operations.filter(
