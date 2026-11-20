@@ -37,6 +37,101 @@ vi.mock('../log.js', () => ({
 import { getExecContext, runInExecContext } from '@ownpilot/core/agent';
 import { createAgentExecutionMiddleware } from './agent-execution.js';
 import { radarChatPending } from '../radar/chat-pending.js';
+import {
+  connectedActionFailureMessage,
+  createConnectedActionFailure,
+} from '../customer-integration-failure.js';
+
+describe('connected action failures survive provider finalization', () => {
+  const failure = createConnectedActionFailure('validation', 'gmail', 'GMAIL_FETCH_EMAILS');
+  const receipt = {
+    name: 'core.run_connected_action',
+    isError: true,
+    content: JSON.stringify({ success: false, result: failure, error: 'private-provider-body' }),
+  };
+
+  it.each(['turn-budget', 'provider-thrown'])(
+    'preserves the integration failure through %s without replaying it',
+    async (mode) => {
+      const chat = vi.fn().mockImplementation(async () => {
+        const report = getExecContext()?.onToolResult;
+        for (const name of [
+          'search_tools',
+          'search_tools',
+          'search_tools',
+          'core.connected_apps_status',
+          'use_tool',
+          'search_tools',
+        ])
+          report?.({ name, isError: false, content: '{"success":true,"result":{}}' });
+        report?.(receipt);
+        report?.({ ...receipt, name: 'use_tool' });
+        if (mode === 'provider-thrown') throw new Error('private-provider-error');
+        return { ok: false, error: { message: 'Maximum turns exceeded (6)' } };
+      });
+      const outcome = await createAgentExecutionMiddleware()(
+        createMessage({
+          content: 'Consulte meus e-mails recebidos hoje',
+          metadata: { source: 'channel', platform: 'whatsapp' },
+        }),
+        createContext({ store: { agent: createAgent({ chat }) } }),
+        vi.fn()
+      );
+      expect(outcome.response.content).toBe(connectedActionFailureMessage(failure));
+      expect(outcome.response.content).not.toMatch(
+        /private-|Maximum turns|Transações|Não consegui terminar/
+      );
+      expect(chat).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('finishes a proven integration failure directly from tool results before another model turn', async () => {
+    const chat = vi.fn().mockImplementation(async (_text, options) => {
+      getExecContext()?.onToolResult?.(receipt);
+      const content = options.onToolResults({ content: '', toolCalls: [{ name: receipt.name }] }, [
+        receipt,
+      ]);
+      expect(content).toBe(connectedActionFailureMessage(failure));
+      return { ok: true, value: { id: 'known-action-failure', content } };
+    });
+    const outcome = await createAgentExecutionMiddleware()(
+      createMessage({
+        content: 'Consulte meus e-mails recebidos hoje',
+        metadata: { source: 'channel', platform: 'whatsapp' },
+      }),
+      createContext({ store: { agent: createAgent({ chat }) } }),
+      vi.fn()
+    );
+    expect(outcome.response.content).toBe(connectedActionFailureMessage(failure));
+    expect(chat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not end early when a different action has an unconfirmed outcome', async () => {
+    const chat = vi.fn().mockImplementation(async (_text, options) => {
+      getExecContext()?.onToolResult?.({
+        name: 'core.update_transaction',
+        isError: true,
+        content: '{"success":false,"error":"private-db-error"}',
+      });
+      getExecContext()?.onToolResult?.(receipt);
+      expect(
+        options.onToolResults({ content: '', toolCalls: [{ name: receipt.name }] }, [receipt])
+      ).toBeUndefined();
+      return { ok: false, error: { message: 'Maximum turns exceeded (6)' } };
+    });
+    const outcome = await createAgentExecutionMiddleware()(
+      createMessage({
+        content: 'Corrija o gasto e consulte meu aplicativo',
+        metadata: { source: 'channel', platform: 'whatsapp' },
+      }),
+      createContext({ store: { agent: createAgent({ chat }) } }),
+      vi.fn()
+    );
+    expect(outcome.response.content).not.toBe(connectedActionFailureMessage(failure));
+    expect(outcome.response.content).not.toContain('Esse pedido não foi enviado');
+    expect(chat).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('persisted financial outcomes after agent finalization fails', () => {
   const balance = {

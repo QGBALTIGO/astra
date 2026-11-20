@@ -3,6 +3,12 @@ import { ASTRA_CONNECTED_APP_SLUGS } from '../config/astra-connected-apps.js';
 import { integrationApp, integrationFailure } from '../services/customer-integration-policy.js';
 import { customerIntegrationService } from '../services/customer-integrations.js';
 import { manageEmailDigest } from '../services/email-digest.js';
+import { getLog } from '../services/log.js';
+import {
+  ConnectedActionFailureError,
+  connectedActionFailureMessage,
+  createConnectedActionFailure,
+} from '../services/customer-integration-failure.js';
 
 const app = { type: 'string', enum: [...ASTRA_CONNECTED_APP_SLUGS] } as const;
 export const CUSTOMER_INTEGRATION_TOOLS: ToolDefinition[] = [
@@ -96,6 +102,12 @@ export async function executeCustomerIntegrationTool(
     else if (name === 'connected_apps_status')
       result = await customerIntegrationService.status(userId);
     else {
+      if (name === 'run_connected_action') {
+        const input = createConnectedActionFailure('input', args.app, args.action);
+        if (!input.app) throw new ConnectedActionFailureError({ ...input, reason: 'invalid_app' });
+        if (!input.action)
+          throw new ConnectedActionFailureError({ ...input, reason: 'invalid_action' });
+      }
       const selected = integrationApp(args.app);
       if (name === 'search_connected_actions')
         result = await customerIntegrationService.discover(
@@ -113,11 +125,15 @@ export async function executeCustomerIntegrationTool(
             args.arguments_json.length > 100000 ||
             args.arguments !== undefined
           )
-            throw new Error('Confira os detalhes da alteração.');
+            throw new ConnectedActionFailureError(
+              createConnectedActionFailure('input', selected, args.action, 'invalid_arguments')
+            );
           try {
             actionArguments = JSON.parse(args.arguments_json);
           } catch {
-            throw new Error('Confira os detalhes da alteração.');
+            throw new ConnectedActionFailureError(
+              createConnectedActionFailure('input', selected, args.action, 'invalid_arguments')
+            );
           }
         }
         if (
@@ -125,7 +141,9 @@ export async function executeCustomerIntegrationTool(
           typeof actionArguments !== 'object' ||
           Array.isArray(actionArguments)
         )
-          throw new Error('Confira os detalhes da alteração.');
+          throw new ConnectedActionFailureError(
+            createConnectedActionFailure('input', selected, args.action, 'invalid_arguments')
+          );
         result = await customerIntegrationService.run(
           userId,
           selected,
@@ -138,6 +156,16 @@ export async function executeCustomerIntegrationTool(
     }
     return { success: true, result };
   } catch (error) {
+    if (name === 'run_connected_action') {
+      const failure =
+        error instanceof ConnectedActionFailureError
+          ? error.failure
+          : createConnectedActionFailure('unknown', args.app, args.action);
+      // Keep the actual action/stage visible without storing message text,
+      // account IDs, action arguments, provider response bodies or credentials.
+      getLog('CustomerIntegrationTool').warn('Connected app action failed', failure);
+      return { success: false, result: failure, error: connectedActionFailureMessage(failure) };
+    }
     return { success: false, error: integrationFailure(error) };
   }
 }

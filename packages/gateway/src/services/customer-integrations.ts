@@ -24,6 +24,12 @@ import {
 import { integrationItems, unwrapIntegrationResult } from './customer-integration-data.js';
 import { customerDayStart, customerLocalDay } from './customer-date.js';
 import { formatAstraMessage, type AstraMessageField } from '../channels/response-presentation.js';
+import {
+  ConnectedActionFailureError,
+  ConnectedActionRejection,
+  createConnectedActionFailure,
+  type ConnectedActionFailureStage,
+} from './customer-integration-failure.js';
 
 const profileLink = ASTRA_CUSTOMER_ORIGIN + '/cliente/conexoes';
 const friendly = (v: string) => v.replace(/<[^>]*>|[\r\n*_`]/g, ' ').trim();
@@ -214,17 +220,25 @@ export class CustomerIntegrationService {
   private readonly readCache = new Map<string, { at: number; result: unknown }>();
   async principal(userId: string) {
     if (!userId || userId === 'default')
-      throw new Error('Vincule sua conversa ao seu cadastro no painel para usar suas conexões.');
+      throw new ConnectedActionRejection(
+        'account_required',
+        'Vincule sua conversa ao seu cadastro no painel para usar suas conexões.'
+      );
     const account = await customerAccountsRepo.getByDataUserId(userId);
     if (!account || account.dataUserId !== userId)
-      throw new Error('Vincule sua conversa ao seu cadastro no painel para usar suas conexões.');
+      throw new ConnectedActionRejection(
+        'account_required',
+        'Vincule sua conversa ao seu cadastro no painel para usar suas conexões.'
+      );
     if (process.env.ASTRA_CUSTOMER_OAUTH_ENABLED !== 'true' || !composioService.isConfigured())
-      throw new Error(
+      throw new ConnectedActionRejection(
+        'connections_disabled',
         'As conexões ainda estão sendo preparadas. Seus recursos de rotina continuam disponíveis.'
       );
     const grant = await channelUsersRepo.getById(account.channelUserId);
     if (!grant || !isChannelUserAccessActive(grant))
-      throw new Error(
+      throw new ConnectedActionRejection(
+        'access_inactive',
         'Seu acesso precisa estar ativo para usar as conexões. Confira seu plano no painel.'
       );
     return { account, ownerId: 'astra-customer:' + account.id };
@@ -240,7 +254,8 @@ export class CustomerIntegrationService {
         ? owned[0]
         : null;
     if (!match)
-      throw new Error(
+      throw new ConnectedActionRejection(
+        owned.length > 1 ? 'connection_ambiguous' : 'connection_required',
         owned.length > 1
           ? 'Escolha no painel qual das suas contas deseja usar.'
           : 'Conecte ' +
@@ -366,9 +381,16 @@ export class CustomerIntegrationService {
   }
   private async spec(app: AstraConnectedAppSlug, slug: string): Promise<IntegrationActionSpec> {
     if (!slug.startsWith(app.toUpperCase() + '_'))
-      throw new Error('Essa ação não pertence ao aplicativo escolhido.');
+      throw new ConnectedActionRejection(
+        'action_app_mismatch',
+        'Essa ação não pertence ao aplicativo escolhido.'
+      );
     const spec = (await this.specs(app, undefined, slug)).find((row) => row.slug === slug);
-    if (!spec) throw new Error('Essa ação não está disponível nas suas conexões.');
+    if (!spec)
+      throw new ConnectedActionRejection(
+        'action_unavailable',
+        'Essa ação não está disponível nas suas conexões.'
+      );
     return spec;
   }
   private async providerCall(
@@ -381,11 +403,24 @@ export class CustomerIntegrationService {
     onStart?: () => void
   ): Promise<unknown> {
     if (activeRequests >= 8)
-      throw new Error('As conexões estão ocupadas agora. Tente de novo em instantes.');
+      throw new ConnectedActionRejection(
+        'connections_busy',
+        'As conexões estão ocupadas agora. Tente de novo em instantes.'
+      );
     activeRequests++;
     const requestDeadline = Date.now() + 10000;
     try {
-      await customerIntegrationsRepo.reserveCall(userId);
+      try {
+        await customerIntegrationsRepo.reserveCall(userId);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        if (code === 'FREE_MONTHLY_LIMIT' || code === 'CUSTOMER_DAILY_LIMIT')
+          throw new ConnectedActionRejection(
+            code === 'FREE_MONTHLY_LIMIT' ? 'monthly_limit' : 'daily_limit',
+            code
+          );
+        throw error;
+      }
       if (Date.now() >= requestDeadline)
         throw Object.assign(new Error('Integration deadline passed while reserving the call'), {
           name: 'INTEGRATION_NOT_SENT',
@@ -554,7 +589,57 @@ export class CustomerIntegrationService {
     summary?: string,
     connectionId?: string
   ) {
+    const progress: { stage: ConnectedActionFailureStage } = { stage: 'binding' };
+    try {
+      return await this.runTracked(userId, app, slug, input, progress, summary, connectionId);
+    } catch (error) {
+      if (error instanceof ConnectedActionFailureError) throw error;
+      // This entry point only consults an external app or prepares a proposal.
+      // It never sends an external mutation; confirmation is a separate request.
+      // Once proposal persistence or a read starts, local state can be uncertain.
+      const missingField =
+        progress.stage === 'validation' && error instanceof Error
+          ? error.message.match(
+              /^Falta um detalhe obrigatório: ([A-Za-z][A-Za-z0-9_]{0,63})\.$/
+            )?.[1]
+          : undefined;
+      const readFailure =
+        progress.stage === 'read_request' && error instanceof Error
+          ? error.name === 'INTEGRATION_NOT_SENT'
+            ? 'read_not_sent'
+            : error.name === 'INTEGRATION_REJECTED'
+              ? 'read_rejected'
+              : error.message === 'INTEGRATION_DEADLINE' ||
+                  ['AbortError', 'TimeoutError'].includes(error.name)
+                ? 'read_timeout'
+                : undefined
+          : undefined;
+      throw new ConnectedActionFailureError(
+        createConnectedActionFailure(
+          progress.stage,
+          app,
+          slug,
+          error instanceof ConnectedActionRejection
+            ? error.reason
+            : missingField
+              ? 'missing_argument'
+              : readFailure,
+          missingField
+        )
+      );
+    }
+  }
+  private async runTracked(
+    userId: string,
+    app: AstraConnectedAppSlug,
+    slug: string,
+    input: Record<string, unknown>,
+    progress: { stage: ConnectedActionFailureStage },
+    summary?: string,
+    connectionId?: string
+  ) {
     const binding = await this.binding(userId, app, connectionId);
+    progress.stage = 'schema';
     const spec = await this.spec(app, slug),
       args = { ...input };
     if (app === 'googlecalendar' && slug === 'GOOGLECALENDAR_CREATE_EVENT') {
@@ -568,8 +653,10 @@ export class CustomerIntegrationService {
       args.user_id === undefined
     )
       args.user_id = 'me';
+    progress.stage = 'validation';
     validateIntegrationArguments(args, spec);
     if (integrationActionKind(spec) === 'write') {
+      progress.stage = 'preparation';
       const ctx = getExecContext();
       if (
         !ctx?.channelIsPrivate ||
@@ -579,8 +666,8 @@ export class CustomerIntegrationService {
         ctx.channelConversationOnly ||
         ctx.externalContentGuard?.seen
       )
-        throw new Error(
-          'Envie esse pedido em uma nova mensagem na conversa particular do Astra para confirmar a alteração.'
+        throw new ConnectedActionFailureError(
+          createConnectedActionFailure('preparation', app, slug, 'private_confirmation_required')
         );
       const existing = await customerIntegrationsRepo.latestPending(
         userId,
@@ -590,14 +677,15 @@ export class CustomerIntegrationService {
       if (existing && existing.request_message_id === ctx.channelMessageId)
         return { confirmationRequired: true, reply: integrationProposalMessage(existing) };
       if ((await customerIntegrationsRepo.hourlyWrites(userId)) >= 20)
-        throw new Error(
-          'Vamos pausar novas alterações por um momento. Suas consultas continuam disponíveis.'
+        throw new ConnectedActionFailureError(
+          createConnectedActionFailure('preparation', app, slug, 'write_limit')
         );
       const actionHash = integrationHash([app, binding.connection.id, slug, args]);
       if (await customerIntegrationsRepo.hasUncertain(userId, actionHash))
-        throw new Error(
-          'Antes de repetir, consulte o aplicativo para conferir se essa alteração já aconteceu.'
+        throw new ConnectedActionFailureError(
+          createConnectedActionFailure('preparation', app, slug, 'previous_outcome_uncertain')
         );
+      progress.stage = 'proposal';
       if (existing)
         await customerIntegrationsRepo.cancel(
           existing.id,
@@ -631,9 +719,11 @@ export class CustomerIntegrationService {
     markExternalData();
     if (cached && Date.now() - cached.at < 60000)
       return { source: integrationName(app), cached: true, untrustedExternalData: cached.result };
+    progress.stage = 'read_request';
     const response = await deadline(
       this.providerCall(binding.ownerId, userId, app, binding.connection.id, slug, args)
     );
+    progress.stage = 'read_result';
     const data = unwrapIntegrationResult(response);
     let sync: unknown = null;
     if (await customerIntegrationsRepo.claimSync(userId, app, binding.connection.id)) {

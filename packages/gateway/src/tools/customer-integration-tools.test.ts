@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolRegistry } from '@ownpilot/core/tools';
 const mockRun = vi.hoisted(() => vi.fn());
+const mockWarn = vi.hoisted(() => vi.fn());
+vi.mock('../services/log.js', () => ({
+  getLog: () => ({ warn: mockWarn }),
+}));
 vi.mock('../services/customer-integrations.js', () => ({
   customerIntegrationService: { run: mockRun },
 }));
@@ -9,8 +13,15 @@ import {
   executeCustomerIntegrationTool,
 } from './customer-integration-tools.js';
 import { executeSearchTools } from './registry/meta-executors.js';
+import {
+  ConnectedActionFailureError,
+  createConnectedActionFailure,
+} from '../services/customer-integration-failure.js';
 
-beforeEach(() => mockRun.mockReset().mockResolvedValue({ confirmationRequired: true }));
+beforeEach(() => {
+  mockRun.mockReset().mockResolvedValue({ confirmationRequired: true });
+  mockWarn.mockReset();
+});
 describe('portable integration action arguments', () => {
   it('decodes JSON arguments and preserves the authenticated customer binding', async () => {
     const fields = {
@@ -46,7 +57,16 @@ describe('portable integration action arguments', () => {
           { app: 'gmail', action: 'GMAIL_SEND_EMAIL', arguments_json: input },
           'customer-a'
         )
-      ).toMatchObject({ success: false });
+      ).toMatchObject({
+        success: false,
+        result: {
+          kind: 'connected_action_failure',
+          stage: 'input',
+          reason: 'invalid_arguments',
+          externalMutation: 'not_attempted',
+          localMutation: 'not_attempted',
+        },
+      });
       expect(mockRun).not.toHaveBeenCalled();
     }
   );
@@ -70,6 +90,65 @@ describe('portable integration action arguments', () => {
     expect(tool.parameters.required).toContain('arguments_json');
     expect(tool.parameters.properties?.arguments_json).toMatchObject({ type: 'string' });
     expect(tool.parameters.properties).not.toHaveProperty('arguments');
+  });
+
+  it('retains application-owned execution evidence through the wrapper', async () => {
+    const failure = createConnectedActionFailure('proposal', 'gmail', 'GMAIL_SEND_EMAIL');
+    mockRun.mockRejectedValueOnce(new ConnectedActionFailureError(failure));
+    const result = await executeCustomerIntegrationTool(
+      'run_connected_action',
+      {
+        app: 'gmail',
+        action: 'GMAIL_SEND_EMAIL',
+        arguments_json: '{"to":"private@example.com"}',
+      },
+      'private-customer-id'
+    );
+    expect(result).toMatchObject({ success: false, result: failure });
+    expect(mockWarn).toHaveBeenCalledWith('Connected app action failed', failure);
+    expect(JSON.stringify(mockWarn.mock.calls)).not.toMatch(/private@example|private-customer/);
+  });
+
+  it('does not claim a generic executor exception happened before any change', async () => {
+    mockRun.mockRejectedValueOnce(new Error('HTTP 500 token=secret account=private'));
+    const result = await executeCustomerIntegrationTool(
+      'run_connected_action',
+      {
+        app: 'gmail',
+        action: 'GMAIL_FETCH_EMAILS',
+        arguments_json: '{}',
+      },
+      'private-customer'
+    );
+    expect(result).toMatchObject({
+      success: false,
+      result: { stage: 'unknown', externalMutation: 'unknown', localMutation: 'unknown' },
+    });
+    expect(JSON.stringify([result, mockWarn.mock.calls])).not.toMatch(
+      /secret|account=private|HTTP 500/
+    );
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [{ app: 'untrusted-app', action: 'GMAIL_SEND_EMAIL' }, 'invalid_app'],
+    [{ app: 'gmail', action: 'GOOGLECALENDAR_CREATE_EVENT' }, 'invalid_action'],
+    [{ app: 'gmail', action: 'GMAIL_SEND_EMAIL?token=private' }, 'invalid_action'],
+  ])('rejects and redacts invalid catalog identifiers: %s', async (input, reason) => {
+    const result = await executeCustomerIntegrationTool(
+      'run_connected_action',
+      {
+        ...input,
+        arguments_json: '{}',
+      },
+      'customer-a'
+    );
+    expect(result).toMatchObject({
+      success: false,
+      result: { reason, externalMutation: 'not_attempted' },
+    });
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(JSON.stringify(mockWarn.mock.calls)).not.toMatch(/untrusted-app|token=private/);
   });
 });
 
