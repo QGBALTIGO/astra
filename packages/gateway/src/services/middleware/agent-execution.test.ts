@@ -38,6 +38,151 @@ import { getExecContext, runInExecContext } from '@ownpilot/core/agent';
 import { createAgentExecutionMiddleware } from './agent-execution.js';
 import { radarChatPending } from '../radar/chat-pending.js';
 
+describe('persisted financial outcomes after agent finalization fails', () => {
+  const balance = {
+    id: 'private-financing-id',
+    name: 'carro',
+    principalCents: 7_200_000,
+    paidCents: 2_850_000,
+    remainingCents: 4_350_000,
+  };
+  const paid = {
+    name: 'core.record_financing_payment',
+    isError: false,
+    content: JSON.stringify({
+      success: true,
+      result: {
+        status: 'recorded',
+        balance,
+        payment: { id: 'private-payment-id', expenseId: 'private-expense-id', amountCents: 50_000 },
+      },
+    }),
+  };
+
+  it.each(['turn-budget', 'provider-thrown'])(
+    'shows confirmed financial work without executing it again after %s',
+    async (failure) => {
+      const chat = vi.fn().mockImplementation(async () => {
+        const callback = getExecContext()?.onToolResult;
+        callback?.({
+          name: 'core.list_transactions',
+          isError: false,
+          content: '{"success":true,"result":{}}',
+        });
+        callback?.({
+          name: 'core.record_financing_payment',
+          isError: true,
+          content: '{"success":false,"error":"private-error"}',
+        });
+        callback?.({
+          name: 'core.create_financing',
+          isError: false,
+          content: JSON.stringify({ success: true, result: { created: true, balance } }),
+        });
+        callback?.(paid);
+        callback?.({ name: 'use_tool', isError: false, content: paid.content });
+        if (failure === 'provider-thrown') throw new Error('private-provider-error');
+        return { ok: false, error: { message: 'Maximum turns exceeded (6)' } };
+      });
+      const outcome = await createAgentExecutionMiddleware()(
+        createMessage({
+          content: 'Não, do parcelamento do carro',
+          metadata: { source: 'channel', platform: 'whatsapp' },
+        }),
+        createContext({ store: { agent: createAgent({ chat }) } }),
+        vi.fn()
+      );
+      expect(outcome.response.content).toContain('Financiamento registrado');
+      expect(outcome.response.content).toContain('Pagamento registrado');
+      expect(outcome.response.content).toContain('Pagamento:* R$ 500,00');
+      expect(outcome.response.content).toContain('Pago acumulado:* R$ 28.500,00');
+      expect(outcome.response.content).toContain('ainda não tenho confirmação');
+      expect(outcome.response.content).not.toMatch(
+        /private-|Maximum turns|Não consegui terminar|use_tool/
+      );
+      expect(outcome.response.metadata.errorStage).toBe('agent-execution');
+      expect(chat).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('returns the pre-write clarification when no financial write was attempted', async () => {
+    const chat = vi.fn().mockImplementation(async () => {
+      getExecContext()?.onToolResult?.({
+        name: 'core.record_financing_payment',
+        isError: true,
+        content: JSON.stringify({
+          success: false,
+          result: {
+            kind: 'financing_request_validation',
+            reason: 'historical_payment_requires_clarification',
+            mutation: 'not_attempted',
+          },
+          error: 'private-error',
+        }),
+      });
+      return { ok: false, error: { message: 'Maximum turns exceeded (6)' } };
+    });
+    const outcome = await createAgentExecutionMiddleware()(
+      createMessage({
+        content: 'Paguei 28 mil já do carro, debita lá',
+        metadata: { source: 'channel', platform: 'whatsapp' },
+      }),
+      createContext({ store: { agent: createAgent({ chat }) } }),
+      vi.fn()
+    );
+    expect(outcome.response.content).toContain('total que você já pagou');
+    expect(outcome.response.content).toContain('ou um pagamento novo?');
+    expect(outcome.response.content).not.toMatch(
+      /Não consegui terminar|Pagamento registrado|private-/
+    );
+    expect(chat).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps simultaneous receipt collections isolated between customers', async () => {
+    const middleware = createAgentExecutionMiddleware();
+    const run = async (name: string, amountCents: number) => {
+      const chat = vi.fn().mockImplementation(async () => {
+        await Promise.resolve();
+        getExecContext()?.onToolResult?.({
+          ...paid,
+          content: JSON.stringify({
+            success: true,
+            result: {
+              status: 'recorded',
+              balance: {
+                id: name,
+                name,
+                principalCents: 100_000,
+                paidCents: amountCents,
+                remainingCents: 100_000 - amountCents,
+              },
+              payment: { id: `${name}-payment`, expenseId: `${name}-expense`, amountCents },
+            },
+          }),
+        });
+        await Promise.resolve();
+        return { ok: false, error: { message: 'Maximum turns exceeded (6)' } };
+      });
+      return middleware(
+        createMessage({
+          id: name,
+          content: `Paguei ${amountCents / 100} do ${name} hoje`,
+          metadata: { source: 'channel', platform: 'whatsapp' },
+        }),
+        createContext({ store: { agent: createAgent({ chat }), userId: name } }),
+        vi.fn()
+      );
+    };
+    const [car, bike] = await Promise.all([run('carro', 50_000), run('moto', 20_000)]);
+    expect(car!.response.content).toContain('Financiamento:* carro');
+    expect(car!.response.content).toContain('Pagamento:* R$ 500,00');
+    expect(car!.response.content).not.toMatch(/moto|200,00/);
+    expect(bike!.response.content).toContain('Financiamento:* moto');
+    expect(bike!.response.content).toContain('Pagamento:* R$ 200,00');
+    expect(bike!.response.content).not.toMatch(/carro|500,00/);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

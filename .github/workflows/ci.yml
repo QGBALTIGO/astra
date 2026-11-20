@@ -360,6 +360,7 @@ jobs:
           assert.equal(report.success, true, 'The instrumented suite must pass');
           const required = [
             'src/db/repositories/customer-radar.pg.test.ts',
+            'src/db/repositories/finance-obligations.pg.test.ts',
             'src/db/repositories/channel-reminders-delivery.pg.test.ts',
             'src/db/repositories/memory-integrity.pg.test.ts',
             'src/channels/auth/verification-postgres.test.ts',

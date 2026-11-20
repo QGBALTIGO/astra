@@ -126,3 +126,4 @@ jobs:
           src/db/repositories/planning-integrity.pg.test.ts
           src/db/repositories/customer-finance-sync.pg.test.ts
           src/release-backup.pg.test.ts
+          src/db/repositories/finance-obligations.pg.test.ts

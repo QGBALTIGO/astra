@@ -131,6 +131,7 @@ describe('Finance requests without Groq token usage', () => {
     mockFind.mockResolvedValue(startingBalance);
     mockRecordPayment.mockResolvedValue({
       status: 'recorded',
+      payment: { id: 'payment-1', amountCents: 47_000, expenseId: 'expense-1' },
       balance: {
         ...startingBalance,
         paidCents: 140_000,
@@ -187,7 +188,8 @@ describe('Finance requests without Groq token usage', () => {
     expect(mockRecordPayment).toHaveBeenCalledWith(
       'carro',
       47_000,
-      expect.stringMatching(/^[a-f0-9]{64}$/)
+      expect.stringMatching(/^[a-f0-9]{64}$/),
+      undefined
     );
     expect(result).toContain('✅ *Pagamento registrado*\n\n');
     expect(result).toMatch(/• \*Valor:\* R\$\s470,00/);
@@ -228,7 +230,6 @@ describe('Finance requests without Groq token usage', () => {
     for (const text of [
       'Vou pagar R$ 470 do carro no mês que vem',
       'Preciso pagar 470 do carro',
-      'Paguei metade da parcela',
       'O valor do carro é 72 mil',
       'Oi, tudo bem?',
     ]) {
@@ -236,6 +237,47 @@ describe('Finance requests without Groq token usage', () => {
     }
     expect(mockCreate).not.toHaveBeenCalled();
     expect(mockRecordPayment).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'Paguei 28 mil já do carro, debita lá',
+    'Não, do parcelamento do carro',
+    'Já paguei 28 mil no total do carro',
+    'Paguei metade da parcela',
+  ])('clarifies %s before any financing or expense mutation', async (text) => {
+    const reply = await tryFinancingChannelReply({ ...message, text }, 'whatsapp:fixture');
+    expect(reply).toMatch(/confirm|total|nome do financiamento/i);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockRecordPayment).not.toHaveBeenCalled();
+    expect(parseChannelExpense(text)).toBeNull();
+    const expenseReply = await tryExpenseRecordChannelReply(
+      { ...message, text, timestamp: new Date('2026-11-20T01:54:00Z') },
+      'whatsapp:fixture'
+    );
+    expect(expenseReply).toEqual(reply);
+    expect(mockRecordExpense).not.toHaveBeenCalled();
+  });
+
+  it('records an explicitly completed payment today using the original message time', async () => {
+    const timestamp = new Date('2026-11-20T01:54:00Z');
+    const reply = await tryFinancingChannelReply(
+      { ...message, text: 'Já paguei 500 hoje do carro', timestamp },
+      'whatsapp:fixture'
+    );
+    expect(mockRecordPayment).toHaveBeenCalledWith('carro', 50000, expect.any(String), timestamp);
+    expect(mockRecordExpense).not.toHaveBeenCalled();
+    expect(reply).toContain('Pagamento registrado');
+  });
+
+  it('never calls a changed replay a successful payment', async () => {
+    mockRecordPayment.mockResolvedValueOnce({ status: 'conflict', balance: startingBalance });
+    const reply = await tryFinancingChannelReply(
+      { ...message, text: 'Paguei 500 do carro' },
+      'whatsapp:fixture'
+    );
+    expect(reply).toContain('não registrei outro valor');
+    expect(reply).not.toContain('✅');
+    expect(mockRecordExpense).not.toHaveBeenCalled();
   });
 
   it('never confirms a payment when Postgres refuses to save it', async () => {

@@ -1,5 +1,6 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
 import { isFinanceReadOnlyRequest } from './finance-intent.js';
+import { financialWriteClarification } from './financial-write-clarification.js';
 import { rememberFinanceRead } from './finance-read-context.js';
 /** Explicit income/pending transactions and queries without an LLM call. */
 import { createHash } from 'node:crypto';
@@ -57,6 +58,7 @@ function explicitCents(raw: string): number | null {
 }
 
 export function parseChannelFinanceRecord(input: string): ChannelFinanceRecord | null {
+  if (financialWriteClarification(input)) return null;
   let text = input.trim();
   const normalized = normalize(text);
   if (

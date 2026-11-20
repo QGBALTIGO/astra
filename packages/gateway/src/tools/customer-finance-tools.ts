@@ -1,5 +1,10 @@
 import { inferExpenseCategory } from '../services/expense-category.js';
 import { isFinanceReadOnlyRequest } from '../channels/finance-intent.js';
+import {
+  financialWriteRefusal,
+  isOnlyRequestedFinanceMetadataUpdate,
+} from '../channels/financial-write-clarification.js';
+import { channelFinanceCreateIdentity } from '../channels/finance-create-identity.js';
 import { isBulkFinanceDeletionRequest } from '../channels/finance-bulk-intent.js';
 import { isChannelEmailRequest } from '../channels/email-intent.js';
 import { financeSelectionScope, rememberFinanceRead } from '../channels/finance-read-context.js';
@@ -9,7 +14,6 @@ import {
   type FinanceSelectionFilter,
 } from '../db/repositories/finance-bulk-selection.js';
 /** User-scoped tools for the same income/expense ledger used by the customer portal. */
-import { createHash } from 'node:crypto';
 import { getExecContext } from '@ownpilot/core/agent';
 import type { ToolDefinition } from '@ownpilot/core/tools';
 import {
@@ -272,6 +276,17 @@ export async function executeCustomerFinanceTool(
   userId?: string
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   if (!userId) return { success: false, error: 'Usuário autenticado obrigatório.' };
+  const currentRequest = getExecContext()?.channelRequestText ?? '';
+  if (
+    ['record_transaction', 'update_transaction', 'delete_transaction'].includes(toolName) &&
+    !(
+      toolName === 'update_transaction' &&
+      isOnlyRequestedFinanceMetadataUpdate(currentRequest, args, 'transaction_id')
+    )
+  ) {
+    const refusal = financialWriteRefusal(currentRequest);
+    if (refusal) return refusal;
+  }
   if (isChannelEmailRequest(getExecContext()?.channelRequestText ?? ''))
     return {
       success: false,
@@ -371,23 +386,23 @@ export async function executeCustomerFinanceTool(
         description,
         args.category
       );
-      // One requested financial item per native call. Replays with changed fields
-      // conflict instead of creating a second row; distinct descriptions allow
-      // explicitly itemised messages. Corrections must address the saved ID.
-      const key = createHash('sha256')
-        .update(
-          JSON.stringify([
-            userId,
-            ctx.channelPluginId,
-            ctx.platformChatId,
-            ctx.channelMessageId,
-            description.normalize('NFC').toLocaleLowerCase('pt-BR'),
-          ])
-        )
-        .digest('hex');
+      // A retry keeps the original message/item identity even if the model
+      // changes the description. The repository fingerprint rejects any changed
+      // fields; only an explicit item list can authorize separate item slots.
+      const identity = channelFinanceCreateIdentity(
+        {
+          userId,
+          channelPluginId: ctx.channelPluginId,
+          platformChatId: ctx.platformChatId,
+          channelMessageId: ctx.channelMessageId,
+          requestText: ctx.channelRequestText,
+        },
+        { description, amount: args.amount }
+      );
+      if (!identity.ok) throw new CustomerFinanceError(identity.message);
       const transaction = await repo.createTransaction(
         { description, amount: args.amount, type, status, date, categoryId: category.id },
-        key
+        identity.key
       );
       return {
         success: true,

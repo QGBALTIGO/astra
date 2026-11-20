@@ -61,7 +61,9 @@ describe('Financing repository: separate user balances', () => {
     );
     expect(mockAdapter.queryOne.mock.calls[1]![0]).toContain('o.user_id = $1');
     expect(mockAdapter.queryOne.mock.calls[1]![1]).toEqual(['whatsapp:5521997557364', 'carro']);
-    expect(mockAdapter.execute).not.toHaveBeenCalled();
+    expect(
+      mockAdapter.execute.mock.calls.filter(([sql]) => /^(INSERT|UPDATE|DELETE)\b/.test(sql))
+    ).toHaveLength(0);
   });
 
   it('does not overwrite an existing financing on repeated setup', async () => {
@@ -97,13 +99,20 @@ describe('Financing repository: separate user balances', () => {
     expect(result).toEqual({ status: 'missing' });
     expect(mockAdapter.transaction).toHaveBeenCalledTimes(1);
     expect(mockAdapter.queryOne.mock.calls[0]![0]).toContain('FOR UPDATE');
-    expect(mockAdapter.execute).not.toHaveBeenCalled();
+    expect(
+      mockAdapter.execute.mock.calls.filter(([sql]) => /^(INSERT|UPDATE|DELETE)\b/.test(sql))
+    ).toHaveLength(0);
   });
 
   it('deduplicates before writing an expense or a payment', async () => {
     mockAdapter.queryOne
       .mockResolvedValueOnce(dbRow)
-      .mockResolvedValueOnce({ id: 'already-paid' })
+      .mockResolvedValueOnce({
+        id: 'already-paid',
+        obligation_id: dbRow.id,
+        amount_cents: '47000',
+        expense_id: 'expense-original',
+      })
       .mockResolvedValueOnce(dbRow);
     const result = await new FinanceObligationsRepository('whatsapp:5521997557364').recordPayment(
       'carro',
@@ -111,7 +120,12 @@ describe('Financing repository: separate user balances', () => {
       'b'.repeat(64)
     );
     expect(result.status).toBe('duplicate');
-    expect(mockAdapter.execute).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      payment: { id: 'already-paid', amountCents: 47_000, expenseId: 'expense-original' },
+    });
+    expect(
+      mockAdapter.execute.mock.calls.filter(([sql]) => /^(INSERT|UPDATE|DELETE)\b/.test(sql))
+    ).toHaveLength(0);
   });
 
   it('prevents overpaying the balance under the account lock', async () => {
@@ -125,7 +139,9 @@ describe('Financing repository: separate user balances', () => {
       'c'.repeat(64)
     );
     expect(result.status).toBe('exceeds');
-    expect(mockAdapter.execute).not.toHaveBeenCalled();
+    expect(
+      mockAdapter.execute.mock.calls.filter(([sql]) => /^(INSERT|UPDATE|DELETE)\b/.test(sql))
+    ).toHaveLength(0);
   });
 
   it('rolls back an expense failure without confirming payment', async () => {
@@ -142,7 +158,9 @@ describe('Financing repository: separate user balances', () => {
       )
     ).rejects.toThrow('INSERT expense failed');
     expect(mockAdapter.transaction).toHaveBeenCalledTimes(1);
-    expect(mockAdapter.execute).not.toHaveBeenCalled();
+    expect(
+      mockAdapter.execute.mock.calls.filter(([sql]) => /^(INSERT|UPDATE|DELETE)\b/.test(sql))
+    ).toHaveLength(0);
   });
 
   it('records a payment on the customer local day and uses the same scoped expense ledger', async () => {
@@ -174,6 +192,9 @@ describe('Financing repository: separate user balances', () => {
         'e'.repeat(64)
       );
       expect(outcome).toMatchObject({ status: 'recorded', balance: { paidCents: 140_000 } });
+      expect(outcome).toMatchObject({
+        payment: { id: expect.any(String), amountCents: 47_000, expenseId: 'exp-payment' },
+      });
       const insert = mockAdapter.queryOne.mock.calls.find(([sql]) =>
         String(sql).startsWith('INSERT INTO expenses')
       )!;
@@ -182,6 +203,78 @@ describe('Financing repository: separate user balances', () => {
         expect.stringContaining('INSERT INTO finance_obligation_payments'),
         expect.arrayContaining([dbRow.user_id, 'exp-payment'])
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { obligation_id: 'other-financing', amount_cents: '47000' },
+    { obligation_id: dbRow.id, amount_cents: '2800000' },
+  ])('rejects a message replay with a different target or amount: %j', async (original) => {
+    mockAdapter.queryOne
+      .mockResolvedValueOnce(dbRow)
+      .mockResolvedValueOnce({
+        id: 'original-payment',
+        expense_id: 'original-expense',
+        ...original,
+      })
+      .mockResolvedValueOnce(dbRow);
+    const outcome = await new FinanceObligationsRepository(dbRow.user_id).recordPayment(
+      'carro',
+      47_000,
+      'f'.repeat(64)
+    );
+    expect(outcome.status).toBe('conflict');
+    expect(
+      mockAdapter.execute.mock.calls.filter(([sql]) => /^(INSERT|UPDATE|DELETE)\b/.test(sql))
+    ).toHaveLength(0);
+    expect(
+      mockAdapter.queryOne.mock.calls.some(([sql]) => /^INSERT INTO expenses\b/.test(sql))
+    ).toBe(false);
+    expect(mockAdapter.execute).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
+      ['customer-finance:' + dbRow.user_id]
+    );
+    expect(mockAdapter.execute.mock.invocationCallOrder[0]).toBeLessThan(
+      mockAdapter.queryOne.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('keeps the customer receive date when a queued payment crosses midnight', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-20T04:05:00Z'));
+    mockAccount.mockResolvedValueOnce({ timeZone: 'America/Campo_Grande' });
+    mockAdapter.queryOne
+      .mockResolvedValueOnce(dbRow)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(dbRow)
+      .mockResolvedValueOnce({
+        id: 'expense-received-yesterday',
+        user_id: dbRow.user_id,
+        date: '2026-11-19',
+        amount: '470.00',
+        category: 'transport',
+        currency: 'BRL',
+        description: 'Pagamento de carro',
+        tags: [],
+        source: 'financing',
+        created_at: new Date(),
+        updated_at: new Date(),
+      })
+      .mockResolvedValueOnce({ ...dbRow, additional_paid_cents: '47000' });
+    try {
+      const outcome = await new FinanceObligationsRepository(dbRow.user_id).recordPayment(
+        'carro',
+        47_000,
+        'a'.repeat(64),
+        new Date('2026-11-20T03:59:00Z')
+      );
+      expect(outcome.status).toBe('recorded');
+      const insert = mockAdapter.queryOne.mock.calls.find(([sql]) =>
+        /^INSERT INTO expenses\b/.test(sql)
+      )!;
+      expect(insert[1]).toEqual(expect.arrayContaining(['2026-11-19']));
     } finally {
       vi.useRealTimers();
     }

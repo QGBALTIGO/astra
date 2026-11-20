@@ -25,8 +25,20 @@ export interface FinanceBalance {
   remainingCents: number;
 }
 
+export interface FinancingPaymentReceipt {
+  id: string;
+  amountCents: number;
+  expenseId: string;
+}
+
 export type PaymentOutcome =
-  { status: 'missing' } | { status: 'duplicate' | 'exceeds' | 'recorded'; balance: FinanceBalance };
+  | { status: 'missing' }
+  | { status: 'exceeds' | 'conflict'; balance: FinanceBalance }
+  | {
+      status: 'duplicate' | 'recorded';
+      balance: FinanceBalance;
+      payment: FinancingPaymentReceipt;
+    };
 
 function validCents(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0 && value <= 9_000_000_000_000;
@@ -120,12 +132,23 @@ export class FinanceObligationsRepository extends BaseRepository {
   async recordPayment(
     name: string,
     amountCents: number,
-    sourceKey: string
+    sourceKey: string,
+    paidAt = new Date()
   ): Promise<PaymentOutcome> {
-    if (!validCents(amountCents) || amountCents === 0 || !/^[a-f0-9]{64}$/i.test(sourceKey)) {
+    if (
+      !validCents(amountCents) ||
+      amountCents === 0 ||
+      !/^[a-f0-9]{64}$/i.test(sourceKey) ||
+      !Number.isFinite(paidAt.getTime())
+    ) {
       throw new Error('Invalid financing payment');
     }
     return this.transaction(async (): Promise<PaymentOutcome> => {
+      // Share the customer-ledger lock order with transaction edits. A row lock
+      // on one financing alone cannot serialize a replay targeting another debt.
+      await this.execute('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [
+        'customer-finance:' + this.userId,
+      ]);
       // Lock the owner-scoped liability so concurrent payments cannot overpay.
       const account = await this.queryOne<FinanceRow>(
         [
@@ -136,12 +159,31 @@ export class FinanceObligationsRepository extends BaseRepository {
       );
       if (!account) return { status: 'missing' };
 
-      const alreadyRecorded = await this.queryOne<{ id: string }>(
-        'SELECT id FROM finance_obligation_payments WHERE user_id = $1 AND source_key = $2',
+      const alreadyRecorded = await this.queryOne<{
+        id: string;
+        obligation_id: string;
+        amount_cents: string | number;
+        expense_id: string;
+      }>(
+        'SELECT id, obligation_id, amount_cents, expense_id FROM finance_obligation_payments WHERE user_id = $1 AND source_key = $2',
         [this.userId, sourceKey]
       );
       if (alreadyRecorded) {
-        return { status: 'duplicate', balance: (await this.find(name))! };
+        const balance = await this.find(name);
+        if (!balance) throw new Error('Financing disappeared during payment replay');
+        const recordedAmount = cents(alreadyRecorded.amount_cents);
+        if (alreadyRecorded.obligation_id !== account.id || recordedAmount !== amountCents) {
+          return { status: 'conflict', balance };
+        }
+        return {
+          status: 'duplicate',
+          balance,
+          payment: {
+            id: alreadyRecorded.id,
+            amountCents: recordedAmount,
+            expenseId: alreadyRecorded.expense_id,
+          },
+        };
       }
 
       const balance = await this.find(name);
@@ -154,8 +196,8 @@ export class FinanceObligationsRepository extends BaseRepository {
         : null;
       const expense = await new ExpensesRepository(this.userId).create({
         date: customerScope
-          ? customerLocalDay(new Date(), customerAccount?.timeZone ?? 'America/Campo_Grande')
-          : localDay(new Date()),
+          ? customerLocalDay(paidAt, customerAccount?.timeZone ?? 'America/Campo_Grande')
+          : localDay(paidAt),
         amount: amountCents / 100,
         currency: 'BRL',
         category: /carro|moto|veiculo|automovel/i.test(financeNameKey(name))
@@ -165,13 +207,22 @@ export class FinanceObligationsRepository extends BaseRepository {
         source: 'financing',
         tags: ['financiamento'],
       });
+      const paymentId = randomUUID();
       await this.execute(
         [
           'INSERT INTO finance_obligation_payments',
-          '(id, obligation_id, user_id, amount_cents, expense_id, source_key)',
-          'VALUES ($1, $2, $3, $4, $5, $6)',
+          '(id, obligation_id, user_id, amount_cents, expense_id, source_key, paid_at)',
+          'VALUES ($1, $2, $3, $4, $5, $6, $7)',
         ].join(' '),
-        [randomUUID(), balance.id, this.userId, amountCents, expense.id, sourceKey]
+        [
+          paymentId,
+          balance.id,
+          this.userId,
+          amountCents,
+          expense.id,
+          sourceKey,
+          paidAt.toISOString(),
+        ]
       );
       await this.execute(
         'UPDATE finance_obligations SET updated_at = NOW() WHERE id = $1 AND user_id = $2',
@@ -180,7 +231,11 @@ export class FinanceObligationsRepository extends BaseRepository {
       // No manual math drift: always compute the balance from committed ledger rows.
       const updated = await this.find(name);
       if (!updated) throw new Error('Financing update could not be verified');
-      return { status: 'recorded', balance: updated };
+      return {
+        status: 'recorded',
+        balance: updated,
+        payment: { id: paymentId, amountCents, expenseId: expense.id },
+      };
     });
   }
 }

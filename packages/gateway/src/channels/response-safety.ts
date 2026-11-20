@@ -2,6 +2,8 @@
 import { stripInternalTags } from './normalizers/base.js';
 import { isFinanceReadOnlyRequest } from './finance-intent.js';
 import { verifiedChannelFacts, verifiedReadChannelFacts } from './verified-facts.js';
+import { verifiedFinancingConfirmation } from './financing-receipts.js';
+import { verifiedFinancialRefusalReply } from './financial-refusal-receipts.js';
 import {
   formatAstraMessage,
   formatReminderConfirmation,
@@ -286,6 +288,17 @@ function taskConfirmation(receipt: ChannelToolReceipt, ids: Set<string>): string
   return formatAstraMessage(labels[name]!, title ? [{ label: 'Tarefa', value: title }] : []);
 }
 
+function financingConfirmation(receipt: ChannelToolReceipt, ids: Set<string>): string | null {
+  return verifiedFinancingConfirmation(receipt, (value) => {
+    const clean = cleanIdentifiers(stripInternalTags(value), ids);
+    return INTERNAL_TOOL.test(clean) ||
+      /\b(?:create_financing|record_financing_payment|financing_balance)\b/.test(clean) ||
+      protocol.test(clean)
+      ? ''
+      : clean;
+  });
+}
+
 /** Only persisted evidence may survive a failed model finalization. */
 export function verifiedWriteDetails(receipts: ChannelToolReceipt[], timeZone?: string): string[] {
   const ids = internalIds(receipts);
@@ -309,6 +322,7 @@ export function verifiedWriteDetails(receipts: ChannelToolReceipt[], timeZone?: 
       continue;
     }
     const line =
+      financingConfirmation(receipt, ids) ??
       calendarConfirmation(receipt, ids, timeZone) ??
       (typeof saved?.id === 'string' && saved.id.trim()
         ? (transactionConfirmation(receipt, ids) ??
@@ -398,6 +412,8 @@ export function safeChannelResponse(
   receipts: ChannelToolReceipt[],
   context: { timeZone?: string; requestText?: string } = {}
 ): string {
+  const rejectedFinancialWrite = verifiedFinancialRefusalReply(receipts);
+  if (rejectedFinancialWrite) return rejectedFinancialWrite;
   const rejectedReminder = reminderValidationReply(receipts, context.requestText ?? '');
   if (rejectedReminder) return rejectedReminder;
   // A saved row returned by a lookup is evidence of an existing item, never a
@@ -630,6 +646,7 @@ export function safeChannelResponse(
     );
   const confirmations = operations.map(
     (receipt) =>
+      financingConfirmation(receipt, ids) ??
       calendar.get(receipt) ??
       transactionConfirmation(receipt, ids) ??
       reminderConfirmation([receipt]) ??
@@ -690,6 +707,12 @@ export function safeChannelResponse(
     return confirmations.filter(Boolean).join('\n\n');
   const requireCalendarEvidence =
     confirmedCalendar.size > 0 && (claimsCalendarWrite || failures.length > 0);
+  // Financing balances and payment amounts must remain the persisted facts,
+  // including when a successful model finalization still returns a vague or
+  // incorrect acknowledgement after an intermediate lookup.
+  const requireFinancingEvidence = operations.some((receipt) =>
+    /^(?:create_financing|record_financing_payment)$/.test(normalizeName(receipt.name))
+  );
   const onlyReminder =
     operations.length === 1 &&
     /^(?:schedule|reschedule)_channel_reminder$/.test(normalizeName(operations[0]!.name));
@@ -731,6 +754,7 @@ export function safeChannelResponse(
     !unsupported &&
     !removedIdentifiers &&
     !requireCalendarEvidence &&
+    !requireFinancingEvidence &&
     failureAcknowledged &&
     !legacyErrorBanner
   )
@@ -743,6 +767,7 @@ export function safeChannelResponse(
     clean &&
     !unsupported &&
     !requireCalendarEvidence &&
+    !requireFinancingEvidence &&
     failureAcknowledged &&
     !internalTool &&
     !protocol.test(text) &&
@@ -809,6 +834,8 @@ export function safeChannelResponse(
       record_transaction: 'o registro financeiro',
       update_transaction: 'a correção do lançamento',
       delete_transaction: 'a exclusão do lançamento',
+      create_financing: 'o cadastro do financiamento',
+      record_financing_payment: 'uma tentativa de registrar o pagamento',
       create_memory: 'o salvamento da informação',
     };
     const pending = [

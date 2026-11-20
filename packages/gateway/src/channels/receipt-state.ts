@@ -55,6 +55,10 @@ interface EntityRule {
 }
 
 const ENTITY_RULES: Readonly<Record<string, EntityRule>> = {
+  create_financing: { kind: 'financing', resultKeys: ['balance'] },
+  // Two payments on one financing remain distinct; only the persisted payment
+  // identity can prove that a later receipt is an idempotent replay.
+  record_financing_payment: { kind: 'financing_payment', resultKeys: ['payment'] },
   record_transaction: { kind: 'transaction', resultKeys: ['transaction', 'expense'] },
   add_expense: { kind: 'transaction', resultKeys: ['expense', 'transaction'] },
   update_transaction: {
