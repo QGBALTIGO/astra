@@ -432,6 +432,25 @@ export class ChannelRemindersRepository extends BaseRepository {
     );
   }
 
+  /**
+   * Release a reserved send ONLY when the channel service has proved it never
+   * entered platform transport. A plain timeout or empty receipt is NOT proof.
+   * Keep the attempt count so a permanently invalid message cannot loop forever.
+   */
+  async deferProvenNotSent(id: string, leaseToken: string | undefined): Promise<boolean> {
+    const result = await this.execute(
+      `UPDATE channel_reminders
+       SET status = CASE WHEN attempts >= 5 THEN 'failed' ELSE 'pending' END,
+           next_attempt_at = NOW() + INTERVAL '30 seconds',
+           delivery_started_at = NULL, leased_until = NULL, lease_token = NULL,
+           last_error = 'transport_not_attempted', updated_at = NOW()
+       WHERE id = $1 AND lease_token = $2 AND status = 'sending'
+         AND delivery_started_at IS NOT NULL AND leased_until > NOW()`,
+      [id, leaseToken]
+    );
+    return result.changes > 0;
+  }
+
   async markFailed(
     id: string,
     attempts: number,
