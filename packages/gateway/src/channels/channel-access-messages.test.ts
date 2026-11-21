@@ -167,9 +167,7 @@ describe('buildAccessMessage', () => {
         now
       );
       if (message.urlButton) {
-        expect(validateWhatsAppUrlCta(message.urlButton).label).toBe(
-          message.urlButton.label
-        );
+        expect(validateWhatsAppUrlCta(message.urlButton).label).toBe(message.urlButton.label);
         expect(message.urlButton.label.length).toBeLessThanOrEqual(20);
       }
     }
