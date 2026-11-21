@@ -123,10 +123,7 @@ describe('ChannelReminderWorker', () => {
       delivered: 0,
       failed: 0,
     });
-    expect(mock.deferProvenNotSent).toHaveBeenCalledExactlyOnceWith(
-      'unsent-a',
-      'current-lease'
-    );
+    expect(mock.deferProvenNotSent).toHaveBeenCalledExactlyOnceWith('unsent-a', 'current-lease');
     expect(mock.markFailed).not.toHaveBeenCalled();
     expect(mock.markDelivered).not.toHaveBeenCalled();
   });
@@ -141,18 +138,13 @@ describe('ChannelReminderWorker', () => {
       delivered: 0,
       failed: 1,
     });
-    expect(mock.deferProvenNotSent).toHaveBeenCalledExactlyOnceWith(
-      'unsent-last',
-      'current-lease'
-    );
+    expect(mock.deferProvenNotSent).toHaveBeenCalledExactlyOnceWith('unsent-last', 'current-lease');
     expect(mock.markFailed).not.toHaveBeenCalled();
   });
 
   it('does not release a stale lease after a proven pre-transport failure', async () => {
     mock.claimDue.mockResolvedValue([makeReminder('unsent-stale')]);
-    mock.send.mockRejectedValueOnce(
-      new ChannelSendNotAttemptedError(new Error('queue cancelled'))
-    );
+    mock.send.mockRejectedValueOnce(new ChannelSendNotAttemptedError(new Error('queue cancelled')));
     mock.deferProvenNotSent.mockResolvedValueOnce(false);
     expect((await dispatchDueChannelReminders()).failed).toBe(1);
     expect(mock.markFailed).toHaveBeenCalledWith(
