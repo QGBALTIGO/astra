@@ -199,6 +199,21 @@ describe('ChannelReminderWorker', () => {
     );
   });
 
+  it('does not retry after a valid receipt even if persistence throws a typed marker', async () => {
+    mock.claimDue.mockResolvedValue([makeReminder('receipt-persisted')]);
+    mock.markDelivered.mockRejectedValueOnce(
+      new ChannelSendNotAttemptedError(new Error('private storage error'))
+    );
+    expect((await dispatchDueChannelReminders()).failed).toBe(1);
+    expect(mock.deferProvenNotSent).not.toHaveBeenCalled();
+    expect(mock.markFailed).toHaveBeenCalledWith(
+      'receipt-persisted',
+      5,
+      'ChannelSendNotAttemptedError',
+      'current-lease'
+    );
+  });
+
   it.each([undefined, null, '', '   '])(
     'does not report delivery when the adapter returns no receipt (%s)',
     async (receipt) => {
