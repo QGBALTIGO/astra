@@ -13,6 +13,7 @@ import { getLog } from './log.js';
 import { buildMorningBriefing } from './morning-briefing.js';
 import { weatherInfoAction } from '../channels/channel-dashboard-action.js';
 import { nextDailyGreetingAt } from '../channels/daily-greeting.js';
+import { ChannelSendNotAttemptedError } from '../channels/send-not-attempted.js';
 
 const log = getLog('DailyGreetingWorker');
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -46,6 +47,8 @@ export async function dispatchDueDailyGreetings(): Promise<{
     for (let offset = 0; offset < entries.length; offset += 4) {
       await Promise.all(
         entries.slice(offset, offset + 4).map(async (entry) => {
+          let transportInvoked = false;
+          let receiptConfirmed = false;
           try {
             const channels = getChannelService();
             const api = channels.getChannel(entry.channelPluginId);
@@ -126,6 +129,7 @@ export async function dispatchDueDailyGreetings(): Promise<{
               return;
             }
             if (!(await dailyGreetingsRepo.isCurrent(entry))) return;
+            transportInvoked = true;
             const receipt = await channels.send(entry.channelPluginId, {
               platformChatId: phone,
               text,
@@ -137,9 +141,21 @@ export async function dispatchDueDailyGreetings(): Promise<{
               failed++;
               return;
             }
+            receiptConfirmed = true;
             await dailyGreetingsRepo.markDelivered(entry.id, receipt);
             delivered++;
           } catch (error) {
+            if (
+              transportInvoked &&
+              !receiptConfirmed &&
+              error instanceof ChannelSendNotAttemptedError
+            ) {
+              // The queue or access preflight rejected the message before
+              // transport. Retry only inside the original 10-minute window.
+              await dailyGreetingsRepo.deferNotSent(entry.id);
+              log.info('Rotina diária aguardando envio comprovadamente não iniciado');
+              return;
+            }
             failed++;
             await dailyGreetingsRepo.markFailed(
               entry.id,
