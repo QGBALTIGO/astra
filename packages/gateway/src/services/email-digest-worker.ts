@@ -7,12 +7,14 @@ import { resolveCustomerPhone } from './customer-identity.js';
 import { buildEmailDigest } from './email-digest.js';
 import { nextDailyGreetingAt } from '../channels/daily-greeting.js';
 import { getLog } from './log.js';
+import { ChannelSendNotAttemptedError } from '../channels/send-not-attempted.js';
 
 const log = getLog('EmailDigestWorker');
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 async function deliver(entry: EmailDigestSchedule): Promise<boolean> {
   let transportInvoked = false;
+  let receiptConfirmed = false;
   try {
     const channels = getChannelService(),
       api = channels.getChannel(entry.channelPluginId);
@@ -74,11 +76,18 @@ async function deliver(entry: EmailDigestSchedule): Promise<boolean> {
     transportInvoked = true;
     const receipt = await channels.send(entry.channelPluginId, { platformChatId: recipient, text });
     if (typeof receipt !== 'string' || !receipt.trim()) throw new Error('delivery_uncertain');
+    receiptConfirmed = true;
     await emailDigestsRepo.finish(entry, receipt);
     return true;
   } catch (error) {
-    // No transport retries: a thrown error can follow an accepted send.
-    if (!transportInvoked) await emailDigestsRepo.deferBeforeSend(entry);
+    // Only the typed pre-transport marker proves the platform was never called.
+    // A generic timeout, empty receipt or a failed receipt write is ambiguous
+    // and remains non-retryable to prevent duplicate private email digests.
+    if (
+      !transportInvoked ||
+      (!receiptConfirmed && error instanceof ChannelSendNotAttemptedError)
+    )
+      await emailDigestsRepo.deferBeforeSend(entry);
     else await emailDigestsRepo.finish(entry, null, 'digest_not_confirmed');
     log.warn('Resumo diário não confirmado', {
       category: error instanceof Error ? error.name : 'unknown',
