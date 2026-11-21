@@ -130,10 +130,17 @@ export async function dispatchDueChannelReminders(): Promise<{
             entry.leaseToken
           );
           if (deferred) {
-            log.info('Envio de lembrete não iniciado; tentativa reprogramada', {
-              reminderId: entry.id,
-              attempts: entry.attempts,
-            });
+            if (entry.attempts >= 5) {
+              failed++;
+              log.warn('Lembrete encerrado após repetidas falhas antes do transporte', {
+                reminderId: entry.id,
+              });
+            } else {
+              log.info('Envio de lembrete não iniciado; tentativa reprogramada', {
+                reminderId: entry.id,
+                attempts: entry.attempts,
+              });
+            }
             continue;
           }
         }
