@@ -131,6 +131,23 @@ describe('ChannelReminderWorker', () => {
     expect(mock.markDelivered).not.toHaveBeenCalled();
   });
 
+  it('reports failure when the fifth proven pretransport rejection exhausts retries', async () => {
+    mock.claimDue.mockResolvedValue([makeReminder('unsent-last', 5)]);
+    mock.send.mockRejectedValueOnce(
+      new ChannelSendNotAttemptedError(new Error('transport never entered'))
+    );
+    expect(await dispatchDueChannelReminders()).toEqual({
+      claimed: 1,
+      delivered: 0,
+      failed: 1,
+    });
+    expect(mock.deferProvenNotSent).toHaveBeenCalledExactlyOnceWith(
+      'unsent-last',
+      'current-lease'
+    );
+    expect(mock.markFailed).not.toHaveBeenCalled();
+  });
+
   it('does not release a stale lease after a proven pre-transport failure', async () => {
     mock.claimDue.mockResolvedValue([makeReminder('unsent-stale')]);
     mock.send.mockRejectedValueOnce(
