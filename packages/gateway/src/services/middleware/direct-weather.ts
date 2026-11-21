@@ -4,7 +4,11 @@
  * Never intercept compound requests, forecasts for another date, or city writes.
  */
 import { randomUUID } from 'node:crypto';
-import type { MessageMiddleware, MessageProcessingResult, StreamCallbacks } from '@ownpilot/core/services';
+import type {
+  MessageMiddleware,
+  MessageProcessingResult,
+  StreamCallbacks,
+} from '@ownpilot/core/services';
 import { getExecContext } from '@ownpilot/core/agent';
 import { executeCustomerWeatherTool } from '../../tools/customer-weather-tools.js';
 import { verifiedChannelFacts } from '../../channels/verified-facts.js';
@@ -22,11 +26,17 @@ const currentQuestions = [
 
 /** A conservative allowlist: unknown phrasing goes to the ordinary agent. */
 export function currentWeatherOnlyQuery(text: string): { city?: string } | null {
-  const trimmed = text.trim().replace(/\s+/gu, ' ').replace(/[?!.\s]+$/gu, '');
+  const trimmed = text
+    .trim()
+    .replace(/\s+/gu, ' ')
+    .replace(/[?!.\s]+$/gu, '');
   if (!trimmed || trimmed.length > 140) return null;
   const parts = /^(.*?)(?:\s+em\s+([\p{L}\p{M}\s,.'()–-]{2,100}))?$/iu.exec(trimmed);
   if (!parts) return null;
-  const question = (parts[1] ?? '').normalize('NFD').replace(/[\u0300-\u036f]/gu, '').toLowerCase();
+  const question = (parts[1] ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .toLowerCase();
   if (!currentQuestions.some((pattern) => pattern.test(question))) return null;
   const city = parts[2]?.trim();
   if (!city) return {};
