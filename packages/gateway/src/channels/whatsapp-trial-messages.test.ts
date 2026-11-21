@@ -65,7 +65,7 @@ describe('WhatsApp trial copy', () => {
     const reply = buildAccessMessage('expired', trial, settings);
     expect(reply.text).toContain('teste grátis de 3 dias chegou ao fim');
     expect(reply.text).toContain('Nenhuma cobrança automática');
-    expect(reply.urlButton).toEqual({ label: 'Continuar com o Astra', url: settings.renewalUrl });
+    expect(reply.urlButton).toEqual({ label: 'Continuar com Astra', url: settings.renewalUrl });
   });
   it('uses the principal checkout when no override was configured', () => {
     expect(buildAccessMessage('expired', trial, { renewalUrl: null }).urlButton?.url).toBe(
