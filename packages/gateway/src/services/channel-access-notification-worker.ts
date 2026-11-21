@@ -47,7 +47,6 @@ function assertAccessNoticeTemplate(message: ReturnType<typeof buildAccessMessag
   }
 }
 
-
 interface WorkerDependencies {
   notifications: Pick<
     ChannelAccessNotificationsRepository,
@@ -323,7 +322,9 @@ export class ChannelAccessNotificationWorker {
               d.users.getById(entry.channelUserId),
               d.ownerLookup('whatsapp'),
             ]);
-            return ineligibleReason(entry, latestUser, latestOwner, active.botPhone, d.now()) === null;
+            return (
+              ineligibleReason(entry, latestUser, latestOwner, active.botPhone, d.now()) === null
+            );
           };
           transportInvoked = true;
           const deliveryId =
