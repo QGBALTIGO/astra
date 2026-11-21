@@ -89,20 +89,35 @@ describe('composed morning briefing', () => {
   });
   it('classifies morning weather failures without retaining private errors or locations', () => {
     expect(morningWeatherFailureCategory(new Error('briefing_deadline'))).toBe('deadline');
-    expect(morningWeatherFailureCategory(new Error('A previsão disponível está desatualizada.'))).toBe('stale_forecast');
-    expect(morningWeatherFailureCategory(new Error('A consulta do tempo veio incompleta.'))).toBe('invalid_provider_response');
-    expect(morningWeatherFailureCategory(new Error('Não consegui consultar o tempo agora.'))).toBe('provider_unavailable');
-    expect(morningWeatherFailureCategory(new Error('private API key at Ivinhema'))).toBe('storage_or_unknown');
+    expect(
+      morningWeatherFailureCategory(new Error('A previsão disponível está desatualizada.'))
+    ).toBe('stale_forecast');
+    expect(morningWeatherFailureCategory(new Error('A consulta do tempo veio incompleta.'))).toBe(
+      'invalid_provider_response'
+    );
+    expect(morningWeatherFailureCategory(new Error('Não consegui consultar o tempo agora.'))).toBe(
+      'provider_unavailable'
+    );
+    expect(morningWeatherFailureCategory(new Error('private API key at Ivinhema'))).toBe(
+      'storage_or_unknown'
+    );
   });
   it('uses a verified weather result that arrives in seven seconds without extending the email deadline', async () => {
     vi.useFakeTimers();
     m.weather.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve({
-        city: 'Aquidauana',
-        region: 'MS',
-        temperatureC: 31.2,
-        kind: 'model_estimate',
-      }), 7000))
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                city: 'Aquidauana',
+                region: 'MS',
+                temperatureC: 31.2,
+                kind: 'model_estimate',
+              }),
+            7000
+          )
+        )
     );
     const pending = buildMorningBriefing(
       'whatsapp:5567999991234',
