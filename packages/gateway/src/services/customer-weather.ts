@@ -205,7 +205,21 @@ async function forecast(city: WeatherCity, timeoutMs = 4000): Promise<Forecast> 
     weatherLookups.set(key, pending);
   }
   try {
-    const result = await pending;
+    let result: { data: Forecast; expires: number };
+    try {
+      result = await pending;
+    } catch (error) {
+      // A recently expired public forecast can survive a short upstream outage.
+      // customerWeather still checks the model update time AND the nearest point:
+      // old data is never presented as an estimate for "agora".
+      const recentlyExpired =
+        cached &&
+        cached.expires <= Date.now() &&
+        cached.expires >= Date.now() - 15 * 60 * 1000 &&
+        !!cached.data?.properties?.timeseries?.length;
+      if (recentlyExpired) return cached.data;
+      throw error;
+    }
     await settingsRepo.set(key, result);
     return result.data;
   } finally {
