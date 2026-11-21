@@ -38,7 +38,7 @@ export function dashboardActionForConfirmedReply(
   if (platform !== 'whatsapp' || !userId.startsWith('whatsapp:')) return undefined;
   const origin = getOrigin(configuredUrl);
   if (/^⏳ \*Não consegui confirmar esse gasto\*/u.test(text))
-    return { label: 'Conferir meus lançamentos', url: origin + '/cliente/transacoes' };
+    return { label: 'Conferir lançamentos', url: origin + '/cliente/transacoes' };
   if (
     /(?:^|\n)🔎 \*Lançamento encontrado\*/u.test(text) &&
     /(?:^|\n)• \*Valor:\* (?:R\$|[A-Z]{2,3}\$|€|£)/u.test(text)

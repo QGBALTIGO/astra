@@ -13,6 +13,7 @@ import { resolveCustomerPhone } from './customer-identity.js';
 import { formatDueReminder } from '../channels/response-presentation.js';
 import { safeContactFirstName } from '../channels/channel-personalization.js';
 import { ASTRA_CUSTOMER_ORIGIN } from '../config/astra-public-urls.js';
+import { ChannelSendNotAttemptedError } from '../channels/send-not-attempted.js';
 
 const log = getLog('ChannelReminderWorker');
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -120,6 +121,29 @@ export async function dispatchDueChannelReminders(): Promise<{
         }
         if (await channelRemindersRepo.markDelivered(entry.id, id, entry.leaseToken)) delivered++;
       } catch (error) {
+        // The channel service emits this marker only before any transport call.
+        // A reserved delivery can therefore be released safely, bounded by its
+        // original attempts; ordinary errors remain non-retryable after beginDelivery.
+        if (transportInvoked && error instanceof ChannelSendNotAttemptedError) {
+          const deferred = await channelRemindersRepo.deferProvenNotSent(
+            entry.id,
+            entry.leaseToken
+          );
+          if (deferred) {
+            if (entry.attempts >= 5) {
+              failed++;
+              log.warn('Lembrete encerrado após repetidas falhas antes do transporte', {
+                reminderId: entry.id,
+              });
+            } else {
+              log.info('Envio de lembrete não iniciado; tentativa reprogramada', {
+                reminderId: entry.id,
+                attempts: entry.attempts,
+              });
+            }
+            continue;
+          }
+        }
         failed++;
         // Never log credentials, chat content or raw response bodies.
         log.warn(

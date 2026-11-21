@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { validateWhatsAppUrlCta } from './plugins/whatsapp/whatsapp-url-cta.js';
 import {
   dashboardActionForConfirmedReply as action,
   weatherInfoAction,
@@ -37,7 +38,7 @@ describe('Portal links after verified confirmations', () => {
         'whatsapp'
       )
     ).toEqual({
-      label: 'Conferir meus lançamentos',
+      label: 'Conferir lançamentos',
       url: 'https://app.astraacessor.pro/cliente/transacoes',
     });
   });
@@ -63,6 +64,26 @@ describe('Portal links after verified confirmations', () => {
       action('✅ *Despesa registrada*\n• *Valor:* R$ 1,00', 'default', 'whatsapp')
     ).toBeUndefined();
     expect(action('✅ *Despesa registrada*\n• *Valor:* R$ 1,00', id, 'telegram')).toBeUndefined();
+  });
+  it('checks every generated customer CTA against the real WhatsApp transport validator', () => {
+    const samples = [
+      '⏳ *Não consegui confirmar esse gasto*',
+      '🔎 *Lançamento encontrado*\n\n• *Valor:* R$ 27,00',
+      '✅ *Despesa registrada*\n\n• *Valor:* R$ 27,00',
+      '✅ *Lembrete agendado*\n\n• *Assunto:* Consulta',
+      '✅ *Tarefa criada*',
+    ];
+    for (const message of samples) {
+      const button = action(message, id, 'whatsapp');
+      expect(button).toBeDefined();
+      expect(() => validateWhatsAppUrlCta(button!)).not.toThrow();
+      expect(button!.label.length).toBeLessThanOrEqual(20);
+    }
+    const climate = weatherInfoAction(
+      '🌤️ *Tempo em Ivinhema*\n\n• *Temperatura:* 28 °C · estimativa',
+      'whatsapp'
+    );
+    expect(() => validateWhatsAppUrlCta(climate!)).not.toThrow();
   });
   it('does not include user tokens or accept untrusted URL credentials', () => {
     const msg = '✅ *Entrada registrada*\n\n• *Valor:* R$ 25,00';

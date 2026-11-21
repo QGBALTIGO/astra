@@ -54,6 +54,7 @@ vi.mock('./log.js', () => ({
   }),
 }));
 
+import { ChannelSendNotAttemptedError } from '../channels/send-not-attempted.js';
 import {
   DAILY_CURIOSITIES,
   dailyGreetingText,
@@ -285,6 +286,37 @@ describe('daily greeting worker', () => {
     expect(mock.markDelivered).not.toHaveBeenCalled();
     expect(mock.deferNotSent).toHaveBeenCalledWith(entry.id);
     expect(mock.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('defers a morning greeting when the channel proves no transport call occurred', async () => {
+    mock.claimDue.mockResolvedValueOnce([entry]);
+    mock.send.mockRejectedValueOnce(
+      new ChannelSendNotAttemptedError(new Error('queue rejected before transport'))
+    );
+    expect(await dispatchDueDailyGreetings()).toEqual({ claimed: 1, delivered: 0, failed: 0 });
+    expect(mock.deferNotSent).toHaveBeenCalledExactlyOnceWith(entry.id);
+    expect(mock.markFailed).not.toHaveBeenCalled();
+    expect(mock.send).toHaveBeenCalledOnce();
+  });
+
+  it('does not treat a same-name fake transport error as safe to retry', async () => {
+    mock.claimDue.mockResolvedValueOnce([entry]);
+    const error = new Error('outcome unknown');
+    error.name = 'ChannelSendNotAttemptedError';
+    mock.send.mockRejectedValueOnce(error);
+    expect((await dispatchDueDailyGreetings()).failed).toBe(1);
+    expect(mock.deferNotSent).not.toHaveBeenCalled();
+    expect(mock.markFailed).toHaveBeenCalledWith(entry.id, 'ChannelSendNotAttemptedError');
+  });
+
+  it('does not defer after a confirmed receipt even if saving it fails', async () => {
+    mock.claimDue.mockResolvedValueOnce([entry]);
+    mock.markDelivered.mockRejectedValueOnce(
+      new ChannelSendNotAttemptedError(new Error('receipt save failed'))
+    );
+    expect((await dispatchDueDailyGreetings()).failed).toBe(1);
+    expect(mock.deferNotSent).not.toHaveBeenCalled();
+    expect(mock.markFailed).toHaveBeenCalledWith(entry.id, 'ChannelSendNotAttemptedError');
   });
 
   it('does not retry an ambiguous transport receipt', async () => {

@@ -42,6 +42,7 @@ vi.mock('../channels/channel-access-service.js', () => ({
   isChannelUserAccessActive: (user: { active?: boolean } | undefined) => user?.active === true,
 }));
 vi.mock('./email-digest.js', () => ({ buildEmailDigest: m.build }));
+import { ChannelSendNotAttemptedError } from '../channels/send-not-attempted.js';
 import { dispatchDueEmailDigests } from './email-digest-worker.js';
 const entry = {
   id: 'digest-a',
@@ -130,6 +131,33 @@ describe('durable private email delivery', () => {
     expect(m.save).toHaveBeenCalledWith(expect.objectContaining({ timeZone: 'America/Sao_Paulo' }));
     expect(m.build).not.toHaveBeenCalled();
   });
+  it('retries a digest when the channel proves the WhatsApp transport was not entered', async () => {
+    m.send.mockRejectedValueOnce(
+      new ChannelSendNotAttemptedError(new Error('queue rejected before transport'))
+    );
+    expect((await dispatchDueEmailDigests()).delivered).toBe(0);
+    expect(m.send).toHaveBeenCalledOnce();
+    expect(m.defer).toHaveBeenCalledExactlyOnceWith(entry);
+    expect(m.finish).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a digest when the error only imitates the pre-send marker name', async () => {
+    const error = new Error('unknown delivery');
+    error.name = 'ChannelSendNotAttemptedError';
+    m.send.mockRejectedValueOnce(error);
+    expect((await dispatchDueEmailDigests()).delivered).toBe(0);
+    expect(m.finish).toHaveBeenCalledWith(entry, null, 'digest_not_confirmed');
+    expect(m.defer).not.toHaveBeenCalled();
+  });
+
+  it('does not retry after a confirmed transport receipt even if saving fails', async () => {
+    m.finish.mockRejectedValueOnce(new ChannelSendNotAttemptedError(new Error('storage error')));
+    expect((await dispatchDueEmailDigests()).delivered).toBe(0);
+    expect(m.finish).toHaveBeenNthCalledWith(1, entry, 'delivery-a');
+    expect(m.finish).toHaveBeenNthCalledWith(2, entry, null, 'digest_not_confirmed');
+    expect(m.defer).not.toHaveBeenCalled();
+  });
+
   it.each([null, 'throw'])(
     'records an uncertain send without automatically sending again: %s',
     async (receipt) => {
