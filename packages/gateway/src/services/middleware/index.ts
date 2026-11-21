@@ -5,7 +5,7 @@
  * Called during server startup after the MessageBus is created.
  *
  * Pipeline order:
- *   audit → persistence → post-processing → request-preprocessor → context-injection → agent-execution
+ *   audit → persistence → post-processing → direct-weather → request-preprocessor → context-injection → agent-execution
  *
  * Because middleware wraps inside-out, the first registered runs outermost.
  * So audit runs first (wrapping everything), and agent-execution runs last (innermost).
@@ -18,6 +18,7 @@ import { createPostProcessingMiddleware } from './post-processing.js';
 import { createPersistenceMiddleware } from './persistence.js';
 import { createAuditMiddleware } from './audit.js';
 import { createRequestPreprocessorMiddleware } from './request-preprocessor.js';
+import { createDirectWeatherMiddleware } from './direct-weather.js';
 
 /**
  * Register all pipeline middleware into the MessageBus.
@@ -42,6 +43,7 @@ export function registerPipelineMiddleware(bus: IMessageBus): void {
   bus.useNamed('audit', createAuditMiddleware());
   bus.useNamed('persistence', createPersistenceMiddleware());
   bus.useNamed('post-processing', createPostProcessingMiddleware());
+  bus.useNamed('direct-weather', createDirectWeatherMiddleware());
   bus.useNamed('request-preprocessor', createRequestPreprocessorMiddleware());
   bus.useNamed('context-injection', createContextInjectionMiddleware());
   bus.useNamed('agent-execution', createAgentExecutionMiddleware());

@@ -5,7 +5,7 @@ vi.mock('./customer-integrations.js', () => ({
   customerIntegrationService: { binding: m.binding },
 }));
 vi.mock('./email-digest.js', () => ({ buildEmailDigest: m.digest }));
-import { buildMorningBriefing } from './morning-briefing.js';
+import { buildMorningBriefing, morningWeatherFailureCategory } from './morning-briefing.js';
 const now = new Date('2026-11-15T11:22:00Z');
 const all = {
   withCuriosity: true,
@@ -86,6 +86,51 @@ describe('composed morning briefing', () => {
     expect(result).toContain('Não consegui consultar o tempo');
     expect(result).not.toContain('private_details');
     expect(result).not.toContain('31,2');
+  });
+  it('classifies morning weather failures without retaining private errors or locations', () => {
+    expect(morningWeatherFailureCategory(new Error('briefing_deadline'))).toBe('deadline');
+    expect(
+      morningWeatherFailureCategory(new Error('A previsão disponível está desatualizada.'))
+    ).toBe('stale_forecast');
+    expect(morningWeatherFailureCategory(new Error('A consulta do tempo veio incompleta.'))).toBe(
+      'invalid_provider_response'
+    );
+    expect(morningWeatherFailureCategory(new Error('Não consegui consultar o tempo agora.'))).toBe(
+      'provider_unavailable'
+    );
+    expect(morningWeatherFailureCategory(new Error('private API key at Ivinhema'))).toBe(
+      'storage_or_unknown'
+    );
+  });
+  it('uses a verified weather result that arrives in seven seconds without extending the email deadline', async () => {
+    vi.useFakeTimers();
+    m.weather.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                city: 'Aquidauana',
+                region: 'MS',
+                temperatureC: 31.2,
+                kind: 'model_estimate',
+              }),
+            7000
+          )
+        )
+    );
+    const pending = buildMorningBriefing(
+      'whatsapp:5567999991234',
+      'channel.whatsapp',
+      'America/Campo_Grande',
+      all,
+      now
+    );
+    await vi.advanceTimersByTimeAsync(7000);
+    const result = await pending;
+    expect(result).toContain('31,2 °C');
+    expect(result).toContain('Consulta amanhã');
+    expect(vi.getTimerCount()).toBe(0);
   });
   it('keeps weather when Gmail is disconnected and does not claim an empty mailbox', async () => {
     m.binding.mockRejectedValue(new Error('disconnected'));

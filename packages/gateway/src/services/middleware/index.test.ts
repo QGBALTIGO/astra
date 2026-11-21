@@ -12,6 +12,7 @@ const {
   mockCreateAudit,
   mockCreatePersistence,
   mockCreatePostProcessing,
+  mockCreateDirectWeather,
   mockCreateRequestPreprocessor,
   mockCreateContextInjection,
   mockCreateAgentExecution,
@@ -19,6 +20,7 @@ const {
   mockCreateAudit: vi.fn(() => vi.fn()),
   mockCreatePersistence: vi.fn(() => vi.fn()),
   mockCreatePostProcessing: vi.fn(() => vi.fn()),
+  mockCreateDirectWeather: vi.fn(() => vi.fn()),
   mockCreateRequestPreprocessor: vi.fn(() => vi.fn()),
   mockCreateContextInjection: vi.fn(() => vi.fn()),
   mockCreateAgentExecution: vi.fn(() => vi.fn()),
@@ -32,6 +34,9 @@ vi.mock('./persistence.js', () => ({
 }));
 vi.mock('./post-processing.js', () => ({
   createPostProcessingMiddleware: mockCreatePostProcessing,
+}));
+vi.mock('./direct-weather.js', () => ({
+  createDirectWeatherMiddleware: mockCreateDirectWeather,
 }));
 vi.mock('./request-preprocessor.js', () => ({
   createRequestPreprocessorMiddleware: mockCreateRequestPreprocessor,
@@ -57,9 +62,9 @@ describe('registerPipelineMiddleware', () => {
     mockBus = { useNamed: vi.fn() };
   });
 
-  it('registers exactly 6 middleware stages', () => {
+  it('registers exactly 7 middleware stages', () => {
     registerPipelineMiddleware(mockBus as any);
-    expect(mockBus.useNamed).toHaveBeenCalledTimes(6);
+    expect(mockBus.useNamed).toHaveBeenCalledTimes(7);
   });
 
   it('registers audit first', () => {
@@ -77,19 +82,20 @@ describe('registerPipelineMiddleware', () => {
     expect(mockBus.useNamed.mock.calls[2][0]).toBe('post-processing');
   });
 
-  it('registers request-preprocessor fourth', () => {
+  it('registers direct-weather fourth and request-preprocessor fifth', () => {
     registerPipelineMiddleware(mockBus as any);
-    expect(mockBus.useNamed.mock.calls[3][0]).toBe('request-preprocessor');
+    expect(mockBus.useNamed.mock.calls[3][0]).toBe('direct-weather');
+    expect(mockBus.useNamed.mock.calls[4][0]).toBe('request-preprocessor');
   });
 
-  it('registers context-injection fifth', () => {
+  it('registers context-injection sixth', () => {
     registerPipelineMiddleware(mockBus as any);
-    expect(mockBus.useNamed.mock.calls[4][0]).toBe('context-injection');
+    expect(mockBus.useNamed.mock.calls[5][0]).toBe('context-injection');
   });
 
   it('registers agent-execution last', () => {
     registerPipelineMiddleware(mockBus as any);
-    expect(mockBus.useNamed.mock.calls[5][0]).toBe('agent-execution');
+    expect(mockBus.useNamed.mock.calls[6][0]).toBe('agent-execution');
   });
 
   it('calls each factory once to create middleware', () => {
@@ -97,6 +103,7 @@ describe('registerPipelineMiddleware', () => {
     expect(mockCreateAudit).toHaveBeenCalledOnce();
     expect(mockCreatePersistence).toHaveBeenCalledOnce();
     expect(mockCreatePostProcessing).toHaveBeenCalledOnce();
+    expect(mockCreateDirectWeather).toHaveBeenCalledOnce();
     expect(mockCreateRequestPreprocessor).toHaveBeenCalledOnce();
     expect(mockCreateContextInjection).toHaveBeenCalledOnce();
     expect(mockCreateAgentExecution).toHaveBeenCalledOnce();
@@ -111,6 +118,7 @@ describe('registerPipelineMiddleware', () => {
     registerPipelineMiddleware(mockBus as any);
 
     expect(mockBus.useNamed).toHaveBeenCalledWith('audit', auditMw);
+    expect(mockBus.useNamed).toHaveBeenCalledWith('direct-weather', expect.any(Function));
     expect(mockBus.useNamed).toHaveBeenCalledWith('agent-execution', agentMw);
   });
 });

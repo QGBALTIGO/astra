@@ -9,6 +9,19 @@ import { buildEmailDigest } from './email-digest.js';
 import { getLog } from './log.js';
 
 const log = getLog('MorningBriefing');
+/** Bounded diagnostics only: never log provider bodies, location, accounts or message text. */
+export function morningWeatherFailureCategory(error: unknown): string {
+  if (!(error instanceof Error)) return 'unknown';
+  if (error.message === 'briefing_deadline') return 'deadline';
+  if (error.message === 'weather_invalid_result') return 'invalid_result';
+  if (/desatualizada/u.test(error.message)) return 'stale_forecast';
+  if (/veio incompleta/u.test(error.message)) return 'invalid_provider_response';
+  if (/consultar o tempo agora/u.test(error.message)) return 'provider_unavailable';
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') return 'provider_timeout';
+  if (/fetch failed|ENOTFOUND|ECONNRESET|ETIMEDOUT/iu.test(error.message)) return 'network_failure';
+  return 'storage_or_unknown';
+}
+
 async function beforeDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -45,6 +58,8 @@ export async function buildMorningBriefing(
     ? beforeDeadline(
         (async () => {
           const data = await customerWeather(userId);
+          if (!('needsCity' in data) && !('temperatureC' in data))
+            throw new Error('weather_invalid_result');
           // This is the actual service result, rendered by the same fact validator as tool calls.
           const text = verifiedChannelFacts('', [
             {
@@ -62,7 +77,7 @@ export async function buildMorningBriefing(
                 text ?? 'Não consegui consultar o tempo agora.'
               );
         })(),
-        started + 6000
+        started + 8000
       )
     : Promise.resolve(null);
   const email = parts.withEmailDigest
@@ -87,7 +102,13 @@ export async function buildMorningBriefing(
       sections.push(weatherResult.value);
     else {
       sections.push('🌤️ *Temperatura*\nNão consegui consultar o tempo agora.');
-      log.warn('Componente do resumo indisponível', { component: 'weather' });
+      log.warn('Componente do resumo indisponível', {
+        component: 'weather',
+        category:
+          weatherResult.status === 'rejected'
+            ? morningWeatherFailureCategory(weatherResult.reason)
+            : 'empty_result',
+      });
     }
   }
   if (parts.withEmailDigest) {
