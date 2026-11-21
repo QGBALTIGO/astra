@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runInExecContext } from '@ownpilot/core/agent';
-import type { NormalizedMessage, PipelineContext, MessageProcessingResult } from '@ownpilot/core/services';
+import type {
+  NormalizedMessage,
+  PipelineContext,
+  MessageProcessingResult,
+} from '@ownpilot/core/services';
 import { executeCustomerWeatherTool } from '../../tools/customer-weather-tools.js';
 import { createDirectWeatherMiddleware, currentWeatherOnlyQuery } from './direct-weather.js';
 
@@ -34,7 +38,12 @@ function testContext(userId: string) {
 }
 async function send(
   content: string,
-  options: { userId?: string; channelIsPrivate?: boolean; source?: string; attachments?: unknown[] } = {}
+  options: {
+    userId?: string;
+    channelIsPrivate?: boolean;
+    source?: string;
+    attachments?: unknown[];
+  } = {}
 ) {
   const message = {
     id: 'synthetic-current-weather',
@@ -47,14 +56,25 @@ async function send(
   } as NormalizedMessage;
   const ctx = testContext(options.userId ?? 'whatsapp:5567999991234');
   const nextResponse: MessageProcessingResult = {
-    response: { id: 'next', sessionId: message.sessionId, role: 'assistant', content: 'normal-agent', metadata: { source: 'channel' }, timestamp: new Date() },
+    response: {
+      id: 'next',
+      sessionId: message.sessionId,
+      role: 'assistant',
+      content: 'normal-agent',
+      metadata: { source: 'channel' },
+      timestamp: new Date(),
+    },
     streamed: false,
     durationMs: 1,
     stages: ['agent-execution'],
   };
   const next = vi.fn(async () => nextResponse);
   const result = await runInExecContext(
-    { channelPluginId: 'channel.whatsapp', platformChatId: 'synthetic-phone', channelIsPrivate: options.channelIsPrivate ?? true },
+    {
+      channelPluginId: 'channel.whatsapp',
+      platformChatId: 'synthetic-phone',
+      channelIsPrivate: options.channelIsPrivate ?? true,
+    },
     () => createDirectWeatherMiddleware()(message, ctx, next)
   );
   return { result, next, ctx };
@@ -96,7 +116,9 @@ describe('deterministic weather read on WhatsApp', () => {
   it('returns verified temperature without any AI call or side effect', async () => {
     const { result, ctx, next } = await send('Qual a temperatura em Ivinhema, MS?');
     expect(weather).toHaveBeenCalledExactlyOnceWith(
-      'get_local_weather', { city: 'Ivinhema, MS' }, 'whatsapp:5567999991234'
+      'get_local_weather',
+      { city: 'Ivinhema, MS' },
+      'whatsapp:5567999991234'
     );
     expect(next).not.toHaveBeenCalled();
     expect(result.response.content).toContain('28,4 °C');
@@ -108,10 +130,13 @@ describe('deterministic weather read on WhatsApp', () => {
   });
 
   it('asks for a missing preferred city instead of inventing one from the phone', async () => {
-    weather.mockResolvedValue({ success: true, result: {
-      needsCity: true,
-      question: 'Em qual cidade você está? Diga também o estado.',
-    } });
+    weather.mockResolvedValue({
+      success: true,
+      result: {
+        needsCity: true,
+        question: 'Em qual cidade você está? Diga também o estado.',
+      },
+    });
     const { result } = await send('Temperatura');
     expect(result.response.content).toMatch(/qual cidade|em qual cidade/iu);
     expect(weather).toHaveBeenCalledWith('get_local_weather', {}, 'whatsapp:5567999991234');
@@ -139,9 +164,13 @@ describe('deterministic weather read on WhatsApp', () => {
   });
 
   it('keeps simultaneous customer requests scoped to their own saved cities', async () => {
-    weather.mockImplementation(async (_name, _args, userId) => ({ success: true, result: {
-      ...fact, city: userId.endsWith('1111') ? 'Ivinhema' : 'Corumbá',
-    } }));
+    weather.mockImplementation(async (_name, _args, userId) => ({
+      success: true,
+      result: {
+        ...fact,
+        city: userId.endsWith('1111') ? 'Ivinhema' : 'Corumbá',
+      },
+    }));
     const [one, two] = await Promise.all([
       send('Temperatura', { userId: 'whatsapp:556799991111' }),
       send('Temperatura', { userId: 'whatsapp:556799992222' }),
