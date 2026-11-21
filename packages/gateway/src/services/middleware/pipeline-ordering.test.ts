@@ -8,9 +8,10 @@
  *   1. audit
  *   2. persistence
  *   3. post-processing
- *   4. request-preprocessor
- *   5. context-injection
- *   6. agent-execution
+ *   4. direct-weather
+ *   5. request-preprocessor
+ *   6. context-injection
+ *   7. agent-execution
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -34,6 +35,9 @@ vi.mock('./persistence.js', () => ({
 vi.mock('./post-processing.js', () => ({
   createPostProcessingMiddleware: vi.fn(() => 'post-processing-middleware'),
 }));
+vi.mock('./direct-weather.js', () => ({
+  createDirectWeatherMiddleware: vi.fn(() => 'direct-weather-middleware'),
+}));
 vi.mock('./request-preprocessor.js', () => ({
   createRequestPreprocessorMiddleware: vi.fn(() => 'request-preprocessor-middleware'),
 }));
@@ -52,9 +56,9 @@ describe('Pipeline Middleware Ordering', () => {
     mockBus.useNamed.mockClear();
   });
 
-  it('registers exactly 6 middleware stages', () => {
+  it('registers exactly 7 middleware stages', () => {
     registerPipelineMiddleware(mockBus as never);
-    expect(mockBus.useNamed).toHaveBeenCalledTimes(6);
+    expect(mockBus.useNamed).toHaveBeenCalledTimes(7);
   });
 
   it('registers middleware in the correct order', () => {
@@ -64,6 +68,7 @@ describe('Pipeline Middleware Ordering', () => {
       'audit',
       'persistence',
       'post-processing',
+      'direct-weather',
       'request-preprocessor',
       'context-injection',
       'agent-execution',
@@ -102,6 +107,7 @@ describe('Pipeline Middleware Ordering', () => {
     expect(mockBus.useNamed).toHaveBeenCalledWith('audit', 'audit-middleware');
     expect(mockBus.useNamed).toHaveBeenCalledWith('persistence', 'persistence-middleware');
     expect(mockBus.useNamed).toHaveBeenCalledWith('post-processing', 'post-processing-middleware');
+    expect(mockBus.useNamed).toHaveBeenCalledWith('direct-weather', 'direct-weather-middleware');
     expect(mockBus.useNamed).toHaveBeenCalledWith(
       'request-preprocessor',
       'request-preprocessor-middleware'
