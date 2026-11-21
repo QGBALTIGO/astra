@@ -14,6 +14,7 @@ import { channelUsersRepo, type ChannelUserEntity } from '../db/repositories/cha
 import { isChannelUserAccessActive } from '../channels/channel-access-service.js';
 import { buildAccessMessage } from '../channels/channel-access-messages.js';
 import { ChannelSendNotAttemptedError } from '../channels/send-not-attempted.js';
+import { validateWhatsAppUrlCta } from '../channels/plugins/whatsapp/whatsapp-url-cta.js';
 import { getWhatsAppAccessMessageSettings } from '../channels/channel-access-message-settings.js';
 import { getOwnerUserId } from './pairing-service.js';
 import { getLog } from './log.js';
@@ -26,6 +27,26 @@ import { recoverWhatsAppFirstContact } from './whatsapp-first-contact-recovery.j
 
 const log = getLog('ChannelAccessNotificationWorker');
 const RETRY_DELAY_MS = 60_000;
+
+/** A malformed trusted notice cannot become a minute-by-minute send loop. */
+class InvalidAccessNoticeTemplateError extends Error {
+  constructor() {
+    super('invalid_access_notice_template');
+    this.name = 'InvalidAccessNoticeTemplateError';
+  }
+}
+function assertAccessNoticeTemplate(message: ReturnType<typeof buildAccessMessage>): void {
+  if (typeof message.text !== 'string' || !message.text.trim())
+    throw new InvalidAccessNoticeTemplateError();
+  if (message.urlButton) {
+    try {
+      validateWhatsAppUrlCta(message.urlButton);
+    } catch {
+      throw new InvalidAccessNoticeTemplateError();
+    }
+  }
+}
+
 
 interface WorkerDependencies {
   notifications: Pick<
@@ -280,16 +301,34 @@ export class ChannelAccessNotificationWorker {
             },
             d.now()
           );
-          transportInvoked = true;
+          // A permanent template mistake is a failed notice, not a transient outage.
+          // Validate before the WhatsApp transport and never retry an impossible CTA.
+          assertAccessNoticeTemplate(message);
           const outgoing = {
             platformChatId: entry.platformUserId,
             ...message,
           };
-          // Only this server-owned, revalidated expiry template may bypass the
-          // inactive-customer send guard. Ordinary sends remain access-checked.
+          // The expiry notice alone bypasses the ordinary inactive-user guard,
+          // while the transport's last-moment check still rejects renewal,
+          // revocation, connection or owner changes during queue/pacing waits.
+          const expiryCanSend = async () => {
+            const active = connectedWhatsApp(channels);
+            if (
+              !active ||
+              active.pluginId !== channel.pluginId ||
+              active.botPhone !== channel.botPhone
+            )
+              return false;
+            const [latestUser, latestOwner] = await Promise.all([
+              d.users.getById(entry.channelUserId),
+              d.ownerLookup('whatsapp'),
+            ]);
+            return ineligibleReason(entry, latestUser, latestOwner, active.botPhone, d.now()) === null;
+          };
+          transportInvoked = true;
           const deliveryId =
             entry.kind === 'trial_expired'
-              ? await freshApi.sendMessage(outgoing)
+              ? await freshApi.sendMessage({ ...outgoing, canSend: expiryCanSend })
               : await channels.send(channel.pluginId, outgoing);
           if (!deliveryId?.trim()) throw new Error('delivery_outcome_unknown');
           await d.notifications.finish(entry.id, token, 'delivered', { deliveryId }, d.now());
@@ -326,7 +365,16 @@ export class ChannelAccessNotificationWorker {
           // Other errors after send() was invoked have an ambiguous delivery outcome.
           // A failed receipt write must also never cause a second transport call.
           try {
-            if (transportInvoked) {
+            if (error instanceof InvalidAccessNoticeTemplateError) {
+              await d.notifications.finish(
+                entry.id,
+                token,
+                'failed',
+                { reason: 'invalid_notice_template' },
+                d.now()
+              );
+              result.failed++;
+            } else if (transportInvoked) {
               await d.notifications.finish(
                 entry.id,
                 token,
