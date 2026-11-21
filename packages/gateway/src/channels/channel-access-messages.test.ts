@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildAccessMessage, type AccessMessageKind } from './channel-access-messages.js';
+import { validateWhatsAppUrlCta } from './plugins/whatsapp/whatsapp-url-cta.js';
 
 const now = new Date('2026-11-10T16:00:00.000Z');
 const settings = {
@@ -141,6 +142,35 @@ describe('buildAccessMessage', () => {
     expect(late).toEqual(
       buildAccessMessage('expired', { ...user, accessExpiresAt: now }, settings, now)
     );
+  });
+
+  it('uses a WhatsApp-valid trial expiration button that matches the renewal instruction', () => {
+    const trial = {
+      ...user,
+      accessSource: 'trial' as const,
+      accessExpiresAt: new Date(now.getTime() - 1),
+    };
+    const message = buildAccessMessage('expired', trial, settings, now);
+    expect(message.urlButton?.label).toBe('Continuar com Astra');
+    expect(message.text).toContain('*Continuar com Astra*');
+    expect(message.urlButton).toBeDefined();
+    expect(() => validateWhatsAppUrlCta(message.urlButton!)).not.toThrow();
+    expect(message.urlButton!.label.length).toBeLessThanOrEqual(20);
+  });
+
+  it.each(kinds)('keeps every configured %s link button valid for WhatsApp transport', (kind) => {
+    for (const accessSource of ['manual', 'trial'] as const) {
+      const message = buildAccessMessage(
+        kind,
+        { ...user, accessSource, accessExpiresAt: new Date(now.getTime() - 1) },
+        settings,
+        now
+      );
+      if (message.urlButton) {
+        expect(validateWhatsAppUrlCta(message.urlButton).label).toBe(message.urlButton.label);
+        expect(message.urlButton.label.length).toBeLessThanOrEqual(20);
+      }
+    }
   });
 
   it('preserves history in expired copy and links to a configured renewal URL', () => {

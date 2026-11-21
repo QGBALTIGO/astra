@@ -280,11 +280,12 @@ export function buildAccessMessage(
             `${hello} 💙`,
             'Seu teste grátis de 3 dias chegou ao fim. Espero ter ajudado você a organizar sua rotina!',
             'Meus atendimentos e envios automáticos estão pausados por enquanto. *Seus registros continuam preservados.*',
-            'Para continuar comigo e seguir de onde paramos, toque em *Continuar com o Astra* e escolha sua forma de pagamento.',
+            'Para continuar comigo e seguir de onde paramos, toque em *Continuar com Astra* e escolha sua forma de pagamento.',
             'Seu acesso será liberado após a confirmação do pagamento. *Nenhuma cobrança automática foi feita pelo fim do teste.*'
           ),
           urlButton: {
-            label: 'Continuar com o Astra',
+            // WhatsApp native URL CTA labels are limited to 20 characters.
+            label: 'Continuar com Astra',
             url:
               user.metadata?.astraTrialReferral === 'julio'
                 ? ASTRA_JULIO_CHECKOUT_URL
