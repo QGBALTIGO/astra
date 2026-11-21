@@ -187,6 +187,41 @@ describe('customer weather and city preference', () => {
     mocks.fetch.mockResolvedValueOnce(response(data));
     await expect(customerWeather('alice')).rejects.toThrow('desatualizada');
   });
+  it('uses only a recently expired public forecast if the provider refresh fails', async () => {
+    mocks.memories.set('alice', [{ metadata: { city } }]);
+    mocks.settings.set('weather:forecast:-15.6,-56.1', {
+      data: weather(),
+      expires: Date.now() - 60_000,
+    });
+    mocks.fetch.mockRejectedValueOnce(new Error('private-upstream-failure'));
+    const result = await customerWeather('alice');
+    expect(result).toMatchObject({
+      city: 'Cuiabá',
+      temperatureC: 31.7,
+      kind: 'model_estimate',
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+  it('refuses old cached forecasts even when a refresh fails', async () => {
+    mocks.memories.set('alice', [{ metadata: { city } }]);
+    mocks.settings.set('weather:forecast:-15.6,-56.1', {
+      data: weather(),
+      expires: Date.now() - 20 * 60_000,
+    });
+    mocks.fetch.mockRejectedValueOnce(new Error('private-upstream-failure'));
+    await expect(customerWeather('alice')).rejects.toThrow('private-upstream-failure');
+  });
+  it('never uses an outdated weather model update as current, even in the grace window', async () => {
+    mocks.memories.set('alice', [{ metadata: { city } }]);
+    const old = weather();
+    old.properties.meta.updated_at = new Date(Date.now() - 13 * 3600_000).toISOString();
+    mocks.settings.set('weather:forecast:-15.6,-56.1', {
+      data: old,
+      expires: Date.now() - 60_000,
+    });
+    mocks.fetch.mockRejectedValueOnce(new Error('private-upstream-failure'));
+    await expect(customerWeather('alice')).rejects.toThrow('desatualizada');
+  });
   it('keeps upstream errors out of customer replies', async () => {
     mocks.fetch.mockRejectedValueOnce(new Error('secret key + provider HTML response'));
     const result = await executeCustomerWeatherTool(
