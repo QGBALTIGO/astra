@@ -6,6 +6,7 @@ const mock = vi.hoisted(() => ({
   markDelivered: vi.fn(),
   markFailed: vi.fn(),
   deferDisconnected: vi.fn(),
+  deferProvenNotSent: vi.fn(),
   getAccount: vi.fn(),
   resolvePhone: vi.fn(),
   send: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('../db/repositories/channel-reminders.js', () => ({
     markDelivered: mock.markDelivered,
     markFailed: mock.markFailed,
     deferDisconnected: mock.deferDisconnected,
+    deferProvenNotSent: mock.deferProvenNotSent,
   },
 }));
 vi.mock('@ownpilot/core/channels', () => ({
@@ -41,6 +43,7 @@ vi.mock('./log.js', () => ({
   getLog: () => ({ info: mock.info, warn: mock.warn, error: mock.error }),
 }));
 
+import { ChannelSendNotAttemptedError } from '../channels/send-not-attempted.js';
 import {
   dispatchDueChannelReminders,
   startChannelReminderWorker,
@@ -75,6 +78,7 @@ describe('ChannelReminderWorker', () => {
     mock.getAccount.mockResolvedValue(null);
     mock.resolvePhone.mockResolvedValue(null);
     mock.deferDisconnected.mockResolvedValue(undefined);
+    mock.deferProvenNotSent.mockResolvedValue(true);
     mock.owner.mockResolvedValue(null);
   });
   afterEach(() => {
@@ -107,6 +111,54 @@ describe('ChannelReminderWorker', () => {
     expect(result).toEqual({ claimed: 1, delivered: 0, failed: 1 });
     expect(mock.markFailed).toHaveBeenCalledWith('rem-2', 5, 'Error', 'current-lease');
     expect(mock.markDelivered).not.toHaveBeenCalled();
+  });
+
+  it('requeues a proven pre-transport failure instead of losing the reminder', async () => {
+    mock.claimDue.mockResolvedValue([makeReminder('unsent-a')]);
+    mock.send.mockRejectedValueOnce(
+      new ChannelSendNotAttemptedError(new Error('queue full before transport'))
+    );
+    expect(await dispatchDueChannelReminders()).toEqual({
+      claimed: 1,
+      delivered: 0,
+      failed: 0,
+    });
+    expect(mock.deferProvenNotSent).toHaveBeenCalledExactlyOnceWith(
+      'unsent-a',
+      'current-lease'
+    );
+    expect(mock.markFailed).not.toHaveBeenCalled();
+    expect(mock.markDelivered).not.toHaveBeenCalled();
+  });
+
+  it('does not release a stale lease after a proven pre-transport failure', async () => {
+    mock.claimDue.mockResolvedValue([makeReminder('unsent-stale')]);
+    mock.send.mockRejectedValueOnce(
+      new ChannelSendNotAttemptedError(new Error('queue cancelled'))
+    );
+    mock.deferProvenNotSent.mockResolvedValueOnce(false);
+    expect((await dispatchDueChannelReminders()).failed).toBe(1);
+    expect(mock.markFailed).toHaveBeenCalledWith(
+      'unsent-stale',
+      5,
+      'ChannelSendNotAttemptedError',
+      'current-lease'
+    );
+  });
+
+  it('never trusts a same-name fake pre-transport error', async () => {
+    mock.claimDue.mockResolvedValue([makeReminder('fake-marker')]);
+    const error = new Error('unknown after attempted transport');
+    error.name = 'ChannelSendNotAttemptedError';
+    mock.send.mockRejectedValueOnce(error);
+    expect((await dispatchDueChannelReminders()).failed).toBe(1);
+    expect(mock.deferProvenNotSent).not.toHaveBeenCalled();
+    expect(mock.markFailed).toHaveBeenCalledWith(
+      'fake-marker',
+      5,
+      'ChannelSendNotAttemptedError',
+      'current-lease'
+    );
   });
 
   it('does not invoke transport after losing ownership during preparation', async () => {
