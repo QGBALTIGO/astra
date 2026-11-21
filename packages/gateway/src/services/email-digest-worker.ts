@@ -83,10 +83,7 @@ async function deliver(entry: EmailDigestSchedule): Promise<boolean> {
     // Only the typed pre-transport marker proves the platform was never called.
     // A generic timeout, empty receipt or a failed receipt write is ambiguous
     // and remains non-retryable to prevent duplicate private email digests.
-    if (
-      !transportInvoked ||
-      (!receiptConfirmed && error instanceof ChannelSendNotAttemptedError)
-    )
+    if (!transportInvoked || (!receiptConfirmed && error instanceof ChannelSendNotAttemptedError))
       await emailDigestsRepo.deferBeforeSend(entry);
     else await emailDigestsRepo.finish(entry, null, 'digest_not_confirmed');
     log.warn('Resumo diário não confirmado', {
