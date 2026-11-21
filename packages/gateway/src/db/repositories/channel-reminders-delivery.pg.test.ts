@@ -79,6 +79,64 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)('reminder delivery ownership'
     expect(rows).toEqual([{ status: 'delivered', delivery_id: 'receipt' }]);
   });
 
+  it('releases only a proven unsent transport reservation and retains retry budget', async () => {
+    await schedule();
+    const [first] = await repo.claimDue(1);
+    expect(await repo.beginDelivery(first!.id, first!.leaseToken)).toBe(true);
+    expect(await repo.deferProvenNotSent(first!.id, 'stale-lease')).toBe(false);
+    expect(await repo.deferProvenNotSent(first!.id, first!.leaseToken)).toBe(true);
+    const { rows } = await client.query(
+      'SELECT status, attempts, lease_token, delivery_started_at, last_error FROM channel_reminders'
+    );
+    expect(rows).toEqual([
+      {
+        status: 'pending',
+        attempts: 1,
+        lease_token: null,
+        delivery_started_at: null,
+        last_error: 'transport_not_attempted',
+      },
+    ]);
+    await client.query("UPDATE channel_reminders SET next_attempt_at=NOW()-INTERVAL '1 second'");
+    const [retried] = await repo.claimDue(1);
+    expect(retried?.attempts).toBe(2);
+    expect(await repo.beginDelivery(first!.id, first!.leaseToken)).toBe(false);
+    expect(await repo.beginDelivery(retried!.id, retried!.leaseToken)).toBe(true);
+    expect(await repo.markDelivered(retried!.id, 'receipt', retried!.leaseToken)).toBe(true);
+  });
+
+  it('terminates repeated proven pretransport failures at the fifth attempt', async () => {
+    await schedule();
+    const [entry] = await repo.claimDue(1);
+    expect(await repo.beginDelivery(entry!.id, entry!.leaseToken)).toBe(true);
+    await client.query('UPDATE channel_reminders SET attempts=5');
+    expect(await repo.deferProvenNotSent(entry!.id, entry!.leaseToken)).toBe(true);
+    const { rows } = await client.query(
+      'SELECT status, attempts, delivery_started_at, last_error FROM channel_reminders'
+    );
+    expect(rows).toEqual([
+      {
+        status: 'failed',
+        attempts: 5,
+        delivery_started_at: null,
+        last_error: 'transport_not_attempted',
+      },
+    ]);
+    expect(await repo.claimDue(1)).toEqual([]);
+  });
+
+  it('will not release a send reservation after its lease expired', async () => {
+    await schedule();
+    const [entry] = await repo.claimDue(1);
+    expect(await repo.beginDelivery(entry!.id, entry!.leaseToken)).toBe(true);
+    await client.query("UPDATE channel_reminders SET leased_until=NOW()-INTERVAL '1 second'");
+    expect(await repo.deferProvenNotSent(entry!.id, entry!.leaseToken)).toBe(false);
+    expect(await repo.claimDue(1)).toEqual([]);
+    expect((await client.query('SELECT status, last_error FROM channel_reminders')).rows).toEqual([
+      { status: 'failed', last_error: 'delivery_uncertain' },
+    ]);
+  });
+
   it('never replays transport after a crash, but accepts its original late receipt', async () => {
     await schedule();
     const [entry] = await repo.claimDue(1);
