@@ -186,6 +186,54 @@ describe('ChannelAccessNotificationWorker', () => {
     expect(channels.send).not.toHaveBeenCalled();
     expect(render.mock.calls[0]?.[0]).toBe('expired');
   });
+  it('fails an invalid expiry CTA once without endlessly rescheduling pre-send attempts', async () => {
+    user.accessSource = 'trial';
+    user.accessExpiresAt = new Date(now.getTime() - 1);
+    entry = { ...makeEntry(user), kind: 'trial_expired' };
+    render.mockReturnValue({
+      text: 'O teste terminou.',
+      urlButton: { label: 'Continuar com o Astra', url: settings.siteUrl },
+    });
+    const result = await worker.dispatch();
+    expect(result.failed).toBe(1);
+    expect(result.deferred).toBe(0);
+    expect(api.sendMessage).not.toHaveBeenCalled();
+    expect(channels.send).not.toHaveBeenCalled();
+    expect(notifications.finish).toHaveBeenCalledExactlyOnceWith(
+      entry.id,
+      entry.leaseToken,
+      'failed',
+      { reason: 'invalid_notice_template' },
+      now
+    );
+    expect(notifications.deferBeforeSend).not.toHaveBeenCalled();
+    await worker.dispatch();
+    expect(api.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('revalidates an expiry notice at the actual transport slot after renewal or revocation', async () => {
+    user.accessSource = 'trial';
+    user.accessExpiresAt = new Date(now.getTime() - 1);
+    entry = { ...makeEntry(user), kind: 'trial_expired' };
+    await worker.dispatch();
+    const outgoing = api.sendMessage.mock.calls[0]?.[0];
+    expect(outgoing?.canSend).toBeTypeOf('function');
+    expect(await outgoing!.canSend!()).toBe(true);
+    user.accessSource = 'cakto';
+    user.accessExpiresAt = new Date(now.getTime() + 86_400_000);
+    expect(await outgoing!.canSend!()).toBe(false);
+    user.accessSource = 'trial';
+    user.accessExpiresAt = entry.accessExpiresAt;
+    user.isBlocked = true;
+    expect(await outgoing!.canSend!()).toBe(false);
+    user.isBlocked = false;
+    ownerLookup.mockResolvedValue(user.platformUserId);
+    expect(await outgoing!.canSend!()).toBe(false);
+    ownerLookup.mockResolvedValue(botPhone);
+    api.getStatus.mockReturnValue('reconnecting');
+    expect(await outgoing!.canSend!()).toBe(false);
+  });
+
   it('cancels an expiry notice when the trial was converted to a paid account', async () => {
     user.accessSource = 'cakto';
     entry = { ...makeEntry(user), kind: 'trial_expired' };
