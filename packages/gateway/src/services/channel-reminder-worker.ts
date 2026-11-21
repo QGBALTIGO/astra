@@ -35,6 +35,7 @@ export async function dispatchDueChannelReminders(): Promise<{
     claimed = entries.length;
     for (const entry of entries) {
       let transportInvoked = false;
+      let receiptConfirmed = false;
       try {
         const channels = getChannelService();
         const api = channels.getChannel(entry.channelPluginId);
@@ -119,12 +120,17 @@ export async function dispatchDueChannelReminders(): Promise<{
           });
           continue;
         }
+        receiptConfirmed = true;
         if (await channelRemindersRepo.markDelivered(entry.id, id, entry.leaseToken)) delivered++;
       } catch (error) {
         // The channel service emits this marker only before any transport call.
         // A reserved delivery can therefore be released safely, bounded by its
         // original attempts; ordinary errors remain non-retryable after beginDelivery.
-        if (transportInvoked && error instanceof ChannelSendNotAttemptedError) {
+        if (
+          transportInvoked &&
+          !receiptConfirmed &&
+          error instanceof ChannelSendNotAttemptedError
+        ) {
           const deferred = await channelRemindersRepo.deferProvenNotSent(
             entry.id,
             entry.leaseToken
