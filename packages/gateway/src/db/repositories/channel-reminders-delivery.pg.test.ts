@@ -97,9 +97,7 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)('reminder delivery ownership'
         last_error: 'transport_not_attempted',
       },
     ]);
-    await client.query(
-      "UPDATE channel_reminders SET next_attempt_at=NOW()-INTERVAL '1 second'"
-    );
+    await client.query("UPDATE channel_reminders SET next_attempt_at=NOW()-INTERVAL '1 second'");
     const [retried] = await repo.claimDue(1);
     expect(retried?.attempts).toBe(2);
     expect(await repo.beginDelivery(first!.id, first!.leaseToken)).toBe(false);
