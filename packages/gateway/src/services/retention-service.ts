@@ -24,6 +24,7 @@ interface RetentionResult {
   table: string;
   deleted: number;
   retentionDays: number;
+  failed?: boolean;
 }
 
 /** Table name → cleanup method (using factory functions for user-scoped repos) */
@@ -34,7 +35,7 @@ const CLEANUP_METHODS: Record<string, () => Promise<number>> = {
   claw_history: () => getClawsRepository().cleanupOldHistory(90),
   claw_audit_log: () => getClawsRepository().cleanupOldAuditLog(30),
   workflow_logs: () => createWorkflowsRepository('default').cleanupOldWorkflowLogs(90),
-  trigger_history: () => createTriggersRepository('default').cleanupHistory(30),
+  trigger_history: () => createTriggersRepository('default').cleanupAllHistory(30),
   heartbeat_log: () => getHeartbeatLogRepository().cleanupOld(30),
   embedding_cache: () => embeddingCacheRepo.cleanupOld(7),
   jobs: () => getJobsRepository().cleanupOld(30),
@@ -56,7 +57,7 @@ async function runRetentionCleanup(): Promise<RetentionResult[]> {
       log.debug('Retention cleanup done', { table, deleted: count });
     } catch {
       log.warn('Retention cleanup failed', { table });
-      results.push({ table, deleted: 0, retentionDays: getRetentionDays(table) });
+      results.push({ table, deleted: 0, retentionDays: getRetentionDays(table), failed: true });
     }
   }
 
@@ -110,6 +111,8 @@ export function registerRetentionCleanupWorker(): () => void {
       await scheduleRetentionCleanup(
         Number.isNaN(scheduled.getTime()) ? 2 : scheduled.getUTCHours()
       );
+      const failed = results.filter((result) => result.failed).map((result) => result.table);
+      if (failed.length) throw new Error(`Retention cleanup failed for: ${failed.join(', ')}`);
       return { cleaned: results };
     },
     {

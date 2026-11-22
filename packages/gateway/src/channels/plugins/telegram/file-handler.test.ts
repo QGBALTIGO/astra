@@ -25,7 +25,7 @@ vi.stubGlobal('fetch', mockFetch);
 // Helpers
 // ---------------------------------------------------------------------------
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+const MAX_FILE_SIZE = 12 * 1024 * 1024;
 
 function createMockBot(
   fileResult: { file_path?: string; file_size?: number } = {
@@ -40,15 +40,9 @@ function createMockBot(
 }
 
 function createFetchResponse(buffer: Buffer, ok = true, status = 200) {
-  return {
-    ok,
-    status,
-    arrayBuffer: vi
-      .fn()
-      .mockResolvedValue(
-        buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
-      ),
-  };
+  return new Response(new Uint8Array(buffer), {
+    status: ok ? status : status === 200 ? 500 : status,
+  });
 }
 
 function makeMessage(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -131,6 +125,72 @@ describe('Telegram File Handler', () => {
   // ==========================================================================
 
   describe('downloadTelegramFile (internal)', () => {
+    it('cancels an unknown-length body as soon as its chunks exceed the byte budget', async () => {
+      const bot = createMockBot({ file_path: 'documents/large.pdf' });
+      const cancel = vi.fn();
+      let reads = 0;
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            reads++;
+            controller.enqueue(new Uint8Array(4 * 1024 * 1024));
+          },
+          cancel,
+        },
+        { highWaterMark: 0 }
+      );
+      mockFetch.mockResolvedValueOnce(new Response(stream));
+      expect(
+        await downloadTelegramAttachments(
+          bot as never,
+          makeMessage({ photo: [makePhoto()] }) as never
+        )
+      ).toEqual([]);
+      expect(reads).toBe(4);
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it('refuses an oversized declared body without reading it', async () => {
+      const bot = createMockBot();
+      const cancel = vi.fn();
+      const read = vi.fn();
+      const stream = new ReadableStream<Uint8Array>({ pull: read, cancel }, { highWaterMark: 0 });
+      mockFetch.mockResolvedValueOnce(
+        new Response(stream, { headers: { 'content-length': String(MAX_FILE_SIZE + 1) } })
+      );
+      expect(
+        await downloadTelegramAttachments(
+          bot as never,
+          makeMessage({ photo: [makePhoto()] }) as never
+        )
+      ).toEqual([]);
+      expect(read).not.toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it('shares one finite deadline and refuses redirects for the credential-bearing file URL', async () => {
+      const bot = createMockBot();
+      mockFetch.mockResolvedValueOnce(createFetchResponse(Buffer.from('image')));
+      await downloadTelegramAttachments(
+        bot as never,
+        makeMessage({ photo: [makePhoto()] }) as never
+      );
+      const signal = bot.api.getFile.mock.calls[0]![1];
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(mockFetch.mock.calls[0]![1]).toEqual({ signal, redirect: 'error' });
+    });
+
+    it('never logs the credential-bearing URL from a download exception', async () => {
+      const bot = createMockBot();
+      mockFetch.mockRejectedValueOnce(
+        new Error('Failed at https://api.telegram.org/file/botSECRET_TOKEN/photo.jpg')
+      );
+      await downloadTelegramAttachments(
+        bot as never,
+        makeMessage({ photo: [makePhoto()] }) as never
+      );
+      expect(JSON.stringify(mockLogWarn.mock.calls)).not.toContain('SECRET_TOKEN');
+    });
     it('should call bot.api.getFile with correct fileId', async () => {
       const bot = createMockBot();
       const buf = Buffer.from('imagedata');
@@ -139,7 +199,7 @@ describe('Telegram File Handler', () => {
       const msg = makeMessage({ photo: [makePhoto('photo-xyz')] });
       await downloadTelegramAttachments(bot as never, msg as never);
 
-      expect(bot.api.getFile).toHaveBeenCalledWith('photo-xyz');
+      expect(bot.api.getFile).toHaveBeenCalledWith('photo-xyz', expect.any(AbortSignal));
     });
 
     it('should construct correct download URL using bot token', async () => {
@@ -279,7 +339,7 @@ describe('Telegram File Handler', () => {
 
       expect(mockLogWarn).toHaveBeenCalledWith(
         'Failed to download file from Telegram',
-        expect.objectContaining({ fileId: 'throw-id', error: err })
+        expect.objectContaining({ fileId: 'throw-id', category: 'Error' })
       );
     });
 
@@ -303,7 +363,7 @@ describe('Telegram File Handler', () => {
 
       expect(mockLogWarn).toHaveBeenCalledWith(
         'Failed to download file from Telegram',
-        expect.objectContaining({ fileId: 'net-err-id', error: err })
+        expect.objectContaining({ fileId: 'net-err-id', category: 'Error' })
       );
     });
 
@@ -386,7 +446,7 @@ describe('Telegram File Handler', () => {
       const msg = makeMessage({ photo: photos });
       await downloadTelegramAttachments(bot as never, msg as never);
 
-      expect(bot.api.getFile).toHaveBeenCalledWith('large');
+      expect(bot.api.getFile).toHaveBeenCalledWith('large', expect.any(AbortSignal));
       expect(bot.api.getFile).toHaveBeenCalledTimes(1);
     });
 
@@ -482,7 +542,7 @@ describe('Telegram File Handler', () => {
       const result = await downloadTelegramAttachments(bot as never, msg as never);
 
       expect(result).toHaveLength(1);
-      expect(bot.api.getFile).toHaveBeenCalledWith('only-one');
+      expect(bot.api.getFile).toHaveBeenCalledWith('only-one', expect.any(AbortSignal));
     });
 
     it('should handle photo with undefined file_size (proceeds to download)', async () => {

@@ -6,7 +6,26 @@ const MAX_DELAY_SECONDS = 366 * 24 * 60 * 60;
 const INVALID_DELAY = 'Informe um prazo entre 1 segundo e 366 dias para o lembrete.';
 
 function durationAmount(value: string): number {
-  if (/^uma?$/iu.test(value)) return 1;
+  const word = value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const numbers: Record<string, number> = {
+    um: 1,
+    uma: 1,
+    dois: 2,
+    duas: 2,
+    tres: 3,
+    quatro: 4,
+    cinco: 5,
+    seis: 6,
+    sete: 7,
+    oito: 8,
+    nove: 9,
+    dez: 10,
+    quinze: 15,
+    vinte: 20,
+    trinta: 30,
+    meia: 0.5,
+  };
+  if (Object.hasOwn(numbers, word)) return numbers[word]!;
   // In Brazilian notation, 1.000 is one thousand, never one second.
   if (/^[+-]?[1-9]\d{0,2}(?:\.\d{3})+(?:,\d+)?$/u.test(value)) {
     return Number(value.replace(/\./g, '').replace(',', '.'));
@@ -59,7 +78,7 @@ export function parseRelativeReminderRequest(text: string): RelativeReminderRequ
   }
 
   const components = duration.matchAll(
-    /([+-]?(?:\d[\d.,]*|uma?))\s*(segundos?|segs?|s|minutos?|mins?|min|m|horas?|hrs?|hr|h)(?=\s|,|$|\d)/giu
+    /([+-]?\d[\d.,]*|uma?|dois|duas|tr[eê]s|quatro|cinco|seis|sete|oito|nove|dez|quinze|vinte|trinta|meia)\s*(segundos?|segs?|s|minutos?|mins?|min|m|horas?|hrs?|hr|h|dias?|semanas?)(?=\s|,|$|\d)/giu
   );
   let offset = 0;
   let delaySeconds = 0;
@@ -72,7 +91,15 @@ export function parseRelativeReminderRequest(text: string): RelativeReminderRequ
     }
     const amount = durationAmount(component[1]!);
     const unit = component[2]!.toLowerCase();
-    const multiplier = unit.startsWith('h') ? 3_600 : unit.startsWith('m') ? 60 : 1;
+    const multiplier = unit.startsWith('semana')
+      ? 604_800
+      : unit.startsWith('dia')
+        ? 86_400
+        : unit.startsWith('h')
+          ? 3_600
+          : unit.startsWith('m')
+            ? 60
+            : 1;
     if (seenUnits.has(multiplier)) return null;
     seenUnits.add(multiplier);
     if (!Number.isFinite(amount) || amount < 0) invalidNumber = true;

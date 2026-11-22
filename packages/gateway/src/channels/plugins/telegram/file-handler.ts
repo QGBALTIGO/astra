@@ -12,8 +12,8 @@ import { getLog } from '../../../services/log.js';
 
 const log = getLog('TelegramFile');
 
-/** Max file size for download (20 MB — Telegram Bot API limit). */
-const MAX_FILE_SIZE = 20 * 1024 * 1024;
+/** Match the WhatsApp download and shared asset hydration limit. */
+const MAX_FILE_SIZE = 12 * 1024 * 1024;
 
 /** MIME types we support for AI analysis. */
 const ANALYZABLE_MIME_TYPES = new Set([
@@ -39,8 +39,16 @@ async function downloadTelegramFile(
   bot: Bot,
   fileId: string
 ): Promise<{ buffer: Buffer; filePath: string } | null> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let response: Response | undefined;
   try {
-    const file = await bot.api.getFile(fileId);
+    const signal = AbortSignal.timeout(15_000);
+    // Grammy declares its legacy AbortSignal polyfill; Node supplies the same
+    // cancellation contract for its HTTP transport and the subsequent fetch.
+    const file = await bot.api.getFile(
+      fileId,
+      signal as unknown as Parameters<typeof bot.api.getFile>[1]
+    );
     if (!file.file_path) {
       log.warn('Telegram getFile returned no file_path', { fileId });
       return null;
@@ -59,24 +67,47 @@ async function downloadTelegramFile(
     const token = bot.token;
     const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
-    const response = await fetch(url);
+    response = await fetch(url, { signal, redirect: 'error' });
     if (!response.ok) {
       log.warn('Telegram file download failed', { status: response.status, fileId });
       return null;
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    if (buffer.length > MAX_FILE_SIZE) {
-      log.warn('File exceeds size limit', { size: buffer.length, max: MAX_FILE_SIZE });
+    const length = response.headers.get('content-length');
+    if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_FILE_SIZE)) {
+      log.warn('File exceeds size limit', { size: Number(length), max: MAX_FILE_SIZE });
       return null;
     }
-
-    return { buffer, filePath: file.file_path };
+    if (!response.body) return null;
+    reader = response.body.getReader();
+    const chunks: Buffer[] = [];
+    let size = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_FILE_SIZE) {
+        log.warn('File exceeds size limit', { size, max: MAX_FILE_SIZE });
+        return null;
+      }
+      chunks.push(Buffer.from(value));
+    }
+    if (!size || signal.aborted) return null;
+    return { buffer: Buffer.concat(chunks, size), filePath: file.file_path };
   } catch (err) {
-    log.warn('Failed to download file from Telegram', { fileId, error: err });
+    // Fetch errors may embed the bot token in the download URL.
+    log.warn('Failed to download file from Telegram', {
+      fileId,
+      category: err instanceof Error ? err.name : 'unknown',
+    });
     return null;
+  } finally {
+    if (reader) {
+      void reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    } else {
+      void response?.body?.cancel().catch(() => undefined);
+    }
   }
 }
 

@@ -141,6 +141,7 @@ export class ChannelMessagesRepository extends BaseRepository {
   async createIfNew(data: {
     id: string;
     channelId: string;
+    legacyId?: string;
     externalId?: string;
     direction: ChannelMessage['direction'];
     senderId?: string;
@@ -156,7 +157,12 @@ export class ChannelMessagesRepository extends BaseRepository {
       `INSERT INTO channel_messages (
         id, channel_id, external_id, direction, sender_id, sender_name,
         content, content_type, attachments, reply_to_id, conversation_id, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+      WHERE $13::text IS NULL OR NOT EXISTS (
+        SELECT 1 FROM channel_messages old
+        WHERE old.id = $13 AND old.channel_id = $2 AND old.sender_id = $5
+          AND old.direction = 'inbound' AND old.metadata->>'chatType' = 'private'
+      )
       ON CONFLICT (id) DO NOTHING`,
       [
         data.id,
@@ -171,6 +177,7 @@ export class ChannelMessagesRepository extends BaseRepository {
         data.replyToId ?? null,
         data.conversationId ?? null,
         JSON.stringify(data.metadata ?? {}),
+        data.legacyId ?? null,
       ]
     );
     return result.changes > 0;

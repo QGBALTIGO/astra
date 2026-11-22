@@ -590,9 +590,16 @@ export class TriggersRepository extends BaseRepository {
     return { rows: rows.map((row) => this.mapHistory(row)), total };
   }
 
-  /**
-   * Clean up old history for this user's triggers, plus orphaned rows with no trigger.
-   */
+  /** System maintenance only: apply the retention period to every customer's history. */
+  async cleanupAllHistory(maxAgeDays = 30): Promise<number> {
+    const result = await this.execute(
+      `DELETE FROM trigger_history WHERE fired_at < NOW() - INTERVAL '1 day' * $1`,
+      [maxAgeDays]
+    );
+    return result.changes;
+  }
+
+  /** Clean up old history for this user's triggers, plus orphaned rows with no trigger. */
   async cleanupHistory(maxAgeDays = 30): Promise<number> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - maxAgeDays);
