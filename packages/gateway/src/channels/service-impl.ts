@@ -1676,7 +1676,12 @@ export class ChannelServiceImpl implements IChannelService {
     ) {
       return false;
     }
-    if (userId === 'default') return true;
+    // The claimed Telegram owner is a separate operator identity and does
+    // not require a customer's WhatsApp subscription. Verify platform ownership
+    // rather than treating every non-"default" user scope as a subscriber.
+    const claimedOwner = await getOwnerUserId('telegram');
+    if (claimedOwner === platformUserId) return true;
+    if (userId === 'default') return false;
 
     // Cross-channel customer accounts use the same live subscription as WhatsApp.
     // Never allow a revoked/expired customer to continue through Telegram.
