@@ -28,6 +28,7 @@ export class TelegramProgressManager {
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
   private finished = false;
   private currentText: string | null = null;
+  private inFlightEdit?: Promise<void>;
 
   constructor(bot: Bot, chatId: string, parseMode?: string) {
     this.bot = bot;
@@ -96,6 +97,7 @@ export class TelegramProgressManager {
       this.pendingTimer = null;
     }
     this.pendingText = null;
+    if (this.inFlightEdit) await this.inFlightEdit;
 
     // Guard against empty text (Telegram rejects empty messages)
     const text = finalText.trim() || 'Não foi possível gerar uma resposta.';
@@ -157,6 +159,8 @@ export class TelegramProgressManager {
       clearTimeout(this.pendingTimer);
       this.pendingTimer = null;
     }
+    this.pendingText = null;
+    if (this.inFlightEdit) await this.inFlightEdit;
     if (this.messageId) {
       try {
         const cancelText = '⚠️ Processamento cancelado.';
@@ -180,16 +184,19 @@ export class TelegramProgressManager {
   // -------------------------------------------------------------------------
 
   private doEdit(text: string): void {
-    if (!this.messageId || this.finished) return;
+    if (!this.messageId || this.finished || this.inFlightEdit) return;
     if (text === this.currentText) return;
     this.lastEditTime = Date.now();
-    this.bot.api
+    this.inFlightEdit = this.bot.api
       .editMessageText(this.chatId, this.messageId, text)
       .then(() => {
         this.currentText = text;
       })
       .catch((err) => {
         log.debug('Progress edit failed', { error: err });
+      })
+      .finally(() => {
+        this.inFlightEdit = undefined;
       });
   }
 
