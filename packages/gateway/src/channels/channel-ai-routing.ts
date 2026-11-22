@@ -722,7 +722,8 @@ async function processViaBusInSession(...args: Parameters<typeof processViaBus>)
     agent.loadConversation(activeConversationId);
   }
 
-  if (message.platform === 'whatsapp') {
+  // Telegram and WhatsApp use the same trusted-contact presentation rules.
+  if (message.platform === 'whatsapp' || message.platform === 'telegram') {
     agent.updateSystemPrompt(
       withContactStyleContext(
         agent.getConversation().systemPrompt ?? '',
