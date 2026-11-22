@@ -89,6 +89,7 @@ jobs:
           src/db/repositories/planning-concurrency.pg.test.ts \
           src/db/repositories/channel-assets-integrity.pg.test.ts \
           src/db/repositories/channels/messages-integrity.pg.test.ts \
+          src/db/repositories/retention-integrity.pg.test.ts \
           src/db/repositories/daily-briefing.pg.test.ts \
           src/db/repositories/whatsapp-trials.pg.test.ts \
           src/db/repositories/memory-integrity.pg.test.ts \

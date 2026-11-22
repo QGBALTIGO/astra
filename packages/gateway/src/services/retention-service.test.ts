@@ -157,6 +157,23 @@ describe('retention-service', () => {
   });
 
   describe('registerRetentionCleanupWorker', () => {
+    it('reserves the next day and asks the queue to retry a failed table cleanup', async () => {
+      mockCleanupOldWorkflowLogs.mockRejectedValueOnce(new Error('synthetic_schema_failure'));
+      registerRetentionCleanupWorker();
+      const handler = mockStartWorker.mock.calls[0]![0];
+      const job = { name: 'nightly_retention_cleanup', payload: {} };
+      await expect(handler(job)).rejects.toThrow('Retention cleanup failed for: workflow_logs');
+      expect(mockEnqueue).toHaveBeenCalledOnce();
+      expect(mockJobsCleanup).toHaveBeenCalled();
+      expect(await handler(job)).toMatchObject({
+        cleaned: expect.arrayContaining([
+          { table: 'workflow_logs', deleted: 3, retentionDays: 90 },
+        ]),
+      });
+      expect(mockEnqueue.mock.calls[1]![2].deduplicationKey).toBe(
+        mockEnqueue.mock.calls[0]![2].deduplicationKey
+      );
+    });
     it('starts a worker and returns a stop function', () => {
       const stop = registerRetentionCleanupWorker();
 

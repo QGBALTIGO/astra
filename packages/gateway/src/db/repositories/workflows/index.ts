@@ -538,7 +538,10 @@ export class WorkflowsRepository extends BaseRepository {
    */
   async cleanupOldWorkflowLogs(maxAgeDays = 90): Promise<number> {
     const result = await this.execute(
-      `DELETE FROM workflow_logs WHERE status IN ('completed', 'failed', 'cancelled') AND updated_at < NOW() - INTERVAL '1 day' * $1`,
+      `DELETE FROM workflow_logs
+       WHERE status IN ('completed', 'failed', 'cancelled')
+         AND COALESCE(completed_at, started_at)
+           < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - make_interval(days => $1)`,
       [maxAgeDays]
     );
     return result.changes;
