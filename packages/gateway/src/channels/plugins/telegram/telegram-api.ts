@@ -728,13 +728,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
           throw err;
         }
       }
-      lastMessageId = String(sent.message_id);
-      // Evict oldest entries if map is at capacity
-      if (this.messageChatMap.size >= MAX_MESSAGE_CHAT_MAP_SIZE) {
-        const oldest = this.messageChatMap.keys().next().value;
-        if (oldest) this.messageChatMap.delete(oldest);
-      }
-      this.messageChatMap.set(lastMessageId, chatId);
+      lastMessageId = this.trackMessage(String(sent.message_id), chatId);
 
       // Small delay between split messages
       if (parts.length > 1 && i < parts.length - 1) {
@@ -762,12 +756,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
       const sent = await this.sendAttachment(chatId, attachment, options, voiceOptions.asVoice);
       if (!sent) continue;
 
-      lastMessageId = String(sent.message_id);
-      if (this.messageChatMap.size >= MAX_MESSAGE_CHAT_MAP_SIZE) {
-        const oldest = this.messageChatMap.keys().next().value;
-        if (oldest) this.messageChatMap.delete(oldest);
-      }
-      this.messageChatMap.set(lastMessageId, chatId);
+      lastMessageId = this.trackMessage(String(sent.message_id), chatId);
     }
 
     return lastMessageId;
@@ -907,7 +896,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
     if (this.config.parse_mode) options.parse_mode = this.config.parse_mode;
     await this.bot.api.editMessageText(
       chatId,
-      Number(platformMessageId),
+      Number(platformMessageId.split(':').at(-1)),
       currentAstraLinksInText(newText),
       options
     );
@@ -920,7 +909,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
       log.warn('[Telegram] deleteMessage: no chatId found for message', { platformMessageId });
       return;
     }
-    await this.bot.api.deleteMessage(chatId, Number(platformMessageId));
+    await this.bot.api.deleteMessage(chatId, Number(platformMessageId.split(':').at(-1)));
     this.messageChatMap.delete(platformMessageId);
   }
 
@@ -936,12 +925,16 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
   /**
    * Track a message ID → chatId mapping (for edit/delete support).
    */
-  trackMessage(platformMessageId: string, chatId: string): void {
+  trackMessage(platformMessageId: string, chatId: string): string {
+    // Telegram numbers messages within each chat, not across a bot's customers.
+    if (!/^[1-9]\d*$/.test(platformMessageId)) return '';
+    const scopedId = `${chatId}:${platformMessageId}`;
     if (this.messageChatMap.size >= MAX_MESSAGE_CHAT_MAP_SIZE) {
       const oldest = this.messageChatMap.keys().next().value;
       if (oldest) this.messageChatMap.delete(oldest);
     }
-    this.messageChatMap.set(platformMessageId, chatId);
+    this.messageChatMap.set(scopedId, chatId);
+    return scopedId;
   }
 
   /**
@@ -987,6 +980,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
 
     const userId = String(message.from?.id ?? '');
     const chatId = String(message.chat.id);
+    const messageId = `${this.pluginId}:${chatId}:${message.message_id}`;
 
     // Access control
     if (this.allowedUsers.size > 0 && !this.allowedUsers.has(userId)) {
@@ -1021,7 +1015,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
 
     if (attachments.length > 0) {
       attachments = await channelAssetStore.persistIncomingAttachments({
-        messageId: `${this.pluginId}:${message.message_id}`,
+        messageId,
         channelPluginId: this.pluginId,
         platform: 'telegram',
         platformChatId: chatId,
@@ -1030,7 +1024,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
     }
 
     const normalized: ChannelIncomingMessage = {
-      id: `${this.pluginId}:${message.message_id}`,
+      id: messageId,
       channelPluginId: this.pluginId,
       platform: 'telegram',
       platformChatId: chatId,
@@ -1038,7 +1032,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
       text: message.text ?? message.caption ?? '',
       attachments: attachments.length > 0 ? attachments : undefined,
       replyToId: message.reply_to_message
-        ? `${this.pluginId}:${message.reply_to_message.message_id}`
+        ? `${this.pluginId}:${chatId}:${message.reply_to_message.message_id}`
         : undefined,
       timestamp: new Date(message.date * 1000),
       metadata: {

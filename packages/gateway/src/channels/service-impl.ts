@@ -1052,6 +1052,16 @@ export class ChannelServiceImpl implements IChannelService {
         const isNew = await this.messagesRepo.createIfNew({
           id: message.id,
           channelId: message.channelPluginId,
+          // A Telegram replay from before chat-scoped IDs must not execute an
+          // already acknowledged action again after upgrading the gateway.
+          legacyId:
+            message.platform === 'telegram' &&
+            message.metadata?.chatType === 'private' &&
+            message.platformChatId === message.sender.platformUserId &&
+            message.id ===
+              `${message.channelPluginId}:${message.platformChatId}:${message.metadata.platformMessageId}`
+              ? `${message.channelPluginId}:${message.metadata.platformMessageId}`
+              : undefined,
           externalId: message.metadata?.platformMessageId?.toString(),
           direction: 'inbound',
           senderId: message.sender.platformUserId,
@@ -1281,7 +1291,7 @@ export class ChannelServiceImpl implements IChannelService {
           cancel(): Promise<void>;
           getMessageId(): number | null;
         } | null;
-        trackMessage?(platformMessageId: string, chatId: string): void;
+        trackMessage?(platformMessageId: string, chatId: string): string | void;
         shouldReplyWithVoice?(message: ChannelIncomingMessage): Promise<boolean> | boolean;
       };
       const progressApi = api as ProgressCapableAPI;
@@ -1448,7 +1458,8 @@ export class ChannelServiceImpl implements IChannelService {
         sentMessageId = await progress.finish(responseText);
         // Track message ID for edit/delete support
         if (typeof progressApi.trackMessage === 'function') {
-          progressApi.trackMessage(sentMessageId, message.platformChatId);
+          const trackedId = progressApi.trackMessage(sentMessageId, message.platformChatId);
+          if (typeof trackedId === 'string' && trackedId) sentMessageId = trackedId;
         }
       } else {
         if (progress) {

@@ -76,6 +76,25 @@ describe('TelegramProgressManager', () => {
     vi.useRealTimers();
   });
 
+  it('keeps a slow progress edit from overwriting the final answer in its chat', async () => {
+    const progress = new TelegramProgressManager(bot as never, '12345');
+    await progress.start();
+    let completeEdit!: () => void;
+    bot.api.editMessageText.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          completeEdit = resolve;
+        })
+    );
+    vi.setSystemTime(Date.now() + 3_000);
+    progress.update('Still working');
+    const final = progress.finish('Finished');
+    expect(bot.api.editMessageText).toHaveBeenCalledTimes(1);
+    completeEdit();
+    expect(await final).toBe('100');
+    expect(bot.api.editMessageText).toHaveBeenNthCalledWith(2, '12345', 100, 'Finished', {});
+  });
+
   // =========================================================================
   // Constructor
   // =========================================================================
@@ -316,12 +335,12 @@ describe('TelegramProgressManager', () => {
       const pm = new TelegramProgressManager(bot as never, '12345');
       await pm.start();
       // Wait full throttle window
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
       pm.update('immediate 1');
       expect(bot.api.editMessageText).toHaveBeenCalledTimes(1);
       bot.api.editMessageText.mockClear();
       // Wait another full window
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
       pm.update('immediate 2');
       expect(bot.api.editMessageText).toHaveBeenCalledTimes(1);
       expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, 'immediate 2');
@@ -352,14 +371,14 @@ describe('TelegramProgressManager', () => {
     it('immediate edit followed by queued update within same window', async () => {
       const pm = new TelegramProgressManager(bot as never, '12345');
       await pm.start();
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
       pm.update('immediate');
       expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, 'immediate');
       bot.api.editMessageText.mockClear();
       // Now within new throttle window
       pm.update('queued after immediate');
       expect(bot.api.editMessageText).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
       expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, 'queued after immediate');
     });
 
@@ -922,11 +941,11 @@ describe('TelegramProgressManager', () => {
       expect(bot.api.editMessageText).not.toHaveBeenCalled();
 
       // advance 3s — queued update fires
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
       expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, 'Working on step 1...');
 
       // second update after throttle window
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
       bot.api.editMessageText.mockClear();
       pm.update('Working on step 2...');
       expect(bot.api.editMessageText).toHaveBeenCalledWith('12345', 100, 'Working on step 2...');
