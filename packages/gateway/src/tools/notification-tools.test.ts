@@ -65,6 +65,9 @@ describe('notification-tools', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-11-21T16:00:00.000Z'));
     vi.clearAllMocks();
+    mockChannelService.send.mockResolvedValue('telegram-message-1');
+    mockChannelUsersRepo.findByOwnpilotUser.mockResolvedValue([]);
+    mockSessionsRepo.listByUser.mockResolvedValue([]);
     mockClaimProactiveSlot.mockResolvedValue(true);
   });
 
