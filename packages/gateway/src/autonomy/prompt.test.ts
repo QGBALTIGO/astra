@@ -37,7 +37,8 @@ describe('getPulseSystemPrompt', () => {
     const ctx = makeContext();
     const prompt = getPulseSystemPrompt(ctx);
     expect(prompt.length).toBeGreaterThan(100);
-    expect(prompt).toContain('pulse');
+    expect(prompt).toContain('Astra');
+    expect(prompt).toContain('português do Brasil');
     expect(prompt).toContain('send_user_notification');
   });
 
@@ -162,13 +163,14 @@ describe('buildPulseUserMessage', () => {
     expect(msg).toContain('Avg importance: 0.50');
   });
 
-  it('shows system health issues', () => {
+  it('does not pass internal diagnostics to a customer-facing model', () => {
     const ctx = makeContext({
       systemHealth: { pendingApprovals: 2, triggerErrors: 3 },
     });
     const msg = buildPulseUserMessage(ctx, []);
-    expect(msg).toContain('2 pending approval');
-    expect(msg).toContain('3 trigger error');
+    expect(msg).not.toContain('trigger error');
+    expect(msg).not.toContain('pending approval');
+    expect(msg).not.toContain('System Health');
   });
 
   it('includes blocked actions section when provided', () => {
