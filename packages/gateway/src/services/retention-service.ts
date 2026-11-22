@@ -24,6 +24,7 @@ interface RetentionResult {
   table: string;
   deleted: number;
   retentionDays: number;
+  failed?: boolean;
 }
 
 /** Table name → cleanup method (using factory functions for user-scoped repos) */
@@ -56,14 +57,9 @@ async function runRetentionCleanup(): Promise<RetentionResult[]> {
       log.debug('Retention cleanup done', { table, deleted: count });
     } catch {
       log.warn('Retention cleanup failed', { table });
-      results.push({ table, deleted: 0, retentionDays: getRetentionDays(table) });
+      results.push({ table, deleted: 0, retentionDays: getRetentionDays(table), failed: true });
     }
   }
-
-  const total = results.reduce((sum, r) => sum + r.deleted, 0);
-  log.info(`Retention cleanup complete. Total deleted: ${total}`, {
-    byTable: results.map((r) => `${r.table}:${r.deleted}`).join(', '),
-  });
 
   return results;
 }
@@ -110,6 +106,16 @@ export function registerRetentionCleanupWorker(): () => void {
       await scheduleRetentionCleanup(
         Number.isNaN(scheduled.getTime()) ? 2 : scheduled.getUTCHours()
       );
+      const failedTables = results.filter((result) => result.failed).map((result) => result.table);
+      const deleted = results.reduce((total, result) => total + result.deleted, 0);
+      if (failedTables.length) {
+        log.warn('Retention cleanup incomplete', { deleted, failedTables });
+        throw new Error(`Retention cleanup failed for: ${failedTables.join(', ')}`);
+      }
+      log.info('Retention cleanup complete', {
+        deleted,
+        byTable: results.map((result) => `${result.table}:${result.deleted}`).join(', '),
+      });
       return { cleaned: results };
     },
     {
