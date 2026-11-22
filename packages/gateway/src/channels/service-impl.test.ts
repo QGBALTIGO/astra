@@ -627,6 +627,7 @@ describe('ChannelServiceImpl', () => {
     }
 
     it('accepts only the verified, active, correctly scoped owner', async () => {
+      mockGetOwnerUserId.mockResolvedValue('tg-1');
       mockUsersRepo.findByPlatform.mockResolvedValueOnce(linkedTelegram);
       expect(await check('tg-1', 'default')).toBe(true);
       mockUsersRepo.findByPlatform.mockResolvedValueOnce({
