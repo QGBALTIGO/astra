@@ -184,9 +184,11 @@ export class AutonomyEngine implements IPulseService {
 
       // 2. Evaluate signals (skip disabled rules, apply thresholds)
       this.setStage('evaluating');
+      // Operational failures belong in operator monitoring, never user-facing pulse signals.
+      // Keep this safeguard even when older persisted directives explicitly enable the rule.
       const evaluation = evaluatePulseContext(
         ctx,
-        directives.disabledRules,
+        [...new Set([...directives.disabledRules, 'trigger_errors'])],
         directives.ruleThresholds
       );
 
@@ -255,13 +257,15 @@ export class AutonomyEngine implements IPulseService {
         ctx,
         evaluation.signals,
         directives,
-        cooledDownActions
+        cooledDownActions,
+        lastActionTimes
       );
 
       // 4. Map agent's tool calls to PulseActionResult[] for logging
       const actionResults: PulseActionResult[] = agentResult.toolCalls.map((tc) => ({
         type: tc.name ?? 'agent_action',
-        success: true,
+        success: tc.success ?? false,
+        ...(tc.success === false ? { error: 'Tool execution failed' } : {}),
         output: { arguments: tc.arguments },
       }));
 
@@ -278,8 +282,9 @@ export class AutonomyEngine implements IPulseService {
       // Update last action times for tool calls
       const updatedActionTimes = { ...lastActionTimes };
       for (const tc of agentResult.toolCalls) {
-        if (tc.name) {
-          updatedActionTimes[tc.name] = new Date().toISOString();
+        if (tc.name && tc.success) {
+          const actionKey = tc.name === 'send_user_notification' ? 'send_notification' : tc.name;
+          updatedActionTimes[actionKey] = new Date().toISOString();
         }
       }
       await this.saveLastActionTimes(updatedActionTimes);
@@ -475,8 +480,12 @@ export class AutonomyEngine implements IPulseService {
     ctx: PulseContext,
     signals: Signal[],
     directives: PulseDirectives,
-    cooledDownActions: Array<{ type: string; remainingMinutes: number }>
-  ): Promise<{ responseContent: string; toolCalls: Array<{ name?: string; arguments?: string }> }> {
+    cooledDownActions: Array<{ type: string; remainingMinutes: number }>,
+    lastActionTimes: Record<string, string>
+  ): Promise<{
+    responseContent: string;
+    toolCalls: Array<{ name: string; arguments?: string; success: boolean }>;
+  }> {
     try {
       const { getOrCreateChatAgent } = await import('../services/agent/service.js');
       const resolved = await getLLMRouter().pick({ process: 'pulse' });
@@ -493,7 +502,17 @@ export class AutonomyEngine implements IPulseService {
           : undefined;
 
       // Get or create a chat agent with full tool access
-      const agent = await getOrCreateChatAgent(provider, model, fallback);
+      // Use the caller's identity instead of implicitly falling back to the owner scope.
+      const agent = await getOrCreateChatAgent(
+        provider,
+        model,
+        fallback,
+        null,
+        `pulse:${_userId}`,
+        undefined,
+        _userId !== 'default',
+        _userId
+      );
 
       // Create a fresh conversation for this pulse cycle
       const memory = agent.getMemory();
@@ -509,27 +528,55 @@ export class AutonomyEngine implements IPulseService {
         cooledDownActions
       );
 
-      // Run agent — it uses tools freely (send_user_notification, memory, weather, etc.)
-      const result = await agent.chat(userMessage);
-
-      // Clean up the pulse conversation to avoid accumulating context
-      memory.delete(conversation.id);
+      // Capture ALL executed tools, not only the final model turn (which normally
+      // has no tool calls). An invocation must be accounted for even if a later
+      // model response fails. Do not depend on the model to enforce cooldowns.
+      const toolCalls: Array<{ name: string; arguments?: string; success: boolean }> = [];
+      let result;
+      try {
+        result = await agent.chat(userMessage, {
+          onBeforeToolCall: async (call) => {
+            const name = call.name.replace(/^core[._]/, '').replace(/__/g, '.');
+            const key = name === 'send_user_notification' ? 'send_notification' : name;
+            if (
+              directives.blockedActions.includes(name) ||
+              directives.blockedActions.includes(key)
+            ) {
+              return { approved: false, reason: 'Action disabled by user settings' };
+            }
+            const cooldownMinutes = directives.actionCooldowns[key as keyof ActionCooldowns] ?? 0;
+            const lastTime = lastActionTimes[key];
+            if (cooldownMinutes > 0 && lastTime) {
+              const elapsed = (Date.now() - new Date(lastTime).getTime()) / 60_000;
+              if (Number.isFinite(elapsed) && elapsed < cooldownMinutes) {
+                return { approved: false, reason: 'Action in cooldown' };
+              }
+            }
+            return { approved: true };
+          },
+          onToolEnd: (call, execution) => {
+            toolCalls.push({
+              name: call.name.replace(/^core[._]/, '').replace(/__/g, '.'),
+              arguments: call.arguments,
+              success: !execution.isError,
+            });
+          },
+        });
+      } finally {
+        // Always dispose the short-lived pulse context, including on provider failure.
+        memory.delete(conversation.id);
+      }
 
       if (result.ok) {
-        return {
-          responseContent: result.value.content ?? '',
-          toolCalls: (result.value.toolCalls ?? []).map((tc) => ({
-            name: tc.name,
-            arguments: tc.arguments,
-          })),
-        };
+        return { responseContent: result.value.content ?? '', toolCalls };
       }
 
       log.warn('Agent pulse returned error result', { error: result.error.message });
-      return { responseContent: '', toolCalls: [] };
+      return { responseContent: '', toolCalls };
     } catch (error) {
       log.warn('Agent pulse failed', { error: String(error) });
-      return { responseContent: `Agent pulse failed: ${getErrorMessage(error)}`, toolCalls: [] };
+      // A failed background run must never be converted to customer-facing text.
+      return { responseContent: '', toolCalls: [] };
     }
   }
 

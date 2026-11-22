@@ -37,14 +37,9 @@ export async function reportPulseResult(result: PulseResult): Promise<void> {
       }
     );
 
-    // Broadcast completion notification
-    if (result.reportMessage || successActions.length > 0) {
-      eventSystem.emit('gateway.system.notification', 'pulse-reporter', {
-        type: 'info' as const,
-        message: result.reportMessage || 'Pulse cycle completed.',
-        action: 'pulse',
-      });
-    }
+    // The model's final response is an INTERNAL execution note, not a user message.
+    // Only the explicit, authorized notification tool may contact a user.
+    // Broadcasting reportMessage leaked internal errors and duplicated Telegram alerts.
 
     // Emit data:changed events for modified entities via raw events
     const modifiedTypes = new Set<string>();

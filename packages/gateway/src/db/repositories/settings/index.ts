@@ -107,6 +107,34 @@ export class SettingsRepository extends BaseRepository {
   }
 
   /**
+   * Atomically reserve a user-scoped proactive notification slot in PostgreSQL.
+   * The INSERT/conditional UPDATE is one statement, so concurrent replicas
+   * cannot both send inside the cooldown. We reserve BEFORE transport because
+   * failures may be ambiguous; safe duplicates are worse than a missed nudge.
+   * Scheduled reminders intentionally do not use this quota.
+   */
+  async claimProactiveNotificationSlot(userId: string, cooldownMinutes: number): Promise<boolean> {
+    if (!userId.trim() || !Number.isFinite(cooldownMinutes) || cooldownMinutes < 1) {
+      throw new Error('Invalid proactive notification throttle');
+    }
+    const key = `astra:proactive:last-delivery:${userId}`;
+    const cooldown = Math.ceil(Math.min(24 * 60, cooldownMinutes));
+    const row = await this.queryOne<{ key: string }>(
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value, updated_at = NOW()
+       WHERE settings.updated_at <= NOW() - ($3::integer * INTERVAL '1 minute')
+       RETURNING key`,
+      [key, JSON.stringify({ reason: 'proactive_notification_attempt' }), cooldown]
+    );
+    if (row) {
+      settingsCache.set(key, { reason: 'proactive_notification_attempt' });
+    }
+    return Boolean(row);
+  }
+
+  /**
    * Get all settings
    */
   async getAll(): Promise<Setting[]> {

@@ -607,6 +607,50 @@ describe('ChannelServiceImpl', () => {
     service?.dispose();
   });
 
+  describe('Telegram entitlement parity with WhatsApp', () => {
+    const linkedTelegram = {
+      id: 'telegram-1',
+      platform: 'telegram',
+      platformUserId: 'tg-1',
+      ownpilotUserId: 'default',
+      isVerified: true,
+      isBlocked: false,
+      status: 'active',
+    };
+
+    async function check(platformUserId: string, userId: string): Promise<boolean> {
+      return (
+        service as unknown as {
+          isTelegramAccessAllowed: (platformId: string, userId: string) => Promise<boolean>;
+        }
+      ).isTelegramAccessAllowed(platformUserId, userId);
+    }
+
+    it('accepts only the verified, active, correctly scoped owner', async () => {
+      mockGetOwnerUserId.mockResolvedValue('tg-1');
+      mockUsersRepo.findByPlatform.mockResolvedValueOnce(linkedTelegram);
+      expect(await check('tg-1', 'default')).toBe(true);
+      mockUsersRepo.findByPlatform.mockResolvedValueOnce({
+        ...linkedTelegram,
+        isVerified: false,
+      });
+      expect(await check('tg-1', 'default')).toBe(false);
+      mockUsersRepo.findByPlatform.mockResolvedValueOnce({
+        ...linkedTelegram,
+        ownpilotUserId: 'other-user',
+      });
+      expect(await check('tg-1', 'default')).toBe(false);
+    });
+
+    it('does not accept a customer Telegram scope without a live WhatsApp account', async () => {
+      mockUsersRepo.findByPlatform.mockResolvedValueOnce({
+        ...linkedTelegram,
+        ownpilotUserId: 'whatsapp:5567999999999',
+      });
+      expect(await check('tg-1', 'whatsapp:5567999999999')).toBe(false);
+    });
+  });
+
   // ==========================================================================
   // Constructor & Singleton
   // ==========================================================================
