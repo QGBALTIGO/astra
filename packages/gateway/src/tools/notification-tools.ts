@@ -90,12 +90,12 @@ export async function sendTelegramMessage(userId: string, text: string): Promise
       return false;
     }
 
-    await channelService.send('channel.telegram', {
+    const messageId = await channelService.send('channel.telegram', {
       platformChatId: activeSession.platformChatId,
       text,
     });
 
-    return true;
+    return typeof messageId === 'string' && messageId.trim().length > 0;
   } catch (error) {
     log.debug('Telegram notification failed', { error: String(error) });
     return false;
