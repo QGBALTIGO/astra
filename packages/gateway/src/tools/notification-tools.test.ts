@@ -2,14 +2,14 @@
  * Tests for Notification Tools
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ============================================================================
 // Mocks
 // ============================================================================
 
 const mockChannelService = {
-  send: vi.fn().mockResolvedValue(undefined),
+  send: vi.fn().mockResolvedValue('telegram-message-1'),
 };
 
 vi.mock('@ownpilot/core/services', async (importOriginal) => {
@@ -31,6 +31,13 @@ vi.mock('@ownpilot/core/channels', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, getChannelService: () => mockChannelService };
 });
+
+const mockClaimProactiveSlot = vi.fn().mockResolvedValue(true);
+vi.mock('../db/repositories/settings/index.js', () => ({
+  settingsRepo: {
+    claimProactiveNotificationSlot: mockClaimProactiveSlot,
+  },
+}));
 
 const mockChannelUsersRepo = {
   findByOwnpilotUser: vi.fn().mockResolvedValue([]),
@@ -55,7 +62,14 @@ const { NOTIFICATION_TOOLS, executeNotificationTool, sendTelegramMessage } =
 
 describe('notification-tools', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-21T16:00:00.000Z'));
     vi.clearAllMocks();
+    mockClaimProactiveSlot.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // ==========================================================================
@@ -250,18 +264,18 @@ describe('notification-tools', () => {
       expect(sentText).toMatch(/^ℹ️/);
     });
 
-    it('emits via EventBus for websocket delivery', async () => {
+    it('fails closed when there is no verified private Telegram recipient', async () => {
       const result = await executeNotificationTool(
         'send_user_notification',
         { message: 'Hello from pulse' },
         'user-1'
       );
 
-      expect(result.success).toBe(true);
-      expect((result.result as Record<string, unknown>).delivered).toContain('websocket');
+      expect(result.success).toBe(false);
+      expect(mockChannelService.send).not.toHaveBeenCalled();
     });
 
-    it('reports both telegram and websocket deliveries', async () => {
+    it('reports confirmed Telegram delivery without a global broadcast', async () => {
       mockChannelUsersRepo.findByOwnpilotUser.mockResolvedValueOnce([
         { id: 'cu-1', platform: 'telegram' },
       ]);
@@ -279,8 +293,76 @@ describe('notification-tools', () => {
       const res = result.result as Record<string, unknown>;
       const delivered = res.delivered;
       expect(delivered).toContain('telegram');
-      expect(delivered).toContain('websocket');
-      expect(res.message).toContain('telegram, websocket');
+      expect(delivered).not.toContain('websocket');
+      expect(res.message).toBe('Notification sent via telegram');
+    });
+
+    it('rejects internal diagnostic text before any transport or DB action', async () => {
+      const result = await executeNotificationTool(
+        'send_user_notification',
+        { message: '3 trigger errors from OpenRouter in the last 24h' },
+        'user-1'
+      );
+      expect(result.success).toBe(false);
+      expect(mockClaimProactiveSlot).not.toHaveBeenCalled();
+      expect(mockChannelService.send).not.toHaveBeenCalled();
+    });
+
+    it('enforces a database-backed rate limit over repeated autonomous cycles', async () => {
+      mockChannelUsersRepo.findByOwnpilotUser.mockResolvedValue([
+        { id: 'cu-1', platform: 'telegram' },
+      ]);
+      mockSessionsRepo.listByUser.mockResolvedValue([
+        { isActive: true, platformChatId: 'chat-1' },
+      ]);
+      mockClaimProactiveSlot.mockResolvedValueOnce(true).mockResolvedValue(false);
+      for (let i = 0; i < 30; i++) {
+        await executeNotificationTool(
+          'send_user_notification',
+          { message: `Another reminder number ${i}` },
+          'user-1'
+        );
+      }
+      expect(mockChannelService.send).toHaveBeenCalledTimes(1);
+      expect(mockClaimProactiveSlot).toHaveBeenCalledWith('user-1', 90);
+    });
+
+    it('does not send messages during user quiet hours', async () => {
+      vi.setSystemTime(new Date('2026-11-22T03:00:00.000Z'));
+      const result = await executeNotificationTool(
+        'send_user_notification',
+        { message: 'Overdue task' },
+        'user-1'
+      );
+      expect(result.result).toEqual({ delivered: [], skipped: 'quiet_hours' });
+      expect(mockClaimProactiveSlot).not.toHaveBeenCalled();
+      expect(mockChannelService.send).not.toHaveBeenCalled();
+    });
+
+    it('does not send when durable cooldown storage fails', async () => {
+      mockClaimProactiveSlot.mockRejectedValueOnce(new Error('Postgres unavailable'));
+      const result = await executeNotificationTool(
+        'send_user_notification',
+        { message: 'Routine reminder' },
+        'user-1'
+      );
+      expect(result.success).toBe(false);
+      expect(mockChannelService.send).not.toHaveBeenCalled();
+    });
+
+    it('never uses an unverified Telegram identity or another private chat', async () => {
+      mockChannelUsersRepo.findByOwnpilotUser.mockResolvedValueOnce([
+        { id: 'cu-1', platform: 'telegram', platformUserId: 'chat-1', isVerified: false },
+      ]);
+      expect(await sendTelegramMessage('user-1', 'Hello')).toBe(false);
+      mockChannelUsersRepo.findByOwnpilotUser.mockResolvedValueOnce([
+        { id: 'cu-1', platform: 'telegram', platformUserId: 'chat-1', isVerified: true },
+      ]);
+      mockSessionsRepo.listByUser.mockResolvedValueOnce([
+        { isActive: true, platformChatId: 'other-person-chat', channelPluginId: 'channel.telegram' },
+      ]);
+      expect(await sendTelegramMessage('user-1', 'Hello')).toBe(false);
+      expect(mockChannelService.send).not.toHaveBeenCalled();
     });
 
     it('defaults userId to "default" when not provided', async () => {
