@@ -1358,8 +1358,10 @@ export class ChannelServiceImpl implements IChannelService {
       // A grant may expire or be revoked while the model is running. Do not
       // disclose its response after access or the persisted identity changes.
       if (
-        message.platform === 'whatsapp' &&
-        !(await this.isWhatsAppAccessAllowed(message.sender.platformUserId, dataUserId))
+        (message.platform === 'whatsapp' &&
+          !(await this.isWhatsAppAccessAllowed(message.sender.platformUserId, dataUserId))) ||
+        (message.platform === 'telegram' &&
+          !(await this.isTelegramAccessAllowed(message.sender.platformUserId, dataUserId)))
       ) {
         await progress?.cancel().catch((err) => {
           log.debug('Progress cancellation failed after access changed', { error: err });
@@ -1615,7 +1617,15 @@ export class ChannelServiceImpl implements IChannelService {
                   channelUser.ownpilotUserId
                 ),
             }
-          : {}),
+          : message.platform === 'telegram'
+            ? {
+                isAccessAllowed: () =>
+                  this.isTelegramAccessAllowed(
+                    message.sender.platformUserId,
+                    channelUser.ownpilotUserId
+                  ),
+              }
+            : {}),
       },
       progress
     );
@@ -1630,7 +1640,9 @@ export class ChannelServiceImpl implements IChannelService {
       userId,
       message.platform === 'whatsapp'
         ? () => this.isWhatsAppAccessAllowed(message.sender.platformUserId, userId)
-        : undefined
+        : message.platform === 'telegram'
+          ? () => this.isTelegramAccessAllowed(message.sender.platformUserId, userId)
+          : undefined
     );
   }
 
@@ -1647,6 +1659,30 @@ export class ChannelServiceImpl implements IChannelService {
     return identity
       ? identity.isCurrent && !identity.retired && identity.dataUserId === userId
       : userId === `whatsapp:${platformUserId}`;
+  }
+
+  /**
+   * A linked Telegram chat must not outlive its WhatsApp subscription or
+   * change user scopes between message admission and reply delivery.
+   */
+  private async isTelegramAccessAllowed(platformUserId: string, userId: string): Promise<boolean> {
+    const user = await this.usersRepo.findByPlatform('telegram', platformUserId);
+    if (
+      !user ||
+      !user.isVerified ||
+      user.isBlocked ||
+      user.status !== 'active' ||
+      user.ownpilotUserId !== userId
+    ) {
+      return false;
+    }
+    if (userId === 'default') return true;
+
+    // Cross-channel customer accounts use the same live subscription as WhatsApp.
+    // Never allow a revoked/expired customer to continue through Telegram.
+    const { customerAccountsRepo } = await import('../db/repositories/customer-accounts.js');
+    const account = await customerAccountsRepo.getByDataUserId(userId);
+    return account ? this.isWhatsAppAccessAllowed(account.phoneNumber, userId) : false;
   }
 
   private guardOutgoingMessage(
