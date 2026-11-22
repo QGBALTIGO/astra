@@ -2,8 +2,8 @@
  * Tests for the Pulse Reporter
  *
  * Covers all branches of reportPulseResult:
- * - Broadcast notification via EventBus when reportMessage is set
- * - Broadcast notification when a successful non-skipped action exists
+ * - Never broadcast internal agent text as a customer notification
+ * - Never notify customers merely because a background action completed
  * - No notification when there's no reportMessage and no successful actions
  * - data:changed events for memories, goals, notifications
  * - Skipped / failed actions are excluded from data:changed
@@ -81,7 +81,7 @@ describe('reportPulseResult', () => {
   // Notification broadcasting via EventBus
   // --------------------------------------------------------------------------
 
-  it('emits system notification via EventBus when reportMessage is set', async () => {
+  it('does not broadcast internal report text even when the model returned content', async () => {
     const result = makeResult({
       pulseId: 'p-100',
       reportMessage: 'Daily summary ready.',
@@ -92,14 +92,10 @@ describe('reportPulseResult', () => {
 
     await reportPulseResult(result);
 
-    expect(mockEventEmit).toHaveBeenCalledWith('gateway.system.notification', 'pulse-reporter', {
-      type: 'info',
-      message: 'Daily summary ready.',
-      action: 'pulse',
-    });
+    expect(mockEventEmit).not.toHaveBeenCalled();
   });
 
-  it('emits notification with default message when reportMessage is empty but a successful action exists', async () => {
+  it('does not invent a user message when an internal action succeeds', async () => {
     const result = makeResult({
       pulseId: 'p-200',
       reportMessage: '',
@@ -110,11 +106,7 @@ describe('reportPulseResult', () => {
 
     await reportPulseResult(result);
 
-    expect(mockEventEmit).toHaveBeenCalledWith('gateway.system.notification', 'pulse-reporter', {
-      type: 'info',
-      message: 'Pulse cycle completed.',
-      action: 'pulse',
-    });
+    expect(mockEventEmit).not.toHaveBeenCalled();
   });
 
   it('does not emit notification when reportMessage is empty and all actions are skipped', async () => {
