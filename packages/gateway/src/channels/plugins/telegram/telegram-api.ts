@@ -14,6 +14,7 @@ import { TelegramProgressManager } from './progress-manager.js';
 import { publishChannelMessage } from '../../utils/url-button.js';
 import { currentAstraLinksInText } from '../../../config/astra-public-urls.js';
 import { downloadTelegramAttachments } from './file-handler.js';
+import { canDownloadTelegramMedia } from './media-access.js';
 import { channelAssetStore } from '../../../services/channel-asset-store.js';
 import {
   type ChannelPluginAPI,
@@ -1001,26 +1002,32 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
     };
 
     // Download and process attachments (with actual file data)
-    let attachments: ChannelAttachment[] = [];
-    if (hasMedia && this.bot) {
+    let attachments = this.extractAttachments(message);
+    if (
+      hasMedia &&
+      this.bot &&
+      message.chat.type === 'private' &&
+      userId === chatId &&
+      (await canDownloadTelegramMedia(userId))
+    ) {
       try {
-        attachments = await downloadTelegramAttachments(this.bot, message);
-      } catch (err) {
-        log.warn('[Telegram] Failed to download attachments, using metadata only', { error: err });
-        attachments = this.extractAttachments(message);
+        const downloaded = await downloadTelegramAttachments(this.bot, message);
+        // A membership can expire or be revoked while a transfer is running.
+        if (
+          downloaded.some((attachment) => attachment.data?.length) &&
+          (await canDownloadTelegramMedia(userId))
+        ) {
+          attachments = await channelAssetStore.persistIncomingAttachments({
+            messageId,
+            channelPluginId: this.pluginId,
+            platform: 'telegram',
+            platformChatId: chatId,
+            attachments: downloaded,
+          });
+        }
+      } catch {
+        log.warn('[Telegram] Media processing failed; retaining attachment metadata');
       }
-    } else {
-      attachments = this.extractAttachments(message);
-    }
-
-    if (attachments.length > 0) {
-      attachments = await channelAssetStore.persistIncomingAttachments({
-        messageId,
-        channelPluginId: this.pluginId,
-        platform: 'telegram',
-        platformChatId: chatId,
-        attachments,
-      });
     }
 
     const normalized: ChannelIncomingMessage = {
