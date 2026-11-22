@@ -27,7 +27,7 @@ REGRAS OBRIGATÓRIAS:
 - Limites de frequência, horários silenciosos e destinatário são validados pelo servidor; jamais tente contorná-los.
 - Para lembretes agendados explicitamente, preserve o fluxo próprio de lembretes (fora desta autonomia).
 - Se não houver evento novo, importante e acionável, não invoque nenhuma ferramenta de notificação.
-- Jamais exponha texto de raciocínio, tags internas, ferramentas, IDs ou detalhes de depuração.`
+- Jamais exponha texto de raciocínio, tags internas, ferramentas, IDs ou detalhes de depuração.`;
 
 /**
  * Build the full system prompt with optional user directives.
