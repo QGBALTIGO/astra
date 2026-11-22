@@ -307,6 +307,12 @@ describe('notification-tools', () => {
         'user-1'
       );
       expect(result.success).toBe(false);
+      const failure = await executeNotificationTool(
+        'send_user_notification',
+        { message: 'Three trigger failures last 24h' },
+        'user-1'
+      );
+      expect(failure.success).toBe(false);
       expect(mockClaimProactiveSlot).not.toHaveBeenCalled();
       expect(mockChannelService.send).not.toHaveBeenCalled();
     });
@@ -315,9 +321,7 @@ describe('notification-tools', () => {
       mockChannelUsersRepo.findByOwnpilotUser.mockResolvedValue([
         { id: 'cu-1', platform: 'telegram' },
       ]);
-      mockSessionsRepo.listByUser.mockResolvedValue([
-        { isActive: true, platformChatId: 'chat-1' },
-      ]);
+      mockSessionsRepo.listByUser.mockResolvedValue([{ isActive: true, platformChatId: 'chat-1' }]);
       mockClaimProactiveSlot.mockResolvedValueOnce(true).mockResolvedValue(false);
       for (let i = 0; i < 30; i++) {
         await executeNotificationTool(
@@ -362,7 +366,11 @@ describe('notification-tools', () => {
         { id: 'cu-1', platform: 'telegram', platformUserId: 'chat-1', isVerified: true },
       ]);
       mockSessionsRepo.listByUser.mockResolvedValueOnce([
-        { isActive: true, platformChatId: 'other-person-chat', channelPluginId: 'channel.telegram' },
+        {
+          isActive: true,
+          platformChatId: 'other-person-chat',
+          channelPluginId: 'channel.telegram',
+        },
       ]);
       expect(await sendTelegramMessage('user-1', 'Hello')).toBe(false);
       expect(mockChannelService.send).not.toHaveBeenCalled();
