@@ -1,0 +1,51 @@
+# Revisão do Astra — 22/11/2026
+
+Base revisada: `132f364f0f3f8e5175503ec5ce115595468756ca` (`main`), que corresponde à imagem publicada do gateway consultada no Railway. A revisão combina leitura do código, testes com dados sintéticos e consulta de configuração e logs. As correções deste documento são propostas na branch `audit/astra-review-20261122`; não foram publicadas em produção durante a revisão.
+
+## Problemas confirmados e correções
+
+| Prioridade | Problema                                                                                                                   | Efeito e correção                                                                                                                                                                                                                                                                                           |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Alta       | Identificador de entrada do Telegram não incluía a conversa.                                                               | Duas pessoas com o mesmo `message_id` podiam ter mensagens tratadas como duplicadas. A identidade agora inclui plugin, conversa e mensagem; referências de resposta e anexos usam o mesmo escopo.                                                                                                           |
+| Alta       | Mapa de edição e exclusão do Telegram usava apenas o número da mensagem.                                                   | Um envio em outra conversa podia substituir o destino associado ao mesmo número. Os recibos e o mapa agora incluem a conversa, incluindo respostas finalizadas pelo gerenciador de progresso.                                                                                                               |
+| Alta       | Mídia era baixada e persistida antes da validação de elegibilidade.                                                        | Remetentes sem acesso podiam consumir download e armazenamento antes da recusa posterior. Agora o recebimento valida o usuário, bloqueios, vínculo e acesso vigente antes de baixar ou gravar bytes; o operador verificado mantém seu acesso. Falhas na consulta recusam o download.                        |
+| Média      | Grupos do Telegram não marcavam o sinal comum `isGroup`.                                                                   | O roteamento não recebia o sinal utilizado para impedir processamento automático em grupos. O adaptador agora o marca e preserva apenas metadados de mídia em grupos.                                                                                                                                       |
+| Média      | Download do Telegram acumulava o corpo inteiro, sem prazo máximo, e aceitava mais bytes do que a hidratação compartilhada. | A leitura agora é interrompida durante o streaming ao ultrapassar 12 MiB, tem prazo de 15 segundos e rejeita redirecionamentos da URL que contém o token. Exceções são registradas por categoria, sem sua mensagem ou URL. Metadados de arquivos recusados são preservados para permitir uma resposta útil. |
+| Média      | Limpeza de workflows consultava `updated_at`, coluna ausente de `workflow_logs`.                                           | A rotina falhava; o erro também apareceu nos logs consultados. Agora usa a conclusão, com início como alternativa para registros antigos, e preserva execuções em andamento ou aguardando aprovação.                                                                                                        |
+| Média      | Limpeza noturna de triggers usava somente o usuário `default`; falhas parciais pareciam sucesso.                           | A manutenção agora aplica o prazo de retenção a todos os usuários. A limpeza comum de um usuário continua limitada ao seu escopo. A execução reserva o próximo dia e informa falha para a fila repetir com segurança a manutenção incompleta.                                                               |
+| Melhoria   | Pedidos relativos simples ainda precisavam de IA para dias, semanas e vários números por extenso.                          | Foram adicionados prazos explícitos como “em 2 dias”, “em uma semana”, “em duas horas e quinze minutos” e “em meia hora”, com os limites e recusas para instruções ambíguas, negativas ou compostas.                                                                                                        |
+
+A atualização dos identificadores também consulta o registro legado no mesmo comando SQL de deduplicação. Assim, uma mensagem privada já reconhecida pela versão anterior não executa novamente sua ação após a atualização; o registro de outra pessoa não bloqueia a nova conversa.
+
+Referência do contrato externo: a [API oficial do Telegram](https://core.telegram.org/bots/api#message) define `message_id` dentro da conversa, não como um identificador global do bot.
+
+## Verificações executadas
+
+| Verificação                                             | Resultado                                                                                                                                         |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Suíte completa do núcleo                                | 10.265 passaram; 3 ignorados.                                                                                                                     |
+| Suíte completa do servidor na versão final da alteração | 24.886 passaram; 1.334 ignorados.                                                                                                                 |
+| Suíte completa da interface                             | 2.404 passaram; 1 ignorado.                                                                                                                       |
+| SQL de retenção e deduplicação                          | 6 testes passaram com as consultas reais dos repositórios e tabelas derivadas do esquema/migração do projeto, em PostgreSQL embarcado via PGlite. |
+| Cakto e verificação de fila com fixtures sintéticas     | 8 passaram; 2 integrações com PostgreSQL nativo foram ignoradas localmente. Nenhuma compra ou entrega a cliente foi feita.                        |
+| Auditoria das dependências de produção                  | 527 dependências; nenhuma vulnerabilidade conhecida reportada pelo registro consultado.                                                           |
+| Build, TypeScript, lint e formatação                    | Verificados localmente; os detalhes adicionais constam na descrição do PR.                                                                        |
+
+Antes das correções, os testes novos reproduziram 10 falhas em identificação de mensagens, grupos, falhas parciais de retenção e interpretação de duração. Depois das correções, as suítes e regressões passaram. Os testes SQL novos também foram adicionados ao job de PostgreSQL do CI, para execução com o servidor PostgreSQL do projeto.
+
+## Cobertura de segurança
+
+Foram examinados os pontos de entrada e as proteções de sessão de clientes, origem e tipo das solicitações, códigos de verificação, tentativas e consumo único de códigos, escopo dos repositórios de finanças/agenda/planejamento, vínculo Telegram–WhatsApp, permissões de execução de código, validação de assinatura e produto da Cakto e persistência/hidratação de anexos. Foram executadas as suítes automatizadas correspondentes disponíveis nos pacotes.
+
+Os controles de sessão revisados obtêm a identidade no servidor, verificam a origem das alterações e limitam tentativas de OTP; códigos consumidos não podem ser reutilizados. Não foi confirmado acesso indevido ou invasão a partir do material consultado. A auditoria de dependências sem alertas não substitui a revisão de autorização e lógica do aplicativo.
+
+## Operação e pendências reais
+
+- Os cinco serviços consultados estavam em estado operacional, sem falhas recentes de deployment nem alterações de infraestrutura pendentes. Isso não comprova a conclusão de cada tarefa de mensagem.
+- A janela de logs contém limites de provedores de IA, uma ocasião em que as três alternativas falharam, uma resposta vazia de provedor e desconexões do WhatsApp. Parte desses eventos precede a imagem atual. A revisão não alterou provedores nem promete eliminar cotas ou falhas externas. Os atalhos determinísticos adicionados reduzem dependência de IA em pedidos simples de lembrete.
+- As tentativas repetidas de aviso de fim de teste apareceram no período anterior à imagem atual. Na consulta iniciada após a publicação dessa imagem não apareceu novamente aquele erro; isso não constitui confirmação de entrega dos avisos antigos.
+- As variáveis sensíveis do Railway estavam disponíveis somente por nome. Seus valores e permissões persistidas de cada conta não foram presumidos nem reconfigurados.
+- Os 1.334 testes ignorados do servidor incluem integrações que exigem serviços ou ambiente específico. Os seis testes SQL novos foram executados localmente com PostgreSQL embarcado; o job de CI usa PostgreSQL nativo. Não foi feito envio de teste para clientes reais, compra, mudança de assinatura, alteração de dados de clientes ou pentest ativo em produção.
+- O PR precisa passar pelo CI e ser incorporado à versão publicada. A validação após publicação deve conferir respostas privadas em duas contas Telegram, recibos de edição, recusa de mídia sem acesso e a próxima limpeza agendada. Não se deve reenviar automaticamente ações ou notificações de resultado incerto.
+
+Parecer: as correções confirmadas estão preparadas para revisão e validação no CI. O uso inicial deve continuar controlado até a publicação e a verificação dos fluxos de mensagem em produção com contas de teste.

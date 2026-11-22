@@ -62,7 +62,7 @@ vi.mock('../db/repositories/workflows/index.js', () => ({
 
 vi.mock('../db/repositories/triggers.js', () => ({
   createTriggersRepository: () => ({
-    cleanupHistory: mockCleanupHistory,
+    cleanupAllHistory: mockCleanupHistory,
   }),
 }));
 
@@ -157,6 +157,16 @@ describe('retention-service', () => {
   });
 
   describe('registerRetentionCleanupWorker', () => {
+    it('reserves the next daily run and reports a partial failure for a durable retry', async () => {
+      mockCleanupOldWorkflowLogs.mockRejectedValueOnce(new Error('synthetic_schema_failure'));
+      registerRetentionCleanupWorker();
+      const handler = mockStartWorker.mock.calls[0]![0];
+      await expect(handler({ name: 'nightly_retention_cleanup', payload: {} })).rejects.toThrow(
+        'Retention cleanup failed for: workflow_logs'
+      );
+      expect(mockEnqueue).toHaveBeenCalledOnce();
+      expect(mockJobsCleanup).toHaveBeenCalled();
+    });
     it('starts a worker and returns a stop function', () => {
       const stop = registerRetentionCleanupWorker();
 

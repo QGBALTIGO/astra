@@ -3,6 +3,27 @@ import { parseRelativeReminderRequest } from './relative-reminder.js';
 
 describe('explicit relative reminder requests', () => {
   it.each([
+    ['Me lembre em 2 dias de pagar a conta', 2 * 86_400],
+    ['Daqui a uma semana me avise de pagar a conta', 7 * 86_400],
+    ['Me avise em duas horas e quinze minutos de pagar a conta', 8_100],
+    ['Me lembre em um dia e 2 horas de pagar a conta', 93_600],
+    ['Me lembre em meia hora de pagar a conta', 1_800],
+  ])('handles an explicit Portuguese duration without a provider: %s', (text, delaySeconds) => {
+    expect(parseRelativeReminderRequest(text)).toEqual({
+      kind: 'valid',
+      title: 'pagar a conta',
+      delaySeconds,
+    });
+  });
+  it.each([
+    'Me lembre em 2 dias ou 3 semanas de pagar a conta',
+    'Me lembre em 2 dias de pagar a conta e daqui 3 dias me avise de conferir',
+    'Não me lembre em duas horas de pagar a conta',
+    'Me lembre em 2 dias e 1 mês de pagar a conta',
+  ])('keeps ambiguous and negated longer requests out of the shortcut: %s', (text) => {
+    expect(parseRelativeReminderRequest(text)).toBeNull();
+  });
+  it.each([
     'Daqui a 30 segundos me lembre de conferir o pedido QA Cedro.',
     'Em 30 segundos, me avise para conferir o pedido QA Cedro.',
     'Daqui 30s me lembra de conferir o pedido QA Cedro.',

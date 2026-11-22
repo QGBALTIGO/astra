@@ -14,6 +14,7 @@ import { TelegramProgressManager } from './progress-manager.js';
 import { publishChannelMessage } from '../../utils/url-button.js';
 import { currentAstraLinksInText } from '../../../config/astra-public-urls.js';
 import { downloadTelegramAttachments } from './file-handler.js';
+import { canDownloadTelegramMedia } from './media-access.js';
 import { channelAssetStore } from '../../../services/channel-asset-store.js';
 import {
   type ChannelPluginAPI,
@@ -728,13 +729,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
           throw err;
         }
       }
-      lastMessageId = String(sent.message_id);
-      // Evict oldest entries if map is at capacity
-      if (this.messageChatMap.size >= MAX_MESSAGE_CHAT_MAP_SIZE) {
-        const oldest = this.messageChatMap.keys().next().value;
-        if (oldest) this.messageChatMap.delete(oldest);
-      }
-      this.messageChatMap.set(lastMessageId, chatId);
+      lastMessageId = this.trackMessage(String(sent.message_id), chatId);
 
       // Small delay between split messages
       if (parts.length > 1 && i < parts.length - 1) {
@@ -762,12 +757,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
       const sent = await this.sendAttachment(chatId, attachment, options, voiceOptions.asVoice);
       if (!sent) continue;
 
-      lastMessageId = String(sent.message_id);
-      if (this.messageChatMap.size >= MAX_MESSAGE_CHAT_MAP_SIZE) {
-        const oldest = this.messageChatMap.keys().next().value;
-        if (oldest) this.messageChatMap.delete(oldest);
-      }
-      this.messageChatMap.set(lastMessageId, chatId);
+      lastMessageId = this.trackMessage(String(sent.message_id), chatId);
     }
 
     return lastMessageId;
@@ -907,7 +897,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
     if (this.config.parse_mode) options.parse_mode = this.config.parse_mode;
     await this.bot.api.editMessageText(
       chatId,
-      Number(platformMessageId),
+      Number(platformMessageId.split(':').at(-1)),
       currentAstraLinksInText(newText),
       options
     );
@@ -920,7 +910,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
       log.warn('[Telegram] deleteMessage: no chatId found for message', { platformMessageId });
       return;
     }
-    await this.bot.api.deleteMessage(chatId, Number(platformMessageId));
+    await this.bot.api.deleteMessage(chatId, Number(platformMessageId.split(':').at(-1)));
     this.messageChatMap.delete(platformMessageId);
   }
 
@@ -936,12 +926,15 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
   /**
    * Track a message ID → chatId mapping (for edit/delete support).
    */
-  trackMessage(platformMessageId: string, chatId: string): void {
+  trackMessage(platformMessageId: string, chatId: string): string {
+    // Telegram numbers messages within each chat, not across a bot's customers.
+    const scopedId = `${chatId}:${platformMessageId.split(':').at(-1)}`;
     if (this.messageChatMap.size >= MAX_MESSAGE_CHAT_MAP_SIZE) {
       const oldest = this.messageChatMap.keys().next().value;
       if (oldest) this.messageChatMap.delete(oldest);
     }
-    this.messageChatMap.set(platformMessageId, chatId);
+    this.messageChatMap.set(scopedId, chatId);
+    return scopedId;
   }
 
   /**
@@ -987,6 +980,8 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
 
     const userId = String(message.from?.id ?? '');
     const chatId = String(message.chat.id);
+    const isGroup = message.chat.type !== 'private';
+    const messageId = `${this.pluginId}:${chatId}:${message.message_id}`;
 
     // Access control
     if (this.allowedUsers.size > 0 && !this.allowedUsers.has(userId)) {
@@ -1008,9 +1003,13 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
 
     // Download and process attachments (with actual file data)
     let attachments: ChannelAttachment[] = [];
-    if (hasMedia && this.bot) {
+    const mediaAllowed = !isGroup && hasMedia && (await canDownloadTelegramMedia(userId));
+    if (mediaAllowed && this.bot) {
       try {
         attachments = await downloadTelegramAttachments(this.bot, message);
+        // Preserve rejected/undownloadable media as metadata so the pipeline
+        // can explain the limit instead of silently receiving an empty message.
+        if (!attachments.length) attachments = this.extractAttachments(message);
       } catch (err) {
         log.warn('[Telegram] Failed to download attachments, using metadata only', { error: err });
         attachments = this.extractAttachments(message);
@@ -1019,9 +1018,9 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
       attachments = this.extractAttachments(message);
     }
 
-    if (attachments.length > 0) {
+    if (mediaAllowed && attachments.length > 0) {
       attachments = await channelAssetStore.persistIncomingAttachments({
-        messageId: `${this.pluginId}:${message.message_id}`,
+        messageId,
         channelPluginId: this.pluginId,
         platform: 'telegram',
         platformChatId: chatId,
@@ -1030,7 +1029,7 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
     }
 
     const normalized: ChannelIncomingMessage = {
-      id: `${this.pluginId}:${message.message_id}`,
+      id: messageId,
       channelPluginId: this.pluginId,
       platform: 'telegram',
       platformChatId: chatId,
@@ -1038,12 +1037,13 @@ export class TelegramChannelAPI implements ChannelPluginAPI {
       text: message.text ?? message.caption ?? '',
       attachments: attachments.length > 0 ? attachments : undefined,
       replyToId: message.reply_to_message
-        ? `${this.pluginId}:${message.reply_to_message.message_id}`
+        ? `${this.pluginId}:${chatId}:${message.reply_to_message.message_id}`
         : undefined,
       timestamp: new Date(message.date * 1000),
       metadata: {
         platformMessageId: message.message_id,
         chatType: message.chat.type,
+        isGroup,
         chatTitle: 'title' in message.chat ? message.chat.title : undefined,
       },
     };

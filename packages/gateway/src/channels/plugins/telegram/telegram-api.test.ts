@@ -95,7 +95,7 @@ describe('TelegramChannelAPI voice attachments', () => {
       options: { telegram: { asVoice: true } },
     });
 
-    expect(result).toBe('105');
+    expect(result).toBe('chat-1:105');
     expect(mockExecFile).toHaveBeenCalledWith(
       'ffmpeg',
       expect.arrayContaining(['-acodec', 'libopus']),
@@ -121,7 +121,7 @@ describe('TelegramChannelAPI voice attachments', () => {
       options: { telegram: { asVoice: true } },
     });
 
-    expect(result).toBe('101');
+    expect(result).toBe('chat-1:101');
     expect(mockWarn).toHaveBeenCalledWith(
       '[Telegram] Failed to convert audio to OGG/Opus voice format',
       { error: 'ffmpeg missing' }
