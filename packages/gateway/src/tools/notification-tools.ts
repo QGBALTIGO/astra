@@ -141,7 +141,11 @@ export async function executeNotificationTool(
   if (message.length > 1500) return { success: false, error: 'Notification too long' };
 
   // Diagnostics must stay in operator monitoring, not in a customer chat.
-  if (/\b(trigger errors?|provider failure|rate.limited|http 429|cloudflare timeout|openrouter|internal error|erro(?:s)? de gatilho|falha(?:s)? intern(?:a|o)s)\b/i.test(message)) {
+  if (
+    /\b(trigger (?:errors?|failures?)|provider failure|rate.limited|http 429|cloudflare timeout|openrouter|internal error|erro(?:s)? de gatilho|falha(?:s)? intern(?:a|o)s)\b/i.test(
+      message
+    )
+  ) {
     return { success: false, error: 'Operational diagnostics cannot be sent to a user' };
   }
 
@@ -169,7 +173,10 @@ export async function executeNotificationTool(
 
     // Do not broadcast user content on a global, unscoped EventBus event.
     // Dashboard notifications need a separate user-authorized transport.
-    return { success: true, result: { delivered: ['telegram'], message: 'Notification sent via telegram' } };
+    return {
+      success: true,
+      result: { delivered: ['telegram'], message: 'Notification sent via telegram' },
+    };
   } catch (error) {
     log.warn('Proactive notification suppressed after a delivery or storage error', {
       error: getErrorMessage(error),
