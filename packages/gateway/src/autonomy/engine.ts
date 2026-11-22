@@ -504,7 +504,14 @@ export class AutonomyEngine implements IPulseService {
       // Get or create a chat agent with full tool access
       // Use the caller's identity instead of implicitly falling back to the owner scope.
       const agent = await getOrCreateChatAgent(
-        provider, model, fallback, null, `pulse:${_userId}`, undefined, _userId !== 'default', _userId
+        provider,
+        model,
+        fallback,
+        null,
+        `pulse:${_userId}`,
+        undefined,
+        _userId !== 'default',
+        _userId
       );
 
       // Create a fresh conversation for this pulse cycle
@@ -531,7 +538,10 @@ export class AutonomyEngine implements IPulseService {
           onBeforeToolCall: async (call) => {
             const name = call.name.replace(/^core[._]/, '').replace(/__/g, '.');
             const key = name === 'send_user_notification' ? 'send_notification' : name;
-            if (directives.blockedActions.includes(name) || directives.blockedActions.includes(key)) {
+            if (
+              directives.blockedActions.includes(name) ||
+              directives.blockedActions.includes(key)
+            ) {
               return { approved: false, reason: 'Action disabled by user settings' };
             }
             const cooldownMinutes = directives.actionCooldowns[key as keyof ActionCooldowns] ?? 0;
