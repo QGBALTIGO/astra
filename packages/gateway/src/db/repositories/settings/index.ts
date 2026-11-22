@@ -113,10 +113,7 @@ export class SettingsRepository extends BaseRepository {
    * failures may be ambiguous; safe duplicates are worse than a missed nudge.
    * Scheduled reminders intentionally do not use this quota.
    */
-  async claimProactiveNotificationSlot(
-    userId: string,
-    cooldownMinutes: number
-  ): Promise<boolean> {
+  async claimProactiveNotificationSlot(userId: string, cooldownMinutes: number): Promise<boolean> {
     if (!userId.trim() || !Number.isFinite(cooldownMinutes) || cooldownMinutes < 1) {
       throw new Error('Invalid proactive notification throttle');
     }
