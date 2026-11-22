@@ -504,7 +504,7 @@ export class AutonomyEngine implements IPulseService {
       // Get or create a chat agent with full tool access
       // Use the caller's identity instead of implicitly falling back to the owner scope.
       const agent = await getOrCreateChatAgent(
-        provider, model, fallback, null, `pulse:${_userId}`, undefined, false, _userId
+        provider, model, fallback, null, `pulse:${_userId}`, undefined, _userId !== 'default', _userId
       );
 
       // Create a fresh conversation for this pulse cycle
