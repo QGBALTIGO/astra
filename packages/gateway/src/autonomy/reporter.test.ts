@@ -314,13 +314,13 @@ describe('reportPulseResult', () => {
   // --------------------------------------------------------------------------
 
   it('catches errors from EventBus and logs them via log.warn', async () => {
-    mockEventEmit.mockImplementation(() => {
+    mockEventEmitRaw.mockImplementation(() => {
       throw new Error('EventBus closed');
     });
 
     const result = makeResult({
       reportMessage: 'test',
-      actionsExecuted: [],
+      actionsExecuted: [{ type: 'create_memory', success: true, output: {} }],
     });
 
     // Should NOT throw
@@ -332,13 +332,13 @@ describe('reportPulseResult', () => {
   });
 
   it('catches non-Error thrown values and stringifies them', async () => {
-    mockEventEmit.mockImplementation(() => {
+    mockEventEmitRaw.mockImplementation(() => {
       throw 'plain string error';
     });
 
     const result = makeResult({
       reportMessage: 'test',
-      actionsExecuted: [],
+      actionsExecuted: [{ type: 'create_memory', success: true, output: {} }],
     });
 
     await reportPulseResult(result);
