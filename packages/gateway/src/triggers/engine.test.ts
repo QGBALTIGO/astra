@@ -341,9 +341,7 @@ describe('TriggerEngine', () => {
     it('preserves all other scheduled chat automations', async () => {
       const ai = vi.fn().mockResolvedValue('Finished task review');
       engine.setChatHandler(ai);
-      mockTriggerService.getTrigger.mockResolvedValue(
-        legacyGoalChat({ name: 'Daily Task Check' })
-      );
+      mockTriggerService.getTrigger.mockResolvedValue(legacyGoalChat({ name: 'Daily Task Check' }));
 
       const result = await engine.fireTrigger('trigger-1');
 
