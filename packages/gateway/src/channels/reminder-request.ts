@@ -1,4 +1,6 @@
 /** Only customer-authored times can authorize a scheduled channel notification. */
+import { parseAbsoluteReminderRequest } from './absolute-reminder.js';
+
 interface ReminderScope {
   channelPluginId?: string;
   platformChatId?: string;
@@ -10,7 +12,8 @@ const fold = (text: string) =>
   text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const wantsReminder = (text: string) =>
-  (/\b(?:lembre|lembra|avise|avisa|agende|agendar|reagende|reagendar)\b/u.test(text) ||
+  (parseAbsoluteReminderRequest(text) !== null ||
+    /\b(?:lembre|lembra|avise|avisa|agende|agendar|reagende|reagendar)\b/u.test(text) ||
     /\b(?:quero|preciso|pode|poderia|favor)\b.*\b(?:lembrete|lembrar|avisar)\b/u.test(text)) &&
   !/^[\s]*(?:como|qual|quais|por que|onde|quem)\b|["“”«»]|\b(?:exemplo|hipotetic\w*|disse|falou|explique|nao quero|nao (?:me )?(?:lembre|lembra|avise|avisa|agende|agendar|reagende|reagendar))\b/u.test(
     text
@@ -99,7 +102,9 @@ export function observeChannelReminderRequest(
     return;
   }
   const hasTime = hasExplicitReminderTime(text);
-  const hasSubject = /\b(?:de|do|da|para|pra|que|sobre)\s+\p{L}/u.test(text);
+  const hasSubject =
+    parseAbsoluteReminderRequest(text) !== null ||
+    /\b(?:de|do|da|para|pra|que|sobre)\s+\p{L}/u.test(text);
   const reference =
     /\b(?:mesmo horario|nesse horario|neste horario|horario que (?:eu )?(?:disse|falei|pedi))\b/u.test(
       text

@@ -112,6 +112,30 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
     expect(fixtures.schedule).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ['Me lembra de cancelar o seguro do gol às 17h', 'cancelar o seguro do gol'],
+    ['Lembrete as 17h, seguro do gol', 'seguro do gol'],
+  ])('saves the explicit clock request %s in the customer timezone', async (text, title) => {
+    vi.setSystemTime(new Date('2026-11-23T20:22:00Z'));
+    fixtures.ctx.channelRequestText = text;
+    const response = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title, local_datetime: '2026-11-23T17:00' },
+      'customer-a'
+    );
+    expect(response.success).toBe(true);
+    expect(fixtures.schedule).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        userId: 'customer-a',
+        channelPluginId: 'channel.telegram',
+        platformChatId: 'chat-123',
+        title,
+        remindAt: new Date('2026-11-23T21:00:00Z'),
+      })
+    );
+    expect(response.result).toMatchObject({ title, status: 'pending' });
+  });
+
   it('accepts a scoped confirmation of the customer time, then refuses its reuse for another condition', async () => {
     observeChannelReminderRequest('customer-a', {
       id: 'prior',

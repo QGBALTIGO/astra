@@ -28,7 +28,7 @@ import { financingClarificationReply } from './financial-write-clarification.js'
 import { runInSessionLane } from '../services/agent/session-lane.js';
 import { runWithChannelAIAdmission } from './channel-ai-admission.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
-import { withCustomerClock } from '../services/customer-date.js';
+import { addCalendarDays, customerLocalDay, withCustomerClock } from '../services/customer-date.js';
 import { tryPersonalSubscriptionReply } from './personal-subscriptions.js';
 import { tryPersonalTaskReply } from './personal-tasks.js';
 import {
@@ -63,6 +63,7 @@ import { formatAstraMessage, formatReminderConfirmation } from './response-prese
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { tryChannelTimeConversion } from './time-conversion.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
+import { parseAbsoluteReminderRequest } from './absolute-reminder.js';
 import { tryCancelNamedReminder } from './cancel-named-reminder.js';
 import { tryVerifyCalendarSlot } from './calendar-lookup.js';
 import { tryChannelCalendarMutation } from './calendar-mutation.js';
@@ -308,7 +309,43 @@ export async function tryScheduleRelativeChannelReminder(
   if (!request) return null;
   if (request.kind === 'invalid') return request.message;
   const { title, delaySeconds } = request;
+  return scheduleExplicitChannelReminder(message, userId, title, { delay_seconds: delaySeconds });
+}
 
+/** Resolve the written clock in the customer's zone on the day of receipt. */
+async function tryScheduleAbsoluteChannelReminder(
+  message: ChannelIncomingMessage,
+  userId: string,
+  isAccessAllowed?: ChannelAccessCheck
+): Promise<string | null> {
+  const request = parseAbsoluteReminderRequest(message.text);
+  if (!request || !integrationPrivateChat(message)) return null;
+  const receivedAt = message.timestamp;
+  if (!receivedAt || !Number.isFinite(receivedAt.getTime()) || receivedAt.getTime() > Date.now()) {
+    return 'Não consegui conferir o horário do pedido. Envie novamente a data e a hora do lembrete.';
+  }
+
+  try {
+    const account = await customerAccountsRepo.getByDataUserId(userId);
+    const timeZone = account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
+    const day = addCalendarDays(customerLocalDay(receivedAt, timeZone), request.dayOffset);
+    if (!(await canProcessChannelMessage(message, isAccessAllowed)))
+      return INACTIVE_CHANNEL_ACCESS_REPLY;
+    return await scheduleExplicitChannelReminder(message, userId, request.title, {
+      local_datetime: day + 'T' + request.time,
+    });
+  } catch (error) {
+    return channelDataFailure('reminder', 'write', error);
+  }
+}
+
+async function scheduleExplicitChannelReminder(
+  message: Pick<ChannelIncomingMessage, 'text' | 'id' | 'channelPluginId' | 'platformChatId'> &
+    Partial<Pick<ChannelIncomingMessage, 'timestamp'>>,
+  userId: string,
+  title: string,
+  deadline: { delay_seconds: number } | { local_datetime: string }
+): Promise<string> {
   const { executeChannelReminderTool } = await import('../tools/channel-reminder-tools.js');
   return runInExecContext(
     {
@@ -321,10 +358,16 @@ export async function tryScheduleRelativeChannelReminder(
     async () => {
       const result = await executeChannelReminderTool(
         'schedule_channel_reminder',
-        { title, delay_seconds: delaySeconds },
+        { title, ...deadline },
         userId
       );
       if (!result.success) {
+        if (
+          'local_datetime' in deadline &&
+          result.error === 'A data deve estar no futuro, dentro dos próximos 366 dias.'
+        ) {
+          return 'Esse horário já passou ou não está disponível. Informe outro dia ou horário para o lembrete.';
+        }
         return 'Não consegui agendar esse lembrete. Nenhum aviso foi confirmado.';
       }
       const saved = result.result as
@@ -477,6 +520,12 @@ function tryAuthorizedChannelShortcut(
       canProcessChannelMessage(message, isAccessAllowed)
     );
     if (deletion) return deletion;
+    const absoluteReminder = await tryScheduleAbsoluteChannelReminder(
+      message,
+      userId,
+      isAccessAllowed
+    );
+    if (absoluteReminder) return absoluteReminder;
     return (
       financingClarificationReply(message.text) ??
       financialCapabilityReply(message.platform, message.text) ??
