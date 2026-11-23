@@ -272,9 +272,11 @@ export class TriggerEngine {
       return { success: true, message: 'Notification sent', data: { message } };
     });
 
-    // Goal check action
+    // Goal checks query the authoritative database, not an AI provider.
+    // A bounded list covers normal daily usage without loading unbounded history.
+    // No goals is a valid empty result, not an inference failure.
     this.registerActionHandler('goal_check', async (payload) => {
-      const goals = await this.goalService.getActive(this.config.userId, 5);
+      const goals = await this.goalService.getActive(this.config.userId, 100);
       const staleGoals = goals.filter((g) => {
         const daysSinceUpdate = (Date.now() - g.updatedAt.getTime()) / MS_PER_DAY;
         return daysSinceUpdate > ((payload.staleDays as number) ?? 3);
@@ -639,6 +641,38 @@ export class TriggerEngine {
           data: { skipped: true },
         },
         skipped: true,
+      };
+    }
+
+    // Legacy built-in daily goal checks were stored as scheduled "chat" actions.
+    // They unnecessarily invoked a full agent, failing at night when every AI
+    // provider was rate-limited—even when the user had no active goals.
+    // Route ONLY this named built-in schedule to the existing read-only goal
+    // checker. All other chat automations retain their configured behaviour.
+    // An explicit opt-in allows an owner to keep a custom AI-powered review.
+    if (
+      trigger.type === 'schedule' &&
+      trigger.action.type === 'chat' &&
+      trigger.name === 'Daily Goal Check' &&
+      payload.goalCheckUseAI !== true
+    ) {
+      const goalHandler = this.actionHandlers.get('goal_check');
+      if (!goalHandler) {
+        return {
+          result: { success: false, error: 'Native goal check handler unavailable' },
+          skipped: false,
+        };
+      }
+      const result = await goalHandler(payload);
+      return {
+        result: {
+          ...result,
+          data: {
+            ...(typeof result.data === 'object' && result.data !== null ? result.data : {}),
+            mode: 'native_goal_check',
+          },
+        },
+        skipped: false,
       };
     }
 
