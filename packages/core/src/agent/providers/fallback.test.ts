@@ -770,7 +770,11 @@ describe('Astra multi-provider resilience', () => {
         fallbacks: [{ provider: 'anthropic', apiKey: 'backup-groq-' + reason }],
       });
       primary.complete.mockResolvedValueOnce(
-        err(new InternalError('Groq API error: 429 - Groq local admission ' + reason + '. Please try again in 2s'))
+        err(
+          new InternalError(
+            'Groq API error: 429 - Groq local admission ' + reason + '. Please try again in 2s'
+          )
+        )
       );
       expect((await provider.complete(dummyRequest)).ok).toBe(true);
       primary.complete.mockResolvedValueOnce(

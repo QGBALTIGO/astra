@@ -1532,7 +1532,7 @@ describe('getOrCreateChatAgent', () => {
           fallbacks: ['zai', 'google', 'groq', 'openrouter', 'cloudflare-workers-ai'].map((id) =>
             expect.objectContaining({ id })
           ),
-          completionTimeoutMs: 24000,
+          completionTimeoutMs: 46_000,
         })
       );
     } finally {

@@ -307,6 +307,7 @@ export class Agent {
     options?: AgentChatOptions
   ): Promise<Result<CompletionResponse, InternalError | ValidationError | TimeoutError>> {
     let turnCount = 0;
+    let totalUsage: CompletionResponse['usage'];
     const maxTurns = this.config.maxTurns ?? 10;
     const maxToolCalls = this.maxToolCallsOverride ?? this.config.maxToolCalls ?? 200;
     const isUnlimited = maxToolCalls === 0;
@@ -393,6 +394,20 @@ export class Agent {
           return result;
         }
         response = result.value;
+      }
+
+      // Each tool round is a distinct inference, even if the final answer
+      // is formatted by the server. Attribute the entire successful turn.
+      if (response.usage) {
+        const current = response.usage;
+        totalUsage = {
+          promptTokens: (totalUsage?.promptTokens ?? 0) + current.promptTokens,
+          completionTokens: (totalUsage?.completionTokens ?? 0) + current.completionTokens,
+          totalTokens: (totalUsage?.totalTokens ?? 0) + current.totalTokens,
+          ...((totalUsage?.cachedTokens !== undefined || current.cachedTokens !== undefined)
+            ? { cachedTokens: (totalUsage?.cachedTokens ?? 0) + (current.cachedTokens ?? 0) }
+            : {}),
+        };
       }
 
       if (options?.toolChoice === 'none' && response.toolCalls?.length) {
@@ -550,6 +565,7 @@ export class Agent {
           return ok({
             ...response,
             content: completedReply,
+            ...(totalUsage ? { usage: totalUsage } : {}),
             toolCalls: undefined,
             finishReason: 'stop',
           });
@@ -559,8 +575,8 @@ export class Agent {
         continue;
       }
 
-      // No tool calls, return final response
-      return ok(response);
+      // No tool calls, return final response with every completed round's usage.
+      return ok(totalUsage ? { ...response, usage: totalUsage } : response);
     }
 
     return err(new ValidationError(`Maximum turns exceeded (${maxTurns})`));

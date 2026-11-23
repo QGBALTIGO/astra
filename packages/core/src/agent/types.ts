@@ -613,8 +613,8 @@ export interface MemoryConfig {
   readonly maxTokens?: number;
   /** Whether to summarize old messages */
   readonly summarize?: boolean;
-  /** Keep the complete current user message for provider fallback instead of truncating it. */
-  readonly preserveLatestUserMessage?: boolean;
+  /** Preserve the current user turn and its tool receipts without destructive truncation. */
+  readonly preserveLatestUserTurn?: boolean;
   /** Persistence strategy */
   readonly persistence?: 'none' | 'session' | 'persistent';
 }

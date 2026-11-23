@@ -23,7 +23,7 @@ const DEFAULT_MEMORY_CONFIG: Required<MemoryConfig> = {
   maxMessages: 100,
   maxTokens: 100000,
   summarize: false,
-  preserveLatestUserMessage: false,
+  preserveLatestUserTurn: false,
   persistence: 'session',
 };
 
@@ -223,7 +223,7 @@ export class ConversationMemory {
       const only = kept.length === 1 ? kept[0] : undefined;
       if (
         only &&
-        !(this.config.preserveLatestUserMessage && only.role === 'user') &&
+        !(this.config.preserveLatestUserTurn && only.role === 'user') &&
         typeof only.content === 'string' &&
         this.estimateTokens(only) > this.config.maxTokens
       ) {
@@ -340,8 +340,12 @@ export class ConversationMemory {
 
     const safeCount = 4; // keep the last N messages otherwise intact
     const cutoff = messages.length - safeCount;
+    const activeTurn = this.config.preserveLatestUserTurn
+      ? messages.findLastIndex((message) => message.role === 'user')
+      : -1;
 
     return messages.map((msg, i) => {
+      if (activeTurn >= 0 && i >= activeTurn) return msg;
       if (!msg.toolResults || msg.toolResults.length === 0) return msg;
 
       const limit = i >= cutoff ? recentLimit : TOOL_RESULT_LIMIT;

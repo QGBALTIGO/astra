@@ -848,7 +848,7 @@ async function createChatAgentInstance(
     requestApproval: createApprovalCallback(),
     memory: {
       maxTokens: memoryMaxTokens,
-      ...(channelMode ? { preserveLatestUserMessage: true } : {}),
+      ...(channelMode ? { preserveLatestUserTurn: true } : {}),
     },
     ...(channelMode ? { fitGroqChannelHistory: true } : {}),
   };
@@ -1008,7 +1008,7 @@ async function createChatAgentInstance(
                 sharedCircuitBreaker: true,
                 preferLastSuccessful: !hasLocalReserve,
                 completionTimeoutMs:
-                  hasLocalReserve || provider === 'ollama-local'
+                  hasLocalReserve || provider === 'ollama-local' || usableFallbacks.length >= 3
                     ? astraChannelFallbackBudgetMs(
                         channelFallbackPrimaryTimeout,
                         usableFallbacks.map((candidate) => candidate.timeout ?? 8_000)

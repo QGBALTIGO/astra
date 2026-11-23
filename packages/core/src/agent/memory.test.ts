@@ -8,6 +8,22 @@ describe('ConversationMemory', () => {
     memory = new ConversationMemory();
   });
 
+  it('keeps an over-budget active channel user message and its receipts intact', () => {
+    const channel = new ConversationMemory({ maxTokens: 1024, preserveLatestUserTurn: true });
+    const conversation = channel.create('System instructions');
+    const content = 'pedido completo '.repeat(2000);
+    const receipt = 'resultado confirmado '.repeat(2000);
+    channel.addUserMessage(conversation.id, content);
+    expect(channel.getFullContext(conversation.id).at(-1)?.content).toBe(content);
+    channel.addAssistantMessage(conversation.id, '', [
+      { id: 'tool-1', name: 'test', arguments: '{}' },
+    ]);
+    channel.addToolResults(conversation.id, [{ toolCallId: 'tool-1', content: receipt }]);
+    const messages = channel.getFullContext(conversation.id);
+    expect(messages.find((message) => message.role === 'user')?.content).toBe(content);
+    expect(messages.at(-1)?.toolResults?.[0]?.content).toBe(receipt);
+  });
+
   describe('create', () => {
     it('creates a new conversation', () => {
       const conversation = memory.create('You are a helpful assistant.');
