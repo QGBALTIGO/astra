@@ -5,6 +5,7 @@
  */
 import { createProvider, type ProviderConfig } from '@ownpilot/core/agent';
 import { getLog } from '../log.js';
+import { createInferenceObserver } from './inference-accounting.js';
 import { getChannelAIAdmissionStats } from '../../channels/channel-ai-admission.js';
 import { getAstraAiRoutingReadiness } from '../ai-routing-readiness.js';
 import { getProviderApiKey, loadProviderConfig, NATIVE_PROVIDERS } from '../agent/cache.js';
@@ -48,6 +49,7 @@ async function probeRoute(route: AstraFallbackRoute, signal: AbortSignal): Promi
   signal.throwIfAborted();
   const provider = createProvider({
     id: route.provider,
+    onInferenceAttempt: createInferenceObserver(null, 'health'),
     provider: (NATIVE_PROVIDERS.has(route.provider)
       ? route.provider
       : (config?.type ?? 'openai-compatible')) as ProviderConfig['provider'],
@@ -61,7 +63,7 @@ async function probeRoute(route: AstraFallbackRoute, signal: AbortSignal): Promi
   });
   const result = await provider.complete({
     model: { model: route.model, maxTokens: 256 },
-    messages: [{ id: 'astra-inference-probe', role: 'user', content: 'Reply with OK only.' }],
+    messages: [{ role: 'user', content: 'Reply with OK only.' }],
     signal,
     toolChoice: 'none',
   });

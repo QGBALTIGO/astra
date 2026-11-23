@@ -32,6 +32,7 @@ import type { ToolId } from '@ownpilot/core/types';
 import { getErrorMessage } from '@ownpilot/core/services';
 import { silentCatch } from '@ownpilot/core/utils';
 import { getLog } from '../log.js';
+import { createInferenceObserver } from '../provider/inference-accounting.js';
 import { resolveForProcess } from '../llm/model-routing.js';
 import { getProviderApiKey, loadProviderConfig, NATIVE_PROVIDERS } from './cache.js';
 import { resolveAuthForRequest } from '../auth/oauth-flow.js';
@@ -233,8 +234,10 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
   }
 
   // Build provider config for Agent (config.provider) and create real IProvider for options.provider
+  const onInferenceAttempt = createInferenceObserver(opts.userId, 'automation');
   const agentProviderConfig: ProviderConfig = {
     id: opts.provider,
+    onInferenceAttempt,
     provider: providerType as AIProvider,
     apiKey,
     resolvedAuth,
@@ -274,6 +277,7 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
         }
         configuredFallbacks.push({
           id: candidate.provider,
+          onInferenceAttempt,
           provider: (NATIVE_PROVIDERS.has(candidate.provider)
             ? candidate.provider
             : (fbConfig?.type ?? 'openai-compatible')) as AIProvider,
