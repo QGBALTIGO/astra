@@ -340,9 +340,15 @@ export class ConversationMemory {
 
     const safeCount = 4; // keep the last N messages otherwise intact
     const cutoff = messages.length - safeCount;
-    const activeTurn = this.config.preserveLatestUserTurn
-      ? messages.findLastIndex((message) => message.role === 'user')
-      : -1;
+    let activeTurn = -1;
+    if (this.config.preserveLatestUserTurn) {
+      for (let index = messages.length - 1; index >= 0; index--) {
+        if (messages[index]?.role === 'user') {
+          activeTurn = index;
+          break;
+        }
+      }
+    }
 
     return messages.map((msg, i) => {
       if (activeTurn >= 0 && i >= activeTurn) return msg;

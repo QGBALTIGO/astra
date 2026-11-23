@@ -1008,7 +1008,9 @@ async function createChatAgentInstance(
                 sharedCircuitBreaker: true,
                 preferLastSuccessful: !hasLocalReserve,
                 completionTimeoutMs:
-                  hasLocalReserve || provider === 'ollama-local' || usableFallbacks.length >= 3
+                  hasLocalReserve ||
+                  provider === 'ollama-local' ||
+                  usableFallbacks.length >= 3
                     ? astraChannelFallbackBudgetMs(
                         channelFallbackPrimaryTimeout,
                         usableFallbacks.map((candidate) => candidate.timeout ?? 8_000)
