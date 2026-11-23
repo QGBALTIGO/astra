@@ -107,7 +107,11 @@ describe('fallback health under concurrent requests', () => {
   it('does not open a remote circuit because local Groq concurrency is occupied', async () => {
     const { primary, provider, config } = setup();
     primary.complete.mockResolvedValueOnce(
-      err(new InternalError('Provider API error: 429 - Groq local admission concurrency. Please try again in 1s'))
+      err(
+        new InternalError(
+          'Provider API error: 429 - Groq local admission concurrency. Please try again in 1s'
+        )
+      )
     );
     const first = await provider.complete(request);
     expect(first.ok && first.value.content).toBe('backup');

@@ -3,7 +3,7 @@
  * A models-list response is not proof that inference or quota is available.
  * Probes never use customer data or tools and yield to active channel traffic.
  */
-import { createProvider, type AIProvider } from '@ownpilot/core/agent';
+import { createProvider, type ProviderConfig } from '@ownpilot/core/agent';
 import { getLog } from '../log.js';
 import { getChannelAIAdmissionStats } from '../../channels/channel-ai-admission.js';
 import { getAstraAiRoutingReadiness } from '../ai-routing-readiness.js';
@@ -50,9 +50,9 @@ async function probeRoute(route: AstraFallbackRoute, signal: AbortSignal): Promi
     id: route.provider,
     provider: (NATIVE_PROVIDERS.has(route.provider)
       ? route.provider
-      : (config?.type ?? 'openai-compatible')) as AIProvider,
+      : (config?.type ?? 'openai-compatible')) as ProviderConfig['provider'],
     apiKey,
-    resolvedAuth: auth,
+    resolvedAuth: auth ?? undefined,
     baseUrl: config?.baseUrl,
     headers: config?.headers,
     defaultModel: { model: route.model, maxTokens: 256 },
@@ -115,9 +115,7 @@ export async function checkProviderInference(
 }
 
 /** Start after boot without blocking it; never overlap cycles or keep Node alive. */
-export function startProviderInferenceHealthChecks(
-  deps: ProbeDependencies = defaults
-): () => void {
+export function startProviderInferenceHealthChecks(deps: ProbeDependencies = defaults): () => void {
   const raw = Number(process.env.ASTRA_AI_INFERENCE_HEALTH_INTERVAL_MS);
   const interval = Number.isSafeInteger(raw) && raw >= 15 * 60_000 ? raw : DEFAULT_INTERVAL_MS;
   const controller = new AbortController();

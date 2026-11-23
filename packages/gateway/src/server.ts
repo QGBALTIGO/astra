@@ -325,7 +325,9 @@ async function main() {
   log.info('Running provider health checks...');
   const { runProviderHealthChecks } = await import('./services/provider/health.js');
   await runProviderHealthChecks();
-  const { startProviderInferenceHealthChecks } = await import('./services/provider/inference-health.js');
+  const { startProviderInferenceHealthChecks } = await import(
+    './services/provider/inference-health.js'
+  );
   const stopProviderInferenceHealthChecks = startProviderInferenceHealthChecks();
 
   // Start metrics service for Prometheus endpoint
