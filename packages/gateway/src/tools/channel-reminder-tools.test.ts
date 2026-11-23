@@ -136,6 +136,67 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
     expect(response.result).toMatchObject({ title, status: 'pending' });
   });
 
+  it.each([
+    { local_datetime: '2026-11-23T18:00' },
+    { local_datetime: '2026-11-24T17:00' },
+    { remind_at: '2026-11-23T17:00:00-03:00' },
+    { delay_minutes: 2 },
+  ])('rejects an invented model deadline for an explicit customer time: %j', async (deadline) => {
+    vi.setSystemTime(new Date('2026-11-23T20:22:00Z'));
+    fixtures.ctx.channelRequestText = 'Me lembra de cancelar o seguro do gol às 17h';
+    fixtures.ctx.channelMessageTimestamp = Date.now();
+    const result = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'cancelar o seguro do gol', ...deadline },
+      'customer-a'
+    );
+    expect(result.success).toBe(false);
+    expect(fixtures.schedule).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a committed insert after its response is lost without another write', async () => {
+    fixtures.schedule.mockRejectedValueOnce(new Error('Connection lost after commit'));
+    fixtures.getByDedupeKeyForChat.mockResolvedValueOnce({
+      id: 'original-reminder',
+      userId: 'customer-a',
+      channelPluginId: 'channel.telegram',
+      platformChatId: 'chat-123',
+      title: 'verificar o teste',
+      remindAt: new Date(Date.now() + 20_000),
+      status: 'pending',
+    });
+    const response = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'verificar o teste', delay_seconds: 20 },
+      'customer-a'
+    );
+    expect(response.success).toBe(true);
+    expect(response.result).toMatchObject({ id: 'original-reminder', status: 'pending' });
+    expect(fixtures.schedule).toHaveBeenCalledTimes(1);
+    expect(fixtures.getByDedupeKeyForChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not return a foreign record during recovery of a failed write', async () => {
+    fixtures.schedule.mockRejectedValueOnce(new Error('Connection lost'));
+    fixtures.getByDedupeKeyForChat.mockResolvedValueOnce({
+      id: 'foreign',
+      userId: 'customer-b',
+      channelPluginId: 'channel.telegram',
+      platformChatId: 'chat-123',
+      title: 'private',
+      remindAt: new Date(Date.now() + 20_000),
+      status: 'pending',
+    });
+    const response = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'verificar o teste', delay_seconds: 20 },
+      'customer-a'
+    );
+    expect(response.success).toBe(false);
+    expect(response.result).toBeUndefined();
+    expect(fixtures.schedule).toHaveBeenCalledTimes(1);
+  });
+
   it('accepts a scoped confirmation of the customer time, then refuses its reuse for another condition', async () => {
     observeChannelReminderRequest('customer-a', {
       id: 'prior',

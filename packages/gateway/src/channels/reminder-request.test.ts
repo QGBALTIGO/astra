@@ -98,7 +98,9 @@ describe('customer-authored reminder time authority', () => {
   it('recognizes a self-contained terse reminder, without granting authority to a question', () => {
     const text = 'Lembrete as 17h, seguro do gol';
     expect(channelReminderRequestError('a', scope('one', text))).toBeUndefined();
-    expect(channelReminderRequestError('a', scope('two', 'Qual era meu lembrete às 17h?'))).toBeTruthy();
+    expect(
+      channelReminderRequestError('a', scope('two', 'Qual era meu lembrete às 17h?'))
+    ).toBeTruthy();
   });
   it.each(['Qual era meu lembrete às 9h?', 'Vou lembrar disso às 9h'])(
     'does not treat a mention as a scheduling request: %s',

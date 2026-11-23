@@ -438,6 +438,10 @@ describe('Agendamento direto e gratuito pelo canal', () => {
         [
           ['Me lembra de cancelar o seguro do gol às 17h', 'cancelar o seguro do gol'],
           ['Lembrete as 17h, seguro do gol', 'seguro do gol'],
+          ['Me lembre de enviar e-mail ao contador às 17h', 'enviar e-mail ao contador'],
+          ['Me lembre de pagar a conta às 17', 'pagar a conta'],
+          ['Me lembre de ligar para o dentista 17h', 'ligar para o dentista'],
+          ['Lembrete: pagar a conta às 17:00', 'pagar a conta'],
         ].map(([text, title]) => ({ platform, route, text, title }))
       )
     )
@@ -485,6 +489,13 @@ describe('Agendamento direto e gratuito pelo canal', () => {
       expect(bus.process).not.toHaveBeenCalled();
     }
   );
+
+  it('does not claim a reminder was registered when the tool returns no verified state', async () => {
+    mockSchedule.mockResolvedValueOnce({ success: true, result: { title: 'no receipt' } });
+    const response = await tryScheduleRelativeChannelReminder(message, 'default');
+    expect(response).toContain('Não consegui confirmar');
+    expect(response).not.toMatch(/✅|Vou avisar/);
+  });
 
   it('registra lembrete de 1 minuto sem chamar modelo', async () => {
     const response = await tryScheduleRelativeChannelReminder(message, 'default');

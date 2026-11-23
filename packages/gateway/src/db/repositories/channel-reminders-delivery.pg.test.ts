@@ -52,6 +52,35 @@ describe.skipIf(!process.env.ASTRA_REVIEW_PG_PORT)('reminder delivery ownership'
     });
   }
 
+  it('keeps one durable reminder across 50 simultaneous replays of the same message', async () => {
+    const records = await Promise.all(Array.from({ length: 50 }, () => schedule()));
+    expect(new Set(records.map((row) => row.id)).size).toBe(1);
+    const { rows } = await client.query('SELECT id, status FROM channel_reminders');
+    expect(rows).toEqual([{ id: records[0]!.id, status: 'pending' }]);
+    expect(await repo.claimDue(20)).toHaveLength(1);
+  });
+
+  it('never returns a reminder from another account even if its idempotency key collides', async () => {
+    const original = await schedule();
+    for (const scope of [
+      { userId: 'user-b', channelPluginId: 'channel.whatsapp', platformChatId: 'chat-a' },
+      { userId: 'user-a', channelPluginId: 'channel.telegram', platformChatId: 'chat-a' },
+      { userId: 'user-a', channelPluginId: 'channel.whatsapp', platformChatId: 'chat-b' },
+    ]) {
+      await expect(
+        repo.schedule({
+          ...scope,
+          title: 'Outro lembrete',
+          remindAt: new Date(),
+          dedupeKey: 'message-a',
+        })
+      ).rejects.toThrow();
+    }
+    expect(
+      await repo.getByDedupeKeyForChat('message-a', 'user-a', 'channel.whatsapp', 'chat-a')
+    ).toMatchObject({ id: original.id, title: 'Revisar contrato' });
+  });
+
   it('recovers an expired preparation instead of dropping an unsent reminder', async () => {
     await schedule();
     expect(await repo.claimDue(1)).toHaveLength(1);

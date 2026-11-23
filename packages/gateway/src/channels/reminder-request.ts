@@ -29,6 +29,7 @@ const bareTimeReply = (text: string) =>
 export function hasExplicitReminderTime(text: string): boolean {
   const value = fold(text);
   return (
+    parseAbsoluteReminderRequest(text) !== null ||
     /\b(?:as|pelas|para as|quando (?:for|der))\s+(?:[01]?\d|2[0-3])(?:(?:h|:)[0-5]?\d?)?(?![\d.,])\b(?!\s*(?:reais|dolares|euros|r\$))/u.test(
       value
     ) ||
