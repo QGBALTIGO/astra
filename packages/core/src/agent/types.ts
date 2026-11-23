@@ -484,6 +484,8 @@ export interface CompletionRequest {
   readonly metadata?: {
     /** Conversation ID for session resume (sent as X-Conversation-Id header) */
     readonly conversationId?: string;
+    /** Allow official Groq transport to omit only older, complete historical turns. */
+    readonly fitGroqChannelHistory?: boolean;
   };
 }
 
@@ -588,6 +590,8 @@ export interface AgentConfig {
   readonly maxToolCalls?: number;
   /** Memory configuration */
   readonly memory?: MemoryConfig;
+  /** Opt-in transport-specific context fitting for customer channel turns. */
+  readonly fitGroqChannelHistory?: boolean;
   /** Per-category execution permissions (persistent in DB) */
   readonly executionPermissions?: ExecutionPermissions;
   /** Callback to request user approval for sensitive operations (e.g. local code execution) */
@@ -609,6 +613,8 @@ export interface MemoryConfig {
   readonly maxTokens?: number;
   /** Whether to summarize old messages */
   readonly summarize?: boolean;
+  /** Keep the complete current user message for provider fallback instead of truncating it. */
+  readonly preserveLatestUserMessage?: boolean;
   /** Persistence strategy */
   readonly persistence?: 'none' | 'session' | 'persistent';
 }

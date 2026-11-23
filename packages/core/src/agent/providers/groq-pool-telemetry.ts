@@ -152,3 +152,31 @@ export function reportGroqPoolFailure(input: Parameters<typeof groqPoolFailureFa
     /* Diagnostics must not change transport behavior or print the failed logger's arguments. */
   }
 }
+
+const quotaSamples = new Map<string, number>();
+
+/** Sample actual provider quota headers once per organization/model/minute.
+ * The group fingerprint is used only as a local key and never logged.
+ */
+export function reportGroqPoolQuota(
+  input: Parameters<typeof groqPoolFailureFacts>[0] & { group: string }
+): void {
+  try {
+    const facts = groqPoolFailureFacts(input);
+    if (facts.tokenLimit === undefined && facts.requestLimit === undefined) return;
+    const now = Date.now();
+    const key = input.group + ':' + facts.model;
+    const previous = quotaSamples.get(key);
+    if (previous !== undefined && now - previous < 60_000) return;
+    if (quotaSamples.size >= 256) {
+      for (const [id, sampledAt] of quotaSamples) {
+        if (now - sampledAt >= 60_000) quotaSamples.delete(id);
+      }
+      if (quotaSamples.size >= 256) return;
+    }
+    quotaSamples.set(key, now);
+    log.info('Groq provider quota observed', facts);
+  } catch {
+    // Monitoring cannot interrupt the inference.
+  }
+}

@@ -361,6 +361,7 @@ export class Agent {
         thinking: options?.thinking,
         metadata: {
           conversationId: this.state.bridgeConversationId ?? this.state.conversation.id,
+          ...(this.config.fitGroqChannelHistory ? { fitGroqChannelHistory: true } : {}),
         },
       };
 

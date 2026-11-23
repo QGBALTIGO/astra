@@ -852,6 +852,7 @@ export class OpenAICompatibleProvider implements IProvider {
           timeoutMs: timeout,
           controller,
           beforeFetch: () => this.assertBaseUrlSafe(),
+          fitChannelHistory: request.metadata?.fitGroqChannelHistory,
         });
         return {
           ...pooled,

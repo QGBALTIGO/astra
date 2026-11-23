@@ -23,6 +23,7 @@ const DEFAULT_MEMORY_CONFIG: Required<MemoryConfig> = {
   maxMessages: 100,
   maxTokens: 100000,
   summarize: false,
+  preserveLatestUserMessage: false,
   persistence: 'session',
 };
 
@@ -222,6 +223,7 @@ export class ConversationMemory {
       const only = kept.length === 1 ? kept[0] : undefined;
       if (
         only &&
+        !(this.config.preserveLatestUserMessage && only.role === 'user') &&
         typeof only.content === 'string' &&
         this.estimateTokens(only) > this.config.maxTokens
       ) {

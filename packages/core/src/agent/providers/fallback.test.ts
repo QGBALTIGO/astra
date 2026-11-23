@@ -760,6 +760,29 @@ describe('Astra multi-provider resilience', () => {
       expect(fallback.complete).toHaveBeenCalledTimes(3);
     }
   );
+  it.each(['quota', 'concurrency', 'cooldown', 'capacity'])(
+    'does not open a global circuit for local Groq %s admission',
+    async (reason) => {
+      const { provider, primary, fallback } = createTestProvider({
+        sharedCircuitBreaker: true,
+        circuitBreakerThreshold: 1,
+        primary: { provider: 'openai', apiKey: 'local-groq-' + reason },
+        fallbacks: [{ provider: 'anthropic', apiKey: 'backup-groq-' + reason }],
+      });
+      primary.complete.mockResolvedValueOnce(
+        err(new InternalError('Groq API error: 429 - Groq local admission ' + reason + '. Please try again in 2s'))
+      );
+      expect((await provider.complete(dummyRequest)).ok).toBe(true);
+      primary.complete.mockResolvedValueOnce(
+        ok({ content: 'smaller request admitted', finishReason: 'stop', usage: {} })
+      );
+      const result = await provider.complete(dummyRequest);
+      expect(result.ok && result.value.content).toBe('smaller request admitted');
+      expect(primary.complete).toHaveBeenCalledTimes(2);
+      expect(fallback.complete).toHaveBeenCalledTimes(1);
+    }
+  );
+
   it.each([false, true])(
     'does not accept a truncated completion or poison provider health (shared=%s)',
     async (sharedCircuitBreaker) => {

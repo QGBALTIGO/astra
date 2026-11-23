@@ -75,3 +75,76 @@ export function applyGroqRequestBudget(
   const adjustedBody = JSON.stringify(next);
   return { body: adjustedBody, request: groqPoolRequestFacts(adjustedBody) };
 }
+
+/**
+ * Transport-only compaction for opted-in customer conversations.
+ *
+ * Preserve all leading system messages, the previous user turn, and the
+ * complete active turn including every assistant tool call and tool receipt.
+ * Only remove an older turn if its tool-call/result pairs are complete and
+ * it ended with an assistant answer. Never truncate user text, tool schemas,
+ * or receipts. If the protected context still cannot fit, keep the original
+ * request so the normal provider fallback receives all available context.
+ */
+export function fitGroqChannelHistory(body: string, limit: number): string {
+  const fits = (candidate: string): boolean => {
+    const { request } = applyGroqRequestBudget(candidate, limit);
+    return request.requestTokensApprox + request.maxOutputTokens <= limit;
+  };
+  if (!Number.isFinite(limit) || limit <= 0 || fits(body)) return body;
+
+  try {
+    const payload = JSON.parse(body) as Record<string, unknown>;
+    if (!payload || !Array.isArray(payload.messages)) return body;
+    const messages = payload.messages as Array<Record<string, unknown>>;
+    if (messages.some((message) => !message || typeof message !== 'object')) return body;
+    const firstUser = messages.findIndex((message) => message.role === 'user');
+    if (firstUser < 0) return body;
+    const leading = messages.slice(0, firstUser);
+    if (leading.some((message) => message.role !== 'system')) return body;
+    if (
+      messages
+        .slice(firstUser)
+        .some((message) => !['user', 'assistant', 'tool'].includes(String(message.role)))
+    )
+      return body;
+    const starts = messages.flatMap((message, index) => (message.role === 'user' ? [index] : []));
+    if (starts.length < 3) return body;
+
+    // Only complete, structurally valid historical turns may be omitted.
+    const complete = (turn: Array<Record<string, unknown>>): boolean => {
+      const last = turn.at(-1);
+      if (last?.role !== 'assistant' || last.tool_calls) return false;
+      const pending = new Set<string>();
+      for (const message of turn) {
+        if (message.role === 'assistant') {
+          if (pending.size) return false;
+          if (message.tool_calls !== undefined) {
+            if (!Array.isArray(message.tool_calls)) return false;
+            for (const call of message.tool_calls) {
+              const id = call?.id;
+              if (typeof id !== 'string' || !id || pending.has(id)) return false;
+              pending.add(id);
+            }
+          }
+        } else if (message.role === 'tool') {
+          if (typeof message.tool_call_id !== 'string' || !pending.delete(message.tool_call_id))
+            return false;
+        }
+      }
+      return pending.size === 0;
+    };
+
+    for (let index = 1; index <= starts.length - 2; index++) {
+      if (!complete(messages.slice(starts[index - 1], starts[index]))) break;
+      const candidate = JSON.stringify({
+        ...payload,
+        messages: [...leading, ...messages.slice(starts[index])],
+      });
+      if (fits(candidate)) return candidate;
+    }
+  } catch {
+    // Leave malformed or unsupported payloads to existing transport validation.
+  }
+  return body;
+}
