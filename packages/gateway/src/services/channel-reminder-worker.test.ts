@@ -74,12 +74,25 @@ describe('ChannelReminderWorker', () => {
       getPlatform: () => 'telegram',
       getStatus: () => 'connected',
     });
-    mock.findByPlatform.mockResolvedValue(null);
+    mock.findByPlatform.mockImplementation(async (platform, platformUserId) =>
+      platform === 'telegram' && platformUserId === 'test-chat-not-user-or-plugin'
+        ? {
+            platform,
+            platformUserId,
+            ownpilotUserId: 'default',
+            isVerified: true,
+            isBlocked: false,
+            status: 'active',
+          }
+        : null
+    );
     mock.getAccount.mockResolvedValue(null);
     mock.resolvePhone.mockResolvedValue(null);
     mock.deferDisconnected.mockResolvedValue(undefined);
     mock.deferProvenNotSent.mockResolvedValue(true);
-    mock.owner.mockResolvedValue(null);
+    mock.owner.mockImplementation(async (platform) =>
+      platform === 'telegram' ? 'test-chat-not-user-or-plugin' : null
+    );
   });
   afterEach(() => {
     stopChannelReminderWorker();
@@ -102,6 +115,25 @@ describe('ChannelReminderWorker', () => {
       'current-lease'
     );
     expect(mock.markFailed).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    null,
+    { ownpilotUserId: 'other-account', isVerified: true, isBlocked: false, status: 'active' },
+    { ownpilotUserId: 'default', isVerified: false, isBlocked: false, status: 'active' },
+    { ownpilotUserId: 'default', isVerified: true, isBlocked: true, status: 'active' },
+  ])('does not deliver a reminder to a missing, relinked or revoked Telegram identity', async (user) => {
+    mock.findByPlatform.mockResolvedValue(user);
+    mock.claimDue.mockResolvedValue([makeReminder('relinked-telegram')]);
+    expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 0, failed: 1 });
+    expect(mock.beginDelivery).not.toHaveBeenCalled();
+    expect(mock.send).not.toHaveBeenCalled();
+    expect(mock.markFailed).toHaveBeenCalledWith(
+      'relinked-telegram',
+      5,
+      'channel_access_inactive',
+      'current-lease'
+    );
   });
 
   it('holds an ambiguous transport failure without claiming delivery', async () => {

@@ -11,6 +11,7 @@ import {
 } from '../db/repositories/channel-reminders.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDateTime, validCalendarDay } from '../services/customer-date.js';
+import { parseRelativeReminderRequest } from '../channels/relative-reminder.js';
 import {
   parseAbsoluteReminderRequest,
   resolveAbsoluteReminderLocalDateTime,
@@ -323,6 +324,30 @@ export async function executeChannelReminderTool(
 
   const now = Date.now();
   const explicit = parseAbsoluteReminderRequest(ctx.channelRequestText ?? '');
+  const relative = parseRelativeReminderRequest(ctx.channelRequestText ?? '');
+  if (!rescheduling && relative?.kind === 'invalid') {
+    return { success: false, error: relative.message };
+  }
+  if (!rescheduling && relative?.kind === 'valid') {
+    const seconds = hasSeconds
+      ? Number(args.delay_seconds)
+      : hasMinutes
+        ? Number(args.delay_minutes) * 60
+        : undefined;
+    const reference = ctx.channelMessageTimestamp ?? now;
+    const matches =
+      Number.isFinite(reference) &&
+      reference <= now &&
+      (seconds !== undefined
+        ? seconds === relative.delaySeconds
+        : Math.abs(remindAt.getTime() - (reference + relative.delaySeconds * 1_000)) < 1_000);
+    if (!matches) {
+      return {
+        success: false,
+        error: 'O prazo do lembrete precisa corresponder ao informado pelo usuário.',
+      };
+    }
+  }
   if (!rescheduling && explicit) {
     try {
       const receivedAt = ctx.channelMessageTimestamp ?? now;

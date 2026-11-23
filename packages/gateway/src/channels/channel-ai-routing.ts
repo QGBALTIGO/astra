@@ -630,7 +630,9 @@ export async function processViaBus(
 
   const reminderReply = message.attachments?.length
     ? null
-    : await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId);
+    : (await canProcessChannelMessage(message, deps.isAccessAllowed))
+      ? await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId)
+      : INACTIVE_CHANNEL_ACCESS_REPLY;
   if (reminderReply) return reminderReply;
 
   const expenseReply = message.attachments?.length
@@ -938,7 +940,9 @@ export async function processDirectAgent(
 
   const reminderReply = message.attachments?.length
     ? null
-    : await tryScheduleRelativeChannelReminder(message, userId);
+    : (await canProcessChannelMessage(message, isAccessAllowed))
+      ? await tryScheduleRelativeChannelReminder(message, userId)
+      : INACTIVE_CHANNEL_ACCESS_REPLY;
   if (reminderReply) return reminderReply;
 
   const expenseReply = message.attachments?.length

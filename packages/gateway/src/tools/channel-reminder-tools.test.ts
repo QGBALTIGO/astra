@@ -47,7 +47,7 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
     fixtures.ctx.platformChatId = 'chat-123';
     fixtures.ctx.channelMessageId = 'message-123';
     fixtures.ctx.channelMessageTimestamp = undefined;
-    fixtures.ctx.channelRequestText = 'Me lembre daqui 20 segundos de verificar o teste';
+    fixtures.ctx.channelRequestText = 'Me lembre de verificar o teste quando der 17h';
     clearChannelReminderRequests();
     fixtures.schedule.mockImplementation(async (input) => ({
       id: 'reminder-123',
@@ -154,7 +154,40 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
     expect(fixtures.schedule).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { delay_seconds: 30 },
+    { delay_minutes: 20 },
+    { local_datetime: '2026-11-23T18:00' },
+  ])('rejects a model deadline different from the customer duration: %j', async (deadline) => {
+    vi.setSystemTime(new Date('2026-11-23T20:22:00Z'));
+    fixtures.ctx.channelRequestText = 'Me lembre de verificar o teste daqui 20 segundos';
+    fixtures.ctx.channelMessageTimestamp = Date.now();
+    const result = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'verificar o teste', ...deadline },
+      'customer-a'
+    );
+    expect(result.success).toBe(false);
+    expect(fixtures.schedule).not.toHaveBeenCalled();
+  });
+
+  it('accepts the exact duration from a terse request and retains receipt time', async () => {
+    vi.setSystemTime(new Date('2026-11-23T20:22:04Z'));
+    fixtures.ctx.channelRequestText = 'Lembrete em 20 segundos, verificar o teste';
+    fixtures.ctx.channelMessageTimestamp = Date.now() - 4_000;
+    const result = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'verificar o teste', delay_seconds: 20 },
+      'customer-a'
+    );
+    expect(result.success).toBe(true);
+    expect(fixtures.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({ remindAt: new Date('2026-11-23T20:22:20Z') })
+    );
+  });
+
   it('reconciles a committed insert after its response is lost without another write', async () => {
+    fixtures.ctx.channelRequestText = 'Me lembre daqui 20 segundos de verificar o teste';
     fixtures.schedule.mockRejectedValueOnce(new Error('Connection lost after commit'));
     fixtures.getByDedupeKeyForChat.mockResolvedValueOnce({
       id: 'original-reminder',

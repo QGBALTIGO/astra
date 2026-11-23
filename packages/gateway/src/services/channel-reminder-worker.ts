@@ -86,6 +86,42 @@ export async function dispatchDueChannelReminders(): Promise<{
           // number change without changing the immutable data identity.
           platformChatId = phone;
         }
+        if (api.getPlatform() === 'telegram') {
+          const recipient = await channelUsersRepo.findByPlatform('telegram', entry.platformChatId);
+          const owner = await getOwnerUserId('telegram');
+          let allowed =
+            Boolean(recipient?.isVerified) &&
+            !recipient?.isBlocked &&
+            recipient?.status === 'active' &&
+            recipient.ownpilotUserId === entry.userId;
+          if (allowed && owner !== entry.platformChatId) {
+            const linked = account ?? (await customerAccountsRepo.getByDataUserId(entry.userId));
+            const phone = linked?.phoneNumber;
+            if (!phone) {
+              allowed = false;
+            } else {
+              const [identity, whatsappUser] = await Promise.all([
+                resolveCustomerPhone(phone),
+                channelUsersRepo.findByPlatform('whatsapp', phone),
+              ]);
+              allowed =
+                Boolean(identity?.isCurrent && !identity.retired && identity.dataUserId === entry.userId) &&
+                whatsappUser?.ownpilotUserId === 'whatsapp:' + phone &&
+                isChannelUserAccessActive(whatsappUser);
+            }
+          }
+          if (!allowed) {
+            await channelRemindersRepo.markFailed(
+              entry.id,
+              5,
+              'channel_access_inactive',
+              entry.leaseToken
+            );
+            failed++;
+            log.info('Lembrete retido por acesso inativo', { reminderId: entry.id });
+            continue;
+          }
+        }
         if (api.getStatus() !== 'connected') {
           await channelRemindersRepo.deferDisconnected(entry.id, entry.leaseToken);
           continue;
