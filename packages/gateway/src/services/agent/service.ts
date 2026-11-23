@@ -1003,6 +1003,7 @@ async function createChatAgentInstance(
                 circuitBreakerThreshold: 1,
                 circuitBreakerCooldown: 300_000,
                 sharedCircuitBreaker: true,
+                balanceConcurrentLoad: true,
                 preferLastSuccessful: !hasLocalReserve,
                 completionTimeoutMs:
                   hasLocalReserve || provider === 'ollama-local'

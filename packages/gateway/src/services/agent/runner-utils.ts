@@ -310,8 +310,16 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
       const fallbacks = limitAstraFallbacks(configuredFallbacks, (candidate) => candidate.id);
       if (fallbacks.length > 0) {
         providerInstance = createFallbackProvider({
-          primary: { ...agentProviderConfig, id: opts.provider, maxRetries: 0 },
+          primary: {
+            ...agentProviderConfig,
+            id: opts.provider,
+            defaultModel: { model: opts.model },
+            maxRetries: 0,
+          },
           fallbacks,
+          sharedCircuitBreaker: true,
+          circuitBreakerThreshold: 1,
+          circuitBreakerCooldown: 300_000,
           onFallback: (failed, _error, next) => {
             // Never log error bodies; some upstream APIs echo private messages.
             log.warn(`[${opts.name}] AI failover: ${String(failed)} -> ${String(next)}`);

@@ -47,6 +47,7 @@ interface CircuitBreakerEntry {
   state: CircuitState;
   failureCount: number;
   failureVersion: number;
+  inFlight: number;
   lastFailureTime: number;
   lastSuccessTime: number;
   reopenAt?: number;
@@ -119,6 +120,8 @@ export interface FallbackProviderConfig {
   /** Opt-in shared provider/model/credential health for channel agents. */
   sharedCircuitBreaker?: boolean;
   preferLastSuccessful?: boolean;
+  /** Prefer less occupied healthy cloud routes during concurrent requests. */
+  balanceConcurrentLoad?: boolean;
   /** Deadline for one completion or stream including all fallback attempts. */
   completionTimeoutMs?: number;
   /** Callback when fallback is triggered */
@@ -215,6 +218,7 @@ export class FallbackProvider implements IProvider {
         state: 'closed',
         failureCount: 0,
         failureVersion: 0,
+        inFlight: 0,
         lastFailureTime: 0,
         lastSuccessTime: 0,
       };
@@ -250,7 +254,12 @@ export class FallbackProvider implements IProvider {
       circuit.probeUntil = attemptDeadline;
       log.info(`CircuitBreaker ${provider.type}: allowing one recovery probe`);
     }
+    circuit.inFlight++;
+    let finished = false;
     const finish = () => {
+      if (finished) return;
+      finished = true;
+      circuit.inFlight--;
       signal?.removeEventListener('abort', finish);
       if (probeToken && circuit.probeToken === probeToken) {
         // Cancellation, a request-specific error or an early consumer return
@@ -318,6 +327,13 @@ export class FallbackProvider implements IProvider {
       /\brequest_too_large: groq_local_admission\b/i.test(error?.message ?? '')
     )
       return;
+    // A busy local concurrency gate is not a remote quota or outage. In
+    // particular, a customer's next request may fit as soon as a lease ends.
+    if (
+      status === '429' &&
+      /\bGroq local admission (?:concurrency|capacity)\b/i.test(error?.message ?? '')
+    )
+      return;
     if (
       this.config.sharedCircuitBreaker &&
       error &&
@@ -382,6 +398,31 @@ export class FallbackProvider implements IProvider {
         )
       : entries;
   }
+  private preferCapacity<T extends { origIndex: number; provider: IProvider }>(
+    entries: T[]
+  ): T[] {
+    if (!this.config.balanceConcurrentLoad || this.orderedConfigs[0]?.id === 'ollama-local')
+      return entries;
+    const now = Date.now();
+    const rank = (entry: T): number => {
+      if (this.orderedConfigs[entry.origIndex]?.id === 'ollama-local') return 3;
+      const circuit = this.getCircuit(entry.provider);
+      if (circuit.state === 'closed') return 1;
+      if (
+        (circuit.state === 'open' &&
+          now >= (circuit.reopenAt ?? circuit.lastFailureTime + this.cooldownMs)) ||
+        (circuit.state === 'half-open' && now >= (circuit.probeUntil ?? 0))
+      )
+        return 0; // Give recovered cloud routes a bounded circuit probe.
+      return 2;
+    };
+    return entries.sort(
+      (a, b) =>
+        rank(a) - rank(b) ||
+        this.getCircuit(a.provider).inFlight - this.getCircuit(b.provider).inFlight
+    );
+  }
+
   private requestContext(request: CompletionRequest) {
     const controller = new AbortController();
     this.activeRequests.add(controller);
@@ -518,10 +559,12 @@ export class FallbackProvider implements IProvider {
     // Keep each provider's ORIGINAL index (into orderedConfigs) through the
     // readiness filter, so the per-fallback model swap maps to the right config
     // even when some providers are filtered out.
-    const providers = this.preferHealthy(
-      this.getAllProviders()
-        .map((provider, origIndex) => ({ provider, origIndex }))
-        .filter((e) => e.provider.isReady())
+    const providers = this.preferCapacity(
+      this.preferHealthy(
+        this.getAllProviders()
+          .map((provider, origIndex) => ({ provider, origIndex }))
+          .filter((e) => e.provider.isReady())
+      )
     );
 
     if (providers.length === 0) {
@@ -692,10 +735,12 @@ export class FallbackProvider implements IProvider {
     request: CompletionRequest
   ): AsyncGenerator<Result<StreamChunk, InternalError>, void, unknown> {
     request.signal?.throwIfAborted();
-    const providers = this.preferHealthy(
-      this.getAllProviders()
-        .map((provider, origIndex) => ({ provider, origIndex }))
-        .filter((e) => e.provider.isReady())
+    const providers = this.preferCapacity(
+      this.preferHealthy(
+        this.getAllProviders()
+          .map((provider, origIndex) => ({ provider, origIndex }))
+          .filter((e) => e.provider.isReady())
+      )
     );
 
     if (providers.length === 0) {
