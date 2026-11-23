@@ -1119,6 +1119,100 @@ try {
       assert.deepEqual(await readState(), previous);
     }
   );
+  await check(
+    'explicit clock and relative reminder variations persist with real PostgreSQL and no model in both channels',
+    async () => {
+      const { customerLocalDay, addCalendarDays } = await import('../src/services/customer-date.js');
+      const timeZone = 'America/Campo_Grande';
+      for (const customer of [first, second]) {
+        const account = await customerAccountsRepo.getByDataUserId(customer.userId);
+        assert.ok(account);
+        await customerAccountsRepo.updateProfile(account.id, { timeZone });
+      }
+      const receivedAt = new Date();
+      const tomorrow = addCalendarDays(customerLocalDay(receivedAt, timeZone), 1);
+      const expectedClock = new Date(tomorrow + 'T17:00:00-04:00');
+      const scenarios = [
+        {
+          text: 'Me lembra de cancelar o seguro do gol amanhã às 17h',
+          title: 'cancelar o seguro do gol',
+          at: expectedClock,
+        },
+        {
+          text: 'Lembrete amanhã as 17h, seguro do gol',
+          title: 'seguro do gol',
+          at: expectedClock,
+        },
+        {
+          text: 'Me lembre de enviar e-mail ao contador amanhã às 17',
+          title: 'enviar e-mail ao contador',
+          at: expectedClock,
+        },
+        {
+          text: 'Me lembre de conferir o forno daqui meia hora',
+          title: 'conferir o forno',
+          at: new Date(receivedAt.getTime() + 30 * 60_000),
+        },
+      ];
+      for (const platform of ['whatsapp', 'telegram'] as const) {
+        for (const path of ['bus', 'direct'] as const) {
+          const plugin = 'channel.' + platform + '.screenshot-smoke';
+          for (const [index, scenario] of scenarios.entries()) {
+            for (const customer of [first, second]) {
+              const read = () =>
+                channelRemindersRepo.listForChat(customer.userId, plugin, customer.phone);
+              const before = new Set((await read()).map((row) => row.id));
+              const message: ChannelIncomingMessage = {
+                ...incoming(
+                  customer,
+                  scenario.text,
+                  'explicit-clock-' + platform + '-' + path + '-' + index,
+                  receivedAt
+                ),
+                platform,
+                channelPluginId: plugin,
+                sender: { platform, platformUserId: customer.phone },
+                metadata: platform === 'telegram' ? { chatType: 'private' } : { isGroup: false },
+              };
+              const reply = await invoke(path, customer, message);
+              assert.match(reply, /✅ \*Lembrete agendado\*/);
+              assert.ok(reply.includes(scenario.title));
+              const saved = (await read()).filter((row) => !before.has(row.id));
+              assert.equal(saved.length, 1);
+              const row = saved[0]!;
+              assert.equal(row.title, scenario.title);
+              assert.equal(row.userId, customer.userId);
+              assert.equal(row.platformChatId, customer.phone);
+              assert.equal(row.channelPluginId, plugin);
+              assert.equal(row.remindAt.getTime(), scenario.at.getTime());
+              assert.equal(row.status, 'pending');
+              await Promise.all([
+                invoke('bus', customer, message),
+                invoke('direct', customer, message),
+                invoke(path, customer, message),
+              ]);
+              assert.equal((await read()).filter((item) => !before.has(item.id)).length, 1);
+              const other = customer === first ? second : first;
+              assert.ok(
+                !(await channelRemindersRepo.listForChat(other.userId, plugin, other.phone)).some(
+                  (entry) => entry.id === row.id
+                )
+              );
+              assert.equal(
+                await channelRemindersRepo.cancel(row.id, customer.userId, plugin, customer.phone),
+                true
+              );
+            }
+          }
+        }
+      }
+      // Do not invent a new day or report success for an impossible calendar date.
+      const bad = incoming(first, 'Me lembre de pagar dia 31/02 às 17h', 'invalid-explicit-date');
+      const count = (await reminders(first)).length;
+      assert.match(await invoke('bus', first, bad), /data não existe/);
+      assert.equal((await reminders(first)).length, count);
+    }
+  );
   assert.equal(llmFallbacks, 0, 'Screenshot requests escaped to an LLM fallback');
   assert.equal(networkCalls, 0, 'Screenshot requests attempted external HTTP');
   console.log(`PASS ${checks} PostgreSQL screenshot scenarios; zero LLM or external HTTP calls`);
