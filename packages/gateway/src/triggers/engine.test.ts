@@ -233,6 +233,146 @@ describe('TriggerEngine', () => {
     });
   });
 
+  describe('legacy Daily Goal Check (AI-independent)', () => {
+    function legacyGoalChat(overrides: Partial<Trigger> = {}): Trigger {
+      return makeTrigger({
+        name: 'Daily Goal Check',
+        type: 'schedule',
+        action: {
+          type: 'chat',
+          payload: { prompt: 'Check the progress of my goals tonight.' },
+        },
+        ...overrides,
+      });
+    }
+
+    it('checks zero active goals without invoking the LLM or an outbound tool', async () => {
+      const ai = vi.fn().mockResolvedValue('This must not be called');
+      engine.setChatHandler(ai);
+      const trigger = legacyGoalChat();
+      mockTriggerService.getTrigger.mockResolvedValue(trigger);
+      mockGoalService.getActive.mockResolvedValue([]);
+
+      const result = await engine.fireTrigger(trigger.id);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        staleGoals: [],
+        mode: 'native_goal_check',
+      });
+      expect(mockGoalService.getActive).toHaveBeenCalledWith('default', 100);
+      expect(ai).not.toHaveBeenCalled();
+      expect(mockExecuteTool).not.toHaveBeenCalled();
+      expect(mockTriggerService.logExecution).toHaveBeenCalledWith(
+        'default',
+        trigger.id,
+        trigger.name,
+        'success',
+        expect.objectContaining({ mode: 'native_goal_check' }),
+        undefined,
+        expect.any(Number)
+      );
+    });
+
+    it('checks stale goals deterministically when goals exist', async () => {
+      const ai = vi.fn().mockRejectedValue(new Error('All AI providers are rate limited'));
+      engine.setChatHandler(ai);
+      const oldDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+      mockGoalService.getActive.mockResolvedValue([
+        { id: 'old-goal', title: 'Workout', updatedAt: oldDate },
+        { id: 'new-goal', title: 'Language study', updatedAt: new Date() },
+      ]);
+      mockTriggerService.getTrigger.mockResolvedValue(legacyGoalChat());
+
+      const result = await engine.fireTrigger('trigger-1');
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        mode: 'native_goal_check',
+        staleGoals: [{ id: 'old-goal', title: 'Workout' }],
+      });
+      expect(ai).not.toHaveBeenCalled();
+    });
+
+    it('retains the next daily fire schedule even when the goal list is empty', async () => {
+      const trigger = legacyGoalChat();
+      mockGoalService.getActive.mockResolvedValue([]);
+      mockTriggerService.getDueTriggers.mockResolvedValueOnce([trigger]).mockResolvedValue([]);
+      const processSchedule = engine as unknown as {
+        processScheduleTriggers: () => Promise<void>;
+      };
+
+      await processSchedule.processScheduleTriggers();
+
+      expect(mockTriggerService.markFired).toHaveBeenCalledWith(
+        'default',
+        trigger.id,
+        expect.any(String)
+      );
+      expect(mockTriggerService.logExecution).toHaveBeenCalledWith(
+        'default',
+        trigger.id,
+        trigger.name,
+        'success',
+        expect.objectContaining({ mode: 'native_goal_check' }),
+        undefined,
+        expect.any(Number)
+      );
+    });
+
+    it('logs a real failure when the goals database cannot be read', async () => {
+      mockTriggerService.getTrigger.mockResolvedValue(legacyGoalChat());
+      mockGoalService.getActive.mockRejectedValueOnce(new Error('Postgres unavailable'));
+
+      const result = await engine.fireTrigger('trigger-1');
+
+      expect(result.success).toBe(false);
+      expect(mockTriggerService.logExecution).toHaveBeenCalledWith(
+        'default',
+        'trigger-1',
+        'Daily Goal Check',
+        'failure',
+        undefined,
+        expect.stringContaining('Postgres unavailable'),
+        expect.any(Number)
+      );
+    });
+
+    it('preserves all other scheduled chat automations', async () => {
+      const ai = vi.fn().mockResolvedValue('Finished task review');
+      engine.setChatHandler(ai);
+      mockTriggerService.getTrigger.mockResolvedValue(
+        legacyGoalChat({ name: 'Daily Task Check' })
+      );
+
+      const result = await engine.fireTrigger('trigger-1');
+
+      expect(result.success).toBe(true);
+      expect(ai).toHaveBeenCalledTimes(1);
+    });
+
+    it('respects an explicit owner request to keep AI goal analysis', async () => {
+      const ai = vi.fn().mockResolvedValue('Analyzed goals');
+      engine.setChatHandler(ai);
+      mockTriggerService.getTrigger.mockResolvedValue(
+        legacyGoalChat({
+          action: {
+            type: 'chat',
+            payload: {
+              prompt: 'Analyze my goals with AI',
+              goalCheckUseAI: true,
+            },
+          },
+        })
+      );
+
+      const result = await engine.fireTrigger('trigger-1');
+
+      expect(result.success).toBe(true);
+      expect(ai).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('memory_summary action', () => {
     it('returns memory stats', async () => {
       const trigger = makeTrigger({
