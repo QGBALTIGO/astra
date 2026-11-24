@@ -31,7 +31,11 @@ export function observeProvider(provider: IProvider, config: ProviderConfig): IP
               request,
               start,
               result.ok
-                ? { outcome: 'success', reportedModel: result.value.model, usage: result.value.usage }
+                ? {
+                    outcome: 'success',
+                    reportedModel: result.value.model,
+                    usage: result.value.usage,
+                  }
                 : { outcome: 'error' }
             );
             return result;

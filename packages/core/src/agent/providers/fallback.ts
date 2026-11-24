@@ -398,9 +398,7 @@ export class FallbackProvider implements IProvider {
         )
       : entries;
   }
-  private preferCapacity<T extends { origIndex: number; provider: IProvider }>(
-    entries: T[]
-  ): T[] {
+  private preferCapacity<T extends { origIndex: number; provider: IProvider }>(entries: T[]): T[] {
     if (!this.config.balanceConcurrentLoad || this.orderedConfigs[0]?.id === 'ollama-local')
       return entries;
     const now = Date.now();
