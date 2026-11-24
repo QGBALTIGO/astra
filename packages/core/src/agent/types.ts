@@ -413,6 +413,8 @@ export interface ModelConfig {
  * Provider configuration
  */
 export interface ProviderConfig {
+  /** Internal observer for concrete provider invocations (not serialized to the API). */
+  readonly onInferenceAttempt?: (event: InferenceAttempt) => void;
   /** Provider ID (matches the provider field, for openai-compatible routing) */
   readonly id?: string;
   /** Provider type */
@@ -512,6 +514,16 @@ export interface TokenUsage {
   readonly totalTokens: number;
   /** Cached tokens (if applicable) */
   readonly cachedTokens?: number;
+}
+
+/** A concrete provider invocation; missing token counts are unknown, not zero. */
+export interface InferenceAttempt {
+  readonly provider: string;
+  readonly requestedModel: string;
+  readonly reportedModel?: string;
+  readonly usage?: TokenUsage;
+  readonly outcome: 'success' | 'error' | 'interrupted';
+  readonly latencyMs: number;
 }
 
 /**

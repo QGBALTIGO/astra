@@ -781,6 +781,39 @@ describe('TriggerEngine', () => {
   // ========================================================================
 
   describe('schedule trigger processing', () => {
+    it('leaves AI schedules due while customer requests occupy the channel', async () => {
+      const { runChannelAIWork } = await import('../channels/channel-ai-admission.js');
+      let release!: () => void;
+      const blocker = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const channel = runChannelAIWork('scheduler-priority-test', () => blocker);
+      const trigger = makeTrigger({
+        id: 'deferred-chat',
+        action: { type: 'chat', payload: { message: 'Scheduled AI task' } },
+      });
+      const native = makeTrigger({
+        id: 'native-notification',
+        action: { type: 'notification', payload: { message: 'Reminder' } },
+      });
+      mockTriggerService.getDueTriggers.mockResolvedValueOnce([trigger, native]);
+      const scheduler = engine as unknown as {
+        processScheduleTriggers: () => Promise<void>;
+      };
+      try {
+        await scheduler.processScheduleTriggers();
+        expect(mockTriggerService.markFired).not.toHaveBeenCalledWith(
+          'default',
+          trigger.id,
+          expect.anything()
+        );
+        expect(mockTriggerService.logExecution).toHaveBeenCalledTimes(1);
+      } finally {
+        release();
+        await channel;
+      }
+    });
+
     it('processScheduleTriggers gets due triggers and executes each', async () => {
       const trigger1 = makeTrigger({ id: 't1', name: 'Trigger 1' });
       const trigger2 = makeTrigger({ id: 't2', name: 'Trigger 2' });

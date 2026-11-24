@@ -2107,6 +2107,42 @@ describe('ChannelServiceImpl', () => {
         }
       );
 
+      it.each(['Qual o valor da sua assinatura?', 'Quanto custa seu serviço', 'Quero assinar'])(
+        'answers a sales question before creating an AI session: %s',
+        async (text) => {
+          customer = {
+            ...customer,
+            isVerified: true,
+            status: 'active',
+            firstInteraction: false,
+            accessSource: 'trial',
+            accessExpiresAt: new Date('2099-01-01T16:00:00Z'),
+            metadata: {
+              hasInteracted: true,
+              accessWelcomePending: false,
+              astraAccessNotices: { firstAuthorized: true },
+              astraTrialReferral: 'julio',
+            },
+          };
+          message.text = text;
+          mockMessagesRepo.createIfNew.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+          await service.processIncomingMessage(message);
+          await service.processIncomingMessage(message);
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledOnce();
+          expect(channelPlugin.api.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+              text: expect.stringContaining('R$ 19,90/mês'),
+              urlButton: {
+                label: 'Assinar o Astra',
+                url: 'https://pay.cakto.com.br/CubL455?affiliate=oYTQCyX6',
+              },
+            })
+          );
+          expect(mockSessionsRepo.findActive).not.toHaveBeenCalled();
+          expect(mockGetOrCreateChatAgent).not.toHaveBeenCalled();
+        }
+      );
+
       const onboardingOnlyInteractions = [
         { kind: 'sticker', text: '' },
         { kind: 'contact', text: '[Contato compartilhado]' },

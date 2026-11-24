@@ -11,6 +11,7 @@ export { BaseProvider } from './base-provider.js';
 
 import type { ModelConfig as AgentModelConfig, ProviderConfig } from './types.js';
 import type { IProvider } from './provider-types.js';
+import { observeProvider } from './providers/observe-provider.js';
 import { OpenAIProvider } from './providers/openai-provider.js';
 import { AnthropicProvider } from './providers/anthropic-provider.js';
 import { GoogleProvider } from './providers/google.js';
@@ -116,6 +117,11 @@ function openAICompatibleConfig(config: ProviderConfig): ResolvedProviderConfig 
  * Create a provider instance based on configuration
  */
 export function createProvider(config: ProviderConfig): IProvider {
+  const provider = createRawProvider(config);
+  return config.onInferenceAttempt ? observeProvider(provider, config) : provider;
+}
+
+function createRawProvider(config: ProviderConfig): IProvider {
   switch (config.provider) {
     case 'openai':
       return new OpenAIProvider(config);
