@@ -74,6 +74,7 @@ import {
 } from '../db/repositories/channel-access-inbound-notices.js';
 import { channelAccessNotificationsRepo } from '../db/repositories/channel-access-notifications.js';
 import { buildAccessMessage } from './channel-access-messages.js';
+import { astraCommercialReply } from './astra-commercial.js';
 import { getWhatsAppAccessMessageSettings } from './channel-access-message-settings.js';
 import { resolveCustomerPhone } from '../services/customer-identity.js';
 import { resolveInboundWhatsAppSpelling } from './whatsapp-inbound-identity.js';
@@ -1167,6 +1168,66 @@ export class ChannelServiceImpl implements IChannelService {
             channelUser,
             settings
           ),
+        });
+        return;
+      }
+
+      // Public purchase questions need neither a configured model nor a customer
+      // planning query. Run only after the existing durable inbound/access gates.
+      const commercial =
+        !message.attachments?.length && integrationPrivateChat(message)
+          ? astraCommercialReply(message.text, {
+              referral: channelUser.metadata.astraTrialReferral,
+              paidAccess: channelUser.accessSource === 'cakto',
+            })
+          : null;
+      if (commercial) {
+        const allowed =
+          message.platform === 'whatsapp'
+            ? await this.isWhatsAppAccessAllowed(message.sender.platformUserId, dataUserId)
+            : await this.isTelegramAccessAllowed(message.sender.platformUserId, dataUserId);
+        if (!allowed) return;
+        let sentId: string;
+        try {
+          sentId = await this.send(message.channelPluginId, {
+            platformChatId: message.platformChatId,
+            text: commercial.text,
+            ...(commercial.urlButton ? { urlButton: commercial.urlButton } : {}),
+            replyToId: message.id,
+          });
+        } catch {
+          // An uncertain send must not fall through to another reply or an AI call.
+          log.warn('Astra commercial reply delivery could not be confirmed');
+          return;
+        }
+        try {
+          await this.messagesRepo.create({
+            id: `${message.channelPluginId}:${sentId}`,
+            channelId: message.channelPluginId,
+            externalId: sentId,
+            direction: 'outbound',
+            senderId: 'assistant',
+            senderName: 'Assistant',
+            content: commercial.text,
+            contentType: 'text',
+            replyToId: message.id,
+            metadata: {
+              platformChatId: message.platformChatId,
+              dataUserId,
+              astraCommercialReply: true,
+            },
+          });
+        } catch {
+          log.warn('Could not persist Astra commercial reply');
+        }
+        wsGateway.broadcast('channel:message', {
+          id: `${message.channelPluginId}:${sentId}`,
+          channelId: message.channelPluginId,
+          channelType: message.platform,
+          sender: 'Assistant',
+          content: commercial.text,
+          timestamp: new Date().toISOString(),
+          direction: 'outgoing',
         });
         return;
       }

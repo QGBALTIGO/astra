@@ -39,6 +39,7 @@ import {
 } from './channel-failure.js';
 import { getLog } from '../services/log.js';
 import { tryAstraAccessReply } from './astra-access.js';
+import { astraCommercialReply } from './astra-commercial.js';
 import { channelPasswordAdvice } from './password-advice.js';
 import { financialCapabilityReply } from './financial-capabilities.js';
 import { tryAstraScopeReply, tryResetClarification } from './astra-scope.js';
@@ -451,6 +452,18 @@ function tryAuthorizedChannelShortcut(
     }
     observeChannelReminderRequest(userId, message);
     // Media captions cannot confirm a previous financial operation.
+    if (
+      !message.attachments?.length &&
+      ['whatsapp', 'telegram'].includes(message.platform) &&
+      message.metadata?.isGroup !== true
+    ) {
+      const commercial = astraCommercialReply(message.text);
+      if (commercial) {
+        expenseDuplicateGuard.observe(key, message.text);
+        forgetChannelReminderRequest(userId, message);
+        return commercial.text;
+      }
+    }
     const scopeReply = await tryAstraScopeReply(message.channelPluginId, message.text);
     if (scopeReply) return scopeReply;
     const resetQuestion = tryResetClarification(message.text);
