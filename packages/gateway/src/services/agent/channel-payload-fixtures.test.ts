@@ -46,11 +46,15 @@ vi.mock('./cache.js', async (original) => {
   f.memoryBudget = actual.computeMemoryMaxTokens;
   return {
     ...actual,
-    getProviderApiKey: async () => f.apiKey,
-    loadProviderConfig: () => ({
-      id: 'groq',
+    getProviderApiKey: async (provider: string) =>
+      provider === 'openrouter' ? 'synthetic-openrouter-key' : f.apiKey,
+    loadProviderConfig: (provider: string) => ({
+      id: provider,
       type: 'openai-compatible',
-      baseUrl: 'https://api.groq.com/openai/v1',
+      baseUrl:
+        provider === 'openrouter'
+          ? 'https://openrouter.ai/api/v1'
+          : 'https://api.groq.com/openai/v1',
     }),
     createApprovalCallback: () => async () => true,
   };
@@ -257,10 +261,13 @@ describe('real channel payload construction with entirely synthetic customer dat
     f.result = sample.result;
     f.selected = sample.tool;
     const requests: Array<Record<string, unknown>> = [];
+    const endpoints: string[] = [];
+    const largeReceipt = sample.name === 'expense-followup';
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (_input: unknown, init?: RequestInit) => {
+      vi.fn(async (input: unknown, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body));
+        endpoints.push(String(input));
         requests.push(body);
         const needsRead = Boolean(sample.tool) && requests.length === 1;
         return new Response(
@@ -292,7 +299,7 @@ describe('real channel payload construction with entirely synthetic customer dat
     const agent = await getOrCreateChatAgent(
       'groq',
       'openai/gpt-oss-20b',
-      undefined,
+      largeReceipt ? { provider: 'openrouter', model: 'openrouter/free' } : undefined,
       null,
       `synthetic-payload-${sample.name}`,
       undefined,
@@ -378,13 +385,32 @@ describe('real channel payload construction with entirely synthetic customer dat
     expect(requests).toHaveLength(sample.tool ? 2 : 1);
     if (sample.tool) expect((requests[1]!.tools as unknown[]).length).toBeGreaterThanOrEqual(5);
     expect(f.reads).toEqual(sample.tool ? [sample.tool] : []);
-    expect(requests.every((body) => measure(body).approximateTotalTokens < 5000)).toBe(true);
+    // The 20-row receipt is protected context; it cannot fit in the Groq
+    // allowance alongside the remaining schemas. The reserve must receive the
+    // full receipt without re-executing the read, not a silently truncated list.
+    if (largeReceipt) {
+      expect(endpoints[0]).toContain('api.groq.com');
+      expect(endpoints[1]).toContain('openrouter.ai');
+      expect(requests[1]!.model).toBe('openrouter/free');
+      const messages = requests[1]!.messages as Array<{ role: string; content?: string }>;
+      const receipt = messages.find((entry) => entry.role === 'tool');
+      expect(JSON.parse(receipt!.content!)).toEqual({ success: true, result: sample.result });
+    }
+    expect(
+      requests
+        .filter((_body, index) => endpoints[index]!.includes('api.groq.com'))
+        .every((body) => measure(body).approximateTotalTokens < 5000)
+    ).toBe(true);
     if (!sample.tool) expect(requests[0]).not.toHaveProperty('tools');
     exported.push({
       name: sample.name,
       synthetic: true,
       writes: 0,
-      requests: requests.map((body) => ({ body, stats: measure(body) })),
+      requests: requests.map((body, index) => ({
+        body,
+        stats: measure(body),
+        provider: endpoints[index]!.includes('api.groq.com') ? 'groq' : 'openrouter',
+      })),
     });
   });
 });

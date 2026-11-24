@@ -404,7 +404,7 @@ export class Agent {
           promptTokens: (totalUsage?.promptTokens ?? 0) + current.promptTokens,
           completionTokens: (totalUsage?.completionTokens ?? 0) + current.completionTokens,
           totalTokens: (totalUsage?.totalTokens ?? 0) + current.totalTokens,
-          ...((totalUsage?.cachedTokens !== undefined || current.cachedTokens !== undefined)
+          ...(totalUsage?.cachedTokens !== undefined || current.cachedTokens !== undefined
             ? { cachedTokens: (totalUsage?.cachedTokens ?? 0) + (current.cachedTokens ?? 0) }
             : {}),
         };

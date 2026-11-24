@@ -251,11 +251,7 @@ function hasConnectedAppSubject(input: string): boolean {
  * Compound, contextual, conditional and recurring requests keep normal routing.
  */
 function isSingleClockReminder(text: string): boolean {
-  const input = text
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .trim();
+  const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
   if (
     !/^(?:astra[,!]?\s+)?(?:por favor[, ]+)?(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar|lembrete)\b/u.test(
       input
