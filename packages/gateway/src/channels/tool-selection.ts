@@ -2,6 +2,7 @@ import { isAstraAccessAnswerRequested } from './astra-access.js';
 import { astraCommercialIntent } from './astra-commercial.js';
 import { hasChannelEmailSubject, isChannelEmailRequest } from './email-intent.js';
 import { isFinanceReadOnlyRequest, isNonExecutableFinanceCorrection } from './finance-intent.js';
+import { hasExplicitReminderTime, isConditionalNotificationRequest } from './reminder-request.js';
 
 /** Read saved subscription facts rather than searching payment transactions. */
 export function requiredChannelSubscriptionTool(text: string): string | undefined {
@@ -250,9 +251,34 @@ function hasConnectedAppSubject(input: string): boolean {
   );
 }
 
+/**
+ * A simple reminder's subject (pagar, enviar e-mail, consulta, etc.) is not an
+ * instruction to execute that action now. Expose only the relevant schema.
+ * Compound, contextual, conditional and recurring requests keep normal routing.
+ */
+function isSingleClockReminder(text: string): boolean {
+  const input = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+  if (
+    !/^(?:astra[,!]?\s+)?(?:por favor[, ]+)?(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar|lembrete)\b/u.test(
+      input
+    ) ||
+    !hasExplicitReminderTime(text) ||
+    isConditionalNotificationRequest(text) ||
+    /["“”«»;\n?]|\b(?:mas|ou|se|quando|caso|todo dia|todos os dias|diariamente|semanalmente|mensalmente|a cada|exemplo|hipotetico|nao agende|nao quero)\b/u.test(
+      input
+    ) ||
+    /\be\s+(?:tambem\s+)?(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)|registr[ae]|anot[ae]|salv[ae]|agend[ae]|crie|canc[ae]le|exclua|apague|pague|transfira|envie|mande|mostre|liste|consulte)\b/u.test(
+      input
+    )
+  )
+    return false;
+  return true;
+}
+
 /** Small native tool set per intent; discovery remains available for everything else. */
 export function channelToolsForMessage(text: string, previousText = ''): string[] {
   if (isConversationalOnlyChannelRequest(text)) return [];
+  if (isSingleClockReminder(text)) return ['core.schedule_channel_reminder'];
   // Explicit current subjects choose their own schemas. Old email/finance
   // replies must not attach unrelated action schemas to a new weather request.
   // Elliptical follow-ups still use recent conversation for intent resolution.

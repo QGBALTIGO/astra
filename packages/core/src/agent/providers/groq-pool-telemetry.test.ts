@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-const f = vi.hoisted(() => ({ warn: vi.fn(), debug: vi.fn() }));
-vi.mock('../../services/get-log.js', () => ({ getLog: () => ({ warn: f.warn, debug: f.debug }) }));
+const f = vi.hoisted(() => ({ warn: vi.fn(), debug: vi.fn(), info: vi.fn() }));
+vi.mock('../../services/get-log.js', () => ({
+  getLog: () => ({ warn: f.warn, debug: f.debug, info: f.info }),
+}));
 import {
   groqPoolFailureFacts,
   groqPoolRequestFacts,
   reportGroqPoolFailure,
+  reportGroqPoolQuota,
 } from './groq-pool-telemetry.js';
 import { fetchGroqPool } from './groq-key-pool.js';
 
@@ -35,6 +38,26 @@ const input = () => ({
     'Request too large for model openai/gpt-oss-20b in organization PRIVATE_ORG on tokens per minute (TPM): Limit 8000, Requested 12345. synthetic-private-key',
 });
 describe('sanitized numerical Groq diagnostics', () => {
+  it('samples actual quota headers without logging organization fingerprints, keys or content', () => {
+    f.info.mockClear();
+    const sample = {
+      ...input(),
+      group: 'PRIVATE_FINGERPRINT',
+      status: 200,
+      errorText: undefined,
+      requestTokenLimit: 5000,
+    };
+    reportGroqPoolQuota(sample);
+    reportGroqPoolQuota(sample);
+    expect(f.info).toHaveBeenCalledOnce();
+    expect(f.info).toHaveBeenCalledWith(
+      'Groq provider quota observed',
+      expect.objectContaining({ status: 200, tokenLimit: 8000, requestTokenLimit: 5000 })
+    );
+    const logs = JSON.stringify(f.info.mock.calls);
+    for (const forbidden of ['PRIVATE_FINGERPRINT', 'synthetic-private-key', 'PRIVATE_PROMPT'])
+      expect(logs).not.toContain(forbidden);
+  });
   it('records expected local backpressure at debug level without creating a transport incident', () => {
     f.warn.mockClear();
     f.debug.mockClear();

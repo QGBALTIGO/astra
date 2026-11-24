@@ -1,10 +1,11 @@
 /** Process-local transport health. Only hashes are retained; credentials stay in request scope. */
 import { createHash } from 'node:crypto';
 import { ignoreError } from '../../utils/ignore-error.js';
-import { reportGroqPoolFailure } from './groq-pool-telemetry.js';
+import { reportGroqPoolFailure, reportGroqPoolQuota } from './groq-pool-telemetry.js';
 import {
   applyGroqRequestBudget,
   getGroqEffectiveRequestTokenLimit,
+  fitGroqChannelHistory,
 } from './groq-request-budget.js';
 import {
   groqQuotaGroup,
@@ -195,6 +196,7 @@ export async function fetchGroqPool(input: {
   timeoutMs: number;
   controller: AbortController;
   beforeFetch?: () => Promise<void>;
+  fitChannelHistory?: boolean;
 }): Promise<GroqPoolResponse> {
   const { controller, keys, model } = input;
   const began = Date.now();
@@ -217,10 +219,11 @@ export async function fetchGroqPool(input: {
       // The original invalid body is still rejected normally; never log its contents.
     }
   }
-  // Fit the output allowance to both the operator's request cap and a complete
-  // organization minute, including admission's safety margin. This changes no
-  // messages or tools and never uses already-spent quota to shrink the answer.
+  // Fit only optional older historical turns on opted-in customer requests.
+  // The original provider request remains available to every fallback.
   const requestTokenLimit = getGroqEffectiveRequestTokenLimit();
+  if (input.fitChannelHistory && typeof body === 'string')
+    body = fitGroqChannelHistory(body, requestTokenLimit);
   const budgeted = applyGroqRequestBudget(body, requestTokenLimit);
   const options = { ...input.options, body: budgeted.body };
   const { request } = budgeted;
@@ -369,6 +372,18 @@ export async function fetchGroqPool(input: {
       }
       quotaLease.observe(response.headers);
       if (response.ok) {
+        reportGroqPoolQuota({
+          group: selected.group,
+          model,
+          keys,
+          request,
+          status: response.status,
+          attempt: attempted.size,
+          cooldownMs: 0,
+          elapsedMs: Date.now() - began,
+          headers: response.headers,
+          requestTokenLimit,
+        });
         lease.failures = 0;
         const exhausted = resetDelay(response.headers);
         if (exhausted)

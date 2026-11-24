@@ -69,6 +69,61 @@ async function provider() {
 }
 
 describe('Groq credential pool with the real fallback transport', () => {
+  it('fits an oversized channel history without losing the recent or current user turns', async () => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '5000');
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return response('Lembrete confirmado.');
+      })
+    );
+    const request: CompletionRequest = {
+      ...input('customer-history'),
+      metadata: { fitGroqChannelHistory: true, conversationId: 'customer-history' },
+      messages: [
+        { id: 'system', role: 'system', content: 'Use only confirmed facts.' },
+        { id: 'old-user', role: 'user', content: 'Previous request' },
+        { id: 'old-answer', role: 'assistant', content: 'x'.repeat(28_000) },
+        { id: 'recent-user', role: 'user', content: 'Previous subject' },
+        { id: 'recent-answer', role: 'assistant', content: 'Confirmed subject' },
+        { id: 'new-user', role: 'user', content: 'Me lembre às 17h' },
+      ],
+    };
+    expect((await (await provider()).complete(request)).ok).toBe(true);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]?.model).toBe('openai/gpt-oss-20b');
+    expect(bodies[0]?.messages).toEqual([
+      { role: 'system', content: 'Use only confirmed facts.' },
+      { role: 'user', content: 'Previous subject' },
+      { role: 'assistant', content: 'Confirmed subject' },
+      { role: 'user', content: 'Me lembre às 17h' },
+    ]);
+    expect(request.messages).toHaveLength(6);
+  });
+
+  it('passes the untouched active conversation to OpenRouter when the protected turn cannot fit', async () => {
+    vi.stubEnv('GROQ_MAX_REQUEST_TOKENS', '5000');
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return response('Resposta completa.');
+      })
+    );
+    const longMessage = 'a'.repeat(28_000);
+    const request: CompletionRequest = {
+      ...input(longMessage),
+      metadata: { fitGroqChannelHistory: true, conversationId: 'long-current-turn' },
+    };
+    expect((await (await provider()).complete(request)).ok).toBe(true);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]?.model).toBe('openrouter/free');
+    expect(bodies[0]?.messages).toEqual([{ role: 'user', content: longMessage }]);
+  });
+
   it('respects one shared Groq organization quota, then uses a private tool-capable OpenRouter route', async () => {
     const calls: Array<{ url: string; key: string; body: Record<string, unknown> }> = [];
     vi.stubGlobal(

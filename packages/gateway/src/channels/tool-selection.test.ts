@@ -450,3 +450,33 @@ describe('Conversational drafting and AI-only responses', () => {
     expect(channelToolsForMessage(input).length).toBeGreaterThan(0);
   });
 });
+
+describe('schema budgets for single explicit reminders', () => {
+  it.each([
+    'Me lembra de cancelar o seguro do gol às 17h',
+    'Lembrete as 17h, seguro do gol',
+    'Me lembre de pagar a conta amanhã às 9h',
+    'Me lembre de enviar e-mail ao contador às 17h',
+    'Me avise daqui 20 minutos de conferir o forno',
+    'Astra, me lembre às 10h de ligar para o dentista',
+  ])('does not expose unrelated write or memory schemas for %s', (text) => {
+    expect(channelToolsForMessage(text, 'Gastei 200 reais e conectei o Gmail.')).toEqual([
+      'core.schedule_channel_reminder',
+    ]);
+  });
+
+  it('does not remove the second real action from a compound request', () => {
+    expect(channelToolsForMessage('Me lembre de pagar às 17h e registre 20 reais')).toEqual(
+      expect.arrayContaining(['core.schedule_channel_reminder', 'core.record_transaction'])
+    );
+  });
+
+  it('does not treat conditional or recurring alerts as a single fixed reminder', () => {
+    expect(channelToolsForMessage('Me avise quando Flamengo jogar às 17h')).toContain(
+      'core.manage_radar'
+    );
+    expect(channelToolsForMessage('Me lembre todo dia às 17h de pagar')).toContain(
+      'core.list_channel_reminders'
+    );
+  });
+});

@@ -556,9 +556,8 @@ async function createChatAgentInstance(
 
   // Match the transport's operator-pool boundary: tenant credentials, custom
   // endpoints and authorization overrides do not inherit an operator quota.
-  // Channel agents already have their own compact prompt/history/output policy.
+  // Apply the same operator quota to channels and scheduled/owner agents.
   const groqRequestBudget =
-    !channelMode &&
     provider === 'groq' &&
     groqPoolKeys({
       providerId: provider,
@@ -850,7 +849,11 @@ async function createChatAgentInstance(
     maxToolCalls: isCliProvider ? 0 : channelMode ? 10 : AGENT_DEFAULT_MAX_TOOL_CALLS,
     tools: isCliProvider ? [] : chatMetaToolFilter,
     requestApproval: createApprovalCallback(),
-    memory: { maxTokens: memoryMaxTokens },
+    memory: {
+      maxTokens: memoryMaxTokens,
+      ...(channelMode ? { preserveLatestUserTurn: true } : {}),
+    },
+    ...(channelMode ? { fitGroqChannelHistory: true } : {}),
   };
 
   // Build provider instance
@@ -1011,7 +1014,7 @@ async function createChatAgentInstance(
                 balanceConcurrentLoad: true,
                 preferLastSuccessful: !hasLocalReserve,
                 completionTimeoutMs:
-                  hasLocalReserve || provider === 'ollama-local'
+                  hasLocalReserve || provider === 'ollama-local' || usableFallbacks.length >= 3
                     ? astraChannelFallbackBudgetMs(
                         channelFallbackPrimaryTimeout,
                         usableFallbacks.map((candidate) => candidate.timeout ?? 8_000)

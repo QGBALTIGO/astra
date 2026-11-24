@@ -1,4 +1,4 @@
-import { providerErrorSummary } from '../provider-error-summary.js';
+import { localGroqAdmissionReason, providerErrorSummary } from '../provider-error-summary.js';
 /**
  * Fallback Provider
  *
@@ -320,20 +320,10 @@ export class FallbackProvider implements IProvider {
     const status = /(?:API error|stream error|HTTP|status(?:\s*code)?)\s*:?\s*(\d{3})\b/i.exec(
       error?.message ?? ''
     )?.[1];
-    // A local payload budget rejection made no provider request. It must not
-    // poison either a shared circuit or this agent's private circuit.
-    if (
-      status === '413' &&
-      /\brequest_too_large: groq_local_admission\b/i.test(error?.message ?? '')
-    )
-      return;
-    // A busy local concurrency gate is not a remote quota or outage. In
-    // particular, a customer's next request may fit as soon as a lease ends.
-    if (
-      status === '429' &&
-      /\bGroq local admission (?:concurrency|capacity)\b/i.test(error?.message ?? '')
-    )
-      return;
+    // Payload size and local admission already have their own request/group
+    // controls. Never mark every request to a healthy provider as failed
+    // simply because a particular reservation could not be admitted.
+    if (localGroqAdmissionReason(error)) return;
     if (
       this.config.sharedCircuitBreaker &&
       error &&

@@ -3,6 +3,7 @@ import {
   applyGroqRequestBudget,
   getGroqRequestTokenLimit,
   getGroqEffectiveRequestTokenLimit,
+  fitGroqChannelHistory,
 } from './groq-request-budget.js';
 
 describe('operator Groq chat token budget', () => {
@@ -134,4 +135,83 @@ describe('operator Groq chat token budget', () => {
     const invalid = JSON.stringify({ messages: [], max_tokens: -2 });
     expect(applyGroqRequestBudget(invalid, 8000).body).toBe(invalid);
   });
+});
+
+describe('Groq channel history fitting', () => {
+  const system = { role: 'system', content: 'Never invent a saved record.' };
+  const old = [
+    { role: 'user', content: 'Previous task' },
+    { role: 'assistant', content: 'x'.repeat(24_000) },
+  ];
+  const previous = [
+    { role: 'user', content: 'Pagamento da conta' },
+    { role: 'assistant', content: 'O pagamento ainda não foi registrado.' },
+  ];
+  const active = [
+    { role: 'user', content: 'Me lembre às 17h.' },
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        { id: 'call-1', type: 'function', function: { name: 'schedule', arguments: '{}' } },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'call-1', content: '{"saved":true}' },
+  ];
+  const payload = (messages: unknown[]) =>
+    JSON.stringify({
+      model: 'openai/gpt-oss-20b',
+      messages,
+      tools: [{ type: 'function', function: { name: 'schedule', parameters: {} } }],
+      max_tokens: 768,
+    });
+
+  it('removes only older complete turns while keeping system, recent context and receipts', () => {
+    const original = payload([system, ...old, ...previous, ...active]);
+    const fitted = fitGroqChannelHistory(original, 5000);
+    expect(fitted).not.toBe(original);
+    expect(JSON.parse(fitted).messages).toEqual([system, ...previous, ...active]);
+    expect(JSON.parse(fitted).tools).toEqual(JSON.parse(original).tools);
+    const { request } = applyGroqRequestBudget(fitted, 5000);
+    expect(request.requestTokensApprox + request.maxOutputTokens).toBeLessThanOrEqual(5000);
+  });
+
+  it('does not discard the current or previous turn when the budget is impossible', () => {
+    const original = payload([
+      system,
+      ...old,
+      ...previous,
+      { role: 'user', content: 'z'.repeat(30_000) },
+    ]);
+    expect(fitGroqChannelHistory(original, 5000)).toBe(original);
+  });
+
+  it('does not mask an incomplete historical tool cycle or remove later system instructions', () => {
+    const incomplete = payload([
+      system,
+      { role: 'user', content: 'x'.repeat(24_000) },
+      active[1],
+      ...previous,
+      ...active,
+    ]);
+    expect(fitGroqChannelHistory(incomplete, 5000)).toBe(incomplete);
+    const laterSystem = payload([system, ...old, system, ...previous, ...active]);
+    expect(fitGroqChannelHistory(laterSystem, 5000)).toBe(laterSystem);
+  });
+
+  it('does not change an already admissible request', () => {
+    const original = payload([system, ...previous, ...active]);
+    expect(fitGroqChannelHistory(original, 5000)).toBe(original);
+  });
+
+  it.each([1000, 2000, 3000, 4000, 5000, 8000])(
+    'never mutates protected content at budget %i',
+    (limit) => {
+      const original = payload([system, ...old, ...previous, ...active]);
+      const fitted = JSON.parse(fitGroqChannelHistory(original, limit));
+      expect(fitted.messages[0]).toEqual(system);
+      expect(fitted.messages.slice(-5)).toEqual([...previous, ...active]);
+      expect(fitted.tools).toEqual(JSON.parse(original).tools);
+    }
+  );
 });

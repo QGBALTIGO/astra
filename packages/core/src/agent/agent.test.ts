@@ -789,6 +789,7 @@ describe('Agent processConversation (via chat)', () => {
         id: 'resp-1',
         content: '',
         toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: '{"input":"hello"}' }],
+        usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
         finishReason: 'tool_calls' as const,
         model: 'gpt-4o',
         createdAt: new Date(),
@@ -800,6 +801,7 @@ describe('Agent processConversation (via chat)', () => {
       ok({
         id: 'resp-2',
         content: 'Done!',
+        usage: { promptTokens: 140, completionTokens: 10, totalTokens: 150 },
         finishReason: 'stop' as const,
         model: 'gpt-4o',
         createdAt: new Date(),
@@ -811,6 +813,11 @@ describe('Agent processConversation (via chat)', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.content).toBe('Done!');
+      expect(result.value.usage).toEqual({
+        promptTokens: 240,
+        completionTokens: 30,
+        totalTokens: 270,
+      });
     }
     // Provider should have been called twice (tool call turn + final turn)
     expect(completeFn).toHaveBeenCalledTimes(2);
