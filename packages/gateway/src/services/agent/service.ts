@@ -558,7 +558,6 @@ async function createChatAgentInstance(
   // endpoints and authorization overrides do not inherit an operator quota.
   // Apply the same operator quota to channels and scheduled/owner agents.
   const groqRequestBudget =
-
     provider === 'groq' &&
     groqPoolKeys({
       providerId: provider,
