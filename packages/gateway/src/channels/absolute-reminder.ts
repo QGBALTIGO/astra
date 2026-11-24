@@ -17,14 +17,7 @@ const day =
 const clock =
   /(?:(?:[àa]s|pelas)\s+(?:[01]?\d|2[0-3])(?:\s*h(?:[0-5]\d)?|:[0-5]\d|\s+horas?)?|(?:[01]?\d|2[0-3])(?:\s*h(?:[0-5]\d)?|:[0-5]\d|\s+horas?)|(?:ao|[àa])\s+(?:meio[- ]dia|meia[- ]noite))/
     .source;
-const when =
-  '(?:(?<day>' +
-  day +
-  ')\\s+)?(?<clock>' +
-  clock +
-  ')(?:\\s+(?<afterDay>' +
-  day +
-  '))?';
+const when = '(?:(?<day>' + day + ')\\s+)?(?<clock>' + clock + ')(?:\\s+(?<afterDay>' + day + '))?';
 const patterns = [
   new RegExp('^' + command + '\\s+(?:de|para|pra|que)\\s+(?<title>.+?)\\s+' + when + '$', 'iu'),
   new RegExp('^' + command + '\\s+' + when + '\\s+(?:de|para|pra|que)\\s+(?<title>.+)$', 'iu'),
@@ -32,8 +25,7 @@ const patterns = [
   new RegExp('^lembrete\\s*:\\s*(?<title>.+?)\\s+' + when + '$', 'iu'),
 ];
 
-const fold = (value: string) =>
-  value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+const fold = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 
 export function parseAbsoluteReminderRequest(text: string): AbsoluteReminderRequest | null {
   if (text.length > 250 || /["“”«»;?\n]/u.test(text)) return null;
@@ -55,7 +47,9 @@ export function parseAbsoluteReminderRequest(text: string): AbsoluteReminderRequ
       !title ||
       title.length > 160 ||
       !/\p{L}/u.test(title) ||
-      /\b(?:ou|mas|hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/u.test(subject) ||
+      /\b(?:ou|mas|hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/u.test(
+        subject
+      ) ||
       /\b(?:todo dia|todos os dias|diariamente|semanalmente|mensalmente|a cada|dia \d+)\b/u.test(
         subject
       ) ||

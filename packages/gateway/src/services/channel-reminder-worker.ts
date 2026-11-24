@@ -105,7 +105,9 @@ export async function dispatchDueChannelReminders(): Promise<{
                 channelUsersRepo.findByPlatform('whatsapp', phone),
               ]);
               allowed =
-                Boolean(identity?.isCurrent && !identity.retired && identity.dataUserId === entry.userId) &&
+                Boolean(
+                  identity?.isCurrent && !identity.retired && identity.dataUserId === entry.userId
+                ) &&
                 whatsappUser?.ownpilotUserId === 'whatsapp:' + phone &&
                 isChannelUserAccessActive(whatsappUser);
             }

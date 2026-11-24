@@ -1122,7 +1122,8 @@ try {
   await check(
     'explicit clock and relative reminder variations persist with real PostgreSQL and no model in both channels',
     async () => {
-      const { customerLocalDay, addCalendarDays } = await import('../src/services/customer-date.js');
+      const { customerLocalDay, addCalendarDays } =
+        await import('../src/services/customer-date.js');
       const timeZone = 'America/Campo_Grande';
       for (const customer of [first, second]) {
         const account = await customerAccountsRepo.getByDataUserId(customer.userId);

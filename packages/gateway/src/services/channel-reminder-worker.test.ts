@@ -122,19 +122,22 @@ describe('ChannelReminderWorker', () => {
     { ownpilotUserId: 'other-account', isVerified: true, isBlocked: false, status: 'active' },
     { ownpilotUserId: 'default', isVerified: false, isBlocked: false, status: 'active' },
     { ownpilotUserId: 'default', isVerified: true, isBlocked: true, status: 'active' },
-  ])('does not deliver a reminder to a missing, relinked or revoked Telegram identity', async (user) => {
-    mock.findByPlatform.mockResolvedValue(user);
-    mock.claimDue.mockResolvedValue([makeReminder('relinked-telegram')]);
-    expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 0, failed: 1 });
-    expect(mock.beginDelivery).not.toHaveBeenCalled();
-    expect(mock.send).not.toHaveBeenCalled();
-    expect(mock.markFailed).toHaveBeenCalledWith(
-      'relinked-telegram',
-      5,
-      'channel_access_inactive',
-      'current-lease'
-    );
-  });
+  ])(
+    'does not deliver a reminder to a missing, relinked or revoked Telegram identity',
+    async (user) => {
+      mock.findByPlatform.mockResolvedValue(user);
+      mock.claimDue.mockResolvedValue([makeReminder('relinked-telegram')]);
+      expect(await dispatchDueChannelReminders()).toEqual({ claimed: 1, delivered: 0, failed: 1 });
+      expect(mock.beginDelivery).not.toHaveBeenCalled();
+      expect(mock.send).not.toHaveBeenCalled();
+      expect(mock.markFailed).toHaveBeenCalledWith(
+        'relinked-telegram',
+        5,
+        'channel_access_inactive',
+        'current-lease'
+      );
+    }
+  );
 
   it('holds an ambiguous transport failure without claiming delivery', async () => {
     mock.claimDue.mockResolvedValue([makeReminder('rem-2', 2)]);

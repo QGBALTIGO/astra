@@ -523,10 +523,13 @@ function tryAuthorizedChannelShortcut(
         isAccessAllowed
       );
       if (absoluteReminder) return absoluteReminder;
-      if (!(await canProcessChannelMessage(message, isAccessAllowed)))
-        return INACTIVE_CHANNEL_ACCESS_REPLY;
-      const relativeReminder = await tryScheduleRelativeChannelReminder(message, userId);
-      if (relativeReminder) return relativeReminder;
+      // Only revalidate access for a recognized reminder, not unrelated reads.
+      if (parseRelativeReminderRequest(message.text)) {
+        if (!(await canProcessChannelMessage(message, isAccessAllowed)))
+          return INACTIVE_CHANNEL_ACCESS_REPLY;
+        const relativeReminder = await tryScheduleRelativeChannelReminder(message, userId);
+        if (relativeReminder) return relativeReminder;
+      }
     }
     const help = channelHelpReply(message.platform, message.text, {
       connectedAppsEnabled: process.env.ASTRA_CUSTOMER_OAUTH_ENABLED === 'true',

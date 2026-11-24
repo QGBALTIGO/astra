@@ -54,9 +54,7 @@ export function parseRelativeReminderRequest(text: string): RelativeReminderRequ
     input.match(
       /^(?:daqui(?:\s+(?:a|uns?|umas?))?|em)\s+(.+?)\s*,?\s+(?:(?:me\s+)?(?:lembre|lembra|avise|avisa)(?:-me)?|pode\s+me\s+lembrar)\s+(?:para|pra|de|que)\s+(.+)$/iu
     ) ??
-    input.match(
-      /^lembrete\s+(?:em|daqui(?:\s+(?:a|uns?|umas?))?)\s+(.+?)\s*[,;:]\s*(.+)$/iu
-    ) ??
+    input.match(/^lembrete\s+(?:em|daqui(?:\s+(?:a|uns?|umas?))?)\s+(.+?)\s*[,;:]\s*(.+)$/iu) ??
     (suffix ? [suffix[0], suffix[2], suffix[1]] : null);
   if (!request) return null;
 

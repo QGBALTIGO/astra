@@ -154,22 +154,21 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
     expect(fixtures.schedule).not.toHaveBeenCalled();
   });
 
-  it.each([
-    { delay_seconds: 30 },
-    { delay_minutes: 20 },
-    { local_datetime: '2026-11-23T18:00' },
-  ])('rejects a model deadline different from the customer duration: %j', async (deadline) => {
-    vi.setSystemTime(new Date('2026-11-23T20:22:00Z'));
-    fixtures.ctx.channelRequestText = 'Me lembre de verificar o teste daqui 20 segundos';
-    fixtures.ctx.channelMessageTimestamp = Date.now();
-    const result = await executeChannelReminderTool(
-      'schedule_channel_reminder',
-      { title: 'verificar o teste', ...deadline },
-      'customer-a'
-    );
-    expect(result.success).toBe(false);
-    expect(fixtures.schedule).not.toHaveBeenCalled();
-  });
+  it.each([{ delay_seconds: 30 }, { delay_minutes: 20 }, { local_datetime: '2026-11-23T18:00' }])(
+    'rejects a model deadline different from the customer duration: %j',
+    async (deadline) => {
+      vi.setSystemTime(new Date('2026-11-23T20:22:00Z'));
+      fixtures.ctx.channelRequestText = 'Me lembre de verificar o teste daqui 20 segundos';
+      fixtures.ctx.channelMessageTimestamp = Date.now();
+      const result = await executeChannelReminderTool(
+        'schedule_channel_reminder',
+        { title: 'verificar o teste', ...deadline },
+        'customer-a'
+      );
+      expect(result.success).toBe(false);
+      expect(fixtures.schedule).not.toHaveBeenCalled();
+    }
+  );
 
   it('accepts the exact duration from a terse request and retains receipt time', async () => {
     vi.setSystemTime(new Date('2026-11-23T20:22:04Z'));
