@@ -62,9 +62,7 @@ describe('Astra commercial questions', () => {
 
   it('preserves the server-known referral and warns paid users against duplicate payment', () => {
     const reply = astraCommercialReply('Quero assinar', { referral: 'julio', paidAccess: true });
-    expect(reply?.urlButton?.url).toBe(
-      'https://pay.cakto.com.br/CubL455?affiliate=oYTQCyX6'
-    );
+    expect(reply?.urlButton?.url).toBe('https://pay.cakto.com.br/CubL455?affiliate=oYTQCyX6');
     expect(reply?.text).toContain('antes de fazer outro pagamento');
     expect(astraCommercialReply('Quero assinar', { referral: 'untrusted' })?.urlButton?.url).toBe(
       ASTRA_PRIMARY_CHECKOUT_URL

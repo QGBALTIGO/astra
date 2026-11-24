@@ -82,8 +82,7 @@ export function astraCommercialReply(
     return {
       text: `Posso te orientar sobre a assinatura do próprio Astra. Para verificar sua cobrança, vencimento ou solicitar cancelamento, fale com nossa equipe: ${ASTRA_SITE_URL}/suporte. Não fiz nenhuma alteração na sua assinatura.`,
     };
-  const url =
-    options.referral === 'julio' ? ASTRA_JULIO_CHECKOUT_URL : ASTRA_PRIMARY_CHECKOUT_URL;
+  const url = options.referral === 'julio' ? ASTRA_JULIO_CHECKOUT_URL : ASTRA_PRIMARY_CHECKOUT_URL;
   const trial =
     'Novos contatos podem experimentar por 3 dias grátis, sem cartão e sem cobrança automática ao fim do teste.';
   if (intent === 'trial')
