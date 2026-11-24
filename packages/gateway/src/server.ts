@@ -325,6 +325,9 @@ async function main() {
   log.info('Running provider health checks...');
   const { runProviderHealthChecks } = await import('./services/provider/health.js');
   await runProviderHealthChecks();
+  const { startProviderInferenceHealthChecks } =
+    await import('./services/provider/inference-health.js');
+  const stopProviderInferenceHealthChecks = startProviderInferenceHealthChecks();
 
   // Start metrics service for Prometheus endpoint
   log.info('Starting metrics service...');
@@ -861,6 +864,7 @@ async function main() {
   async function gracefulShutdown(signal: string): Promise<void> {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    stopProviderInferenceHealthChecks();
 
     log.info(`Received ${signal}, shutting down gracefully...`);
 

@@ -27,6 +27,7 @@ export type {
   ToolConfigRequirement,
   CompletionRequest,
   CompletionResponse,
+  InferenceAttempt,
   StreamChunk,
   ThinkingConfig,
   ProviderConfig,

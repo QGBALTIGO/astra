@@ -31,6 +31,7 @@ import type { Unsubscribe } from '@ownpilot/core/events';
 import { executionPermissionsRepo } from '../db/repositories/execution-permissions.js';
 import { downgradePromptToBlocked } from '../services/permission/utils.js';
 import { getLog } from '../services/log.js';
+import { getChannelAIAdmissionStats } from '../channels/channel-ai-admission.js';
 import { getErrorMessage } from '../utils/common.js';
 import {
   MS_PER_DAY,
@@ -439,7 +440,37 @@ export class TriggerEngine {
     this.isProcessingSchedule = true;
     try {
       const dueTriggers = await this.triggerService.getDueTriggers(this.config.userId);
-      await Promise.allSettled(dueTriggers.map((t) => this.executeTrigger(t)));
+      // Keep native/non-AI schedules independent of background inference.
+      // Deferred work stays due in PostgreSQL; do not mark it fired or spend a retry.
+      const mayUseAI = (trigger: Trigger): boolean => {
+        if (
+          trigger.action.type === 'chat' &&
+          trigger.name === 'Daily Goal Check' &&
+          trigger.action.payload.goalCheckUseAI !== true
+        ) {
+          return false;
+        }
+        return [
+          'chat',
+          'workflow',
+          'run_heartbeat',
+          'profile_learn',
+          'memory_extract',
+          'memory_consolidate',
+          'memory_summary',
+        ].includes(trigger.action.type);
+      };
+      const native = dueTriggers.filter((trigger) => !mayUseAI(trigger));
+      const ai = dueTriggers.filter(mayUseAI);
+      const runAI = async () => {
+        for (const trigger of ai) {
+          const stats = getChannelAIAdmissionStats();
+          if (stats.active > 0 || stats.queued > 0) break;
+          // Do not start a batch of simultaneous background model calls.
+          await Promise.allSettled([this.executeTrigger(trigger)]);
+        }
+      };
+      await Promise.allSettled([runAI(), ...native.map((trigger) => this.executeTrigger(trigger))]);
     } finally {
       this.isProcessingSchedule = false;
     }

@@ -104,6 +104,42 @@ afterEach(() => {
 });
 
 describe('fallback health under concurrent requests', () => {
+  it('does not open a remote circuit because local Groq concurrency is occupied', async () => {
+    const { primary, provider, config } = setup();
+    primary.complete.mockResolvedValueOnce(
+      err(
+        new InternalError(
+          'Provider API error: 429 - Groq local admission concurrency. Please try again in 1s'
+        )
+      )
+    );
+    const first = await provider.complete(request);
+    expect(first.ok && first.value.content).toBe('backup');
+    primary.complete.mockResolvedValue(ok(completion('primary recovered')));
+    const second = await new FallbackProvider(config).complete(request);
+    expect(second.ok && second.value.content).toBe('primary recovered');
+    expect(primary.complete).toHaveBeenCalledTimes(2);
+  });
+
+  it('spreads simultaneous customer completions across healthy cloud routes and releases capacity', async () => {
+    const { primary, backup, config } = setup(false);
+    const balancedConfig = { ...config, balanceConcurrentLoad: true };
+    const deferred = pendingCompletion();
+    primary.complete
+      .mockImplementationOnce(() => deferred.promise)
+      .mockResolvedValue(ok(completion('primary')));
+    const first = new FallbackProvider(balancedConfig).complete(request);
+    await vi.advanceTimersByTimeAsync(0);
+    const second = await new FallbackProvider(balancedConfig).complete(request);
+    expect(second.ok && second.value.content).toBe('backup');
+    expect(primary.complete).toHaveBeenCalledTimes(1);
+    expect(backup.complete).toHaveBeenCalledTimes(1);
+    deferred.resolve(ok(completion('primary')));
+    expect((await first).ok).toBe(true);
+    const third = await new FallbackProvider(balancedConfig).complete(request);
+    expect(third.ok && third.value.content).toBe('primary');
+  });
+
   it('does not let a success from an older in-flight request erase a newer quota cooldown', async () => {
     const { primary, provider, config } = setup();
     const old = pendingCompletion();
