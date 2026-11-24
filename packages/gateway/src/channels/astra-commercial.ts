@@ -17,7 +17,7 @@ export function astraCommercialIntent(text: string): Intent | null {
     .trim()
     .replace(/\s+/g, ' ')
     .replace(/^(?:oi|ola|bom dia|boa tarde|boa noite)[,!. ]+/, '')
-    .replace(/^astra[,!: ]+/, '')
+    .replace(/^astra(?:[,!:]+\s*|\s+(?=(?:quanto|qual|como|onde|quero|me)\b))/, '')
     .replace(/,? por favor[.!?]*$/, '')
     .replace(/[.!?]+$/, '')
     .trim();
@@ -27,7 +27,10 @@ export function astraCommercialIntent(text: string): Intent | null {
   const price = [
     `(?:qual (?:e )?(?:o )?(?:valor|preco|custo)(?: d[oa]| de)?|quanto (?:custa|fica|sai|e)|quanto (?:eu )?pago (?:por|para)|quanto (?:voce|vc|voces) cobra(?:m)?(?: (?:por|pelo|pela))?) ${ownPlan}(?: (?:por mes|ao mes|mensalmente))?`,
     `${ownPlan} (?:custa quanto|quanto custa|e pago|e paga|tem custo|tem mensalidade)`,
-    'quanto (?:voce|vc|voces) cobra(?:m)?(?: por mes| ao mes)?',
+    'quanto (?:voce|vc|voces) (?:cobra(?:m)?|custa(?:m)?)(?: por mes| ao mes)?',
+    '(?:qual (?:e )?(?:o )?(?:valor|preco)|quanto custa) (?:para|pra) (?:assinar|contratar)(?: (?:o )?astra)?',
+    '(?:qual (?:e )?(?:o )?)?(?:valor|preco) (?:mensal|por mes) (?:do astra|da sua assinatura)',
+    '(?:quanto custa|qual (?:e )?(?:o )?valor) (?:a |o )?(?:assinatura|mensalidade|plano) (?:mensal )?(?:do astra|com voce)',
     'qual (?:e )?(?:a )?(?:mensalidade|sua mensalidade)(?: do astra)?',
     'qual (?:e )?(?:o )?seu (?:valor|preco)',
     `como funciona ${ownPlan}`,

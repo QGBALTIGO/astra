@@ -452,6 +452,18 @@ function tryAuthorizedChannelShortcut(
     }
     observeChannelReminderRequest(userId, message);
     // Media captions cannot confirm a previous financial operation.
+    if (
+      !message.attachments?.length &&
+      ['whatsapp', 'telegram'].includes(message.platform) &&
+      message.metadata?.isGroup !== true
+    ) {
+      const commercial = astraCommercialReply(message.text);
+      if (commercial) {
+        expenseDuplicateGuard.observe(key, message.text);
+        forgetChannelReminderRequest(userId, message);
+        return commercial.text;
+      }
+    }
     const scopeReply = await tryAstraScopeReply(message.channelPluginId, message.text);
     if (scopeReply) return scopeReply;
     const resetQuestion = tryResetClarification(message.text);
@@ -459,13 +471,6 @@ function tryAuthorizedChannelShortcut(
     const hasMedia = Boolean(message.attachments?.length);
     expenseDuplicateGuard.observe(key, hasMedia ? '' : message.text);
     if (hasMedia) return null;
-    if (['whatsapp', 'telegram'].includes(message.platform) && message.metadata?.isGroup !== true) {
-      const commercial = astraCommercialReply(message.text);
-      if (commercial) {
-        forgetChannelReminderRequest(userId, message);
-        return commercial.text;
-      }
-    }
     const help = channelHelpReply(message.platform, message.text, {
       connectedAppsEnabled: process.env.ASTRA_CUSTOMER_OAUTH_ENABLED === 'true',
     });
