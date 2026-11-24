@@ -137,4 +137,63 @@ describe('explicit relative reminder requests', () => {
       parseRelativeReminderRequest(`Me lembre em 20 segundos de ${'a'.repeat(161)}`)
     ).toMatchObject({ kind: 'invalid' });
   });
+  it('checks 800 combinations of relative units, subjects, amounts and word order', () => {
+    const subjects = [
+      'cancelar o seguro do gol',
+      'pagar a conta',
+      'enviar e-mail ao contador',
+      'comprar pão',
+      'verificar o pedido',
+    ];
+    const units = [
+      ['segundos', 1],
+      ['minutos', 60],
+      ['horas', 3600],
+      ['dias', 86400],
+      ['semanas', 604800],
+    ] as const;
+    for (const title of subjects) {
+      for (const amount of [1, 2, 5, 10, 15, 20, 30, 52]) {
+        for (const [unit, multiplier] of units) {
+          const duration = amount + ' ' + unit;
+          for (const text of [
+            'Me lembre em ' + duration + ' de ' + title,
+            'Daqui a ' + duration + ', me lembre de ' + title,
+            'Me lembra de ' + title + ' daqui ' + duration,
+            'Lembrete em ' + duration + ', ' + title,
+          ]) {
+            expect(parseRelativeReminderRequest(text), text).toEqual({
+              kind: 'valid',
+              title,
+              delaySeconds: amount * multiplier,
+            });
+          }
+        }
+      }
+    }
+  });
+
+  it.each([
+    ['Me lembre em meia hora de pagar a conta', 1800],
+    ['Me avise em cinco minutos de pagar a conta', 300],
+    ['Me lembre daqui duas semanas de pagar a conta', 1209600],
+    ['Me lembre em 1 dia e 2 horas de pagar a conta', 93600],
+    ['Me lembre em uma hora e meia de pagar a conta', 5400],
+    ['Me lembre em 1h30 de pagar a conta', 5400],
+  ])('supports an explicit spoken or compact duration: %s', (text, delaySeconds) => {
+    expect(parseRelativeReminderRequest(text)).toEqual({
+      kind: 'valid',
+      title: 'pagar a conta',
+      delaySeconds,
+    });
+  });
+
+  it.each([
+    'Me lembre em 20 minutos de pagar às 17h',
+    'Me lembre daqui 20 minutos de pagar todo dia',
+    'Me avise em 20 minutos de quando o dólar cair',
+    'Me lembre em 53 semanas de pagar a conta',
+  ])('never invents a deadline for a conflicting or out-of-range request: %s', (text) => {
+    expect(parseRelativeReminderRequest(text)?.kind).not.toBe('valid');
+  });
 });

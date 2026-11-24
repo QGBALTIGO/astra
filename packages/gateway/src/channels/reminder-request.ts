@@ -1,4 +1,7 @@
 /** Only customer-authored times can authorize a scheduled channel notification. */
+import { parseAbsoluteReminderRequest } from './absolute-reminder.js';
+import { parseRelativeReminderRequest } from './relative-reminder.js';
+
 interface ReminderScope {
   channelPluginId?: string;
   platformChatId?: string;
@@ -10,7 +13,9 @@ const fold = (text: string) =>
   text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const wantsReminder = (text: string) =>
-  (/\b(?:lembre|lembra|avise|avisa|agende|agendar|reagende|reagendar)\b/u.test(text) ||
+  (parseAbsoluteReminderRequest(text) !== null ||
+    parseRelativeReminderRequest(text)?.kind === 'valid' ||
+    /\b(?:lembre|lembra|avise|avisa|agende|agendar|reagende|reagendar)\b/u.test(text) ||
     /\b(?:quero|preciso|pode|poderia|favor)\b.*\b(?:lembrete|lembrar|avisar)\b/u.test(text)) &&
   !/^[\s]*(?:como|qual|quais|por que|onde|quem)\b|["“”«»]|\b(?:exemplo|hipotetic\w*|disse|falou|explique|nao quero|nao (?:me )?(?:lembre|lembra|avise|avisa|agende|agendar|reagende|reagendar))\b/u.test(
     text
@@ -26,6 +31,8 @@ const bareTimeReply = (text: string) =>
 export function hasExplicitReminderTime(text: string): boolean {
   const value = fold(text);
   return (
+    parseAbsoluteReminderRequest(text) !== null ||
+    parseRelativeReminderRequest(text)?.kind === 'valid' ||
     /\b(?:as|pelas|para as|quando (?:for|der))\s+(?:[01]?\d|2[0-3])(?:(?:h|:)[0-5]?\d?)?(?![\d.,])\b(?!\s*(?:reais|dolares|euros|r\$))/u.test(
       value
     ) ||
@@ -99,7 +106,10 @@ export function observeChannelReminderRequest(
     return;
   }
   const hasTime = hasExplicitReminderTime(text);
-  const hasSubject = /\b(?:de|do|da|para|pra|que|sobre)\s+\p{L}/u.test(text);
+  const hasSubject =
+    parseAbsoluteReminderRequest(text) !== null ||
+    parseRelativeReminderRequest(text)?.kind === 'valid' ||
+    /\b(?:de|do|da|para|pra|que|sobre)\s+\p{L}/u.test(text);
   const reference =
     /\b(?:mesmo horario|nesse horario|neste horario|horario que (?:eu )?(?:disse|falei|pedi))\b/u.test(
       text

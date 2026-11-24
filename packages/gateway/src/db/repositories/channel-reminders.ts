@@ -89,6 +89,9 @@ export class ChannelRemindersRepository extends BaseRepository {
          (id, user_id, title, remind_at, channel_plugin_id, platform_chat_id, dedupe_key)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (dedupe_key) DO UPDATE SET updated_at = channel_reminders.updated_at
+       WHERE channel_reminders.user_id = EXCLUDED.user_id
+         AND channel_reminders.channel_plugin_id = EXCLUDED.channel_plugin_id
+         AND channel_reminders.platform_chat_id = EXCLUDED.platform_chat_id
        RETURNING *`,
       [
         randomUUID(),

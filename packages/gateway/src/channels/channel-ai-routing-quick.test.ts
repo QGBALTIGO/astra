@@ -432,6 +432,71 @@ describe('Agendamento direto e gratuito pelo canal', () => {
     });
   });
 
+  it.each(
+    ['whatsapp', 'telegram'].flatMap((platform) =>
+      ['bus', 'direct'].flatMap((route) =>
+        [
+          ['Me lembra de cancelar o seguro do gol às 17h', 'cancelar o seguro do gol'],
+          ['Lembrete as 17h, seguro do gol', 'seguro do gol'],
+          ['Me lembre de enviar e-mail ao contador às 17h', 'enviar e-mail ao contador'],
+          ['Me lembre de pagar a conta às 17', 'pagar a conta'],
+          ['Me lembre de ligar para o dentista 17h', 'ligar para o dentista'],
+          ['Lembrete: pagar a conta às 17:00', 'pagar a conta'],
+        ].map(([text, title]) => ({ platform, route, text, title }))
+      )
+    )
+  )(
+    'persiste o horário fixo sem consultar IA: $platform/$route/$text',
+    async ({ platform, route, text, title }) => {
+      const input = {
+        id: 'clock-reminder-incoming',
+        platform,
+        channelPluginId: 'channel.' + platform,
+        platformChatId: 'fixture-private-chat',
+        sender: { platform, platformUserId: 'fixture-private-chat' },
+        timestamp: new Date('2026-11-23T19:48:00Z'),
+        text,
+        metadata: {},
+        attachments: [],
+      };
+      mockSchedule.mockResolvedValueOnce({
+        success: true,
+        result: { status: 'pending', title, horarioLocal: '23/11/2026, 17:00' },
+      });
+      const bus = { process: vi.fn() };
+      const response =
+        route === 'bus'
+          ? await processViaBus(
+              bus as never,
+              input as never,
+              { sessionId: 'clock-reminder-session', conversationId: null },
+              { ownpilotUserId: 'clock-reminder-user' },
+              {
+                sessionsRepo: {} as never,
+                getChannel: () => undefined,
+                isAccessAllowed: async () => true,
+              }
+            )
+          : await processDirectAgent(input as never, 'clock-reminder-user', async () => true);
+      expect(response).toContain('✅ *Lembrete agendado*');
+      expect(response).toContain(title);
+      expect(response).toContain('17:00');
+      expect(mockSchedule).toHaveBeenCalledExactlyOnceWith(
+        'schedule_channel_reminder',
+        { title, local_datetime: '2026-11-23T17:00' },
+        'clock-reminder-user'
+      );
+      expect(bus.process).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not claim a reminder was registered when the tool returns no verified state', async () => {
+    mockSchedule.mockResolvedValueOnce({ success: true, result: { title: 'no receipt' } });
+    const response = await tryScheduleRelativeChannelReminder(message, 'default');
+    expect(response).toContain('Não consegui confirmar');
+    expect(response).not.toMatch(/✅|Vou avisar/);
+  });
+
   it('registra lembrete de 1 minuto sem chamar modelo', async () => {
     const response = await tryScheduleRelativeChannelReminder(message, 'default');
     expect(response).toContain('11/11/2026, 10:01');
