@@ -44,6 +44,23 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- Separate from legacy conversation-level metrics to avoid double-counting.
+CREATE TABLE IF NOT EXISTS astra_inference_daily (
+  day DATE NOT NULL,
+  source TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  requested_model TEXT NOT NULL,
+  reported_model TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  calls BIGINT NOT NULL DEFAULT 0,
+  calls_with_usage BIGINT NOT NULL DEFAULT 0,
+  prompt_tokens BIGINT NOT NULL DEFAULT 0,
+  completion_tokens BIGINT NOT NULL DEFAULT 0,
+  latency_ms BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, source, user_id, provider, requested_model, reported_model, outcome)
+);
+
 -- Request logs table (for debugging)
 CREATE TABLE IF NOT EXISTS request_logs (
   id TEXT PRIMARY KEY,

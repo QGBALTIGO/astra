@@ -89,6 +89,7 @@ jobs:
           src/channels/finance-routing.test.ts
           src/channels/customer-finance-routing.test.ts
           src/channels/relative-reminder.test.ts
+          src/channels/absolute-reminder.test.ts
           src/channels/daily-greeting.test.ts
           src/channels/channel-ai-routing-quick.test.ts
           src/channels/tool-selection.test.ts

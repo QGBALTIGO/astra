@@ -47,7 +47,7 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
     fixtures.ctx.platformChatId = 'chat-123';
     fixtures.ctx.channelMessageId = 'message-123';
     fixtures.ctx.channelMessageTimestamp = undefined;
-    fixtures.ctx.channelRequestText = 'Me lembre daqui 20 segundos de verificar o teste';
+    fixtures.ctx.channelRequestText = 'Me lembre de verificar o teste quando der 17h';
     clearChannelReminderRequests();
     fixtures.schedule.mockImplementation(async (input) => ({
       id: 'reminder-123',
@@ -109,6 +109,123 @@ describe('Channel reminders: 1.000 simulated durations without external calls', 
       'customer-a'
     );
     expect(response.success).toBe(true);
+    expect(fixtures.schedule).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['Me lembra de cancelar o seguro do gol às 17h', 'cancelar o seguro do gol'],
+    ['Lembrete as 17h, seguro do gol', 'seguro do gol'],
+  ])('saves the explicit clock request %s in the customer timezone', async (text, title) => {
+    vi.setSystemTime(new Date('2026-11-23T20:22:00Z'));
+    fixtures.ctx.channelRequestText = text;
+    const response = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title, local_datetime: '2026-11-23T17:00' },
+      'customer-a'
+    );
+    expect(response.success).toBe(true);
+    expect(fixtures.schedule).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        userId: 'customer-a',
+        channelPluginId: 'channel.telegram',
+        platformChatId: 'chat-123',
+        title,
+        remindAt: new Date('2026-11-23T21:00:00Z'),
+      })
+    );
+    expect(response.result).toMatchObject({ title, status: 'pending' });
+  });
+
+  it.each([
+    { local_datetime: '2026-11-23T18:00' },
+    { local_datetime: '2026-11-24T17:00' },
+    { remind_at: '2026-11-23T17:00:00-03:00' },
+    { delay_minutes: 2 },
+  ])('rejects an invented model deadline for an explicit customer time: %j', async (deadline) => {
+    vi.setSystemTime(new Date('2026-11-23T20:22:00Z'));
+    fixtures.ctx.channelRequestText = 'Me lembra de cancelar o seguro do gol às 17h';
+    fixtures.ctx.channelMessageTimestamp = Date.now();
+    const result = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'cancelar o seguro do gol', ...deadline },
+      'customer-a'
+    );
+    expect(result.success).toBe(false);
+    expect(fixtures.schedule).not.toHaveBeenCalled();
+  });
+
+  it.each([{ delay_seconds: 30 }, { delay_minutes: 20 }, { local_datetime: '2026-11-23T18:00' }])(
+    'rejects a model deadline different from the customer duration: %j',
+    async (deadline) => {
+      vi.setSystemTime(new Date('2026-11-23T20:22:00Z'));
+      fixtures.ctx.channelRequestText = 'Me lembre de verificar o teste daqui 20 segundos';
+      fixtures.ctx.channelMessageTimestamp = Date.now();
+      const result = await executeChannelReminderTool(
+        'schedule_channel_reminder',
+        { title: 'verificar o teste', ...deadline },
+        'customer-a'
+      );
+      expect(result.success).toBe(false);
+      expect(fixtures.schedule).not.toHaveBeenCalled();
+    }
+  );
+
+  it('accepts the exact duration from a terse request and retains receipt time', async () => {
+    vi.setSystemTime(new Date('2026-11-23T20:22:04Z'));
+    fixtures.ctx.channelRequestText = 'Lembrete em 20 segundos, verificar o teste';
+    fixtures.ctx.channelMessageTimestamp = Date.now() - 4_000;
+    const result = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'verificar o teste', delay_seconds: 20 },
+      'customer-a'
+    );
+    expect(result.success).toBe(true);
+    expect(fixtures.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({ remindAt: new Date('2026-11-23T20:22:20Z') })
+    );
+  });
+
+  it('reconciles a committed insert after its response is lost without another write', async () => {
+    fixtures.ctx.channelRequestText = 'Me lembre daqui 20 segundos de verificar o teste';
+    fixtures.schedule.mockRejectedValueOnce(new Error('Connection lost after commit'));
+    fixtures.getByDedupeKeyForChat.mockResolvedValueOnce({
+      id: 'original-reminder',
+      userId: 'customer-a',
+      channelPluginId: 'channel.telegram',
+      platformChatId: 'chat-123',
+      title: 'verificar o teste',
+      remindAt: new Date(Date.now() + 20_000),
+      status: 'pending',
+    });
+    const response = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'verificar o teste', delay_seconds: 20 },
+      'customer-a'
+    );
+    expect(response.success).toBe(true);
+    expect(response.result).toMatchObject({ id: 'original-reminder', status: 'pending' });
+    expect(fixtures.schedule).toHaveBeenCalledTimes(1);
+    expect(fixtures.getByDedupeKeyForChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not return a foreign record during recovery of a failed write', async () => {
+    fixtures.schedule.mockRejectedValueOnce(new Error('Connection lost'));
+    fixtures.getByDedupeKeyForChat.mockResolvedValueOnce({
+      id: 'foreign',
+      userId: 'customer-b',
+      channelPluginId: 'channel.telegram',
+      platformChatId: 'chat-123',
+      title: 'private',
+      remindAt: new Date(Date.now() + 20_000),
+      status: 'pending',
+    });
+    const response = await executeChannelReminderTool(
+      'schedule_channel_reminder',
+      { title: 'verificar o teste', delay_seconds: 20 },
+      'customer-a'
+    );
+    expect(response.success).toBe(false);
+    expect(response.result).toBeUndefined();
     expect(fixtures.schedule).toHaveBeenCalledTimes(1);
   });
 

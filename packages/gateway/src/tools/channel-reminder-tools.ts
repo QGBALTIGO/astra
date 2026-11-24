@@ -11,6 +11,11 @@ import {
 } from '../db/repositories/channel-reminders.js';
 import { customerAccountsRepo } from '../db/repositories/customer-accounts.js';
 import { customerLocalDateTime, validCalendarDay } from '../services/customer-date.js';
+import { parseRelativeReminderRequest } from '../channels/relative-reminder.js';
+import {
+  parseAbsoluteReminderRequest,
+  resolveAbsoluteReminderLocalDateTime,
+} from '../channels/absolute-reminder.js';
 import {
   channelReminderRequestError,
   completeChannelReminderRequest,
@@ -318,6 +323,46 @@ export async function executeChannelReminderTool(
   }
 
   const now = Date.now();
+  const explicit = parseAbsoluteReminderRequest(ctx.channelRequestText ?? '');
+  const relative = parseRelativeReminderRequest(ctx.channelRequestText ?? '');
+  if (!rescheduling && relative?.kind === 'invalid') {
+    return { success: false, error: relative.message };
+  }
+  if (!rescheduling && relative?.kind === 'valid') {
+    const seconds = hasSeconds
+      ? Number(args.delay_seconds)
+      : hasMinutes
+        ? Number(args.delay_minutes) * 60
+        : undefined;
+    const reference = ctx.channelMessageTimestamp ?? now;
+    const matches =
+      Number.isFinite(reference) &&
+      reference <= now &&
+      (seconds !== undefined
+        ? seconds === relative.delaySeconds
+        : Math.abs(remindAt.getTime() - (reference + relative.delaySeconds * 1_000)) < 1_000);
+    if (!matches) {
+      return {
+        success: false,
+        error: 'O prazo do lembrete precisa corresponder ao informado pelo usuário.',
+      };
+    }
+  }
+  if (!rescheduling && explicit) {
+    try {
+      const receivedAt = ctx.channelMessageTimestamp ?? now;
+      if (!Number.isFinite(receivedAt) || receivedAt > now) throw new Error('Invalid receipt');
+      const local = resolveAbsoluteReminderLocalDateTime(explicit, new Date(receivedAt), timeZone);
+      if (!local || customerLocalDateTime(local, timeZone).getTime() !== remindAt.getTime()) {
+        return {
+          success: false,
+          error: 'O horário do lembrete precisa corresponder ao informado pelo usuário.',
+        };
+      }
+    } catch {
+      return { success: false, error: 'Não consegui confirmar a data e a hora solicitadas.' };
+    }
+  }
   const maxDate = now + MAX_REMINDER_DELAY_SECONDS * 1_000;
   if (!Number.isFinite(remindAt.getTime()) || remindAt.getTime() > maxDate) {
     return { success: false, error: 'A data deve estar no futuro, dentro dos próximos 366 dias.' };
@@ -417,9 +462,38 @@ export async function executeChannelReminderTool(
       },
     };
   } catch {
+    if (!rescheduling) {
+      // The database may commit before the connection drops. Reconcile the
+      // original scoped key; never blindly repeat a write with uncertain outcome.
+      try {
+        const saved = await channelRemindersRepo.getByDedupeKeyForChat(
+          dedupeKey,
+          userId,
+          ctx.channelPluginId,
+          ctx.platformChatId
+        );
+        if (
+          saved &&
+          saved.userId === userId &&
+          saved.channelPluginId === ctx.channelPluginId &&
+          saved.platformChatId === ctx.platformChatId
+        ) {
+          completeChannelReminderRequest(userId, ctx);
+          return {
+            success: true,
+            result: {
+              ...storedReminderResult(saved, timeZone, hasSeconds),
+              message: 'Este lembrete já foi registrado anteriormente.',
+            },
+          };
+        }
+      } catch {
+        // Retain uncertainty rather than creating a duplicate.
+      }
+    }
     return {
       success: false,
-      error: 'Não foi possível salvar o lembrete para entrega. Tente novamente.',
+      error: 'Não consegui confirmar o registro do lembrete. Consulte a agenda antes de repetir.',
     };
   }
 }

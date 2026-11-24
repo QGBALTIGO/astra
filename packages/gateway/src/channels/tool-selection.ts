@@ -1,4 +1,5 @@
 import { isAstraAccessAnswerRequested } from './astra-access.js';
+import { astraCommercialIntent } from './astra-commercial.js';
 import { hasChannelEmailSubject, isChannelEmailRequest } from './email-intent.js';
 import { isFinanceReadOnlyRequest, isNonExecutableFinanceCorrection } from './finance-intent.js';
 import { hasExplicitReminderTime, isConditionalNotificationRequest } from './reminder-request.js';
@@ -166,7 +167,12 @@ export function isCulinaryChannelAdvice(text: string): boolean {
 
 /** Ask the model to write or advise, never to execute a payment or write data. */
 export function isConversationalOnlyChannelRequest(text: string): boolean {
-  if (isAstraAccessAnswerRequested(text) || isConversationalOnlyChannelQuestion(text)) return true;
+  if (
+    astraCommercialIntent(text) ||
+    isAstraAccessAnswerRequested(text) ||
+    isConversationalOnlyChannelQuestion(text)
+  )
+    return true;
   if (isCulinaryChannelAdvice(text)) return true;
   const input = text
     .normalize('NFD')

@@ -32,6 +32,7 @@ import type { ToolId } from '@ownpilot/core/types';
 import { getErrorMessage } from '@ownpilot/core/services';
 import { silentCatch } from '@ownpilot/core/utils';
 import { getLog } from '../log.js';
+import { createInferenceObserver } from '../provider/inference-accounting.js';
 import { resolveForProcess } from '../llm/model-routing.js';
 import { getProviderApiKey, loadProviderConfig, NATIVE_PROVIDERS } from './cache.js';
 import { resolveAuthForRequest } from '../auth/oauth-flow.js';
@@ -233,8 +234,10 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
   }
 
   // Build provider config for Agent (config.provider) and create real IProvider for options.provider
+  const onInferenceAttempt = createInferenceObserver(opts.userId, 'automation');
   const agentProviderConfig: ProviderConfig = {
     id: opts.provider,
+    onInferenceAttempt,
     provider: providerType as AIProvider,
     apiKey,
     resolvedAuth,
@@ -274,6 +277,7 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
         }
         configuredFallbacks.push({
           id: candidate.provider,
+          onInferenceAttempt,
           provider: (NATIVE_PROVIDERS.has(candidate.provider)
             ? candidate.provider
             : (fbConfig?.type ?? 'openai-compatible')) as AIProvider,
@@ -310,8 +314,16 @@ export async function createConfiguredAgent(opts: CreateAgentOptions): Promise<A
       const fallbacks = limitAstraFallbacks(configuredFallbacks, (candidate) => candidate.id);
       if (fallbacks.length > 0) {
         providerInstance = createFallbackProvider({
-          primary: { ...agentProviderConfig, id: opts.provider, maxRetries: 0 },
+          primary: {
+            ...agentProviderConfig,
+            id: opts.provider,
+            defaultModel: { model: opts.model },
+            maxRetries: 0,
+          },
           fallbacks,
+          sharedCircuitBreaker: true,
+          circuitBreakerThreshold: 1,
+          circuitBreakerCooldown: 300_000,
           onFallback: (failed, _error, next) => {
             // Never log error bodies; some upstream APIs echo private messages.
             log.warn(`[${opts.name}] AI failover: ${String(failed)} -> ${String(next)}`);

@@ -39,6 +39,7 @@ import {
 } from './channel-failure.js';
 import { getLog } from '../services/log.js';
 import { tryAstraAccessReply } from './astra-access.js';
+import { astraCommercialReply } from './astra-commercial.js';
 import { channelPasswordAdvice } from './password-advice.js';
 import { financialCapabilityReply } from './financial-capabilities.js';
 import { tryAstraScopeReply, tryResetClarification } from './astra-scope.js';
@@ -63,6 +64,10 @@ import { formatAstraMessage, formatReminderConfirmation } from './response-prese
 import { tryCustomerTimezoneChannelReply } from './timezone-routing.js';
 import { tryChannelTimeConversion } from './time-conversion.js';
 import { parseRelativeReminderRequest } from './relative-reminder.js';
+import {
+  parseAbsoluteReminderRequest,
+  resolveAbsoluteReminderLocalDateTime,
+} from './absolute-reminder.js';
 import { tryCancelNamedReminder } from './cancel-named-reminder.js';
 import { tryVerifyCalendarSlot } from './calendar-lookup.js';
 import { tryChannelCalendarMutation } from './calendar-mutation.js';
@@ -308,7 +313,45 @@ export async function tryScheduleRelativeChannelReminder(
   if (!request) return null;
   if (request.kind === 'invalid') return request.message;
   const { title, delaySeconds } = request;
+  return scheduleExplicitChannelReminder(message, userId, title, { delay_seconds: delaySeconds });
+}
 
+/** Resolve the written clock in the customer's zone on the day of receipt. */
+async function tryScheduleAbsoluteChannelReminder(
+  message: ChannelIncomingMessage,
+  userId: string,
+  isAccessAllowed?: ChannelAccessCheck
+): Promise<string | null> {
+  const request = parseAbsoluteReminderRequest(message.text);
+  if (!request || !integrationPrivateChat(message)) return null;
+  const receivedAt = message.timestamp;
+  if (!receivedAt || !Number.isFinite(receivedAt.getTime()) || receivedAt.getTime() > Date.now()) {
+    return 'Não consegui conferir o horário do pedido. Envie novamente a data e a hora do lembrete.';
+  }
+
+  try {
+    const account = await customerAccountsRepo.getByDataUserId(userId);
+    const timeZone = account?.timeZone ?? process.env.TZ ?? 'America/Campo_Grande';
+    const localDateTime = resolveAbsoluteReminderLocalDateTime(request, receivedAt, timeZone);
+    if (!localDateTime)
+      return 'Essa data não existe. Confirme o dia, o mês e o horário do lembrete.';
+    if (!(await canProcessChannelMessage(message, isAccessAllowed)))
+      return INACTIVE_CHANNEL_ACCESS_REPLY;
+    return await scheduleExplicitChannelReminder(message, userId, request.title, {
+      local_datetime: localDateTime,
+    });
+  } catch (error) {
+    return channelDataFailure('reminder', 'write', error);
+  }
+}
+
+async function scheduleExplicitChannelReminder(
+  message: Pick<ChannelIncomingMessage, 'text' | 'id' | 'channelPluginId' | 'platformChatId'> &
+    Partial<Pick<ChannelIncomingMessage, 'timestamp'>>,
+  userId: string,
+  title: string,
+  deadline: { delay_seconds: number } | { local_datetime: string }
+): Promise<string> {
   const { executeChannelReminderTool } = await import('../tools/channel-reminder-tools.js');
   return runInExecContext(
     {
@@ -321,15 +364,25 @@ export async function tryScheduleRelativeChannelReminder(
     async () => {
       const result = await executeChannelReminderTool(
         'schedule_channel_reminder',
-        { title, delay_seconds: delaySeconds },
+        { title, ...deadline },
         userId
       );
       if (!result.success) {
+        if (
+          'local_datetime' in deadline &&
+          result.error === 'A data deve estar no futuro, dentro dos próximos 366 dias.'
+        ) {
+          return 'Esse horário já passou ou não está disponível. Informe outro dia ou horário para o lembrete.';
+        }
         return 'Não consegui agendar esse lembrete. Nenhum aviso foi confirmado.';
       }
       const saved = result.result as
         { status?: string; title?: string; horarioLocal?: string } | undefined;
-      if (!saved)
+      if (
+        !saved ||
+        !saved.status ||
+        !['pending', 'sending', 'delivered', 'failed', 'cancelled'].includes(saved.status)
+      )
         return 'Não consegui confirmar o horário desse lembrete. Confira sua agenda antes de repetir o pedido.';
       if (saved.status !== 'pending') {
         return formatReminderConfirmation({
@@ -451,6 +504,18 @@ function tryAuthorizedChannelShortcut(
     }
     observeChannelReminderRequest(userId, message);
     // Media captions cannot confirm a previous financial operation.
+    if (
+      !message.attachments?.length &&
+      ['whatsapp', 'telegram'].includes(message.platform) &&
+      message.metadata?.isGroup !== true
+    ) {
+      const commercial = astraCommercialReply(message.text);
+      if (commercial) {
+        expenseDuplicateGuard.observe(key, message.text);
+        forgetChannelReminderRequest(userId, message);
+        return commercial.text;
+      }
+    }
     const scopeReply = await tryAstraScopeReply(message.channelPluginId, message.text);
     if (scopeReply) return scopeReply;
     const resetQuestion = tryResetClarification(message.text);
@@ -458,6 +523,27 @@ function tryAuthorizedChannelShortcut(
     const hasMedia = Boolean(message.attachments?.length);
     expenseDuplicateGuard.observe(key, hasMedia ? '' : message.text);
     if (hasMedia) return null;
+    // A reminder's subject is not an instruction to execute that subject now.
+    // Handle complete requests before mail/finance/task heuristics or AI admission.
+    if (
+      (message.platform === 'whatsapp' || message.platform === 'telegram') &&
+      message.sender &&
+      integrationPrivateChat(message)
+    ) {
+      const absoluteReminder = await tryScheduleAbsoluteChannelReminder(
+        message,
+        userId,
+        isAccessAllowed
+      );
+      if (absoluteReminder) return absoluteReminder;
+      // Only revalidate access for a recognized reminder, not unrelated reads.
+      if (parseRelativeReminderRequest(message.text)) {
+        if (!(await canProcessChannelMessage(message, isAccessAllowed)))
+          return INACTIVE_CHANNEL_ACCESS_REPLY;
+        const relativeReminder = await tryScheduleRelativeChannelReminder(message, userId);
+        if (relativeReminder) return relativeReminder;
+      }
+    }
     const help = channelHelpReply(message.platform, message.text, {
       connectedAppsEnabled: process.env.ASTRA_CUSTOMER_OAUTH_ENABLED === 'true',
     });
@@ -560,7 +646,9 @@ export async function processViaBus(
 
   const reminderReply = message.attachments?.length
     ? null
-    : await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId);
+    : (await canProcessChannelMessage(message, deps.isAccessAllowed))
+      ? await tryScheduleRelativeChannelReminder(message, channelUser.ownpilotUserId)
+      : INACTIVE_CHANNEL_ACCESS_REPLY;
   if (reminderReply) return reminderReply;
 
   const expenseReply = message.attachments?.length
@@ -868,7 +956,9 @@ export async function processDirectAgent(
 
   const reminderReply = message.attachments?.length
     ? null
-    : await tryScheduleRelativeChannelReminder(message, userId);
+    : (await canProcessChannelMessage(message, isAccessAllowed))
+      ? await tryScheduleRelativeChannelReminder(message, userId)
+      : INACTIVE_CHANNEL_ACCESS_REPLY;
   if (reminderReply) return reminderReply;
 
   const expenseReply = message.attachments?.length

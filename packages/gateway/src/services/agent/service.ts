@@ -37,6 +37,7 @@ import { localProvidersRepo } from '../../db/repositories/local-providers.js';
 import { getSoulsRepository } from '../../db/repositories/souls.js';
 import { getAgentMessagesRepository } from '../../db/repositories/agents/messages.js';
 import { getLog } from '../log.js';
+import { createInferenceObserver } from '../provider/inference-accounting.js';
 import {
   BASE_SYSTEM_PROMPT,
   CHANNEL_COMPACT_SYSTEM_PROMPT,
@@ -557,6 +558,7 @@ async function createChatAgentInstance(
   // endpoints and authorization overrides do not inherit an operator quota.
   // Apply the same operator quota to channels and scheduled/owner agents.
   const groqRequestBudget =
+
     provider === 'groq' &&
     groqPoolKeys({
       providerId: provider,
@@ -811,6 +813,7 @@ async function createChatAgentInstance(
         ? ASTRA_CLOUDFLARE_TIMEOUT_MS
         : 5_000;
 
+  const onInferenceAttempt = createInferenceObserver(userId, channelMode ? 'channel' : 'chat');
   const config: AgentConfig = {
     name: isCliProvider
       ? `Personal Assistant (${cliDef?.displayName ?? provider})`
@@ -818,6 +821,7 @@ async function createChatAgentInstance(
     systemPrompt: enhancedPrompt,
     provider: {
       id: provider,
+      onInferenceAttempt,
       provider: providerType as AIProvider,
       apiKey: apiKey ?? 'cli-no-key',
       resolvedAuth,
@@ -930,6 +934,7 @@ async function createChatAgentInstance(
 
         configuredFallbacks.push({
           id: candidate.provider,
+          onInferenceAttempt,
           provider: fbType as AIProvider,
           apiKey: fbApiKey,
           resolvedAuth: fbResolvedAuth,
@@ -981,6 +986,7 @@ async function createChatAgentInstance(
         providerInstance = createFallbackProvider({
           primary: {
             id: provider,
+            onInferenceAttempt,
             provider: providerType as AIProvider,
             apiKey: apiKey!,
             resolvedAuth,
@@ -1006,6 +1012,7 @@ async function createChatAgentInstance(
                 circuitBreakerThreshold: 1,
                 circuitBreakerCooldown: 300_000,
                 sharedCircuitBreaker: true,
+                balanceConcurrentLoad: true,
                 preferLastSuccessful: !hasLocalReserve,
                 completionTimeoutMs:
                   hasLocalReserve || provider === 'ollama-local' || usableFallbacks.length >= 3

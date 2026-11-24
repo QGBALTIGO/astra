@@ -1,5 +1,6 @@
 import { getLog } from '../services/log.js';
 import { currentAstraLinksInText } from '../config/astra-public-urls.js';
+import { astraCommercialReply } from './astra-commercial.js';
 import {
   ASTRA_ACCESS_REPLY,
   ASTRA_WEEKLY_PORTAL_REPLY,
@@ -286,6 +287,10 @@ export function channelFailureReply(
     if (operations.length > details.length)
       details.push('Sobre a outra parte do pedido, ainda não tenho confirmação.');
     return details.join('\n\n');
+  }
+  if (!receipts.length) {
+    const commercial = astraCommercialReply(request);
+    if (commercial) return commercial.text;
   }
   const read = verifiedReadChannelFacts(receipts, { timeZone, requestText: request });
   if (read) return read;
