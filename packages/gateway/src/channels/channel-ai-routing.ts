@@ -39,6 +39,7 @@ import {
 } from './channel-failure.js';
 import { getLog } from '../services/log.js';
 import { tryAstraAccessReply } from './astra-access.js';
+import { astraCommercialReply } from './astra-commercial.js';
 import { channelPasswordAdvice } from './password-advice.js';
 import { financialCapabilityReply } from './financial-capabilities.js';
 import { tryAstraScopeReply, tryResetClarification } from './astra-scope.js';
@@ -458,6 +459,13 @@ function tryAuthorizedChannelShortcut(
     const hasMedia = Boolean(message.attachments?.length);
     expenseDuplicateGuard.observe(key, hasMedia ? '' : message.text);
     if (hasMedia) return null;
+    if (['whatsapp', 'telegram'].includes(message.platform) && message.metadata?.isGroup !== true) {
+      const commercial = astraCommercialReply(message.text);
+      if (commercial) {
+        forgetChannelReminderRequest(userId, message);
+        return commercial.text;
+      }
+    }
     const help = channelHelpReply(message.platform, message.text, {
       connectedAppsEnabled: process.env.ASTRA_CUSTOMER_OAUTH_ENABLED === 'true',
     });
